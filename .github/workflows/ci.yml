@@ -13,9 +13,9 @@ jobs:
     name: vet, lint and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           check-latest: true
@@ -32,13 +32,13 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.2
 
       # The release config is only exercised on a tag, so a mistake in it would
       # otherwise be found at the worst possible moment.
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: check
@@ -64,8 +64,8 @@ jobs:
     name: seed data is up to date
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
       - name: regenerate and diff
@@ -77,8 +77,8 @@ jobs:
     name: conformance suite on both servers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
       - name: bring the directory servers up
