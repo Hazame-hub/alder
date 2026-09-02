@@ -16,8 +16,11 @@ generate:
 	cd web && npm run generate
 
 ## web: build the SPA into the binary's embedded filesystem
+# Vite empties the output directory, which takes .gitkeep with it. Restoring it
+# keeps "go build" working on a tree that has never run this target.
 web:
 	cd web && npm install && npm run build
+	@git checkout -- internal/web/dist/.gitkeep 2>/dev/null || true
 
 ## build: build the alder binary, SPA included
 build: web

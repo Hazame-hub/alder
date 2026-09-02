@@ -6,6 +6,7 @@
 *.test
 *.out
 .DS_Store
-/internal/web/dist/assets/
-/internal/web/dist/index.html
-/internal/web/dist/vite.svg
+# The SPA build output is generated; the directory itself is not, because
+# //go:embed fails on a missing directory.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep

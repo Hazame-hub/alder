@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+/*
+ * Alder's palette.
+ *
+ * The name is a tree that hardens under water, so the accent is a muted
+ * green-slate rather than the usual admin-panel blue. Everything else is
+ * deliberately quiet: this is a tool someone stares at while reading LDIF, and
+ * the LDIF is what should be legible, not the chrome around it.
+ */
+@theme {
+  --color-bark-50: oklch(0.985 0.004 145);
+  --color-bark-100: oklch(0.96 0.008 145);
+  --color-bark-200: oklch(0.915 0.014 145);
+  --color-bark-300: oklch(0.84 0.022 145);
+  --color-bark-400: oklch(0.7 0.032 148);
+  --color-bark-500: oklch(0.58 0.042 150);
+  --color-bark-600: oklch(0.47 0.045 152);
+  --color-bark-700: oklch(0.385 0.04 154);
+  --color-bark-800: oklch(0.29 0.032 156);
+  --color-bark-900: oklch(0.215 0.024 158);
+  --color-bark-950: oklch(0.155 0.018 160);
+
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Menlo",
+    "Consolas", monospace;
+}
+
+:root {
+  --background: oklch(0.995 0.002 145);
+  --foreground: oklch(0.21 0.02 158);
+  --muted: oklch(0.965 0.005 150);
+  --muted-foreground: oklch(0.5 0.02 155);
+  --card: oklch(1 0 0);
+  --border: oklch(0.9 0.008 150);
+  --input: oklch(0.9 0.008 150);
+  --ring: oklch(0.58 0.042 150);
+  --primary: oklch(0.385 0.04 154);
+  --primary-foreground: oklch(0.985 0.004 145);
+  --secondary: oklch(0.955 0.008 150);
+  --secondary-foreground: oklch(0.29 0.032 156);
+  --accent: oklch(0.945 0.012 150);
+  --accent-foreground: oklch(0.29 0.032 156);
+  --destructive: oklch(0.55 0.19 27);
+  --destructive-foreground: oklch(0.99 0.005 90);
+  --warning: oklch(0.72 0.14 78);
+  --warning-foreground: oklch(0.26 0.05 78);
+  --success: oklch(0.58 0.12 155);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: oklch(0.165 0.016 160);
+  --foreground: oklch(0.94 0.008 150);
+  --muted: oklch(0.225 0.02 158);
+  --muted-foreground: oklch(0.68 0.02 152);
+  --card: oklch(0.2 0.018 159);
+  --border: oklch(0.29 0.022 157);
+  --input: oklch(0.31 0.024 157);
+  --ring: oklch(0.6 0.05 150);
+  --primary: oklch(0.78 0.06 150);
+  --primary-foreground: oklch(0.18 0.02 159);
+  --secondary: oklch(0.26 0.022 158);
+  --secondary-foreground: oklch(0.93 0.01 150);
+  --accent: oklch(0.28 0.026 156);
+  --accent-foreground: oklch(0.95 0.008 150);
+  --destructive: oklch(0.62 0.18 27);
+  --destructive-foreground: oklch(0.15 0.02 27);
+  --warning: oklch(0.78 0.13 80);
+  --warning-foreground: oklch(0.2 0.04 80);
+  --success: oklch(0.7 0.13 155);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* A DN, an LDIF document and an attribute value are all things a person
+     reads character by character. They get the monospace face everywhere. */
+  .font-dn {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklch, var(--ring) 30%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Scrollbars, quietly. The tree and the LDIF pane both scroll a lot. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent)
+      transparent;
+  }
+}
+
+@layer components {
+  /* Syntax colouring for the LDIF preview. Deliberately three colours: the
+     attribute name, the value, and the changetype line that says what the
+     record does. Anything more turns a diff into a christmas tree. */
+  .ldif-attr {
+    color: color-mix(in oklch, var(--primary) 80%, var(--foreground));
+    font-weight: 500;
+  }
+  .ldif-directive {
+    color: var(--warning);
+    font-weight: 600;
+  }
+  .ldif-comment {
+    color: var(--muted-foreground);
+    font-style: italic;
+  }
+  .ldif-b64 {
+    color: color-mix(in oklch, var(--muted-foreground) 70%, var(--foreground));
+  }
+}
