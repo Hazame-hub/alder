@@ -3,14 +3,15 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
-// The build writes straight into the Go module's embed directory. There is no
-// copy step and no chance of shipping a binary with a stale SPA in it.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },
   build: {
+    // Written straight into the Go module's embed directory: no copy step, and
+    // no chance of shipping a binary with a stale SPA in it. The Docker build
+    // mirrors this path when it copies the output between stages.
     outDir: "../internal/web/dist",
     emptyOutDir: true,
     sourcemap: false,

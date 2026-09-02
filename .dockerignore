@@ -1,6 +1,12 @@
 .git
+.github
 bin
 dist
+coverage.out
 test/compose/certs
 web/node_modules
 web/dist
+# The SPA is built inside the image by the web stage; a host build copied in
+# would make the image depend on whatever the developer last ran locally.
+internal/web/dist/assets
+internal/web/dist/index.html

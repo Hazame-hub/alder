@@ -17,18 +17,105 @@ everything else authenticates against.
 
 ## Status
 
-**M0, foundations.** Not usable yet. There is no server and no UI.
+**Feature complete for v1 and demoable.** Connect, browse, search, edit,
+import and export all work, against both target servers.
 
 | | |
 |---|---|
 | M0 | Repo, test harness, `dn` and `filter` packages, CI. **Done.** |
-| M1 | Driver interface, LDAP driver, RootDSE capabilities, RFC 4512 schema parser, conformance suite. |
-| M2 | React UI: connect, browse the tree, view entries, browse the schema. Read-only, and the first demoable state. |
-| M3 | Write path: `ChangeRecord`, LDIF preview with a mandatory confirm, schema-driven editor. |
-| M4 | LDIF and Ansible export. |
-| M5 | Release. |
+| M1 | Driver interface, LDAP driver, RootDSE capabilities, RFC 4512 schema parser, conformance suite. **Done.** |
+| M2 | React UI: connect, browse the tree, view entries, browse the schema. **Done.** |
+| M3 | Write path: `ChangeRecord`, LDIF preview with a mandatory confirm, schema-driven editor. **Done.** |
+| M4 | LDIF import and export, Ansible export. **Done.** |
+| M5 | Release: screenshots, GoReleaser, GHCR, LICENSE, security policy. |
 
 `docs/DECISIONS.md` holds the full plan, the scope boundaries, and the decisions log.
+
+## Try it
+
+```sh
+make compose-up                       # OpenLDAP and 389 DS, seeded, with TLS
+make build                            # SPA + binary
+./bin/alder serve --addr 127.0.0.1:8443 --allow-http
+```
+
+Then open the address it prints and connect to `localhost:10636` (OpenLDAP,
+`cn=admin,dc=alder,dc=test` / `alder-admin`) or `localhost:11636` (389 DS,
+`cn=Directory Manager` / `alder-directory-manager`), pasting
+`test/compose/certs/ca.crt` into the CA field.
+
+Or with Docker:
+
+```sh
+docker build -t alder .
+docker run --rm -p 8443:8443 alder serve --tls-cert /certs/tls.crt --tls-key /certs/tls.key
+```
+
+Alder refuses to start without TLS. It holds a directory bind password in memory
+for the life of a browser session and will not carry it over a plaintext
+connection by default; pass `--allow-http` if something in front of it is
+terminating TLS.
+
+## What it does
+
+**Browse** the DIT as a lazy tree, one level per expansion. Entries render with
+their attributes annotated from the schema: required attributes marked, the
+directory's own operational attributes filed separately and read-only, DN values
+as links, timestamps as dates, binary values as sizes rather than mojibake.
+
+**Edit** through a form the schema builds. Single-valued attributes get no "add
+value" button. `NO-USER-MODIFICATION` attributes are not editable. "Add an
+attribute" offers exactly what the entry's object classes permit, and nothing
+else. An attribute whose values are binary is shown but not editable as text.
+
+**Confirm** every write. There is one code path that modifies a directory and it
+opens this dialog first, showing the exact RFC 2849 change record that will be
+sent — rendered by the server from the same `ChangeRecord` it will act on, so
+the preview and the effect cannot drift apart. The same record renders as a
+`community.general` Ansible task on the next tab.
+
+**Search** with a filter builder or a raw RFC 4515 filter. Filters are parsed,
+never interpolated. Every search is paged and bounded, and a truncated result
+says so.
+
+**Browse the schema** — object classes, attribute types, syntaxes and matching
+rules, fully cross-linked. A class shows what it requires and permits, split
+between its own and its inherited attributes, and every one is a link. An
+attribute shows the classes that require and permit it, its syntax, and the
+definition exactly as the server published it. Definitions the parser could not
+read are listed rather than hidden.
+
+**Import and export LDIF.** Export an entry or a subtree; import a document and
+apply its records one at a time, each through the same confirmation.
+
+## Two servers, one behaviour
+
+OpenLDAP and 389 Directory Server are both first-class, and that is enforced by
+one table-driven conformance suite that runs every case against both:
+
+```sh
+make test-conformance-up
+```
+
+Nothing in Alder branches on the vendor. The RootDSE is read once at connect
+time into a `Capabilities` value and behaviour follows from that. It is why the
+same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
+389 DS without knowing which is which.
+
+## Security posture
+
+- Bind credentials live in server memory keyed by an httpOnly, Secure,
+  SameSite=Strict cookie. Not on disk, not in a JWT, not in `localStorage`.
+  Restarting the server logs everyone out.
+- Sensitive attributes (`userPassword` and friends) are never sent to the
+  browser and never logged. The UI reports them as set, with a count.
+- LDIF exports omit them too, unless explicitly asked for.
+- `attr:< url` references in imported LDIF are refused. Following one from a
+  process holding a privileged bind would be file disclosure via `file://` and
+  request forgery via `http://`.
+- Filters are parsed and re-escaped; DNs are parsed and re-rendered. Neither is
+  ever built by string concatenation.
+- TLS is on by default in both directions.
 
 ## Working on it
 
@@ -37,15 +124,30 @@ make help            # every target
 make check           # vet, lint, test: what CI runs
 make compose-up      # two directory servers, seeded, with TLS
 make test-conformance
+make generate        # regenerate the API types after editing api/openapi.yaml
+make dev             # prints the two commands for hot-reloading the SPA
 ```
 
-You need Go 1.23 or newer and Docker. See `test/compose/README.md` for what the
-harness gives you.
+You need Go 1.25 or newer, Node 22 or newer, and Docker. See
+`test/compose/README.md` for what the harness gives you.
 
-## What is in the box so far
+`api/openapi.yaml` is the source of truth for the HTTP API. The Go server
+interface and the TypeScript client are both generated from it.
+
+## Layout
 
 | Package | |
 |---|---|
 | `internal/dn` | RFC 4514 distinguished names. DNs are never strings; there is no exported way to build one by concatenating text. |
-| `internal/filter` | RFC 4515 search filters, built and parsed. Values are escaped, attribute names are validated, and a raw filter typed by a user is parsed rather than passed through. |
+| `internal/filter` | RFC 4515 search filters, built and parsed. Values are escaped and a raw filter typed by a user is parsed rather than passed through. |
+| `internal/schema` | RFC 4512 schema: parser, index, and the presentation opinion that drives the editor. |
+| `internal/ldif` | RFC 2849 reader and writer. Values are `[]byte` throughout. |
+| `internal/directory` | The `Driver` and `Session` interfaces, `Capabilities`, and `ChangeRecord`. |
+| `internal/directory/ldapdriver` | The only driver in v1. |
+| `internal/ansible` | `ChangeRecord` to a `community.general` task. |
+| `internal/api` | The generated server interface and the handlers behind it. |
+| `internal/session` | In-memory session store. |
+| `internal/web` | The embedded SPA. |
+| `web/` | The React application. |
 | `test/compose` | OpenLDAP and 389 DS, TLS from one CA, 318 identical entries each. |
+| `test/conformance` | One suite, both servers, identical assertions. |
