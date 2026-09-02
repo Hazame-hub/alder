@@ -1,0 +1,10 @@
+# The harness scripts run inside Linux containers. A CRLF checkout on Windows
+# gives "bad interpreter: /bin/sh^M" and costs an afternoon, so normalise
+# everything to LF in the working tree, not just in the index.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.crt -text
+*.key -text
