@@ -1,0 +1,2 @@
+Committed so that "go build ./..." works before "make web" has run:
+//go:embed fails outright on a missing directory.
