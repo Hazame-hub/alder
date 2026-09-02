@@ -9,9 +9,30 @@ GOLANGCI   := golangci-lint
 help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## //' | awk -F':' '{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-## build: build the alder binary
-build:
+## generate: regenerate the API types from api/openapi.yaml
+# The spec is the source of truth. Edit it, run this, then satisfy the compiler.
+generate:
+	go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen -config api/codegen.yaml api/openapi.yaml
+	cd web && npm run generate
+
+## web: build the SPA into the binary's embedded filesystem
+web:
+	cd web && npm install && npm run build
+
+## build: build the alder binary, SPA included
+build: web
 	go build -o $(BIN) ./cmd/alder
+
+## build-go: build the binary without rebuilding the SPA
+build-go:
+	go build -o $(BIN) ./cmd/alder
+
+## dev: print the two commands that run the API and the Vite dev server
+# Two processes on purpose: the SPA reloads on save without a Go rebuild.
+dev:
+	@echo "run these in two terminals:"
+	@echo "  go run ./cmd/alder serve --addr 127.0.0.1:8899 --allow-http --log-level debug"
+	@echo "  cd web && npm run dev"
 
 ## test: run the unit tests
 test:
@@ -87,8 +108,8 @@ docker:
 
 ## clean: remove build output
 clean:
-	rm -rf bin dist coverage.out
+	rm -rf bin dist coverage.out web/dist internal/web/dist/assets internal/web/dist/index.html
 
-.PHONY: help build test test-race cover fuzz vet lint fmt check seed \
+.PHONY: help generate web build build-go dev test test-race cover fuzz vet lint fmt check seed \
 	compose-up compose-down compose-reset compose-logs test-conformance \
 	docker clean

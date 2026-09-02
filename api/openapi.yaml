@@ -1,0 +1,840 @@
+openapi: 3.0.3
+
+info:
+  title: Alder
+  version: "1.0.0"
+  description: |
+    The HTTP API of Alder, a directory engineering tool for OpenLDAP and 389
+    Directory Server.
+
+    This document is the source of truth. The Go server interface and the
+    TypeScript client are both generated from it, so the two cannot drift.
+
+    Two conventions run through the whole API.
+
+    A **distinguished name is always a query or body parameter, never a path
+    segment.** DNs contain commas, equals signs, escaped characters and
+    non-ASCII text; putting one in a path means every client and every proxy in
+    the chain has to agree about double-encoding, and they do not.
+
+    An **attribute value is an octet string, not a string.** Every value is
+    carried as an object that is either `{ "text": ... }` for a value that is
+    valid UTF-8 and belongs to a textual syntax, or `{ "base64": ... }` for
+    anything else. There is no path by which a JPEG becomes mangled text.
+
+servers:
+  - url: /api/v1
+
+tags:
+  - name: session
+    description: Connecting to a directory. Credentials live in memory only.
+  - name: browse
+    description: Reading the tree and its entries.
+  - name: schema
+    description: Browsing the schema the server published.
+  - name: changes
+    description: Previewing and applying modifications.
+  - name: transfer
+    description: LDIF import and export, and Ansible generation.
+
+paths:
+  /session:
+    get:
+      tags: [session]
+      operationId: getSession
+      summary: Describe the current session
+      responses:
+        "200":
+          description: The session and what the server it is bound to can do.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionInfo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      tags: [session]
+      operationId: createSession
+      summary: Connect and bind to a directory
+      description: |
+        Opens a connection, binds, and reads the RootDSE. On success the
+        response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+        in-memory session. The bind password is held in that in-memory session
+        and is never written to disk, never placed in a token, and never
+        returned by any endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectRequest" }
+      responses:
+        "201":
+          description: Connected.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "502":
+          description: The directory refused the connection or the bind.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+    delete:
+      tags: [session]
+      operationId: deleteSession
+      summary: Disconnect
+      description: Closes the connection and discards the credentials.
+      responses:
+        "204": { description: Disconnected. }
+
+  /tree:
+    get:
+      tags: [browse]
+      operationId: listChildren
+      summary: List the children of an entry
+      description: |
+        With no `dn`, returns the naming contexts the server holds, which are
+        the roots of the tree. With a `dn`, returns that entry's immediate
+        children. This is the lazy-loading tree browser's only endpoint.
+      parameters:
+        - name: dn
+          in: query
+          schema: { type: string }
+          description: The parent. Omit for the roots.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - name: cookie
+          in: query
+          schema: { type: string }
+          description: Continuation cookie from a previous page.
+      responses:
+        "200":
+          description: One page of children.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TreePage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /entry:
+    get:
+      tags: [browse]
+      operationId: getEntry
+      summary: Read one entry
+      description: |
+        Returns the entry with every attribute annotated from the schema: its
+        syntax, whether it is single-valued, whether the server owns it, and
+        which input control the editor should offer. Also returns the MUST and
+        MAY sets computed from the entry's object classes.
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          schema: { type: string }
+        - name: includeOperational
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        "200":
+          description: The entry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EntryView" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /search:
+    post:
+      tags: [browse]
+      operationId: search
+      summary: Search the directory
+      description: |
+        Every search is paged and bounded. `filter` is a raw RFC 4515 string
+        which is parsed, not interpolated: a value containing filter
+        metacharacters cannot escape into the filter structure.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SearchRequest" }
+      responses:
+        "200":
+          description: One page of results.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /schema:
+    get:
+      tags: [schema]
+      operationId: getSchema
+      summary: The whole schema, indexed for browsing
+      responses:
+        "200":
+          description: The schema.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchemaView" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /schema/objectclasses/{name}:
+    get:
+      tags: [schema]
+      operationId: getObjectClass
+      summary: One object class, with its cross-links resolved
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+          description: A name or an OID.
+      responses:
+        "200":
+          description: The object class.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ObjectClassDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /schema/attributetypes/{name}:
+    get:
+      tags: [schema]
+      operationId: getAttributeType
+      summary: One attribute type, with its cross-links resolved
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The attribute type.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttributeTypeDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /changes/preview:
+    post:
+      tags: [changes]
+      operationId: previewChange
+      summary: Render a change as LDIF and as an Ansible task
+      description: |
+        Renders without applying. This is what the confirmation modal shows,
+        and the same ChangeRecord that produced it is what `/changes/apply`
+        sends to the server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangeRequest" }
+      responses:
+        "200":
+          description: The rendered change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangePreview" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /changes/apply:
+    post:
+      tags: [changes]
+      operationId: applyChange
+      summary: Apply a change
+      description: |
+        The only endpoint that modifies the directory. It takes the same
+        ChangeRequest that `/changes/preview` rendered.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangeRequest" }
+      responses:
+        "200":
+          description: Applied.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApplyResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: The server rejected the change on schema or policy grounds.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /export/ldif:
+    get:
+      tags: [transfer]
+      operationId: exportLdif
+      summary: Export an entry or a subtree as LDIF
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          schema: { type: string }
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [base, one, sub]
+            default: base
+        - name: includeOperational
+          in: query
+          schema: { type: boolean, default: false }
+          description: Operational attributes cannot be written back, so they are off by default.
+        - name: includeSensitive
+          in: query
+          schema: { type: boolean, default: false }
+          description: |
+            Password hashes and similar are omitted unless this is set. An LDIF
+            export ends up in tickets and repositories.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 10000, default: 1000 }
+      responses:
+        "200":
+          description: The LDIF document.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /import/ldif:
+    post:
+      tags: [transfer]
+      operationId: parseLdif
+      summary: Parse an LDIF document into change records
+      description: |
+        Parses and validates without applying anything. The response is the
+        list of changes the document describes, each rendered back as LDIF, for
+        the user to review and confirm one at a time or all at once.
+
+        URL-valued attributes (`attr:< url`) are refused: following one from a
+        process holding a privileged bind would be file disclosure and request
+        forgery. So are LDAP controls, which would change what the server does
+        with a record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportRequest" }
+      responses:
+        "200":
+          description: The parsed changes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  responses:
+    BadRequest:
+      description: The request was malformed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: There is no session, or it has expired.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: The directory refused the operation for this bind.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such entry or definition.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: A stable machine-readable code.
+          enum:
+            - bad_request
+            - unauthorized
+            - forbidden
+            - not_found
+            - conflict
+            - constraint_violation
+            - upstream
+            - internal
+        message:
+          type: string
+          description: A human-readable explanation. Never contains a credential.
+        detail:
+          type: string
+          description: Extra context, such as the LDIF line a parse failed on.
+        ldapCode:
+          type: integer
+          description: The LDAP result code, where the failure came from the directory.
+
+    ConnectRequest:
+      type: object
+      required: [host, port, tls]
+      properties:
+        host: { type: string, minLength: 1 }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        tls:
+          type: string
+          enum: [ldaps, starttls, plaintext]
+          description: |
+            `plaintext` is refused unless the server was started with
+            `--i-know-this-is-insecure`.
+        insecureSkipVerify:
+          type: boolean
+          default: false
+          description: |
+            Skip certificate verification for this connection. Per-connection
+            and never a default; a session using it is marked unverified.
+        caCertificate:
+          type: string
+          description: A PEM bundle to verify against instead of the system roots.
+        serverName:
+          type: string
+          description: Override the name checked against the certificate.
+        bindDn:
+          type: string
+          description: Omit for an anonymous bind.
+        bindPassword:
+          type: string
+          format: password
+          description: Held in memory for the life of the session and nowhere else.
+
+    Capabilities:
+      type: object
+      required: [namingContexts, subschemaSubentry, paging]
+      properties:
+        namingContexts: { type: array, items: { type: string } }
+        subschemaSubentry: { type: string }
+        supportedControls: { type: array, items: { type: string } }
+        supportedExtensions: { type: array, items: { type: string } }
+        supportedSaslMechanisms: { type: array, items: { type: string } }
+        paging: { type: boolean }
+        serverSort: { type: boolean }
+        whoAmI: { type: boolean }
+
+    SessionInfo:
+      type: object
+      required: [connected]
+      properties:
+        connected: { type: boolean }
+        host: { type: string }
+        port: { type: integer }
+        tls: { type: string }
+        verified:
+          type: boolean
+          description: False when the session skipped certificate verification.
+        bindDn:
+          type: string
+          description: Empty for an anonymous bind.
+        vendorName:
+          type: string
+          description: Display only. Nothing branches on it.
+        vendorVersion: { type: string }
+        capabilities: { $ref: "#/components/schemas/Capabilities" }
+        readOnly:
+          type: boolean
+          description: True when the server was started with --read-only.
+
+    AttributeValue:
+      type: object
+      description: |
+        Exactly one of `text` or `base64` is present. `text` carries a value
+        that is valid UTF-8 and belongs to a textual syntax; everything else,
+        including anything with a `;binary` option, arrives as `base64`.
+      properties:
+        text: { type: string }
+        base64: { type: string }
+        size:
+          type: integer
+          description: The value's length in bytes.
+
+    AttributeKind:
+      type: object
+      description: The schema's opinion about one attribute, for the editor.
+      required: [name, kind, known]
+      properties:
+        name: { type: string }
+        oid: { type: string }
+        desc: { type: string }
+        kind:
+          type: string
+          enum: [string, text, integer, boolean, dn, time, binary, password, certificate, image, oid]
+        syntax: { type: string }
+        syntaxLabel: { type: string }
+        maxLength: { type: integer }
+        singleValue: { type: boolean }
+        readOnly:
+          type: boolean
+          description: NO-USER-MODIFICATION; the server owns this value.
+        operational: { type: boolean }
+        sensitive:
+          type: boolean
+          description: A secret. Values are withheld and never logged.
+        obsolete: { type: boolean }
+        known:
+          type: boolean
+          description: False when the schema does not define this attribute.
+
+    EntryAttribute:
+      type: object
+      required: [name, kind, values]
+      properties:
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/AttributeKind" }
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/AttributeValue" }
+        required:
+          type: boolean
+          description: In the MUST set of this entry's object classes.
+        withheld:
+          type: boolean
+          description: |
+            The values were withheld because the attribute is sensitive. The
+            count is still reported so the UI can say the attribute is set.
+        valueCount: { type: integer }
+
+    Requirements:
+      type: object
+      properties:
+        must: { type: array, items: { type: string } }
+        may: { type: array, items: { type: string } }
+        structural:
+          type: string
+          description: The single structural class, or empty when it is ambiguous.
+        unknown:
+          type: array
+          items: { type: string }
+          description: Object classes on the entry that the schema does not define.
+
+    EntryView:
+      type: object
+      required: [dn, attributes]
+      properties:
+        dn: { type: string }
+        rdn: { type: string }
+        parentDn: { type: string }
+        objectClasses: { type: array, items: { type: string } }
+        attributes:
+          type: array
+          items: { $ref: "#/components/schemas/EntryAttribute" }
+        requirements: { $ref: "#/components/schemas/Requirements" }
+        ldif:
+          type: string
+          description: The entry as an LDIF content record, ready to copy.
+        hasChildren: { type: boolean }
+
+    TreeNode:
+      type: object
+      required: [dn, rdn, hasChildren]
+      properties:
+        dn: { type: string }
+        rdn:
+          type: string
+          description: The leftmost RDN, which is what the tree shows as a label.
+        hasChildren: { type: boolean }
+        objectClasses: { type: array, items: { type: string } }
+        structural:
+          type: string
+          description: The structural class, used to pick an icon.
+        isNamingContext: { type: boolean }
+
+    TreePage:
+      type: object
+      required: [nodes]
+      properties:
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/TreeNode" }
+        cookie: { type: string }
+        truncated: { type: boolean }
+
+    SearchRequest:
+      type: object
+      required: [baseDn, scope, filter]
+      properties:
+        baseDn: { type: string }
+        scope:
+          type: string
+          enum: [base, one, sub]
+        filter:
+          type: string
+          description: A raw RFC 4515 filter. It is parsed, never interpolated.
+        attributes:
+          type: array
+          items: { type: string }
+        limit: { type: integer, minimum: 1, maximum: 10000, default: 100 }
+        pageSize: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        cookie: { type: string }
+
+    SearchResultEntry:
+      type: object
+      required: [dn]
+      properties:
+        dn: { type: string }
+        rdn: { type: string }
+        attributes:
+          type: array
+          items: { $ref: "#/components/schemas/EntryAttribute" }
+
+    SearchResponse:
+      type: object
+      required: [entries, truncated]
+      properties:
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/SearchResultEntry" }
+        truncated:
+          type: boolean
+          description: |
+            True when results were cut short. A silently truncated search is
+            worse than no search, so this is always surfaced.
+        cookie: { type: string }
+        referrals: { type: array, items: { type: string } }
+        took:
+          type: string
+          description: How long the search took, as a duration string.
+
+    SchemaCounts:
+      type: object
+      properties:
+        objectClasses: { type: integer }
+        attributeTypes: { type: integer }
+        syntaxes: { type: integer }
+        matchingRules: { type: integer }
+        matchingRuleUses: { type: integer }
+        ditContentRules: { type: integer }
+        nameForms: { type: integer }
+        errors: { type: integer }
+
+    ObjectClassSummary:
+      type: object
+      required: [name, oid, kind]
+      properties:
+        name: { type: string }
+        names: { type: array, items: { type: string } }
+        oid: { type: string }
+        desc: { type: string }
+        kind: { type: string, enum: [STRUCTURAL, ABSTRACT, AUXILIARY] }
+        obsolete: { type: boolean }
+        superiors: { type: array, items: { type: string } }
+
+    AttributeTypeSummary:
+      type: object
+      required: [name, oid]
+      properties:
+        name: { type: string }
+        names: { type: array, items: { type: string } }
+        oid: { type: string }
+        desc: { type: string }
+        obsolete: { type: boolean }
+        superior: { type: string }
+        syntax: { type: string }
+        syntaxLabel: { type: string }
+        equality: { type: string }
+        singleValue: { type: boolean }
+        operational: { type: boolean }
+
+    SyntaxSummary:
+      type: object
+      required: [oid]
+      properties:
+        oid: { type: string }
+        desc: { type: string }
+        kind: { type: string }
+        usedByCount: { type: integer }
+
+    MatchingRuleSummary:
+      type: object
+      required: [name, oid]
+      properties:
+        name: { type: string }
+        oid: { type: string }
+        desc: { type: string }
+        syntax: { type: string }
+        obsolete: { type: boolean }
+
+    SchemaParseError:
+      type: object
+      properties:
+        attribute: { type: string }
+        definition: { type: string }
+        message: { type: string }
+
+    SchemaView:
+      type: object
+      required: [subschemaDn, counts]
+      properties:
+        subschemaDn: { type: string }
+        counts: { $ref: "#/components/schemas/SchemaCounts" }
+        objectClasses:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectClassSummary" }
+        attributeTypes:
+          type: array
+          items: { $ref: "#/components/schemas/AttributeTypeSummary" }
+        syntaxes:
+          type: array
+          items: { $ref: "#/components/schemas/SyntaxSummary" }
+        matchingRules:
+          type: array
+          items: { $ref: "#/components/schemas/MatchingRuleSummary" }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/SchemaParseError" }
+          description: |
+            Definitions the server published that this parser could not read.
+            A non-empty list is a partial load, not a failed one, and the UI
+            says so rather than pretending the schema is complete.
+
+    ObjectClassDetail:
+      type: object
+      required: [summary]
+      properties:
+        summary: { $ref: "#/components/schemas/ObjectClassSummary" }
+        must: { type: array, items: { type: string } }
+        may: { type: array, items: { type: string } }
+        inheritedMust: { type: array, items: { type: string } }
+        inheritedMay: { type: array, items: { type: string } }
+        superiorChain:
+          type: array
+          items: { type: string }
+          description: Transitive superiors, nearest first.
+        subclasses: { type: array, items: { type: string } }
+        raw:
+          type: string
+          description: The definition exactly as the server published it.
+
+    AttributeTypeDetail:
+      type: object
+      required: [summary]
+      properties:
+        summary: { $ref: "#/components/schemas/AttributeTypeSummary" }
+        kind: { $ref: "#/components/schemas/AttributeKind" }
+        superiorChain: { type: array, items: { type: string } }
+        requiredBy:
+          type: array
+          items: { type: string }
+          description: Object classes that name this attribute in MUST.
+        optionalIn:
+          type: array
+          items: { type: string }
+          description: Object classes that name this attribute in MAY.
+        raw: { type: string }
+
+    ChangeMod:
+      type: object
+      required: [op, name]
+      properties:
+        op:
+          type: string
+          enum: [add, delete, replace]
+        name: { type: string }
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/AttributeValue" }
+          description: |
+            A delete with no values removes the whole attribute; a delete with
+            values removes exactly those.
+
+    ChangeAttribute:
+      type: object
+      required: [name, values]
+      properties:
+        name: { type: string }
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/AttributeValue" }
+
+    ChangeRequest:
+      type: object
+      required: [dn, type]
+      properties:
+        dn: { type: string }
+        type:
+          type: string
+          enum: [add, modify, delete, modrdn]
+        mods:
+          type: array
+          items: { $ref: "#/components/schemas/ChangeMod" }
+        attributes:
+          type: array
+          items: { $ref: "#/components/schemas/ChangeAttribute" }
+        newRdn: { type: string }
+        deleteOldRdn: { type: boolean }
+        newSuperior: { type: string }
+
+    ChangePreview:
+      type: object
+      required: [ldif, ansible, summary]
+      properties:
+        ldif:
+          type: string
+          description: |
+            Unfolded, because the point of the preview is that a person reads
+            it and a value broken at column 76 is harder to check.
+        ldifFolded:
+          type: string
+          description: Folded at 76 columns, for download.
+        ansible: { type: string }
+        ansiblePlaybook: { type: string }
+        summary: { type: string }
+        affectedAttributes: { type: array, items: { type: string } }
+        warnings:
+          type: array
+          items: { type: string }
+          description: |
+            Schema findings that do not block the change, such as setting an
+            attribute no object class on the entry permits.
+
+    ApplyResult:
+      type: object
+      required: [applied, dn]
+      properties:
+        applied: { type: boolean }
+        dn:
+          type: string
+          description: The entry's DN after the change, which differs for a rename.
+        summary: { type: string }
+        ldif: { type: string }
+
+    ImportRequest:
+      type: object
+      required: [ldif]
+      properties:
+        ldif: { type: string }
+
+    ImportResult:
+      type: object
+      required: [changes]
+      properties:
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/ChangePreview" }
+        requests:
+          type: array
+          items: { $ref: "#/components/schemas/ChangeRequest" }
+          description: The parsed changes, ready to post back to /changes/apply.

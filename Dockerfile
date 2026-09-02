@@ -3,7 +3,7 @@
 # The SPA is embedded into the binary with embed.FS from M2 onward, so there is
 # nothing to serve from disk and nothing to mount.
 
-FROM golang:1.24-bookworm AS build
+FROM golang:1.25-bookworm AS build
 WORKDIR /src
 
 # Dependencies first, so that a source-only change reuses the module layer.

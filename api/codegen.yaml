@@ -1,0 +1,14 @@
+# oapi-codegen configuration. Run "make generate" after editing openapi.yaml.
+#
+# Only models and the Fiber server interface are generated. The handlers that
+# satisfy that interface are written by hand in internal/api: generated
+# handlers would have to be edited to do anything, and an edited generated file
+# is the worst of both worlds.
+package: api
+output: internal/api/api.gen.go
+generate:
+  models: true
+  fiber-server: true
+  embedded-spec: true
+output-options:
+  skip-prune: true

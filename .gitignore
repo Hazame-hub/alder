@@ -6,3 +6,6 @@
 *.test
 *.out
 .DS_Store
+/internal/web/dist/assets/
+/internal/web/dist/index.html
+/internal/web/dist/vite.svg
