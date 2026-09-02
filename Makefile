@@ -30,6 +30,9 @@ cover:
 fuzz:
 	go test ./internal/dn -run FuzzParse -fuzz FuzzParse -fuzztime 30s
 	go test ./internal/filter -run FuzzParse -fuzz FuzzParse -fuzztime 30s
+	go test ./internal/schema -run FuzzParseObjectClass -fuzz FuzzParseObjectClass -fuzztime 30s
+	go test ./internal/schema -run FuzzParseAttributeType -fuzz FuzzParseAttributeType -fuzztime 30s
+	go test ./internal/ldif -run FuzzUnmarshal -fuzz FuzzUnmarshal -fuzztime 30s
 
 ## vet: run go vet
 vet:
@@ -69,9 +72,14 @@ compose-logs:
 	$(COMPOSE) logs --follow
 
 ## test-conformance: run the conformance suite against both servers
+# The suite is behind a build tag so that a plain "go test ./..." does not need
+# docker. It asserts identical behaviour from one table; there is no per-vendor
+# test file and adding one would defeat the point.
 test-conformance:
-	@echo "The conformance suite lands with the driver in M1."
-	@echo "Its home is test/conformance; the harness it runs against is ready."
+	go test -tags conformance -count=1 -timeout 300s ./test/conformance/
+
+## test-conformance-up: bring the harness up, run the conformance suite
+test-conformance-up: compose-up test-conformance
 
 ## docker: build the distroless release image
 docker:

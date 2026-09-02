@@ -46,6 +46,12 @@ jobs:
         run: |
           go test ./internal/dn -run FuzzParse -fuzz FuzzParse -fuzztime 30s
           go test ./internal/filter -run FuzzParse -fuzz FuzzParse -fuzztime 30s
+          go test ./internal/schema -run FuzzParseObjectClass -fuzz FuzzParseObjectClass -fuzztime 30s
+          go test ./internal/schema -run FuzzParseAttributeType -fuzz FuzzParseAttributeType -fuzztime 30s
+          go test ./internal/ldif -run FuzzUnmarshal -fuzz FuzzUnmarshal -fuzztime 30s
+
+      - name: conformance suite compiles
+        run: go vet -tags conformance ./test/conformance/
 
   seed:
     name: seed data is up to date
@@ -60,13 +66,20 @@ jobs:
           go run ./test/compose/seed/gen -out test/compose/seed
           git diff --exit-code -- test/compose/seed
 
-  harness:
-    name: harness comes up and seeds
+  conformance:
+    name: conformance suite on both servers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
       - name: bring the directory servers up
         run: make compose-up
+      # This is the gate. A feature is not done until this is green against
+      # OpenLDAP and 389 Directory Server both.
+      - name: run the conformance suite
+        run: make test-conformance
       - name: show the logs on failure
         if: failure()
         run: docker compose -f test/compose/docker-compose.yml logs
