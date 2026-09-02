@@ -105,11 +105,11 @@ export function ChangeDialog({
             <>
               {data.warnings?.length ? (
                 <div className="mb-4 rounded-md border border-warning/40 bg-warning/10 p-3">
-                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-warning-foreground">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-warning-tint-foreground">
                     <AlertTriangle className="size-4" />
                     The schema has something to say about this
                   </div>
-                  <ul className="ml-5 list-disc space-y-1 text-sm text-warning-foreground/90">
+                  <ul className="ml-5 list-disc space-y-1 text-sm text-warning-tint-foreground/90">
                     {data.warnings.map((w) => (
                       <li key={w}>{w}</li>
                     ))}

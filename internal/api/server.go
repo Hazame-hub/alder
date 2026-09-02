@@ -47,7 +47,7 @@ func NewServer(logger *slog.Logger, cfg Config) *Server {
 	}
 	return &Server{
 		driver:   ldapdriver.New(logger, cfg.AllowPlaintextLDAP),
-		sessions: session.NewStore(cfg.IdleTimeout, cfg.MaxLifetime),
+		sessions: session.NewStore(logger, cfg.IdleTimeout, cfg.MaxLifetime),
 		logger:   logger,
 		cfg:      cfg,
 	}

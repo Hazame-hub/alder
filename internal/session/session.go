@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -78,13 +79,22 @@ type Store struct {
 
 	idleTimeout time.Duration
 	maxLifetime time.Duration
+	logger      *slog.Logger
 
 	stop chan struct{}
 	once sync.Once
 }
 
 // NewStore returns a running store. Call Close to stop its sweeper.
-func NewStore(idleTimeout, maxLifetime time.Duration) *Store {
+//
+// The logger records the session lifecycle: opened, and closed with the reason
+// it closed. An operator watching the log should be able to account for every
+// directory connection this process holds, which means a disconnect has to be
+// as visible as a connect.
+func NewStore(logger *slog.Logger, idleTimeout, maxLifetime time.Duration) *Store {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	if idleTimeout <= 0 {
 		idleTimeout = DefaultIdleTimeout
 	}
@@ -95,6 +105,7 @@ func NewStore(idleTimeout, maxLifetime time.Duration) *Store {
 		sessions:    map[string]*Session{},
 		idleTimeout: idleTimeout,
 		maxLifetime: maxLifetime,
+		logger:      logger,
 		stop:        make(chan struct{}),
 	}
 	go s.sweep()
@@ -118,7 +129,16 @@ func (st *Store) Add(conn directory.Session, cfg directory.ConnConfig, readOnly 
 	}
 	st.mu.Lock()
 	st.sessions[id] = s
+	live := len(st.sessions)
 	st.mu.Unlock()
+
+	// The bind DN identifies the session; the password is never a log field at
+	// any level, per rule 6 of the project charter.
+	st.logger.Info("session opened",
+		"address", cfg.Address(),
+		"bind_dn", cfg.BindDN,
+		"read_only", readOnly,
+		"live_sessions", live)
 	return s, nil
 }
 
@@ -152,7 +172,11 @@ func (st *Store) Get(id string) (*Session, error) {
 }
 
 // Remove closes and forgets a session. It is safe to call more than once.
-func (st *Store) Remove(id string) {
+func (st *Store) Remove(id string) { st.remove(id, "disconnected") }
+
+// remove is Remove with the reason recorded, so an expired session and a
+// deliberate disconnect are distinguishable in the log.
+func (st *Store) remove(id, reason string) {
 	st.mu.Lock()
 	s, ok := st.sessions[id]
 	delete(st.sessions, id)
@@ -167,11 +191,27 @@ func (st *Store) Remove(id string) {
 	// window and the memory may well still hold the bytes, but leaving a live
 	// reference to a credential in a map value that something else might
 	// retain is a worse habit than the clearing is theatre.
+	address := s.Config.Address()
+	bindDN := s.Config.BindDN
+	age := time.Since(s.CreatedAt)
 	s.Config.BindPassword = ""
 	s.mu.Unlock()
-	if !already {
-		_ = s.Conn.Close()
+
+	if already {
+		return
 	}
+	_ = s.Conn.Close()
+
+	st.mu.RLock()
+	live := len(st.sessions)
+	st.mu.RUnlock()
+
+	st.logger.Info("session closed",
+		"reason", reason,
+		"address", address,
+		"bind_dn", bindDN,
+		"age", age.Round(time.Second).String(),
+		"live_sessions", live)
 }
 
 // Len reports the number of live sessions, for the health endpoint.
@@ -191,7 +231,7 @@ func (st *Store) Close() {
 	}
 	st.mu.Unlock()
 	for _, id := range ids {
-		st.Remove(id)
+		st.remove(id, "server shutting down")
 	}
 }
 
@@ -224,7 +264,7 @@ func (st *Store) reap() {
 	}
 	st.mu.RUnlock()
 	for _, id := range expired {
-		st.Remove(id)
+		st.remove(id, "expired")
 	}
 }
 

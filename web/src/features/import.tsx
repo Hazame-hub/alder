@@ -142,7 +142,7 @@ export function ImportPanel() {
                   </Button>
                 </div>
                 {change.warnings?.length ? (
-                  <ul className="ml-5 list-disc space-y-0.5 px-3 py-2 text-xs text-warning-foreground">
+                  <ul className="ml-5 list-disc space-y-0.5 px-3 py-2 text-xs text-warning-tint-foreground">
                     {change.warnings.map((w) => (
                       <li key={w}>{w}</li>
                     ))}

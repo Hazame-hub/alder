@@ -219,7 +219,7 @@ function SchemaOverview({ schema }: { schema: SchemaView }) {
 
       {schema.errors?.length ? (
         <div className="mt-6 max-w-3xl rounded-lg border border-warning/40 bg-warning/10 p-4">
-          <div className="flex items-center gap-1.5 font-medium text-warning-foreground">
+          <div className="flex items-center gap-1.5 font-medium text-warning-tint-foreground">
             <AlertTriangle className="size-4" />
             {schema.errors.length} definition
             {schema.errors.length === 1 ? "" : "s"} could not be parsed

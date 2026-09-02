@@ -72,6 +72,12 @@ export function EntryPanel({
     queryKey: ["entry", dn],
     queryFn: async () =>
       unwrap(await api.GET("/entry", { params: { query: { dn } } })),
+    // Refetching under an open editor is deliberate. The editor holds its own
+    // frozen baseline, so a refetch can no longer disturb what is being typed,
+    // and it is the only thing that can notice somebody else changing the entry
+    // underneath. Turning it off while editing would make the drift warning
+    // below unreachable, which is the opposite of what it is for.
+    refetchOnWindowFocus: true,
   });
 
   // Leaving edit mode when the DN changes prevents an edit begun on one entry
@@ -125,7 +131,10 @@ export function EntryPanel({
         ) : null}
 
         {editing ? (
+          // Keyed by DN so that navigating to another entry starts a fresh
+          // editor rather than carrying the previous one's baseline across.
           <EntryEditor
+            key={data.dn}
             entry={data}
             onDone={() => setEditing(false)}
             onNavigate={onNavigate}
@@ -233,7 +242,7 @@ function EntryHeader({
       </div>
 
       {entry.requirements?.unknown?.length ? (
-        <p className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning-foreground">
+        <p className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-warning-tint-foreground">
           The schema does not define these object classes on this entry:{" "}
           <span className="font-mono">{entry.requirements.unknown.join(", ")}</span>.
           Their attributes cannot be checked.
@@ -561,27 +570,33 @@ function EntryEditor({
     [entry.attributes],
   );
 
-  const original = useMemo<Draft>(() => {
-    const out: Draft = {};
-    for (const a of editable) {
-      out[a.name] = a.values.map((v) => v.text ?? "");
-    }
-    return out;
-  }, [editable]);
-
-  const [draft, setDraft] = useState<Draft>(original);
-  const [added, setAdded] = useState<string[]>([]);
-  const [change, setChange] = useState<ChangeRequest | null>(null);
-
-  useEffect(() => {
-    setDraft(original);
-    setAdded([]);
-  }, [original]);
-
   // An attribute whose values cannot round-trip as text is shown but not
   // edited. Offering a text box for a JPEG is how a JPEG gets destroyed.
   const binaryAttrs = editable.filter((a) => a.values.some((v) => v.base64 !== undefined));
   const textAttrs = editable.filter((a) => !a.values.some((v) => v.base64 !== undefined));
+
+  // The baseline is captured once, when editing begins, and never updated.
+  //
+  // Deriving it from the live query instead meant that any background refetch
+  // -- a window focus is enough -- produced a new attributes array and silently
+  // reset the form, discarding whatever the user had typed. The entry the user
+  // started from is the entry the change is computed against; drift is
+  // reported below rather than applied behind their back.
+  const [original] = useState<Draft>(() => snapshot(entry.attributes));
+  const [draft, setDraft] = useState<Draft>(() => snapshot(entry.attributes));
+  const [added, setAdded] = useState<string[]>([]);
+  const [change, setChange] = useState<ChangeRequest | null>(null);
+
+  // If the entry changed in the directory while it was being edited, say so.
+  // Applying regardless is legitimate -- a replace says what the attribute ends
+  // up as -- but the user should know they are overwriting someone.
+  const drifted = useMemo(() => {
+    const current = snapshot(entry.attributes);
+    const names = new Set([...Object.keys(original), ...Object.keys(current)]);
+    return [...names].filter(
+      (name) => JSON.stringify(original[name] ?? []) !== JSON.stringify(current[name] ?? []),
+    );
+  }, [entry.attributes, original]);
 
   const available = useMemo(() => {
     const present = new Set(
@@ -607,6 +622,14 @@ function EntryEditor({
       <div className="rounded-md border border-primary/30 bg-primary/6 px-3 py-2 text-sm">
         Editing. Nothing is sent until you review the LDIF and confirm it.
       </div>
+
+      {drifted.length ? (
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
+          This entry changed in the directory since you started editing:{" "}
+          <span className="font-mono">{drifted.join(", ")}</span>. Your edits are
+          intact; applying them will overwrite the newer values.
+        </div>
+      ) : null}
 
       <div className="space-y-4">
         {textAttrs.map((attr) => (
@@ -855,6 +878,24 @@ function AddAttribute({
       </Button>
     </div>
   );
+}
+
+/**
+ * snapshot reduces an entry's attributes to the editable text values.
+ *
+ * Operational, read-only, withheld and binary-valued attributes are excluded
+ * deliberately. Excluding binary ones matters: their values arrive as base64
+ * and would map to empty strings here, which computeMods would then read as
+ * "the user cleared this attribute" and turn into a delete.
+ */
+function snapshot(attributes: EntryAttribute[]): Draft {
+  const out: Draft = {};
+  for (const a of attributes) {
+    if (a.kind.operational || a.kind.readOnly || a.withheld) continue;
+    if (a.values.some((v) => v.base64 !== undefined)) continue;
+    out[a.name] = a.values.map((v) => v.text ?? "");
+  }
+  return out;
 }
 
 /**
