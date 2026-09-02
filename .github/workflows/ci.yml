@@ -36,6 +36,13 @@ jobs:
         with:
           version: v2.1.0
 
+      # The release config is only exercised on a tag, so a mistake in it would
+      # otherwise be found at the worst possible moment.
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+
       - name: go test
         run: go test -race ./...
 

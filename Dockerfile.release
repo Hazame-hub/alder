@@ -1,0 +1,15 @@
+# The image GoReleaser builds. It packages the binary GoReleaser has already
+# compiled, rather than compiling one itself, so the released binary and the
+# released image are byte-identical.
+#
+# Dockerfile (not this file) is the one to use for a local "docker build": it
+# builds the SPA and the binary from source in one go.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY alder /usr/local/bin/alder
+
+USER nonroot:nonroot
+EXPOSE 8443
+
+ENTRYPOINT ["/usr/local/bin/alder"]
+CMD ["serve"]

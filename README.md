@@ -17,8 +17,9 @@ everything else authenticates against.
 
 ## Status
 
-**Feature complete for v1 and demoable.** Connect, browse, search, edit,
-import and export all work, against both target servers.
+**Feature complete for v1.** Connect, browse, search, edit, import and export
+all work, against both target servers. A licence still has to be chosen before
+this can be published.
 
 | | |
 |---|---|
@@ -27,9 +28,17 @@ import and export all work, against both target servers.
 | M2 | React UI: connect, browse the tree, view entries, browse the schema. **Done.** |
 | M3 | Write path: `ChangeRecord`, LDIF preview with a mandatory confirm, schema-driven editor. **Done.** |
 | M4 | LDIF import and export, Ansible export. **Done.** |
-| M5 | Release: screenshots, GoReleaser, GHCR, LICENSE, security policy. |
+| M5 | Release: screenshots, GoReleaser, GHCR, security policy. **Done, bar the licence.** |
 
 `docs/DECISIONS.md` holds the full plan, the scope boundaries, and the decisions log.
+
+![The entry viewer](docs/screenshots/entry-viewer.jpg)
+
+*An entry from the test harness, chosen because every one of its values is
+awkward: a leading space, a trailing space, one starting with a colon, one with
+an embedded newline, one with non-ASCII bytes. Required attributes are marked,
+the directory's own operational attributes are filed separately and locked, and
+timestamps are rendered as dates.*
 
 ## Try it
 
@@ -74,6 +83,12 @@ sent — rendered by the server from the same `ChangeRecord` it will act on, so
 the preview and the effect cannot drift apart. The same record renders as a
 `community.general` Ansible task on the next tab.
 
+![The LDIF preview](docs/screenshots/ldif-preview.jpg)
+
+If someone else changes the entry while you have it open, the editor says which
+attributes drifted and that applying will overwrite them, rather than silently
+discarding your work or silently clobbering theirs.
+
 **Search** with a filter builder or a raw RFC 4515 filter. Filters are parsed,
 never interpolated. Every search is paged and bounded, and a truncated result
 says so.
@@ -84,6 +99,8 @@ between its own and its inherited attributes, and every one is a link. An
 attribute shows the classes that require and permit it, its syntax, and the
 definition exactly as the server published it. Definitions the parser could not
 read are listed rather than hidden.
+
+![The schema browser](docs/screenshots/schema-browser.jpg)
 
 **Import and export LDIF.** Export an entry or a subtree; import a document and
 apply its records one at a time, each through the same confirmation.
