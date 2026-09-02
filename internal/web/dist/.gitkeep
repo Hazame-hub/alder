@@ -1,0 +1,2 @@
+Committed so that "go build ./..." works before the SPA has ever been built.
+//go:embed fails outright on a missing directory.

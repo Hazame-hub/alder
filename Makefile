@@ -16,13 +16,10 @@ generate:
 	cd web && npm run generate
 
 ## web: build the SPA into the binary's embedded filesystem
-# Vite empties the output directory, which takes .gitkeep with it. It is put
-# back rather than restored from git, so this works in a tarball too: without
-# it a fresh checkout has no dist directory and //go:embed fails outright.
+# The Vite build restores internal/web/dist/.gitkeep itself, so that a bare
+# "npm run build" cannot leave the tree in a state where "go build" fails.
 web:
 	cd web && npm install && npm run build
-	@echo 'Committed so that "go build ./..." works before "make web" has run:' > internal/web/dist/.gitkeep
-	@echo '//go:embed fails outright on a missing directory.' >> internal/web/dist/.gitkeep
 
 ## build: build the alder binary, SPA included
 build: web
