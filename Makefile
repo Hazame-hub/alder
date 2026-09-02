@@ -1,0 +1,86 @@
+BIN        := bin/alder
+PKG        := ./...
+COMPOSE    := docker compose -f test/compose/docker-compose.yml
+GOLANGCI   := golangci-lint
+
+.DEFAULT_GOAL := help
+
+## help: list the targets
+help:
+	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## //' | awk -F':' '{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+
+## build: build the alder binary
+build:
+	go build -o $(BIN) ./cmd/alder
+
+## test: run the unit tests
+test:
+	go test $(PKG)
+
+## test-race: run the unit tests with the race detector
+test-race:
+	go test -race $(PKG)
+
+## cover: run the unit tests and report coverage
+cover:
+	go test -coverprofile=coverage.out $(PKG)
+	go tool cover -func=coverage.out | tail -1
+
+## fuzz: run every fuzz target briefly, as a smoke test
+fuzz:
+	go test ./internal/dn -run FuzzParse -fuzz FuzzParse -fuzztime 30s
+	go test ./internal/filter -run FuzzParse -fuzz FuzzParse -fuzztime 30s
+
+## vet: run go vet
+vet:
+	go vet $(PKG)
+
+## lint: run golangci-lint
+lint:
+	$(GOLANGCI) run
+
+## fmt: format the Go sources
+fmt:
+	gofmt -w $(shell git ls-files '*.go')
+
+## check: everything CI runs
+check: vet lint test
+
+## seed: regenerate the committed seed LDIF
+seed:
+	go run ./test/compose/seed/gen -out test/compose/seed
+
+## compose-up: bring the two directory servers up and seed them
+compose-up:
+	$(COMPOSE) up --build --detach --wait certs openldap ds389
+	$(COMPOSE) run --rm --build seed
+
+## compose-down: tear the harness down, keeping the test CA
+compose-down:
+	$(COMPOSE) down --remove-orphans
+
+## compose-reset: tear the harness down and discard the test CA too
+compose-reset:
+	$(COMPOSE) down --remove-orphans --volumes
+	rm -rf test/compose/certs
+
+## compose-logs: follow the harness logs
+compose-logs:
+	$(COMPOSE) logs --follow
+
+## test-conformance: run the conformance suite against both servers
+test-conformance:
+	@echo "The conformance suite lands with the driver in M1."
+	@echo "Its home is test/conformance; the harness it runs against is ready."
+
+## docker: build the distroless release image
+docker:
+	docker build -t alder:dev .
+
+## clean: remove build output
+clean:
+	rm -rf bin dist coverage.out
+
+.PHONY: help build test test-race cover fuzz vet lint fmt check seed \
+	compose-up compose-down compose-reset compose-logs test-conformance \
+	docker clean

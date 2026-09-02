@@ -1,0 +1,23 @@
+# Custom schema for the Alder conformance harness, 389 DS flavour.
+#
+# Must stay identical in meaning to test/compose/openldap/alder.schema. The
+# definitions themselves are RFC 4512 and byte-for-byte the same; only the way
+# they are installed differs, which is precisely the divergence Alder exists to
+# hide from its users.
+#
+# OpenLDAP takes them at build time through slaptest. 389 DS takes them over
+# LDAP as a modify of cn=schema, and requires attribute types to be in place
+# before an object class may reference them, hence two change records.
+
+dn: cn=schema
+changetype: modify
+add: attributeTypes
+attributeTypes: ( 1.3.6.1.4.1.99999.1.1 NAME 'alderTeam' DESC 'Team the person belongs to' EQUALITY caseIgnoreMatch SUBSTR caseIgnoreSubstringsMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 SINGLE-VALUE X-ORIGIN 'Alder test harness' )
+attributeTypes: ( 1.3.6.1.4.1.99999.1.2 NAME 'alderOnCall' DESC 'Whether the person is in the on-call rotation' EQUALITY booleanMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.7 SINGLE-VALUE X-ORIGIN 'Alder test harness' )
+attributeTypes: ( 1.3.6.1.4.1.99999.1.3 NAME 'alderBadgePhoto' DESC 'Badge photograph, binary' SYNTAX 1.3.6.1.4.1.1466.115.121.1.28 X-ORIGIN 'Alder test harness' )
+attributeTypes: ( 1.3.6.1.4.1.99999.1.4 NAME 'alderNote' DESC 'Free text note, multi-valued' EQUALITY caseIgnoreMatch SUBSTR caseIgnoreSubstringsMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Alder test harness' )
+
+dn: cn=schema
+changetype: modify
+add: objectClasses
+objectClasses: ( 1.3.6.1.4.1.99999.2.1 NAME 'alderEmployee' DESC 'Alder test employee' SUP top AUXILIARY MUST ( alderTeam ) MAY ( alderOnCall $ alderBadgePhoto $ alderNote ) X-ORIGIN 'Alder test harness' )

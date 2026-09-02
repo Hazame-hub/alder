@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: vet, lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.0
+
+      - name: go test
+        run: go test -race ./...
+
+      # The fuzz targets run as unit tests above via their seed corpus. This
+      # step gives them a short random budget as well, which is where the
+      # interesting DN and filter inputs have always come from.
+      - name: fuzz smoke
+        run: |
+          go test ./internal/dn -run FuzzParse -fuzz FuzzParse -fuzztime 30s
+          go test ./internal/filter -run FuzzParse -fuzz FuzzParse -fuzztime 30s
+
+  seed:
+    name: seed data is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: regenerate and diff
+        run: |
+          go run ./test/compose/seed/gen -out test/compose/seed
+          git diff --exit-code -- test/compose/seed
+
+  harness:
+    name: harness comes up and seeds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bring the directory servers up
+        run: make compose-up
+      - name: show the logs on failure
+        if: failure()
+        run: docker compose -f test/compose/docker-compose.yml logs
+      - name: tear down
+        if: always()
+        run: make compose-down

@@ -1,0 +1,85 @@
+# The Alder conformance harness: OpenLDAP and 389 Directory Server, both with
+# TLS from the same test CA, both holding byte-identical seed data under
+# dc=alder,dc=test.
+#
+# Everything is ephemeral on purpose. There are no data volumes, so "down" then
+# "up" gives a clean directory and re-runs the seed. A conformance suite that
+# depends on the order previous runs left things in is not a conformance suite.
+#
+# Certificates are the one thing that persists, in ./certs, because reissuing
+# them on every start would mean the Go test client could never pin a CA.
+#
+#   make compose-up     bring it up and seed it
+#   make compose-down   tear it down
+#   make compose-logs   follow the logs
+#
+# Ports on the host:
+#   OpenLDAP  ldap://localhost:10389   ldaps://localhost:10636
+#   389 DS    ldap://localhost:11389   ldaps://localhost:11636
+
+name: alder-harness
+
+services:
+  # Issues the test CA and both server certificates into ./certs, then exits.
+  # Idempotent: it does nothing if ./certs/ca.crt already exists.
+  certs:
+    build: ./openldap
+    image: alder/harness-openldap
+    entrypoint: ["/bin/sh", "/scripts/certgen.sh"]
+    volumes:
+      - ./certs:/certs
+      - ./scripts:/scripts:ro
+
+  openldap:
+    build: ./openldap
+    image: alder/harness-openldap
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    volumes:
+      - ./certs:/certs:ro
+    ports:
+      - "10389:389"
+      - "10636:636"
+
+  ds389:
+    # The 389 DS project publishes only "latest" and a rolling stream tag, so
+    # the harness pins a digest instead. Bump it deliberately, in its own
+    # commit, and re-run the conformance suite: a directory server changing
+    # under the tests is exactly what this pin exists to prevent.
+    image: quay.io/389ds/dirsrv:c9s@sha256:40b6cd8370de9ed2856262c5f8a675aeb84c17cf9f7f6957fe7cc8d88988004a
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    environment:
+      DS_DM_PASSWORD: alder-directory-manager
+      DS_SUFFIX_NAME: alder
+      DS_SUFFIX_DN: dc=alder,dc=test
+    volumes:
+      # The container looks for server.crt, server.key and ca/ca.crt here.
+      - ./certs/ds389:/data/tls
+    ports:
+      - "11389:3389"
+      - "11636:3636"
+    healthcheck:
+      test: ["CMD", "/usr/libexec/dirsrv/dscontainer", "-H"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 30
+
+  # Installs the custom schema where it is not already present and applies the
+  # seed LDIF to both servers, then exits. Runs to completion on every "up".
+  seed:
+    build: ./openldap
+    image: alder/harness-openldap
+    entrypoint: ["/bin/sh", "/scripts/seed.sh"]
+    depends_on:
+      openldap:
+        condition: service_healthy
+      ds389:
+        condition: service_healthy
+    volumes:
+      - ./seed:/seed:ro
+      - ./ds389:/ds389:ro
+      - ./scripts:/scripts:ro

@@ -1,0 +1,33 @@
+# Create the dc=alder,dc=test backend on 389 Directory Server.
+#
+# The container's DS_SUFFIX_DN environment variable names a suffix but does not
+# create a database for it: a freshly started instance has no namingContexts at
+# all. OpenLDAP, by contrast, gets its suffix from the database stanza in
+# slapd.conf at image build time. This file is that difference, written down.
+#
+# It is applied over LDAP as cn=Directory Manager, which is also how a real
+# operator would do it if they did not have dsconf to hand.
+#
+# The two entries must be added in this order: the mapping tree points at the
+# backend, and 389 DS validates that reference.
+
+dn: cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+changetype: add
+objectClass: top
+objectClass: extensibleObject
+objectClass: nsBackendInstance
+cn: userRoot
+nsslapd-suffix: dc=alder,dc=test
+
+# The RDN value is the suffix itself. It is written with RFC 4514 escapes
+# rather than the RFC 1779 quoted form that most 389 DS documentation uses,
+# because the quoted form is not a legal RFC 4514 DN and Alder's dn package
+# rejects it. Both name the same entry.
+dn: cn=dc\=alder\,dc\=test,cn=mapping tree,cn=config
+changetype: add
+objectClass: top
+objectClass: extensibleObject
+objectClass: nsMappingTree
+cn: dc=alder,dc=test
+nsslapd-state: backend
+nsslapd-backend: userRoot

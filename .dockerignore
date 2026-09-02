@@ -1,0 +1,6 @@
+.git
+bin
+dist
+test/compose/certs
+web/node_modules
+web/dist
