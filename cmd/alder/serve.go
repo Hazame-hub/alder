@@ -32,6 +32,7 @@ type serveOptions struct {
 	readOnly    bool
 	logLevel    string
 	logFormat   string
+	sourceURL   string
 	idleTimeout time.Duration
 	maxLifetime time.Duration
 }
@@ -64,6 +65,11 @@ func serveCmd() *cobra.Command {
 		"refuse every write, whatever the directory would have allowed")
 	f.StringVar(&o.logLevel, "log-level", "info", "debug, info, warn or error")
 	f.StringVar(&o.logFormat, "log-format", "text", "text or json")
+	// Alder is AGPL-3.0. If you run a modified build and let others use it over
+	// a network, section 13 requires you to offer them its source; this is where
+	// you say where that is.
+	f.StringVar(&o.sourceURL, "source-url", "",
+		"where this build's source can be obtained (required for a modified build)")
 	f.DurationVar(&o.idleTimeout, "session-idle-timeout", 30*time.Minute,
 		"close a session that has not been used for this long")
 	f.DurationVar(&o.maxLifetime, "session-max-lifetime", 12*time.Hour,
@@ -115,6 +121,8 @@ func runServe(ctx context.Context, o serveOptions) error {
 		ReadOnly:           o.readOnly,
 		IdleTimeout:        o.idleTimeout,
 		MaxLifetime:        o.maxLifetime,
+		SourceURL:          o.sourceURL,
+		Version:            buildVersion(),
 	})
 	defer server.Close()
 

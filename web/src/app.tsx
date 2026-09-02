@@ -24,6 +24,7 @@ import { EntryPanel } from "@/features/entry";
 import { SchemaBrowser } from "@/features/schema";
 import { SearchPanel } from "@/features/search";
 import { ImportPanel } from "@/features/import";
+import { SourceLink } from "@/components/source-link";
 
 type View = "browse" | "schema" | "search" | "import";
 
@@ -236,6 +237,7 @@ function TopBar({
         >
           {dark ? <Sun /> : <Moon />}
         </Button>
+        <SourceLink />
         <Button variant="ghost" size="sm" onClick={() => void disconnect()}>
           <LogOut />
           Disconnect

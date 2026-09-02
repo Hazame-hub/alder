@@ -168,3 +168,22 @@ interface and the TypeScript client are both generated from it.
 | `web/` | The React application. |
 | `test/compose` | OpenLDAP and 389 DS, TLS from one CA, 318 identical entries each. |
 | `test/conformance` | One suite, both servers, identical assertions. |
+
+## Licence
+
+[GNU Affero General Public License v3.0](LICENSE).
+
+The AGPL is deliberate rather than incidental. Alder is a tool you run as a
+service, and section 13 is the clause that matters: if you modify Alder and let
+other people use it over a network, you have to offer them your modified
+source. That keeps the conformance harness — the expensive part, and the thing
+that makes "works on both servers" true rather than aspirational — from being
+absorbed into something closed.
+
+Using Alder to administer your directory imposes nothing on you. Your
+directory's data is yours, the LDIF and Ansible it generates are yours, and
+running it internally is not distribution. The obligation attaches only if you
+modify Alder itself and offer that modified version to others.
+
+Alder serves its own source offer at `/api/v1/source`, which is what section 13
+asks for. If you deploy a modified build, point `--source-url` at your fork.

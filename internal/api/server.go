@@ -29,6 +29,14 @@ type Config struct {
 
 	IdleTimeout time.Duration
 	MaxLifetime time.Duration
+
+	// SourceURL is where this build's source can be obtained, served at
+	// /api/v1/source to satisfy AGPL-3.0 section 13. An operator running a
+	// modified Alder is required to point it at their own source.
+	SourceURL string
+	// Version is reported alongside the source offer, so someone can tell which
+	// build they are being offered the source of.
+	Version string
 }
 
 // Server implements the generated ServerInterface.
@@ -59,6 +67,7 @@ func (s *Server) Close() { s.sessions.Close() }
 // Register mounts the API on a Fiber router under /api/v1.
 func (s *Server) Register(app *fiber.App) {
 	RegisterHandlersWithOptions(app, s, FiberServerOptions{BaseURL: "/api/v1"})
+	s.registerSourceOffer(app.Group("/api/v1"))
 }
 
 // cookieName is the session cookie for this deployment.
