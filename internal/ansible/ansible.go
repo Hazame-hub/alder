@@ -25,8 +25,11 @@ import (
 // would put a directory host and bind DN into whatever the user pastes the task
 // into, and the password would be worse than either.
 const (
-	varURI     = "{{ ldap_server_uri }}"
-	varBindDN  = "{{ ldap_bind_dn }}"
+	varURI    = "{{ ldap_server_uri }}"
+	varBindDN = "{{ ldap_bind_dn }}"
+	// #nosec G101 -- this is the Ansible variable reference emitted in place of
+	// a password. It is a template placeholder precisely so that no credential
+	// is ever written into generated output.
 	varBindPW  = "{{ ldap_bind_pw }}"
 	moduleAttr = "community.general.ldap_attrs"
 	moduleEnt  = "community.general.ldap_entry"

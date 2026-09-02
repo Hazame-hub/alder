@@ -113,9 +113,18 @@ func (s *session) Search(ctx context.Context, req directory.SearchRequest) (*dir
 			out.Truncated = true
 			break
 		}
-		pageSize := req.PageSize
-		if pageSize > remaining {
-			pageSize = remaining
+		// Normalise clamps PageSize into [1, MaxPageSize] and remaining is
+		// positive here, so this is bounded well below the uint32 the control
+		// takes. The bound is restated rather than assumed, because the caller
+		// of Normalise is a long way from the conversion below and a page size
+		// that wrapped would ask the server for a very different page than the
+		// one intended.
+		pageSize := min(req.PageSize, remaining)
+		if pageSize < 1 {
+			pageSize = 1
+		}
+		if pageSize > directory.MaxPageSize {
+			pageSize = directory.MaxPageSize
 		}
 
 		search := ldap.NewSearchRequest(

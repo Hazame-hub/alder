@@ -71,11 +71,10 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 	if err != nil {
 		// A failed connect is reported as an upstream failure, not a 500: the
 		// fault is with the directory or the settings, not with Alder.
-		var ldapErr error = err
 		s.logger.Info("connection refused",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
 		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
-			"Could not connect to the directory.", ldapErr.Error())
+			"Could not connect to the directory.", err.Error())
 	}
 
 	sess, err := s.sessions.Add(conn, cfg, s.cfg.ReadOnly)

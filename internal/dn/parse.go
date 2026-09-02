@@ -124,18 +124,18 @@ func (p *parser) parseStringValue() (string, error) {
 	)
 	for p.pos < len(p.in) {
 		c := p.in[p.pos]
-		switch {
-		case c == ',' || c == '+':
+		switch c {
+		case ',', '+':
 			// End of value.
 			return string(trimUnescapedTrailingSpace(buf, escaped)), nil
-		case c == '\\':
+		case '\\':
 			b, err := p.parseEscape()
 			if err != nil {
 				return "", err
 			}
 			buf = append(buf, b)
 			escaped = append(escaped, true)
-		case c == '"' || c == ';' || c == '<' || c == '>':
+		case '"', ';', '<', '>':
 			return "", p.errf("character %q must be escaped in a DN value", c)
 		default:
 			buf = append(buf, c)

@@ -229,7 +229,7 @@ func (d DN) HasSuffix(suffix DN) bool {
 	if len(suffix) > len(d) {
 		return false
 	}
-	return DN(d[len(d)-len(suffix):]).Equal(suffix)
+	return d[len(d)-len(suffix):].Equal(suffix)
 }
 
 // IsChildOf reports whether d is an immediate child of parent.
