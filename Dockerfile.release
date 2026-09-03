@@ -1,14 +1,24 @@
 # The image GoReleaser builds. It packages the binary GoReleaser has already
-# compiled, rather than compiling one itself, so the released binary and the
+# compiled rather than compiling one itself, so the released binary and the
 # released image are byte-identical.
 #
-# Dockerfile (not this file) is the one to use for a local "docker build": it
-# builds the SPA and the binary from source in one go.
+# Dockerfile (not this file) is the one for a local "docker build": it builds
+# the SPA and the binary from source in one go.
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY alder /usr/local/bin/alder
+# dockers_v2 stages one binary per platform in the build context, laid out as
+# <os>/<arch>/<binary> -- which is exactly what buildx puts in TARGETPLATFORM.
+# A bare "COPY alder" worked with the old dockers: block, where the context held
+# a single architecture, and silently stopped working on the move to
+# dockers_v2's one-build-for-every-platform model.
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/alder /usr/local/bin/alder
 
 USER nonroot:nonroot
+
+# 8443 is the default listen address. Alder refuses to start without TLS unless
+# --allow-http says something in front of it terminates TLS, which is the usual
+# arrangement in a cluster.
 EXPOSE 8443
 
 ENTRYPOINT ["/usr/local/bin/alder"]
