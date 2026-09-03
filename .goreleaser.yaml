@@ -4,7 +4,7 @@ version: 2
 #
 # The SPA is NOT built here. It has to exist at internal/web/dist before the Go
 # build runs, because embed.FS resolves at compile time, so the release workflow
-# runs "make web" first and GoReleaser only ever sees a tree that already has it.
+# runs "task web" first and GoReleaser only ever sees a tree that already has it.
 # A "before" hook could do it, but then a local "goreleaser build" would silently
 # produce a binary with whatever SPA the developer last built, which is worse.
 
@@ -17,7 +17,7 @@ before:
     # shipping a binary that serves the "not built" placeholder.
     # The whole command is one YAML scalar; without the quotes the ": " in the
     # message makes the parser read the line as a map.
-    - "sh -c 'test -f internal/web/dist/index.html || { echo \"the SPA is missing from internal/web/dist — run make web before releasing\"; exit 1; }'"
+    - "sh -c 'test -f internal/web/dist/index.html || { echo \"the SPA is missing from internal/web/dist — run task web before releasing\"; exit 1; }'"
 
 builds:
   - id: alder

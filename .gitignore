@@ -10,3 +10,6 @@
 # //go:embed fails on a missing directory.
 /internal/web/dist/*
 !/internal/web/dist/.gitkeep
+
+# Task’s local up-to-date cache. Machine-specific; never shared.
+/.task/

@@ -108,7 +108,7 @@ func runServe(ctx context.Context, o serveOptions) error {
 	}
 	if !web.Built() {
 		logger.Warn("the single-page application is not built into this binary; " +
-			"the API is live but the UI is a placeholder. Run \"make web\"")
+			"the API is live but the UI is a placeholder. Run \"task web\"")
 	}
 
 	server := api.NewServer(logger, api.Config{

@@ -42,7 +42,7 @@ const placeholder = `<!doctype html>
   <h1>Alder is running, without its interface</h1>
   <p>The single-page application was not built into this binary. The API is
      live at <code>/api/v1</code>.</p>
-  <p>Build the frontend with <code>make web</code>, or run
+  <p>Build the frontend with <code>task web</code>, or run
      <code>npm run dev</code> in <code>web/</code> for a dev server that proxies
      the API.</p>
 </main></body></html>`

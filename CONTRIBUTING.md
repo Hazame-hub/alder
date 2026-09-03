@@ -5,9 +5,9 @@
 You need Go 1.25+, Node 22+, and Docker.
 
 ```sh
-make compose-up            # OpenLDAP and 389 DS, seeded, with TLS
-make check                 # vet, lint, unit tests — what CI runs
-make test-conformance      # the suite that decides whether a change is done
+task compose:up             # OpenLDAP and 389 DS, seeded, with TLS
+task check                  # vet, lint, unit tests — what CI runs
+task test:conformance      # the suite that decides whether a change is done
 ```
 
 For working on the UI, run the API and the Vite dev server separately so the
@@ -23,7 +23,7 @@ session cookie behaves exactly as it will in production.
 
 ## The bar
 
-**A change is done when `make test-conformance` is green.** Not when it works
+**A change is done when `task test:conformance` is green.** Not when it works
 against the server you happened to test with. OpenLDAP and 389 Directory Server
 are both first-class, and the suite is one table that runs every case against
 both. If you find yourself wanting a per-vendor test file, the change is
@@ -60,7 +60,7 @@ These are correctness and security requirements, not style preferences:
 TypeScript client are both generated from it:
 
 ```sh
-make generate
+task generate
 ```
 
 Edit the spec, regenerate, then satisfy the compiler on both sides. Handlers are
@@ -73,7 +73,7 @@ both parsers have earned them — fuzzing has found real bugs in each. If you
 touch either, run:
 
 ```sh
-make fuzz
+task fuzz
 ```
 
 A crash found by fuzzing gets its input committed to `testdata/fuzz` as a

@@ -4,7 +4,7 @@
 // asserts they behave identically through the directory.Driver interface.
 //
 // It is guarded by a build tag because it needs the docker-compose harness
-// running: "make test-conformance" brings the servers up and runs it, and a
+// running: "task test:conformance" brings the servers up and runs it, and a
 // plain "go test ./..." skips it entirely.
 //
 // The rule this suite exists to enforce: every test runs against every server,
@@ -70,7 +70,7 @@ func caPool(t *testing.T) *x509.CertPool {
 	path := filepath.Join("..", "compose", "certs", "ca.crt")
 	pem, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("reading the harness CA at %s: %v\nrun \"make compose-up\" first", path, err)
+		t.Fatalf("reading the harness CA at %s: %v\nrun \"task compose:up\" first", path, err)
 	}
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(pem) {
@@ -99,7 +99,7 @@ func connect(t *testing.T, s server) directory.Session {
 		BindPassword:   s.bindPW,
 	})
 	if err != nil {
-		t.Fatalf("connecting to %s at %s:%d: %v\nis the harness up? run \"make compose-up\"",
+		t.Fatalf("connecting to %s at %s:%d: %v\nis the harness up? run \"task compose:up\"",
 			s.name, s.host, s.port, err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })

@@ -81,15 +81,20 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: bring the directory servers up
-        run: make compose-up
+        run: task compose:up
       # This is the gate. A feature is not done until this is green against
       # OpenLDAP and 389 Directory Server both.
       - name: run the conformance suite
-        run: make test-conformance
+        run: task test:conformance
       - name: show the logs on failure
         if: failure()
         run: docker compose -f test/compose/docker-compose.yml logs
       - name: tear down
         if: always()
-        run: make compose-down
+        run: task compose:down

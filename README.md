@@ -44,8 +44,8 @@ timestamps are rendered as dates.*
 ## Try it
 
 ```sh
-make compose-up                       # OpenLDAP and 389 DS, seeded, with TLS
-make build                            # SPA + binary
+task compose:up                        # OpenLDAP and 389 DS, seeded, with TLS
+task build                             # SPA + binary
 ./bin/alder serve --addr 127.0.0.1:8443 --allow-http
 ```
 
@@ -112,7 +112,7 @@ OpenLDAP and 389 Directory Server are both first-class, and that is enforced by
 one table-driven conformance suite that runs every case against both:
 
 ```sh
-make test-conformance-up
+task test:conformance:up
 ```
 
 Nothing in Alder branches on the vendor. The RootDSE is read once at connect
@@ -138,12 +138,12 @@ same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
 ## Working on it
 
 ```sh
-make help            # every target
-make check           # vet, lint, test: what CI runs
-make compose-up      # two directory servers, seeded, with TLS
-make test-conformance
-make generate        # regenerate the API types after editing api/openapi.yaml
-make dev             # prints the two commands for hot-reloading the SPA
+task                 # every task
+task check           # vet, lint, test: what CI runs
+task compose:up       # two directory servers, seeded, with TLS
+task test:conformance
+task generate        # regenerate the API types after editing api/openapi.yaml
+task dev             # prints the two commands for hot-reloading the SPA
 ```
 
 You need Go 1.25 or newer, Node 22 or newer, and Docker. See
