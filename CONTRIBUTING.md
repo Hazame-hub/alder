@@ -34,12 +34,14 @@ probably wrong.
 all. This is what lets the same code find the schema at `cn=Subschema` on
 OpenLDAP and `cn=schema` on 389 DS without knowing which it is talking to.
 
-**Ask before adding a dependency.** Any dependency, however small. `docs/DECISIONS.md`
-records the stack and why.
+**Ask before adding a dependency.** Any dependency, however small. The stack is
+Go with Fiber, `go-ldap/ldap/v3` and oapi-codegen on the server; React 19,
+TanStack Query, Tailwind and shadcn/ui in the browser. No ORM and no database:
+v1 is stateless by design.
 
 ## The rules that are not style preferences
 
-These are in `docs/DECISIONS.md` in full. The short version:
+These are correctness and security requirements, not style preferences:
 
 1. **No write without a `ChangeRecord`.** If you are calling `conn.Modify()`
    outside `Session.Apply`, stop.
@@ -106,14 +108,29 @@ wasted opportunity.
 
 ## Scope
 
-`docs/DECISIONS.md` section 2 lists what v1 is and is not. The out-of-scope list is
-deliberate and load-bearing — schema editing, ACL editing, multi-user concepts,
-SSO, other directory drivers, bulk provisioning, and anything requiring a
-database are all excluded on purpose. If you want to add one, open an issue and
-make the case first; a pull request implementing it will be closed.
+v1 does eight things: connect over LDAPS or StartTLS, browse the DIT, browse the
+schema, view and edit entries, preview every write as LDIF, export LDIF, export
+Ansible, and search.
+
+Everything else is excluded on purpose, and the list is load-bearing rather than
+a backlog:
+
+- schema editing, and ACL or `cn=config` editing
+- any multi-user concept: RBAC, delegation, approval workflows
+- OIDC, SAML, or SSO
+- a persisted audit log
+- FreeIPA, Active Directory or Entra ID drivers
+- bulk or CSV provisioning
+- an end-user self-service or password reset portal
+- a database of any kind
+- telemetry
+
+If you want one of these, open an issue and make the case first. A pull request
+implementing one will be closed.
 
 ## Decisions log
 
-`docs/DECISIONS.md` ends with an append-only decisions log. If you settle something
-non-obvious — especially where the code turned out to contradict the plan — add
-an entry so nobody relitigates it later.
+[`docs/DECISIONS.md`](docs/DECISIONS.md) is an append-only record of decisions
+that were settled once. If you settle something non-obvious — especially where
+the code turned out to contradict the plan — add an entry so nobody relitigates
+it later.

@@ -30,7 +30,9 @@ this can be published.
 | M4 | LDIF import and export, Ansible export. **Done.** |
 | M5 | Release: screenshots, GoReleaser, GHCR, security policy. **Done, bar the licence.** |
 
-`docs/DECISIONS.md` holds the full plan, the scope boundaries, and the decisions log.
+[`docs/DECISIONS.md`](docs/DECISIONS.md) records the decisions behind the design
+and why the alternatives were rejected. [`CONTRIBUTING.md`](CONTRIBUTING.md) has
+the scope boundaries and the rules that are not style preferences.
 
 ![The entry viewer](docs/screenshots/entry-viewer.jpg)
 
