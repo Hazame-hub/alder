@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/Hazame-hub/alder/compare/v0.3.0...v0.4.0) (2026-09-03)
+
+
+### Features
+
+* stage several changes and apply them as one reviewed set ([#16](https://github.com/Hazame-hub/alder/issues/16)) ([1f4d30f](https://github.com/Hazame-hub/alder/commit/1f4d30f037b8c812b7b0f04917c50253d3421a45))
+
 ## [0.3.0](https://github.com/Hazame-hub/alder/compare/v0.2.0...v0.3.0) (2026-09-03)
 
 
