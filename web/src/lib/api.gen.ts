@@ -194,6 +194,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/changeset/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Render several changes as one LDIF document and one playbook
+         * @description A changeset is an ordered list of changes reviewed and applied together.
+         *     It is held by the client, not the server: Alder keeps no per-session
+         *     state beyond the connection itself, so this endpoint is a pure
+         *     rendering of whatever it is given.
+         *
+         *     The order is the caller's and is preserved exactly. Alder does not sort
+         *     the changes to make them work -- an entry created before its parent is
+         *     reported as a warning so it can be reordered, because guessing the
+         *     intended order silently is worse than saying what is wrong.
+         */
+        post: operations["previewChangeset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/changeset/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply several changes in order
+         * @description Applies each change in the order given and stops at the first failure.
+         *
+         *     A directory has no transaction spanning entries, so a changeset is not
+         *     atomic and does not pretend to be. The response says exactly which
+         *     changes were applied and which was not, so the caller can fix the one
+         *     that failed and resume from there rather than starting again and
+         *     re-applying what already succeeded.
+         */
+        post: operations["applyChangeset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/export/ldif": {
         parameters: {
             query?: never;
@@ -567,6 +621,48 @@ export interface components {
             summary?: string;
             ldif?: string;
         };
+        ChangesetRequest: {
+            /**
+             * @description The changes, in the order they should be applied. A cap exists
+             *     because the whole set is rendered and applied in one request.
+             */
+            changes: components["schemas"]["ChangeRequest"][];
+        };
+        ChangesetPreview: {
+            /**
+             * @description Every change as one RFC 2849 document, in order. A password change
+             *     appears as the notice explaining it has no LDIF form, so the
+             *     document describes the run rather than silently omitting a step.
+             */
+            ldif: string;
+            /** @description One playbook containing every task, in the same order. */
+            ansiblePlaybook?: string;
+            changes: components["schemas"]["ChangePreview"][];
+            /**
+             * @description Findings about the set as a whole, such as an entry created before
+             *     its parent, or the same DN changed twice.
+             */
+            warnings?: string[];
+        };
+        ChangesetOutcome: {
+            /** @description Position in the submitted list. */
+            index: number;
+            dn: string;
+            applied: boolean;
+            summary?: string;
+            error?: components["schemas"]["Error"];
+        };
+        ChangesetResult: {
+            /**
+             * @description One per submitted change, in order. Entries after a failure are
+             *     reported as not applied rather than omitted, so the caller can see
+             *     what remains.
+             */
+            outcomes: components["schemas"]["ChangesetOutcome"][];
+            appliedCount: number;
+            /** @description The index that failed, absent when every change succeeded. */
+            failedIndex?: number;
+        };
         ImportRequest: {
             ldif: string;
         };
@@ -907,6 +1003,63 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    previewChangeset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangesetRequest"];
+            };
+        };
+        responses: {
+            /** @description The rendered changeset. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangesetPreview"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    applyChangeset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangesetRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description The run finished. This is returned whether or not every change
+             *     succeeded: a partial run is an outcome to report, not an error to
+             *     raise, and the body says where it stopped.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangesetResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     exportLdif: {

@@ -103,6 +103,18 @@ read are listed rather than hidden.
 
 ![The schema browser](docs/screenshots/schema-browser.jpg)
 
+**Stage a changeset.** Every confirmation dialog can queue its change instead of
+applying it. A staged set is read as one LDIF document and exported as one
+Ansible playbook, reordered by hand, and applied in order. Alder points out what
+no single change can see — an entry created before its parent, an entry acted on
+after being deleted, the same entry changed twice — and reorders nothing on its
+own, because a move under something created later is a legitimate thing to want.
+
+A run stops at the first refusal and reports what landed and what was not
+attempted; LDAP has no transaction across entries, so nothing is rolled back and
+Alder does not pretend otherwise. What did not apply stays staged, in order, so
+correcting one change and applying again resumes rather than repeats.
+
 **Import and export LDIF.** Export an entry or a subtree; import a document and
 apply its records one at a time, each through the same confirmation.
 

@@ -4,6 +4,7 @@ import {
   Database,
   FileUp,
   Layers,
+  ListChecks,
   Loader2,
   LogOut,
   Moon,
@@ -24,9 +25,11 @@ import { EntryPanel } from "@/features/entry";
 import { SchemaBrowser } from "@/features/schema";
 import { SearchPanel } from "@/features/search";
 import { ImportPanel } from "@/features/import";
+import { ChangesetView } from "@/features/changeset";
+import { useChangeset } from "@/lib/changeset";
 import { SourceLink } from "@/components/source-link";
 
-type View = "browse" | "schema" | "search" | "import";
+type View = "browse" | "schema" | "search" | "changeset" | "import";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -119,6 +122,15 @@ export function App() {
                 onOpenEntry={openEntry}
               />
             </main>
+          ) : view === "changeset" ? (
+            <main className="min-w-0 flex-1 overflow-y-auto">
+              <ChangesetView
+                onBrowse={(dn) => {
+                  setSelectedDN(dn);
+                  setView("browse");
+                }}
+              />
+            </main>
           ) : (
             <main className="min-w-0 flex-1 overflow-y-auto">
               <ImportPanel />
@@ -175,10 +187,13 @@ function TopBar({
     queryClient.setQueryData(["session"], { connected: false });
   };
 
+  const staged = useChangeset();
+
   const tabs: [View, string, typeof Database][] = [
     ["browse", "Browse", Database],
     ["search", "Search", SearchIcon],
     ["schema", "Schema", Layers],
+    ["changeset", "Changeset", ListChecks],
     ["import", "Import", FileUp],
   ];
 
@@ -204,6 +219,11 @@ function TopBar({
           >
             <Icon className="size-4" />
             {label}
+            {id === "changeset" && staged.length > 0 ? (
+              <Badge variant="success" className="ml-0.5 px-1.5 tabular-nums">
+                {staged.length}
+              </Badge>
+            ) : null}
           </button>
         ))}
       </nav>
