@@ -187,3 +187,7 @@ modify Alder itself and offer that modified version to others.
 
 Alder serves its own source offer at `/api/v1/source`, which is what section 13
 asks for. If you deploy a modified build, point `--source-url` at your fork.
+
+Contributions are covered by a [Contributor Licence Agreement](CLA.md), which
+keeps the option of licensing Alder on other terms open. Contributors keep the
+copyright in their work.

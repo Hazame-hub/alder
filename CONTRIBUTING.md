@@ -80,6 +80,22 @@ regression case. Several already there came from exactly that.
 Behaviour that spans a directory belongs in `test/conformance`, behind the
 `conformance` build tag so a plain `go test ./...` needs no Docker.
 
+## The CLA
+
+There is a one-time [Contributor Licence Agreement](CLA.md) to sign before a
+pull request can be merged. A bot will prompt you on your first one; you reply
+to it once and never again.
+
+The reason is stated plainly in the document rather than buried. Alder is
+AGPL-3.0, and the project keeps the option of licensing it on other terms as
+well. That option exists only while every line is covered by a grant permitting
+it, and a single contribution without one removes it permanently. **You keep the
+copyright in your work** — the CLA grants a licence, it does not assign
+ownership.
+
+If your employer has rights in the code you write, which most employment
+contracts arrange, read section 5 before signing.
+
 ## Commits
 
 Conventional commits. Small and focused. Never `--no-verify`.
