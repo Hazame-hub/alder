@@ -125,6 +125,21 @@ appear in the changelog and move the version; `docs:`, `ci:`, `chore:` and
 While the version is below 1.0, a breaking change moves the minor version
 rather than the major one, which is the usual pre-1.0 convention.
 
+### The release token
+
+GitHub does not trigger workflows from events made with the default
+`GITHUB_TOKEN`, so a release pull request opened by it never gets its required
+checks reported and cannot be merged without nudging it by hand.
+
+The fix is a repository secret named `RELEASE_PLEASE_TOKEN`: a fine-grained
+personal access token scoped to this repository alone, with **Contents:
+read and write** and **Pull requests: read and write**, and nothing else. The
+release workflow falls back to `GITHUB_TOKEN` when the secret is absent, so the
+pipeline works either way — the token only removes the two manual steps.
+
+If a release pull request ever sits with no checks reported, that secret has
+expired.
+
 ## Scope
 
 v1 does eight things: connect over LDAPS or StartTLS, browse the DIT, browse the
