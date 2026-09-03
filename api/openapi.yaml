@@ -274,6 +274,66 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /changeset/preview:
+    post:
+      tags: [changes]
+      operationId: previewChangeset
+      summary: Render several changes as one LDIF document and one playbook
+      description: |
+        A changeset is an ordered list of changes reviewed and applied together.
+        It is held by the client, not the server: Alder keeps no per-session
+        state beyond the connection itself, so this endpoint is a pure
+        rendering of whatever it is given.
+
+        The order is the caller's and is preserved exactly. Alder does not sort
+        the changes to make them work -- an entry created before its parent is
+        reported as a warning so it can be reordered, because guessing the
+        intended order silently is worse than saying what is wrong.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangesetRequest" }
+      responses:
+        "200":
+          description: The rendered changeset.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangesetPreview" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /changeset/apply:
+    post:
+      tags: [changes]
+      operationId: applyChangeset
+      summary: Apply several changes in order
+      description: |
+        Applies each change in the order given and stops at the first failure.
+
+        A directory has no transaction spanning entries, so a changeset is not
+        atomic and does not pretend to be. The response says exactly which
+        changes were applied and which was not, so the caller can fix the one
+        that failed and resume from there rather than starting again and
+        re-applying what already succeeded.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangesetRequest" }
+      responses:
+        "200":
+          description: |
+            The run finished. This is returned whether or not every change
+            succeeded: a partial run is an outcome to report, not an error to
+            raise, and the body says where it stopped.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangesetResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /export/ldif:
     get:
       tags: [transfer]
@@ -836,6 +896,71 @@ components:
           description: The entry's DN after the change, which differs for a rename.
         summary: { type: string }
         ldif: { type: string }
+
+    ChangesetRequest:
+      type: object
+      required: [changes]
+      properties:
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { $ref: "#/components/schemas/ChangeRequest" }
+          description: |
+            The changes, in the order they should be applied. A cap exists
+            because the whole set is rendered and applied in one request.
+
+    ChangesetPreview:
+      type: object
+      required: [ldif, changes]
+      properties:
+        ldif:
+          type: string
+          description: |
+            Every change as one RFC 2849 document, in order. A password change
+            appears as the notice explaining it has no LDIF form, so the
+            document describes the run rather than silently omitting a step.
+        ansiblePlaybook:
+          type: string
+          description: One playbook containing every task, in the same order.
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/ChangePreview" }
+        warnings:
+          type: array
+          items: { type: string }
+          description: |
+            Findings about the set as a whole, such as an entry created before
+            its parent, or the same DN changed twice.
+
+    ChangesetOutcome:
+      type: object
+      required: [index, dn, applied]
+      properties:
+        index:
+          type: integer
+          description: Position in the submitted list.
+        dn: { type: string }
+        applied: { type: boolean }
+        summary: { type: string }
+        error:
+          $ref: "#/components/schemas/Error"
+
+    ChangesetResult:
+      type: object
+      required: [outcomes, appliedCount]
+      properties:
+        outcomes:
+          type: array
+          items: { $ref: "#/components/schemas/ChangesetOutcome" }
+          description: |
+            One per submitted change, in order. Entries after a failure are
+            reported as not applied rather than omitted, so the caller can see
+            what remains.
+        appliedCount: { type: integer }
+        failedIndex:
+          type: integer
+          description: The index that failed, absent when every change succeeded.
 
     ImportRequest:
       type: object

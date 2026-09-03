@@ -163,3 +163,40 @@ to contradict the plan — add an entry.
   sensitive ones were withheld from the browser by design. The dialog names what
   it could not copy rather than producing an account with no password and saying
   nothing.
+
+### 2026-09-04 — changesets
+
+- **The basket lives in the browser, not the server.** v1 is stateless, and a
+  per-session basket on the server would be state to expire, to leak between
+  tabs, and to clean up. The list arrives with each request, is rendered or
+  applied, and is forgotten. The cost is that a refresh loses staged work, which
+  the empty state says outright rather than leaving to be discovered.
+- **And it is held in memory, not `sessionStorage`.** Surviving a refresh would
+  be genuinely nicer. A staged password change carries the new password in
+  plaintext, and writing that to browser storage to buy a convenience would
+  break the rule that credentials never persist.
+- **Alder warns about ordering and reorders nothing.** It reports what no single
+  change can see — an entry created before its parent, an entry acted on after
+  being deleted, the same entry changed twice — and leaves the order alone.
+  Sorting automatically would be guessing at intent: a rename that moves an entry
+  under something created later is legitimate, and rearranging it silently would
+  apply something other than what was reviewed. None of the warnings block; the
+  directory is the authority, and a warning that turns out to be wrong should
+  cost a reading rather than a refusal.
+- **The whole set is validated before any of it runs.** It cannot make the run
+  atomic — nothing can, LDAP has no transaction across entries — but a malformed
+  change at position twelve should not apply the first eleven first.
+- **A partial run is a 200 with an outcome per change, not an error status.** The
+  body says where it stopped; a non-200 invites callers to retry the whole set,
+  which is exactly wrong when half of it already applied. Every change after the
+  failure is reported by name as not attempted rather than omitted, so the panel
+  can be checked against the list that was submitted. What did not apply stays
+  staged, in order, so the fix is to correct one change and apply again.
+- **Staging goes through the same confirmation as applying.** The button sits
+  next to Apply in the dialog that already renders the LDIF. A changeset is a
+  different moment to apply a reviewed change, never a way around reviewing it.
+- **The combined document is a real multi-record LDIF file**, asserted by parsing
+  it back with Alder's own reader rather than by matching text — so what the
+  changeset view offers as a download is something Import can read. A password
+  change, which has no LDIF form, still appears in it as comments; a document
+  describing fewer steps than the run performs would be worse than none.

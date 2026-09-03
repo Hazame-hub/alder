@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ListChecks, Loader2, ShieldAlert } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { ApplyResult, ChangeRequest } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { LdifBlock } from "@/components/ldif-block";
+import { changeset } from "@/lib/changeset";
 
 /**
  * ChangeDialog is the confirmation step every write goes through.
@@ -29,6 +30,7 @@ export function ChangeDialog({
   open,
   onOpenChange,
   onApplied,
+  onStaged,
   title,
   destructive,
 }: {
@@ -36,6 +38,7 @@ export function ChangeDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onApplied?: (result: ApplyResult) => void;
+  onStaged?: () => void;
   title?: string;
   destructive?: boolean;
 }) {
@@ -173,6 +176,23 @@ export function ChangeDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
+          </Button>
+          {/*
+            Staging queues the same ChangeRequest the Apply button would send,
+            after the same review. The changeset is a different moment to apply
+            it, not a way around confirming it.
+          */}
+          <Button
+            variant="outline"
+            disabled={!data || apply.isPending}
+            onClick={() => {
+              changeset.add(change as ChangeRequest, data?.summary ?? "change");
+              onOpenChange(false);
+              onStaged?.();
+            }}
+          >
+            <ListChecks />
+            Add to changeset
           </Button>
           <Button
             variant={destructive ? "destructive" : "default"}
