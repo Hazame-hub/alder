@@ -36,6 +36,8 @@ const (
 	modulePw   = "community.general.ldap_passwd"
 	// The new password is a variable for the same reason the bind password is:
 	// a generated file gets pasted into a repository.
+	// #nosec G101 -- a template placeholder, which is precisely what stops a
+	// real password being written into generated output.
 	varNewPW = "{{ ldap_new_password }}"
 )
 

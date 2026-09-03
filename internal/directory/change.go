@@ -216,6 +216,7 @@ func ldifModOp(op ModOp) ldif.ModOp {
 // change. Showing "replace: userPassword" would describe a different operation
 // than the one performed, and the whole point of the preview is that it does
 // not.
+// #nosec G101 -- prose shown in place of LDIF, containing no credential.
 const passwordNotice = `# This is an LDAP Password Modify extended operation (RFC 3062),
 # not a modification, so it has no LDIF representation. The server
 # chooses the hashing scheme and applies its own password policy.
