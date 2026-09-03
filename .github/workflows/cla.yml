@@ -38,8 +38,11 @@ jobs:
           path-to-document: https://github.com/Hazame-hub/alder/blob/main/CLA.md
           branch: cla-signatures
           # The maintainer's own commits do not need a grant from themselves,
-          # and neither do the bots that open dependency pull requests.
-          allowlist: Hazame-hub,dependabot[bot],renovate[bot]
+          # and neither do the bots that open dependency or release pull
+          # requests. github-actions[bot] authors the release-please pull
+          # request; without it here, "cla" is a required check that bot can
+          # never satisfy and releases deadlock.
+          allowlist: Hazame-hub,dependabot[bot],renovate[bot],github-actions[bot]
           custom-notsigned-prcomment: >-
             Thanks for the pull request.
 
