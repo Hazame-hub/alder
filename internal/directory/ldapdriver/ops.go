@@ -289,6 +289,18 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 		err = s.conn.Modify(req)
 	case directory.ChangeDelete:
 		err = s.conn.Del(ldap.NewDelRequest(ch.DN.String(), nil))
+	case directory.ChangeSetPassword:
+		// RFC 3062. The server hashes according to its own configuration and
+		// enforces its own password policy, which writing a hash into
+		// userPassword would bypass. Both target servers advertise it; a server
+		// that does not is told about rather than silently downgraded to a
+		// client-side hash.
+		if !s.caps.PasswordModify {
+			return errors.New("directory: this server does not offer the LDAP Password Modify " +
+				"extended operation, and Alder will not write a password hash directly")
+		}
+		req := ldap.NewPasswordModifyRequest(ch.DN.String(), "", ch.NewPassword)
+		_, err = s.conn.PasswordModify(req)
 	case directory.ChangeModRDN:
 		newSuperior := ""
 		if len(ch.NewSuperior) > 0 {

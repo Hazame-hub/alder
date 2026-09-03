@@ -33,6 +33,10 @@ const (
 	varBindPW  = "{{ ldap_bind_pw }}"
 	moduleAttr = "community.general.ldap_attrs"
 	moduleEnt  = "community.general.ldap_entry"
+	modulePw   = "community.general.ldap_passwd"
+	// The new password is a variable for the same reason the bind password is:
+	// a generated file gets pasted into a repository.
+	varNewPW = "{{ ldap_new_password }}"
 )
 
 // Task renders a change record as one or more Ansible tasks.
@@ -53,6 +57,8 @@ func Task(c directory.ChangeRecord) (string, error) {
 		writeDelete(&b, c)
 	case directory.ChangeModify:
 		writeModify(&b, c)
+	case directory.ChangeSetPassword:
+		writeSetPassword(&b, c)
 	case directory.ChangeModRDN:
 		writeRename(&b, c)
 	default:
@@ -137,6 +143,19 @@ func writeModify(b *strings.Builder, c directory.ChangeRecord) {
 		}
 		fmt.Fprintf(b, "    state: %s%s\n", state, comment)
 	}
+}
+
+// writeSetPassword emits a task for a password change.
+//
+// ldap_passwd is idempotent in the way Ansible means it: it sets the password
+// only if the current one does not already match, so a replayed playbook does
+// not report a change every run.
+func writeSetPassword(b *strings.Builder, c directory.ChangeRecord) {
+	fmt.Fprintf(b, "- name: %s\n", yamlScalar(fmt.Sprintf("Set the password of %s", c.DN)))
+	fmt.Fprintf(b, "  %s:\n", modulePw)
+	writeConnection(b)
+	fmt.Fprintf(b, "    dn: %s\n", yamlScalar(c.DN.String()))
+	fmt.Fprintf(b, "    passwd: %s\n", yamlScalar(varNewPW))
 }
 
 // writeRename emits a task for a modrdn.

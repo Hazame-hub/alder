@@ -128,3 +128,38 @@ to contradict the plan — add an entry.
   to what, and when, is in git rather than in a third-party service.
 - **Timing mattered.** The CLA went in before the repository accepted any
   outside contribution, which is the only moment it is free to do.
+
+### 2026-09-03 — passwords, DN pickers, and narrower modifications
+
+- **Passwords are set with the RFC 3062 extended operation, never by writing a
+  hash.** The server then chooses the scheme and applies its own password
+  policy. This is not theoretical: the conformance suite shows OpenLDAP storing
+  `{SSHA}` and 389 DS storing `{PBKDF2-…}` for the same call. Hashing in the
+  client would have picked one and forced it on both, quietly downgrading 389
+  DS. A server that does not advertise the extension is told so rather than
+  silently downgraded.
+- **A password change is a `ChangeRecord` but has no LDIF.** It goes through
+  `Session.Apply` like every other write, so there is still exactly one write
+  path, but the preview shows a notice and the equivalent `ldappasswd` command
+  instead of a change record. Rendering `replace: userPassword` would describe
+  an operation that does not happen, and the preview exists to describe the one
+  that does. `NewPassword` is never rendered, logged, or returned.
+- **The DN picker is generic, not a group feature.** Every attribute whose
+  syntax is a DN gets it — `member`, `manager`, `seeAlso`, `owner` — because
+  special-casing groups would have solved one case and left the rest. The filter
+  it suggests is per-attribute and editable, since a group legitimately contains
+  other groups.
+- **An edit that only adds or only removes values emits `add` or `delete`, not
+  `replace`.** The earlier rule — that a modification is always a replace, so
+  the LDIF reads "this attribute ends up as exactly this" — is right for
+  single-valued attributes and wholesale rewrites, and wrong for the case that
+  matters most. Adding one person to a fifty-person group by replacing the whole
+  member list silently removes anyone another administrator added since the
+  entry was read. Group membership is the most concurrently edited attribute a
+  directory has. A mixed edit or a reordering is still a replace, because
+  nothing narrower describes it.
+- **A copy leaves behind what the directory owns and what was never sent.**
+  Operational and NO-USER-MODIFICATION attributes describe the original;
+  sensitive ones were withheld from the browser by design. The dialog names what
+  it could not copy rather than producing an account with no password and saying
+  nothing.

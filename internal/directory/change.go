@@ -20,6 +20,14 @@ const (
 	ChangeModify ChangeType = "modify"
 	ChangeDelete ChangeType = "delete"
 	ChangeModRDN ChangeType = "modrdn"
+	// ChangeSetPassword is an RFC 3062 Password Modify extended operation.
+	//
+	// It is a ChangeRecord so that it goes through Session.Apply like every
+	// other write, but it is not a modify and it has no LDIF representation.
+	// Rendering it as "replace: userPassword" would be a lie: the server picks
+	// the hashing scheme and applies its own password policy, and what actually
+	// crosses the wire is an extended request, not a modification.
+	ChangeSetPassword ChangeType = "setpassword"
 )
 
 // ModOp is the operation of one modification.
@@ -62,6 +70,11 @@ type ChangeRecord struct {
 	NewRDN       string
 	DeleteOldRDN bool
 	NewSuperior  dn.DN
+
+	// NewPassword applies to ChangeSetPassword. It is the one field on this
+	// struct that must never be rendered, logged, or returned to a client;
+	// LDIF(), AnsibleTask() and Summary() all substitute a placeholder.
+	NewPassword string
 }
 
 // Attribute is an attribute description and its values, in the order they
@@ -123,6 +136,10 @@ func (c ChangeRecord) Validate() error {
 		}
 	case ChangeDelete:
 		// Nothing beyond the DN.
+	case ChangeSetPassword:
+		if c.NewPassword == "" {
+			return errors.New("directory: a password change requires a new password")
+		}
 	case ChangeModRDN:
 		if c.NewRDN == "" {
 			return errors.New("directory: a rename requires a new RDN")
@@ -195,12 +212,28 @@ func ldifModOp(op ModOp) ldif.ModOp {
 	}
 }
 
+// passwordNotice is what the preview shows in place of LDIF for a password
+// change. Showing "replace: userPassword" would describe a different operation
+// than the one performed, and the whole point of the preview is that it does
+// not.
+const passwordNotice = `# This is an LDAP Password Modify extended operation (RFC 3062),
+# not a modification, so it has no LDIF representation. The server
+# chooses the hashing scheme and applies its own password policy.
+#
+# The equivalent on the command line:
+#
+#   ldappasswd -H $LDAP_URI -D "$BIND_DN" -W -S %s
+`
+
 // LDIF renders the change as an RFC 2849 change record.
 //
 // This is what the preview modal shows and what the confirm button confirms.
 // Folding is disabled: the point of the preview is that a person reads it, and
 // a value broken across lines at column 76 is harder to check, not easier.
 func (c ChangeRecord) LDIF() string {
+	if c.Type == ChangeSetPassword {
+		return fmt.Sprintf(passwordNotice, c.DN)
+	}
 	var b strings.Builder
 	w := ldif.NewWriter(&b)
 	w.LineWidth = -1
@@ -211,6 +244,9 @@ func (c ChangeRecord) LDIF() string {
 // LDIFFolded renders the change folded at the RFC's 76 columns, for download
 // and for copying into a file that other tools will read.
 func (c ChangeRecord) LDIFFolded() string {
+	if c.Type == ChangeSetPassword {
+		return fmt.Sprintf(passwordNotice, c.DN)
+	}
 	var b strings.Builder
 	w := ldif.NewWriter(&b)
 	_ = w.WriteRecord(c.ldifRecord())
@@ -252,6 +288,9 @@ func (c ChangeRecord) Summary() string {
 		return fmt.Sprintf("add %s", c.DN)
 	case ChangeDelete:
 		return fmt.Sprintf("delete %s", c.DN)
+	case ChangeSetPassword:
+		// Never the value, at any level. This string reaches the log.
+		return fmt.Sprintf("set the password of %s", c.DN)
 	case ChangeModRDN:
 		if len(c.NewSuperior) > 0 {
 			return fmt.Sprintf("move %s to %s,%s", c.DN, c.NewRDN, c.NewSuperior)
