@@ -15,6 +15,16 @@ name: release
 on:
   push:
     branches: [main]
+  # Manual recovery. If the release job half-succeeds -- creating the tag and
+  # the release but failing before the artifacts are built -- there would
+  # otherwise be no way to finish it, because the next push finds the release
+  # already made and skips the build.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The existing tag to build and publish artifacts for
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -23,6 +33,7 @@ permissions:
 jobs:
   release-please:
     name: prepare the release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       released: ${{ steps.release.outputs.release_created }}
@@ -40,8 +51,14 @@ jobs:
     needs: release-please
     # Only when merging the release pull request actually cut a release. Every
     # other push to main stops at the job above, which just refreshes the
-    # pending release pull request.
-    if: needs.release-please.outputs.released == 'true'
+    # pending release pull request. always() is needed because release-please
+    # is skipped on a manual dispatch, and a skipped dependency would otherwise
+    # skip this too.
+    if: >-
+      always() && (
+        (github.event_name == 'push' && needs.release-please.outputs.released == 'true') ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -53,7 +70,7 @@ jobs:
           fetch-depth: 0
           # Build the tag release-please just created rather than the branch
           # head, so the version compiled into the binary is the one released.
-          ref: ${{ needs.release-please.outputs.tag }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.release-please.outputs.tag }}
 
       - uses: actions/setup-go@v7
         with:

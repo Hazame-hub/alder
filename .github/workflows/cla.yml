@@ -58,3 +58,9 @@ jobs:
           custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
           custom-allsigned-prcomment: >-
             All contributors have signed the CLA. Thank you.
+          # The action locks a pull request once it is merged. release-please
+          # comments on its own release pull request after merging it, so the
+          # lock made the release job fail with "issue is locked" -- after it
+          # had already created the tag and the release, leaving a release with
+          # no artifacts.
+          lock-pullrequest-aftermerge: false
