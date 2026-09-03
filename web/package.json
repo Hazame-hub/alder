@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "The Alder single-page application. Built into the Go binary by `make web`.",
+  "description": "The Alder single-page application. Built into the Go binary by `task web`.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -10,5 +10,5 @@ server it is talking to is a bug report about the driver.
 It runs against `test/compose`, which is ready now. See that directory's README
 for endpoints, credentials, and the divergences already known.
 
-`make test-conformance` will run it. It must be green on both servers before
+`task test:conformance` will run it. It must be green on both servers before
 any feature is considered done.

@@ -93,7 +93,7 @@ to contradict the plan — add an entry.
   the binary was built from a modified tree.
 - **GoReleaser does not build the SPA.** `embed.FS` resolves at compile time, so
   a `before` hook would let a local `goreleaser build` silently ship whichever
-  SPA the developer last built. The release workflow runs `make web` first and
+  SPA the developer last built. The release workflow runs `task web` first and
   GoReleaser asserts the output exists, failing loudly if it does not.
 - **The editor holds a frozen baseline.** It used to derive one from the live
   query, so any refetch discarded in-progress edits. Freezing it also made

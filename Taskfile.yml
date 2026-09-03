@@ -1,0 +1,183 @@
+# https://taskfile.dev
+#
+# Run `task` with no arguments to list everything.
+#
+# Chosen over make for the reason that actually bites on this project: several
+# targets are multi-step shell that make runs one line per process, so every
+# `cd web && ...` needs joining with && and every `$` needs doubling. Task runs
+# a task body as one script, and the sources/generates fields express "rebuild
+# only when these changed" without writing sentinel files.
+
+version: "3"
+
+vars:
+  BIN: bin/alder
+  COMPOSE: docker compose -f test/compose/docker-compose.yml
+  # Vite empties this directory on every build. .gitkeep is put back by a Vite
+  # plugin rather than here, so a bare `npm run build` cannot leave the tree in
+  # a state where `go build` fails on //go:embed.
+  WEB_OUT: internal/web/dist
+
+tasks:
+  default:
+    desc: List the available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  # --- build ---------------------------------------------------------------
+
+  generate:
+    desc: Regenerate the API types from api/openapi.yaml
+    # The spec is the source of truth. Edit it, run this, then satisfy the
+    # compiler on both sides.
+    cmds:
+      - go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen -config api/codegen.yaml api/openapi.yaml
+      - npm --prefix web run generate
+
+  web:
+    desc: Build the SPA into the binary's embedded filesystem
+    sources:
+      - web/src/**/*
+      - web/index.html
+      - web/package.json
+      - web/package-lock.json
+      - web/vite.config.ts
+      - api/openapi.yaml
+    generates:
+      - "{{.WEB_OUT}}/index.html"
+    cmds:
+      - npm --prefix web install
+      - npm --prefix web run build
+
+  build:
+    desc: Build the alder binary with the SPA embedded
+    deps: [web]
+    cmds:
+      - go build -o {{.BIN}} ./cmd/alder
+
+  build:go:
+    desc: Build the binary without rebuilding the SPA
+    cmds:
+      - go build -o {{.BIN}} ./cmd/alder
+
+  dev:
+    desc: Print the two commands that run the API and the Vite dev server
+    silent: true
+    # Two processes on purpose: the SPA reloads on save without a Go rebuild.
+    cmds:
+      - echo "run these in two terminals:"
+      - echo "  go run ./cmd/alder serve --addr 127.0.0.1:8899 --allow-http --log-level debug"
+      - echo "  npm --prefix web run dev"
+
+  # --- checks --------------------------------------------------------------
+
+  test:
+    desc: Run the unit tests
+    cmds:
+      - go test ./...
+
+  test:race:
+    desc: Run the unit tests with the race detector
+    cmds:
+      - go test -race ./...
+
+  cover:
+    desc: Run the unit tests and report total coverage
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out | tail -1
+
+  fuzz:
+    desc: Run every fuzz target briefly, as a smoke test
+    # The seed corpora run as ordinary unit tests; this gives them a short
+    # random budget as well, which is where the interesting inputs have always
+    # come from.
+    cmds:
+      - go test ./internal/dn -run FuzzParse -fuzz FuzzParse -fuzztime 30s
+      - go test ./internal/filter -run FuzzParse -fuzz FuzzParse -fuzztime 30s
+      - go test ./internal/schema -run FuzzParseObjectClass -fuzz FuzzParseObjectClass -fuzztime 30s
+      - go test ./internal/schema -run FuzzParseAttributeType -fuzz FuzzParseAttributeType -fuzztime 30s
+      - go test ./internal/ldif -run FuzzUnmarshal -fuzz FuzzUnmarshal -fuzztime 30s
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run
+
+  fmt:
+    desc: Format the Go sources
+    cmds:
+      - gofmt -w $(git ls-files '*.go')
+
+  typecheck:
+    desc: Type-check the SPA
+    cmds:
+      - npm --prefix web run typecheck
+
+  check:
+    desc: Everything CI runs
+    cmds:
+      - task: vet
+      - task: lint
+      - task: test
+
+  # --- the conformance harness ---------------------------------------------
+
+  seed:
+    desc: Regenerate the committed seed LDIF
+    cmds:
+      - go run ./test/compose/seed/gen -out test/compose/seed
+
+  compose:up:
+    desc: Bring the two directory servers up and seed them
+    cmds:
+      - "{{.COMPOSE}} up --build --detach --wait certs openldap ds389"
+      - "{{.COMPOSE}} run --rm --build seed"
+
+  compose:down:
+    desc: Tear the harness down, keeping the test CA
+    cmds:
+      - "{{.COMPOSE}} down --remove-orphans"
+
+  compose:reset:
+    desc: Tear the harness down and discard the test CA too
+    cmds:
+      - "{{.COMPOSE}} down --remove-orphans --volumes"
+      - rm -rf test/compose/certs
+
+  compose:logs:
+    desc: Follow the harness logs
+    cmds:
+      - "{{.COMPOSE}} logs --follow"
+
+  test:conformance:
+    desc: Run the conformance suite against both servers
+    # Behind a build tag so a plain `go test ./...` needs no Docker. It asserts
+    # identical behaviour from one table; there is no per-vendor test file and
+    # adding one would defeat the point.
+    cmds:
+      - go test -tags conformance -count=1 -timeout 300s ./test/conformance/
+
+  test:conformance:up:
+    desc: Bring the harness up, then run the conformance suite
+    cmds:
+      - task: compose:up
+      - task: test:conformance
+
+  # --- packaging -----------------------------------------------------------
+
+  docker:
+    desc: Build the distroless image from source
+    cmds:
+      - docker build -t alder:dev .
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf bin dist coverage.out web/dist {{.WEB_OUT}}/assets {{.WEB_OUT}}/index.html

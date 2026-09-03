@@ -1,4 +1,4 @@
-# oapi-codegen configuration. Run "make generate" after editing openapi.yaml.
+# oapi-codegen configuration. Run "task generate" after editing openapi.yaml.
 #
 # Only models and the Fiber server interface are generated. The handlers that
 # satisfy that interface are written by hand in internal/api: generated

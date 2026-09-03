@@ -19,7 +19,7 @@ const gitkeep = [
  * `emptyOutDir` deletes it on every build.
  *
  * Restoring it here rather than in the Makefile means it happens on every path
- * that builds the SPA: `make web`, a bare `npm run build`, and the Docker
+ * that builds the SPA: `task web`, a bare `npm run build`, and the Docker
  * stage. Leaving it to the caller to remember has broken the Go build twice.
  */
 function keepEmbedDirectory(): Plugin {
