@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/Hazame-hub/alder/compare/v0.2.0...v0.3.0) (2026-09-03)
+
+
+### Features
+
+* set passwords, pick DNs, and copy entries ([#14](https://github.com/Hazame-hub/alder/issues/14)) ([24defdc](https://github.com/Hazame-hub/alder/commit/24defdc1f044f9ae21de15511741daff61ce2d37))
+
 ## [0.2.0](https://github.com/Hazame-hub/alder/compare/v0.1.2...v0.2.0) (2026-09-03)
 
 
