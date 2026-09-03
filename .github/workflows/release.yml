@@ -101,6 +101,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # .goreleaser.yaml asks for an SBOM per archive, and GoReleaser shells
+      # out to syft to produce them. It is not on the runner by default, and
+      # its absence only shows up after every archive has been built.
+      - uses: anchore/sbom-action/download-syft@v0
+
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
