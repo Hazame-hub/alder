@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2](https://github.com/Hazame-hub/alder/compare/v0.1.1...v0.1.2) (2026-09-03)
+
+
+### Fixes
+
+* **ci:** copy the binary from the platform path dockers_v2 stages it at ([#10](https://github.com/Hazame-hub/alder/issues/10)) ([e6629dc](https://github.com/Hazame-hub/alder/commit/e6629dcba27be433a1b00ee9acacf4eea998e6f2))
+* **ci:** install syft so the SBOMs GoReleaser is asked for can be built ([#8](https://github.com/Hazame-hub/alder/issues/8)) ([f050fd0](https://github.com/Hazame-hub/alder/commit/f050fd0db31f68fbc23489c3aa597737faf2ecac))
+* **ci:** stop the CLA lock breaking releases, and make a half-release recoverable ([#7](https://github.com/Hazame-hub/alder/issues/7)) ([25c923c](https://github.com/Hazame-hub/alder/commit/25c923c2b920e6ce5dec94f94a305ac353be57ee))
+
 ## [0.1.1](https://github.com/Hazame-hub/alder/compare/v0.1.0...v0.1.1) (2026-09-03)
 
 
