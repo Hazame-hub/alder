@@ -47,7 +47,11 @@ tasks:
     generates:
       - "{{.WEB_OUT}}/index.html"
     cmds:
-      - npm --prefix web install
+      # ci, not install: install may rewrite package-lock.json, which leaves the
+      # tree dirty and makes GoReleaser refuse to release. ci installs exactly
+      # what the lockfile says and never modifies it, which is what a build
+      # feeding a release wants anyway.
+      - npm --prefix web ci
       - npm --prefix web run build
 
   build:
