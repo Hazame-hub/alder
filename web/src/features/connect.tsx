@@ -16,6 +16,7 @@ import {
 } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { AlderMark } from "@/components/mark";
+import * as recent from "@/lib/recent-connection";
 
 type Tls = "ldaps" | "starttls" | "plaintext";
 
@@ -28,16 +29,21 @@ const defaultPorts: Record<Tls, number> = {
 export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) => void }) {
   const queryClient = useQueryClient();
 
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState(636);
-  const [portTouched, setPortTouched] = useState(false);
-  const [tls, setTls] = useState<Tls>("ldaps");
-  const [bindDn, setBindDn] = useState("");
+  // Everything except the password is restored from the last successful
+  // connection. Reconnecting to the same directory should not mean finding and
+  // re-pasting its CA certificate.
+  const [remembered] = useState(() => recent.load());
+
+  const [host, setHost] = useState(remembered?.host ?? "");
+  const [port, setPort] = useState(remembered?.port ?? 636);
+  const [portTouched, setPortTouched] = useState(remembered !== null);
+  const [tls, setTls] = useState<Tls>(remembered?.tls ?? "ldaps");
+  const [bindDn, setBindDn] = useState(remembered?.bindDn ?? "");
   const [bindPassword, setBindPassword] = useState("");
-  const [insecure, setInsecure] = useState(false);
+  const [insecure, setInsecure] = useState(remembered?.insecureSkipVerify ?? false);
   const [showCa, setShowCa] = useState(false);
-  const [caCertificate, setCaCertificate] = useState("");
-  const [serverName, setServerName] = useState("");
+  const [caCertificate, setCaCertificate] = useState(remembered?.caCertificate ?? "");
+  const [serverName, setServerName] = useState(remembered?.serverName ?? "");
 
   const connect = useMutation<SessionInfo, ApiFailure>({
     mutationFn: async () =>
@@ -57,8 +63,18 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
       ),
     onSuccess: (info) => {
       // The password is dropped from component state the moment the session
-      // exists. The server holds it; this form has no further use for it.
+      // exists. The server holds it; this form has no further use for it, and
+      // it is deliberately not among the fields remembered below.
       setBindPassword("");
+      recent.save({
+        host: host.trim(),
+        port,
+        tls,
+        bindDn: bindDn.trim(),
+        serverName: serverName.trim(),
+        caCertificate: caCertificate.trim(),
+        insecureSkipVerify: insecure,
+      });
       void queryClient.invalidateQueries();
       onConnected(info);
     },
@@ -172,7 +188,7 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
           </div>
 
           <details
-            open={showCa}
+            open={showCa || (remembered?.caCertificate ?? "") !== ""}
             onToggle={(e) => setShowCa((e.currentTarget as HTMLDetailsElement).open)}
             className="rounded-md border border-border"
           >
@@ -232,9 +248,35 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
           </Button>
         </form>
 
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          Nothing is written to the directory without showing you the LDIF first.
-        </p>
+        {remembered ? (
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            Reconnecting to{" "}
+            <span className="font-dn">{recent.describe(remembered)}</span>. The
+            password is never remembered.{" "}
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-foreground"
+              onClick={() => {
+                recent.forget();
+                setHost("");
+                setPort(636);
+                setPortTouched(false);
+                setTls("ldaps");
+                setBindDn("");
+                setServerName("");
+                setCaCertificate("");
+                setInsecure(false);
+              }}
+            >
+              Forget it
+            </button>
+          </p>
+        ) : (
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            Nothing is written to the directory without showing you the LDIF
+            first.
+          </p>
+        )}
       </div>
     </div>
   );

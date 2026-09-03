@@ -13,3 +13,6 @@
 
 # Task’s local up-to-date cache. Machine-specific; never shared.
 /.task/
+
+# TypeScript incremental build state. Machine-specific, like .task/.
+*.tsbuildinfo
