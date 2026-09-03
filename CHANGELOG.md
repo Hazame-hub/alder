@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/Hazame-hub/alder/compare/v0.1.2...v0.2.0) (2026-09-03)
+
+
+### Features
+
+* **web:** remember everything about a connection except the password ([#12](https://github.com/Hazame-hub/alder/issues/12)) ([a6add69](https://github.com/Hazame-hub/alder/commit/a6add6998ea2c115219ebea1b6936fed4471efce))
+
 ## [0.1.2](https://github.com/Hazame-hub/alder/compare/v0.1.1...v0.1.2) (2026-09-03)
 
 
