@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/Hazame-hub/alder/compare/v0.1.0...v0.1.1) (2026-09-03)
+
+
+### Fixes
+
+* **build:** use npm ci in the web task so the tree stays clean ([#5](https://github.com/Hazame-hub/alder/issues/5)) ([4b3cb6e](https://github.com/Hazame-hub/alder/commit/4b3cb6e043236b1166e0c841a9c7763b0ab38733))
+
 ## 0.1.0 (2026-09-03)
 
 
