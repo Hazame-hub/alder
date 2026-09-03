@@ -35,6 +35,9 @@ export type ChangeRequest = Schemas["ChangeRequest"];
 export type ChangePreview = Schemas["ChangePreview"];
 export type ChangeMod = Schemas["ChangeMod"];
 export type ApplyResult = Schemas["ApplyResult"];
+export type ChangesetPreview = Schemas["ChangesetPreview"];
+export type ChangesetResult = Schemas["ChangesetResult"];
+export type ChangesetOutcome = Schemas["ChangesetOutcome"];
 export type ImportResult = Schemas["ImportResult"];
 export type ApiError = Schemas["Error"];
 
