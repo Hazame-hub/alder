@@ -434,6 +434,12 @@ components:
         paging: { type: boolean }
         serverSort: { type: boolean }
         whoAmI: { type: boolean }
+        passwordModify:
+          type: boolean
+          description: |
+            RFC 3062 Password Modify. Where a server offers it, Alder sets
+            passwords with it rather than writing a hash, so the server chooses
+            the scheme and applies its own policy.
 
     SessionInfo:
       type: object
@@ -776,7 +782,17 @@ components:
         dn: { type: string }
         type:
           type: string
-          enum: [add, modify, delete, modrdn]
+          enum: [add, modify, delete, modrdn, setpassword]
+        newPassword:
+          type: string
+          format: password
+          writeOnly: true
+          description: |
+            The new password, for `setpassword`. Write-only: it is never echoed
+            by the preview, never rendered into the LDIF or the Ansible task,
+            and never logged. A `setpassword` change is an RFC 3062 extended
+            operation rather than a modification, so it has no LDIF form; the
+            preview says so and shows the equivalent `ldappasswd` invocation.
         mods:
           type: array
           items: { $ref: "#/components/schemas/ChangeMod" }

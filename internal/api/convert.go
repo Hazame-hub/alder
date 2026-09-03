@@ -216,6 +216,9 @@ func capabilitiesView(c directory.Capabilities) Capabilities {
 		Paging:                  c.Paging,
 		ServerSort:              ptr(c.ServerSort),
 		WhoAmI:                  ptr(c.WhoAmI),
+		// The editor reads this to decide whether to offer a password control
+		// at all, rather than offering one that can only fail.
+		PasswordModify: ptr(c.PasswordModify),
 	}
 }
 
@@ -298,6 +301,12 @@ func changeRecord(req ChangeRequest) (directory.ChangeRecord, error) {
 		}
 	case ChangeRequestTypeDelete:
 		out.Type = directory.ChangeDelete
+	case ChangeRequestTypeSetpassword:
+		out.Type = directory.ChangeSetPassword
+		if req.NewPassword == nil || *req.NewPassword == "" {
+			return out, fmt.Errorf("a password change requires newPassword")
+		}
+		out.NewPassword = *req.NewPassword
 	case ChangeRequestTypeModrdn:
 		out.Type = directory.ChangeModRDN
 		if req.NewRdn == nil || *req.NewRdn == "" {
@@ -358,6 +367,11 @@ func changeRequest(c directory.ChangeRecord) ChangeRequest {
 		out.Mods = ptr(mods)
 	case directory.ChangeDelete:
 		out.Type = ChangeRequestTypeDelete
+	case directory.ChangeSetPassword:
+		// NewPassword is deliberately not copied. This direction produces the
+		// request an imported document would post back, and a password that
+		// came in from an LDIF is not something to hand out again.
+		out.Type = ChangeRequestTypeSetpassword
 	case directory.ChangeModRDN:
 		out.Type = ChangeRequestTypeModrdn
 		out.NewRdn = ptr(c.NewRDN)

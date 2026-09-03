@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
   Download,
@@ -9,6 +9,9 @@ import {
   Lock,
   Pencil,
   Plus,
+  KeyRound,
+  Copy,
+  Search as SearchIconAlias,
   Tag,
   Trash2,
   X,
@@ -20,6 +23,7 @@ import type {
   ChangeRequest,
   EntryAttribute,
   EntryView,
+  SessionInfo,
 } from "@/lib/api";
 import {
   displayText,
@@ -52,6 +56,8 @@ import {
   SelectValue,
 } from "@/components/ui";
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
+import { DnPicker } from "@/components/dn-picker";
+import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { CopyButton, LdifBlock } from "@/components/ldif-block";
 
 export function EntryPanel({
@@ -173,6 +179,15 @@ function EntryHeader({
   const [renaming, setRenaming] = useState(false);
   const [deleteChange, setDeleteChange] = useState<ChangeRequest | null>(null);
   const [adding, setAdding] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [settingPassword, setSettingPassword] = useState(false);
+
+  // Only offer a password control where the server can actually perform the
+  // operation, rather than offering one that can only fail.
+  const queryClient = useQueryClient();
+  const canSetPassword =
+    queryClient.getQueryData<SessionInfo>(["session"])?.capabilities
+      ?.passwordModify === true;
 
   return (
     <div className="border-b border-border px-5 py-3">
@@ -217,6 +232,20 @@ function EntryHeader({
                 <Plus />
                 Child
               </Button>
+              <Button variant="outline" size="sm" onClick={() => setCopying(true)}>
+                <Copy />
+                Copy
+              </Button>
+              {canSetPassword ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSettingPassword(true)}
+                >
+                  <KeyRound />
+                  Password
+                </Button>
+              ) : null}
               <Button variant="outline" size="sm" onClick={() => setRenaming(true)}>
                 <Tag />
                 Rename
@@ -260,6 +289,17 @@ function EntryHeader({
         open={adding}
         onOpenChange={setAdding}
         onCreated={onNavigate}
+      />
+      <CopyEntryDialog
+        entry={entry}
+        open={copying}
+        onOpenChange={setCopying}
+        onCreated={onNavigate}
+      />
+      <SetPasswordDialog
+        dn={entry.dn}
+        open={settingPassword}
+        onOpenChange={setSettingPassword}
       />
       <ChangeDialog
         change={deleteChange}
@@ -582,6 +622,16 @@ function EntryEditor({
   // reset the form, discarding whatever the user had typed. The entry the user
   // started from is the entry the change is computed against; drift is
   // reported below rather than applied behind their back.
+  const queryClient = useQueryClient();
+  const pickerBase = useMemo(() => {
+    const info = queryClient.getQueryData<SessionInfo>(["session"]);
+    const contexts = info?.capabilities?.namingContexts ?? [];
+    return (
+      contexts.find((c) => entry.dn.toLowerCase().endsWith(c.toLowerCase())) ??
+      contexts[0]
+    );
+  }, [queryClient, entry.dn]);
+
   const [original] = useState<Draft>(() => snapshot(entry.attributes));
   const [draft, setDraft] = useState<Draft>(() => snapshot(entry.attributes));
   const [added, setAdded] = useState<string[]>([]);
@@ -639,6 +689,7 @@ function EntryEditor({
             kind={attr.kind}
             required={attr.required === true}
             values={draft[attr.name] ?? []}
+            pickerBase={pickerBase}
             onChange={(values) => setDraft((d) => ({ ...d, [attr.name]: values }))}
           />
         ))}
@@ -656,6 +707,7 @@ function EntryEditor({
             }
             required={(entry.requirements?.must ?? []).includes(name)}
             values={draft[name] ?? [""]}
+            pickerBase={pickerBase}
             isNew
             onRemove={() => {
               setAdded((a) => a.filter((n) => n !== name));
@@ -728,6 +780,7 @@ function AttributeEditor({
   onChange,
   onRemove,
   isNew,
+  pickerBase,
 }: {
   name: string;
   kind: EntryAttribute["kind"];
@@ -736,9 +789,15 @@ function AttributeEditor({
   onChange: (values: string[]) => void;
   onRemove?: () => void;
   isNew?: boolean;
+  /** Search base for the DN picker, when this attribute holds DNs. */
+  pickerBase?: string;
 }) {
   const single = kind.singleValue === true;
   const asText = multiline(kind, values.map(textValue));
+  // A DN-valued attribute gets a picker. Typing a full distinguished name by
+  // hand is the step where "add this person to that group" goes wrong.
+  const isDn = kind.kind === "dn" && pickerBase !== undefined;
+  const [picking, setPicking] = useState<number | null>(null);
 
   const setAt = (i: number, v: string) => {
     const next = [...values];
@@ -821,19 +880,64 @@ function AttributeEditor({
         ))}
       </div>
 
-      {!single ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mt-2"
-          onClick={() => onChange([...values, ""])}
-        >
-          <Plus />
-          Add a value
-        </Button>
+      <div className="mt-2 flex items-center gap-1">
+        {!single ? (
+          <Button variant="ghost" size="sm" onClick={() => onChange([...values, ""])}>
+            <Plus />
+            Add a value
+          </Button>
+        ) : null}
+        {isDn ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setPicking(single ? 0 : values.length)}
+          >
+            <SearchIconAlias />
+            Find an entry
+          </Button>
+        ) : null}
+      </div>
+
+      {isDn && picking !== null ? (
+        <DnPicker
+          open
+          onOpenChange={(o) => !o && setPicking(null)}
+          baseDn={pickerBase as string}
+          title={`Choose a value for ${name}`}
+          suggestedFilter={suggestedFilterFor(name)}
+          onPick={(dn) => {
+            const next = [...values];
+            next[picking] = dn;
+            // Picking into the slot past the end is how "add another" works.
+            onChange(next.map((v) => v ?? ""));
+            setPicking(null);
+          }}
+        />
       ) : null}
     </div>
   );
+}
+
+/**
+ * suggestedFilterFor narrows the picker to what the attribute usually holds.
+ *
+ * It is a starting point shown in an editable box, not a rule: a group can
+ * legitimately contain another group, and the user can widen it.
+ */
+function suggestedFilterFor(attribute: string): string {
+  switch (attribute.toLowerCase()) {
+    case "member":
+    case "uniquemember":
+    case "memberof":
+      return "(|(objectClass=person)(objectClass=groupOfNames))";
+    case "manager":
+    case "secretary":
+    case "owner":
+      return "(objectClass=person)";
+    default:
+      return "(objectClass=*)";
+  }
 }
 
 function AddAttribute({
@@ -901,18 +1005,29 @@ function snapshot(attributes: EntryAttribute[]): Draft {
 /**
  * computeMods diffs the draft against the original values.
  *
- * A changed attribute becomes a `replace` carrying its whole new value set,
- * and an emptied one becomes a valueless `delete`. Replace is chosen over a
- * pair of add and delete operations because it is what the resulting LDIF
- * makes obvious: "this attribute ends up as exactly this", which is the thing
- * the user is being asked to confirm.
+ * An attribute that gained values only becomes an `add` of those values, and
+ * one that lost values only becomes a `delete` of those. Anything else -- a
+ * mixed edit, a reordering, a single-valued attribute -- becomes a `replace`
+ * carrying the whole new set, and an emptied attribute becomes a valueless
+ * `delete`.
+ *
+ * The narrow operations are not a cosmetic choice. Replacing is destructive
+ * under concurrency: adding one person to a fifty-person group by replacing the
+ * whole member list silently removes anyone another administrator added since
+ * the entry was read, and group membership is the most concurrently edited
+ * attribute a directory has. An `add` of the one value both administrators
+ * intended succeeds for both.
+ *
+ * It also makes the LDIF say what was meant. "add: member" with one line is the
+ * change; fifty-one lines of "replace: member" is the same change buried in its
+ * own context.
  */
 export function computeMods(original: Draft, draft: Draft, added: string[]): ChangeMod[] {
   const mods: ChangeMod[] = [];
   const names = new Set([...Object.keys(original), ...added]);
 
   for (const name of names) {
-    const before = (original[name] ?? []).slice();
+    const before = (original[name] ?? []).filter((v) => v !== "");
     const after = (draft[name] ?? []).filter((v) => v !== "");
 
     if (sameValues(before, after)) continue;
@@ -921,11 +1036,22 @@ export function computeMods(original: Draft, draft: Draft, added: string[]): Cha
       mods.push({ op: "delete", name });
       continue;
     }
-    mods.push({
-      op: "replace",
-      name,
-      values: after.map(textValue),
-    });
+
+    const gained = after.filter((v) => !before.includes(v));
+    const lost = before.filter((v) => !after.includes(v));
+
+    if (gained.length > 0 && lost.length === 0) {
+      mods.push({ op: "add", name, values: gained.map(textValue) });
+      continue;
+    }
+    if (lost.length > 0 && gained.length === 0) {
+      mods.push({ op: "delete", name, values: lost.map(textValue) });
+      continue;
+    }
+
+    // A mixed edit, or a reordering with the same members. Replace states the
+    // end result, which is the only thing that describes it honestly.
+    mods.push({ op: "replace", name, values: after.map(textValue) });
   }
   return mods;
 }

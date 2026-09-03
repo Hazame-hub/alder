@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hazame-hub/alder/internal/ansible"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
@@ -886,6 +887,118 @@ func TestApplyNonASCIIDN(t *testing.T) {
 			t.Errorf("DN = %s, want %s", e.DN, target)
 		}
 	})
+}
+
+func TestSetPassword(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		if !sess.Capabilities().PasswordModify {
+			t.Fatal("the server does not advertise RFC 3062 Password Modify, " +
+				"which Alder relies on rather than writing a hash itself")
+		}
+		base := writeBase(t, sess, "conf-passwd-"+s.name)
+		target, _ := base.ChildAttr("cn", "pw-subject")
+
+		if err := sess.Apply(ctx(t), directory.ChangeRecord{
+			DN:   target,
+			Type: directory.ChangeAdd,
+			Attrs: []directory.Attribute{
+				{Name: "objectClass", Values: bs("top", "person")},
+				{Name: "cn", Values: bs("pw-subject")},
+				{Name: "sn", Values: bs("Subject")},
+				{Name: "userPassword", Values: bs("first-password")},
+			},
+		}); err != nil {
+			t.Fatalf("Apply(add): %v", err)
+		}
+
+		const replacement = "second-password-9!"
+		if err := sess.Apply(ctx(t), directory.ChangeRecord{
+			DN:          target,
+			Type:        directory.ChangeSetPassword,
+			NewPassword: replacement,
+		}); err != nil {
+			t.Fatalf("Apply(setpassword): %v", err)
+		}
+
+		// The only assertion that matters: the new password authenticates and
+		// the old one does not. Reading userPassword back would prove nothing,
+		// since the server stores a hash of its own choosing.
+		if err := bindAs(t, s, target.String(), replacement); err != nil {
+			t.Errorf("the new password does not authenticate: %v", err)
+		}
+		if err := bindAs(t, s, target.String(), "first-password"); err == nil {
+			t.Error("the old password still authenticates after being changed")
+		}
+
+		// And the server, not Alder, chose how to store it.
+		e, err := sess.Read(ctx(t), target, []string{"userPassword"})
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		stored := e.GetOne("userPassword")
+		if stored == replacement {
+			t.Error("the password was stored in plain text")
+		}
+		if !strings.HasPrefix(stored, "{") {
+			t.Errorf("userPassword = %q, want a {scheme} prefix chosen by the server", first(stored, 12))
+		}
+		t.Logf("%s stored it as %s", s.name, first(stored, 8))
+	})
+}
+
+// TestSetPasswordNeverRendersTheValue guards the rule that matters more than
+// the feature: a password reaches the directory and nothing else.
+func TestSetPasswordNeverRendersTheValue(t *testing.T) {
+	const secret = "do-not-render-me-42"
+	c := directory.ChangeRecord{
+		DN:          dn.MustParse("cn=x,ou=people," + suffix),
+		Type:        directory.ChangeSetPassword,
+		NewPassword: secret,
+	}
+	task, err := ansible.Task(c)
+	if err != nil {
+		t.Fatalf("ansible.Task: %v", err)
+	}
+	for name, rendered := range map[string]string{
+		"LDIF":       c.LDIF(),
+		"LDIFFolded": c.LDIFFolded(),
+		"Summary":    c.Summary(),
+		"Ansible":    task,
+	} {
+		if strings.Contains(rendered, secret) {
+			t.Errorf("%s contains the new password", name)
+		}
+	}
+}
+
+// bindAs opens a fresh connection as the given DN, which is the only honest way
+// to test that a password works.
+func bindAs(t *testing.T, s server, bindDN, password string) error {
+	t.Helper()
+	drv := ldapdriver.New(slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	sess, err := drv.Connect(c, directory.ConnConfig{
+		Host:           s.host,
+		Port:           s.port,
+		TLS:            directory.TLSModeLDAPS,
+		CACertificates: caPool(t),
+		ServerName:     "localhost",
+		BindDN:         bindDN,
+		BindPassword:   password,
+	})
+	if err != nil {
+		return err
+	}
+	_ = sess.Close()
+	return nil
+}
+
+func first(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 func TestApplyRejectsAnEmptyModify(t *testing.T) {

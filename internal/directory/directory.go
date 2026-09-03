@@ -153,6 +153,10 @@ type Capabilities struct {
 	StartTLS     bool `json:"startTLS"`
 	AllOperional bool `json:"allOperationalAttributes"`
 	WhoAmI       bool `json:"whoAmI"`
+	// PasswordModify reports RFC 3062. Where a server offers it, Alder sets
+	// passwords with it rather than writing a hash into userPassword, so the
+	// server applies its own policy and chooses its own scheme.
+	PasswordModify bool `json:"passwordModify"`
 }
 
 // OIDs of the controls and extensions Alder looks for. Named here so the
@@ -186,6 +190,7 @@ func (c *Capabilities) Derive() {
 	c.StartTLS = has(c.SupportedExtensions, OIDStartTLS)
 	c.WhoAmI = has(c.SupportedExtensions, OIDWhoAmI)
 	c.AllOperional = has(c.SupportedExtensions, OIDAllOpAttributes)
+	c.PasswordModify = has(c.SupportedExtensions, OIDPasswordModify)
 }
 
 // Scope is the search scope of RFC 4511 section 4.5.1.2.
