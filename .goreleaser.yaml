@@ -52,22 +52,10 @@ sboms:
   - artifacts: archive
 
 changelog:
-  use: github
-  sort: asc
-  groups:
-    - title: Features
-      regexp: '^feat'
-      order: 0
-    - title: Fixes
-      regexp: '^fix'
-      order: 1
-    - title: Everything else
-      order: 2
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
+  # release-please writes the changelog, from the same conventional commits,
+  # into CHANGELOG.md and the release body. A second one generated here would
+  # duplicate it.
+  disable: true
 
 # dockers_v2 replaces the old dockers + docker_manifests pair: one entry builds
 # every platform and pushes the multi-arch manifest itself.
@@ -90,7 +78,10 @@ dockers_v2:
       org.opencontainers.image.licenses: "AGPL-3.0-only"
 
 release:
-  draft: true
+  # release-please has already created the GitHub Release for this tag and put
+  # the changelog in it. GoReleaser adds the archives, checksums and SBOMs to
+  # that release rather than trying to create a second one.
+  mode: append
   footer: |
     ## Verifying
 

@@ -106,6 +106,25 @@ Write the message for someone reading `git log` in a year: what changed, and
 why that was the right call. A commit that says what a diff already says is a
 wasted opportunity.
 
+## Releases
+
+Nobody tags a release by hand. Every push to `main` refreshes a **release pull
+request** that release-please maintains: it reads the conventional commits since
+the last release, works out the next version, and writes the changelog it would
+produce. Merging that pull request is the release.
+
+Merging it tags the version, publishes the GitHub release with the changelog,
+and then builds and attaches the binaries for six platforms plus the multi-arch
+image on `ghcr.io/hazame-hub/alder`.
+
+This is the reason commit prefixes matter beyond tidiness. `feat:` and `fix:`
+appear in the changelog and move the version; `docs:`, `ci:`, `chore:` and
+`test:` do not. A breaking change is a `!` after the type, or a
+`BREAKING CHANGE:` footer.
+
+While the version is below 1.0, a breaking change moves the minor version
+rather than the major one, which is the usual pre-1.0 convention.
+
 ## Scope
 
 v1 does eight things: connect over LDAPS or StartTLS, browse the DIT, browse the

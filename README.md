@@ -18,8 +18,7 @@ everything else authenticates against.
 ## Status
 
 **Feature complete for v1.** Connect, browse, search, edit, import and export
-all work, against both target servers. A licence still has to be chosen before
-this can be published.
+all work, against both target servers.
 
 | | |
 |---|---|
@@ -28,7 +27,7 @@ this can be published.
 | M2 | React UI: connect, browse the tree, view entries, browse the schema. **Done.** |
 | M3 | Write path: `ChangeRecord`, LDIF preview with a mandatory confirm, schema-driven editor. **Done.** |
 | M4 | LDIF import and export, Ansible export. **Done.** |
-| M5 | Release: screenshots, GoReleaser, GHCR, security policy. **Done, bar the licence.** |
+| M5 | Release: screenshots, GoReleaser, GHCR, security policy, automated versioning. **Done.** |
 
 [`docs/DECISIONS.md`](docs/DECISIONS.md) records the decisions behind the design
 and why the alternatives were rejected. [`CONTRIBUTING.md`](CONTRIBUTING.md) has

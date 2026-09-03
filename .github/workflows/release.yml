@@ -1,21 +1,59 @@
 name: release
 
+# Releases are driven by the conventional-commit history rather than by anyone
+# remembering to tag. release-please reads the commits since the last release,
+# works out the next version, and keeps a release pull request open with the
+# changelog it would produce. Merging that pull request is the act of releasing;
+# there is no other manual step.
+#
+# The two jobs live in one workflow deliberately. A tag pushed using the default
+# GITHUB_TOKEN does not trigger another workflow — GitHub suppresses that so
+# workflows cannot recurse — so a separate "on: push: tags" job would simply
+# never fire. Chaining them inside a single run sidesteps it and needs no
+# personal access token to work around it.
+
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
-  packages: write
-  id-token: write
+  pull-requests: write
 
 jobs:
-  release:
+  release-please:
+    name: prepare the release
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  artifacts:
+    name: build and publish
+    needs: release-please
+    # Only when merging the release pull request actually cut a release. Every
+    # other push to main stops at the job above, which just refreshes the
+    # pending release pull request.
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Build the tag release-please just created rather than the branch
+          # head, so the version compiled into the binary is the one released.
+          ref: ${{ needs.release-please.outputs.tag }}
 
       - uses: actions/setup-go@v7
         with:
