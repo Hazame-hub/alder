@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/Hazame-hub/alder/compare/v0.5.0...v0.6.0) (2026-09-04)
+
+
+### Features
+
+* warn before a change reaches the server's own configuration ([#20](https://github.com/Hazame-hub/alder/issues/20)) ([961acd9](https://github.com/Hazame-hub/alder/commit/961acd9b16a46ae022f86b4df6fa572f981f8c01))
+
 ## [0.5.0](https://github.com/Hazame-hub/alder/compare/v0.4.0...v0.5.0) (2026-09-04)
 
 
