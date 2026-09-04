@@ -89,6 +89,22 @@ type ConnConfig struct {
 	BindDN       string
 	BindPassword string
 
+	// ConfigBindDN and ConfigBindPassword are an optional second identity, used
+	// only for the server's own configuration tree.
+	//
+	// A directory keeps its configuration beside its data, and the account that
+	// administers a suffix normally has no rights there — they are separate
+	// administrative domains on purpose. Without this, reaching the
+	// configuration means connecting as the configuration administrator and
+	// losing access to the data, which on a server that stores its schema in
+	// its configuration makes schema editing and entry browsing mutually
+	// exclusive. Operations are routed by DN, so one session does both.
+	//
+	// These live in memory for the life of the session, exactly like the bind
+	// password, and are never written down or logged.
+	ConfigBindDN       string
+	ConfigBindPassword string
+
 	// Timeout bounds a single operation. Zero means DefaultTimeout.
 	Timeout time.Duration
 }
@@ -142,11 +158,16 @@ type Capabilities struct {
 	// SubschemaSubentry is the DN of the schema entry, as the server reported
 	// it. This is why nothing in Alder hardcodes "cn=subschema" or "cn=schema".
 	SubschemaSubentry string `json:"subschemaSubentry"`
-	// ConfigContext is the DN of the server's own configuration tree, when it
-	// publishes one. Its presence is what tells Alder that the schema this
-	// server serves is generated from configuration entries and cannot be
-	// written by modifying the subschema subentry -- which is a fact about the
-	// server's architecture, announced by the server, not a guess from its name.
+	// ConfigContext is the DN the server *announces* for its own configuration
+	// tree, and only that.
+	//
+	// The announcement is the load-bearing part. A server that publishes a
+	// configContext is declaring that its configuration is part of its protocol
+	// surface, which is also what makes its subschema subentry a generated,
+	// read-only view of configuration entries rather than the schema itself.
+	// That is why schema editing branches on this and not on Config.DN below:
+	// a tree merely being reachable at the conventional DN says nothing about
+	// where the schema is kept.
 	ConfigContext string `json:"configContext,omitempty"`
 
 	SupportedControls    []string `json:"supportedControls"`
@@ -173,6 +194,27 @@ type Capabilities struct {
 	// SchemaWrite says where a schema definition would have to be written, and
 	// whether this session can write it.
 	SchemaWrite SchemaWrite `json:"schemaWrite"`
+
+	// Config says whether this session can reach the server's own
+	// configuration tree, and how.
+	Config ConfigAccess `json:"config"`
+}
+
+// ConfigAccess describes this session's reach into the configuration tree.
+type ConfigAccess struct {
+	// DN is the configuration tree's root as far as browsing is concerned:
+	// what the server announced, or the conventional location if the server
+	// answered there. Empty when neither found anything.
+	DN string `json:"dn,omitempty"`
+	// Readable reports whether this session can actually read it. A server may
+	// announce a tree that the bound identity has no rights in.
+	Readable bool `json:"readable"`
+	// SeparateBind reports that a second identity is being used for it.
+	SeparateBind bool `json:"separateBind"`
+	// BoundAs is the identity the configuration tree is read as.
+	BoundAs string `json:"boundAs,omitempty"`
+	// Reason explains, in a sentence meant to be read, why it is unreachable.
+	Reason string `json:"reason,omitempty"`
 }
 
 // SchemaStyle is how a server stores the schema it can be told to change.

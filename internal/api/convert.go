@@ -223,6 +223,13 @@ func capabilitiesView(c directory.Capabilities) Capabilities {
 		// Likewise: the schema browser offers editing only where there is
 		// somewhere to write, and says why when there is not.
 		SchemaWrite: ptr(schemaWriteView(c.SchemaWrite)),
+		Config: ptr(ConfigAccess{
+			Dn:           ptrIfSet(c.Config.DN),
+			Readable:     c.Config.Readable,
+			SeparateBind: c.Config.SeparateBind,
+			BoundAs:      ptrIfSet(c.Config.BoundAs),
+			Reason:       ptrIfSet(c.Config.Reason),
+		}),
 	}
 }
 

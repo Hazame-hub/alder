@@ -368,6 +368,26 @@ export interface components {
             /** @description Omit for an anonymous bind. */
             bindDn?: string;
             /**
+             * @description An optional second identity, used only for the server's own
+             *     configuration tree.
+             *
+             *     A directory keeps its configuration beside its data, and the account
+             *     that administers a suffix normally has no rights there; they are
+             *     separate administrative domains on purpose. Without this, reaching
+             *     the configuration means connecting as the configuration
+             *     administrator and losing access to the data — which on a server that
+             *     stores its schema in its configuration makes schema editing and
+             *     entry browsing mutually exclusive. Operations are routed by DN, so
+             *     one session does both.
+             */
+            configBindDn?: string;
+            /**
+             * Format: password
+             * @description Held in the server's memory for the life of the session, exactly
+             *     like the bind password. Never written to disk, never returned.
+             */
+            configBindPassword?: string;
+            /**
              * Format: password
              * @description Held in memory for the life of the session and nowhere else.
              */
@@ -395,6 +415,28 @@ export interface components {
              */
             configContext?: string;
             schemaWrite?: components["schemas"]["SchemaWrite"];
+            config?: components["schemas"]["ConfigAccess"];
+        };
+        /**
+         * @description This session's reach into the server's own configuration tree. The DN
+         *     is preferred from what the server announces and otherwise found by
+         *     trying the conventional location and believing only what the server
+         *     answers.
+         */
+        ConfigAccess: {
+            /** @description The configuration tree's root. Absent where there is none. */
+            dn?: string;
+            /**
+             * @description Whether this session can actually read it. A server may announce a
+             *     tree the bound identity has no rights in.
+             */
+            readable: boolean;
+            /** @description Whether a second identity is being used for it. */
+            separateBind: boolean;
+            /** @description The identity the configuration tree is read as. */
+            boundAs?: string;
+            /** @description Why it is unreachable, in a sentence meant to be read. */
+            reason?: string;
         };
         /**
          * @description Where, and whether, this session can write schema definitions. Style is

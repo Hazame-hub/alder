@@ -94,7 +94,7 @@ func caPool(t *testing.T) *x509.CertPool {
 	return pool
 }
 
-func connect(t *testing.T, s server) directory.Session {
+func connect(t *testing.T, s server, withConfig bool) directory.Session {
 	t.Helper()
 	// The driver logs at info; the suite discards it unless a test fails, and
 	// a failing test's useful output is the assertion, not the connection log.
@@ -104,7 +104,7 @@ func connect(t *testing.T, s server) directory.Session {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sess, err := drv.Connect(ctx, directory.ConnConfig{
+	cfg := directory.ConnConfig{
 		Host:           s.host,
 		Port:           s.port,
 		TLS:            directory.TLSModeLDAPS,
@@ -112,7 +112,11 @@ func connect(t *testing.T, s server) directory.Session {
 		ServerName:     "localhost",
 		BindDN:         s.bindDN,
 		BindPassword:   s.bindPW,
-	})
+	}
+	if withConfig {
+		cfg.ConfigBindDN, cfg.ConfigBindPassword = s.schemaBindDN, s.schemaBindPW
+	}
+	sess, err := drv.Connect(ctx, cfg)
 	if err != nil {
 		t.Fatalf("connecting to %s at %s:%d: %v\nis the harness up? run \"task compose:up\"",
 			s.name, s.host, s.port, err)
@@ -121,17 +125,17 @@ func connect(t *testing.T, s server) directory.Session {
 	return sess
 }
 
-// connectForSchema binds as the identity that may write schema on this server,
-// which is the ordinary bind wherever the schema is data rather than
-// configuration.
+// connectForSchema connects with the configuration identity as well, where the
+// server needs one to reach its schema.
+//
+// It supplies it as a *second* identity rather than binding as it instead. That
+// is the whole point of the feature: the session still browses data as the
+// directory administrator, and only operations addressed into the configuration
+// tree use the other account. Swapping the bind would test something nobody
+// would want to do.
 func connectForSchema(t *testing.T, s server) directory.Session {
 	t.Helper()
-	if s.schemaBindDN == "" {
-		return connect(t, s)
-	}
-	alt := s
-	alt.bindDN, alt.bindPW = s.schemaBindDN, s.schemaBindPW
-	return connect(t, alt)
+	return connect(t, s, true)
 }
 
 // eachServerForSchema runs fn against every server, bound so that schema can be
@@ -150,7 +154,7 @@ func eachServer(t *testing.T, fn func(t *testing.T, s server, sess directory.Ses
 	t.Helper()
 	for _, s := range servers {
 		t.Run(s.name, func(t *testing.T) {
-			fn(t, s, connect(t, s))
+			fn(t, s, connect(t, s, false))
 		})
 	}
 }
@@ -193,7 +197,7 @@ func TestCapabilities(t *testing.T) {
 func TestSubschemaDNDiffersButIsDiscovered(t *testing.T) {
 	seen := map[string]string{}
 	for _, s := range servers {
-		sess := connect(t, s)
+		sess := connect(t, s, false)
 		seen[s.name] = sess.Capabilities().SubschemaSubentry
 	}
 	if seen["openldap"] == seen["389ds"] {
@@ -251,7 +255,7 @@ func TestSchemaHasTheSameCoreDefinitions(t *testing.T) {
 	views := map[string]view{}
 
 	for _, s := range servers {
-		sess := connect(t, s)
+		sess := connect(t, s, false)
 		sch, err := sess.Schema(ctx(t))
 		if err != nil {
 			t.Fatalf("%s: Schema: %v", s.name, err)
@@ -566,7 +570,7 @@ func TestSearchNestedGroupsResolveIdentically(t *testing.T) {
 	target := dn.MustParse("cn=everyone,ou=groups," + suffix)
 	members := map[string][]string{}
 	for _, s := range servers {
-		sess := connect(t, s)
+		sess := connect(t, s, false)
 		e, err := sess.Read(ctx(t), target, []string{"member"})
 		if err != nil {
 			t.Fatalf("%s: Read(%s): %v", s.name, target, err)
@@ -1432,6 +1436,112 @@ func TestSchemaChangeRefusesADefinitionWithNoSyntax(t *testing.T) {
 			}, nil)
 		if err == nil {
 			t.Error("an attribute type with no syntax and no superior was accepted")
+		}
+	})
+}
+
+// --- the configuration tree -------------------------------------------------
+//
+// A directory keeps its configuration in the directory. Reaching it is what
+// makes the schema browser able to say where the schema comes from, and what
+// makes schema editing possible where the schema is kept there.
+//
+// The two servers differ in both of the ways that matter — one announces the
+// tree and refuses the data administrator, the other announces nothing and lets
+// the directory manager straight in — and these cases assert the same reachable
+// end state for both.
+
+func TestConfigTreeIsReachable(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		cfg := sess.Capabilities().Config
+		if !cfg.Readable {
+			t.Fatalf("the configuration tree is not readable: %s", cfg.Reason)
+		}
+		if cfg.DN == "" {
+			t.Error("the configuration tree is readable but has no DN")
+		}
+		if cfg.BoundAs == "" {
+			t.Error("nothing records which identity the configuration tree is read as")
+		}
+		// A second identity is used exactly where the table says one is needed.
+		if want := s.schemaBindDN != ""; cfg.SeparateBind != want {
+			t.Errorf("separateBind is %v, want %v", cfg.SeparateBind, want)
+		}
+	})
+}
+
+// The tree has to be genuinely browsable, not merely announced: the point is to
+// look inside it.
+func TestConfigTreeHasReadableChildren(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		cfg := sess.Capabilities().Config
+		if !cfg.Readable {
+			t.Skipf("the configuration tree is not readable: %s", cfg.Reason)
+		}
+		base, err := dn.Parse(cfg.DN)
+		if err != nil {
+			t.Fatalf("the configuration DN does not parse: %v", err)
+		}
+		browser, ok := sess.(interface {
+			Children(context.Context, dn.DN, []string, int, []byte) (*directory.SearchResult, error)
+		})
+		if !ok {
+			t.Skip("this session cannot list children")
+		}
+		res, err := browser.Children(ctx(t), base, []string{"objectClass"}, 50, nil)
+		if err != nil {
+			t.Fatalf("listing the configuration tree: %v", err)
+		}
+		if len(res.Entries) == 0 {
+			t.Error("the configuration tree has no children, which no server's does")
+		}
+	})
+}
+
+// The second identity must be used only inside the configuration tree. If it
+// leaked into ordinary reads, a session would silently browse data as the
+// configuration administrator — a different account with different rights, and
+// on some servers a much more powerful one.
+func TestConfigIdentityDoesNotLeakIntoTheDataTree(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		if !sess.Capabilities().Config.SeparateBind {
+			t.Skip("this server needs no second identity")
+		}
+		// The data tree must still be readable, which is the whole reason for
+		// not simply binding as the configuration administrator instead.
+		entry, err := sess.Read(ctx(t), dn.MustParse("uid=user0001,ou=people,"+suffix), []string{"uid"})
+		if err != nil {
+			t.Fatalf("the data tree became unreadable once a second identity was supplied: %v", err)
+		}
+		if len(entry.Attributes) == 0 {
+			t.Error("the data entry came back empty")
+		}
+	})
+}
+
+// Where the schema is kept decides where it is written, and that is not the
+// same question as whether a configuration tree happens to be reachable. Both
+// servers here have a reachable configuration tree; only one keeps its schema
+// in it.
+func TestSchemaStyleFollowsWhereTheSchemaIsKept(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		caps := sess.Capabilities()
+		if !caps.Config.Readable {
+			t.Skipf("the configuration tree is not readable: %s", caps.Config.Reason)
+		}
+		style := caps.SchemaWrite.Style
+		if style == directory.SchemaStyleNone {
+			t.Fatalf("no writable schema location: %s", caps.SchemaWrite.Unavailable)
+		}
+		// The announcement is what distinguishes them, and it is the server's
+		// statement about its own architecture rather than anything inferred.
+		if caps.ConfigContext != "" && style != directory.SchemaStyleConfig {
+			t.Errorf("this server announces a configContext, so its schema is generated from "+
+				"configuration entries, but the style is %q", style)
+		}
+		if caps.ConfigContext == "" && style != directory.SchemaStyleSubschema {
+			t.Errorf("this server announces no configContext, so its subschema subentry is the "+
+				"schema, but the style is %q", style)
 		}
 	})
 }

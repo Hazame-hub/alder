@@ -115,6 +115,42 @@ attempted; LDAP has no transaction across entries, so nothing is rolled back and
 Alder does not pretend otherwise. What did not apply stays staged, in order, so
 correcting one change and applying again resumes rather than repeats.
 
+**Browse the server's own configuration.** A directory keeps its configuration
+in the directory, and that tree appears in the browser beside the data whenever
+the session can read it — the databases, the access rules, the schema. The DN is
+taken from what the server announces, and otherwise found by trying the
+conventional location and believing only what the server answers.
+
+The account that administers a suffix usually has no rights in the
+configuration, so the connection screen takes an optional second identity for
+it. Requests are routed by DN: one session browses people as the directory
+administrator and the configuration as the configuration administrator, and
+neither borrows the other's rights. Without it, reaching the configuration would
+mean connecting as the configuration administrator and giving up the data.
+
+**Edit the schema.** Object classes and attribute types can be added, changed
+and removed, through a form or by writing an RFC 4512 definition out by hand —
+either way it is parsed and checked before anything is sent.
+
+A schema definition is a value of an attribute on an ordinary entry, so a schema
+change is an ordinary modify, and it goes through the same confirmation, the
+same LDIF preview, the same Ansible export and the same changeset as every other
+write. There is still exactly one code path that writes to a directory.
+
+Where the schema is kept differs, and Alder reads that from the server rather
+than from its name. A server that announces a configuration tree generates its
+subschema subentry from configuration entries, so a definition is written to one
+of those — and Alder asks which, because they load in order and the first is the
+server's core schema. A server that announces none has a subschema subentry that
+is the schema, and takes the change directly.
+
+The value a change removes is read back from the entry that holds it, never from
+what the schema browser displays. The two differ: a server keeping its schema in
+configuration prefixes each stored definition with its load order and strips
+that prefix from what it publishes, and 389 DS records `X-ORIGIN 'user defined'`
+on anything added at runtime. A change built from the displayed form would match
+nothing on a removal and leave two definitions of one OID on an edit.
+
 **Import and export LDIF.** Export an entry or a subtree; import a document and
 apply its records one at a time, each through the same confirmation.
 

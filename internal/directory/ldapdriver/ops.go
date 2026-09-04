@@ -275,6 +275,10 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 		return err
 	}
 
+	// Routed by the DN being changed, so a schema write lands on the
+	// configuration identity while an entry edit stays on the data one.
+	conn := s.connFor(ch.DN.String())
+
 	var err error
 	switch ch.Type {
 	case directory.ChangeAdd:
@@ -282,7 +286,7 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 		for _, a := range ch.Attrs {
 			req.Attribute(a.Name, byteValuesToStrings(a.Values))
 		}
-		err = s.conn.Add(req)
+		err = conn.Add(req)
 	case directory.ChangeModify:
 		req := ldap.NewModifyRequest(ch.DN.String(), nil)
 		for _, m := range ch.Mods {
@@ -299,9 +303,9 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 				req.Delete(m.Name, vals)
 			}
 		}
-		err = s.conn.Modify(req)
+		err = conn.Modify(req)
 	case directory.ChangeDelete:
-		err = s.conn.Del(ldap.NewDelRequest(ch.DN.String(), nil))
+		err = conn.Del(ldap.NewDelRequest(ch.DN.String(), nil))
 	case directory.ChangeSetPassword:
 		// RFC 3062. The server hashes according to its own configuration and
 		// enforces its own password policy, which writing a hash into
@@ -313,13 +317,13 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 				"extended operation, and Alder will not write a password hash directly")
 		}
 		req := ldap.NewPasswordModifyRequest(ch.DN.String(), "", ch.NewPassword)
-		_, err = s.conn.PasswordModify(req)
+		_, err = conn.PasswordModify(req)
 	case directory.ChangeModRDN:
 		newSuperior := ""
 		if len(ch.NewSuperior) > 0 {
 			newSuperior = ch.NewSuperior.String()
 		}
-		err = s.conn.ModifyDN(ldap.NewModifyDNRequest(
+		err = conn.ModifyDN(ldap.NewModifyDNRequest(
 			ch.DN.String(), ch.NewRDN, ch.DeleteOldRDN, newSuperior))
 	default:
 		return fmt.Errorf("directory: unknown change type %q", ch.Type)

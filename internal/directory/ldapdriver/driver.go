@@ -85,6 +85,37 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 	}
 	s.caps = caps
 
+	// The second identity, when there is one. It is dialled separately rather
+	// than re-binding the first: re-binding would change who the session is for
+	// every later operation, which is the opposite of what routing by DN is
+	// for.
+	if cfg.ConfigBindDN != "" {
+		configConn, cfgErr := d.dial(ctx, cfg, timeout)
+		if cfgErr != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("directory: connecting for the configuration tree: %w", cfgErr)
+		}
+		if bindErr := configConn.Bind(cfg.ConfigBindDN, cfg.ConfigBindPassword); bindErr != nil {
+			_ = configConn.Close()
+			_ = conn.Close()
+			// Named, because the alternative is a bind failure the person reads
+			// as their main credentials being wrong.
+			return nil, fmt.Errorf("directory: binding as the configuration identity %q: %w",
+				cfg.ConfigBindDN, cleanLDAPError(bindErr))
+		}
+		s.configConn = configConn
+	}
+
+	// Resolved after the second bind, because the second identity is often the
+	// only one that can see the tree at all. The announced value is left alone:
+	// what is browsable and what the schema architecture is are two different
+	// questions, and only the announcement answers the second.
+	s.caps.Config = s.configAccess(ctx, s.resolveConfigContext(ctx, caps.ConfigContext))
+	// The schema targets are found last: on a server that keeps its schema in
+	// its configuration, whether there is anywhere to write depends on
+	// everything above.
+	s.caps.SchemaWrite = s.findSchemaTargets(ctx, s.caps)
+
 	d.Logger.Info("connected to directory",
 		"address", cfg.Address(),
 		"tls", string(cfg.TLS),
@@ -93,7 +124,10 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 		"vendor", caps.VendorName,
 		"naming_contexts", caps.NamingContexts,
 		"subschema", caps.SubschemaSubentry,
-		"paging", caps.Paging)
+		"paging", caps.Paging,
+		"config_context", s.caps.Config.DN,
+		"config_readable", s.caps.Config.Readable,
+		"schema_writable", s.caps.SchemaWrite.Editable())
 	return s, nil
 }
 
@@ -180,6 +214,15 @@ type session struct {
 	timeout time.Duration
 	closed  bool
 
+	// configConn is the connection bound as the configuration identity, when
+	// one was supplied. It is guarded by the same mutex as conn: the two are
+	// never used concurrently, and one lock keeps that obviously true.
+	configConn *ldap.Conn
+	// configTreeDN is the configuration tree this session can actually reach,
+	// which is what operations are routed by. Distinct from
+	// Capabilities.ConfigContext, which is only ever what the server announced.
+	configTreeDN string
+
 	// The parsed schema is cached because it is a few hundred kilobytes and
 	// normally changes about once a year. Editing it is the exception, so the
 	// cache is a resettable pointer rather than a sync.Once: a change applied
@@ -207,6 +250,9 @@ func (s *session) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.configConn != nil {
+		_ = s.configConn.Close()
+	}
 	return s.conn.Close()
 }
 
@@ -245,7 +291,6 @@ func (s *session) readRootDSE(ctx context.Context) (directory.Capabilities, erro
 		ConfigContext:        e.GetAttributeValue("configContext"),
 	}
 	caps.Derive()
-	caps.SchemaWrite = s.findSchemaTargets(ctx, caps)
 
 	if caps.SubschemaSubentry == "" {
 		// Every server Alder targets publishes this. A server that does not is
@@ -268,7 +313,7 @@ func (s *session) searchLocked(ctx context.Context, req *ldap.SearchRequest) (*l
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	res, err := s.conn.Search(req)
+	res, err := s.connFor(req.BaseDN).Search(req)
 	if err != nil {
 		return nil, cleanLDAPError(err)
 	}

@@ -19,6 +19,9 @@ export type RecentConnection = {
   port: number;
   tls: "ldaps" | "starttls" | "plaintext";
   bindDn: string;
+  // Identifying but not secret, like bindDn. The configuration password is
+  // absent for the same reason the bind password is.
+  configBindDn: string;
   serverName: string;
   caCertificate: string;
   insecureSkipVerify: boolean;
@@ -46,6 +49,8 @@ export function load(): RecentConnection | null {
       port: parsed.port,
       tls: parsed.tls === "starttls" || parsed.tls === "plaintext" ? parsed.tls : "ldaps",
       bindDn: typeof parsed.bindDn === "string" ? parsed.bindDn : "",
+        configBindDn:
+          typeof parsed.configBindDn === "string" ? parsed.configBindDn : "",
       serverName: typeof parsed.serverName === "string" ? parsed.serverName : "",
       caCertificate:
         typeof parsed.caCertificate === "string" ? parsed.caCertificate : "",
