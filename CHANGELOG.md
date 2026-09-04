@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/Hazame-hub/alder/compare/v0.6.1...v0.6.2) (2026-09-04)
+
+
+### Fixes
+
+* make the schema entry reachable where it is the schema ([#24](https://github.com/Hazame-hub/alder/issues/24)) ([5c641ab](https://github.com/Hazame-hub/alder/commit/5c641ab7467bf83049aca04f11a1046d9ab5674a))
+
 ## [0.6.1](https://github.com/Hazame-hub/alder/compare/v0.6.0...v0.6.1) (2026-09-04)
 
 
