@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/Hazame-hub/alder/compare/v0.6.0...v0.6.1) (2026-09-04)
+
+
+### Fixes
+
+* report where an added entry went, and explain what a refusal means ([#22](https://github.com/Hazame-hub/alder/issues/22)) ([2118142](https://github.com/Hazame-hub/alder/commit/2118142e220396af48a7c049a90a62b6c882ef6a))
+
 ## [0.6.0](https://github.com/Hazame-hub/alder/compare/v0.5.0...v0.6.0) (2026-09-04)
 
 
