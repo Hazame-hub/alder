@@ -628,16 +628,20 @@ func (s *Server) PreviewChange(c *fiber.Ctx) error {
 	defer cancel()
 	sch, _ := sess.Conn.Schema(ctx)
 
-	preview, err := s.renderPreview(record, sch)
+	preview, err := s.renderPreview(record, sch, sess.Conn.Capabilities())
 	if err != nil {
 		return s.fail(c, err)
 	}
 	return c.JSON(preview)
 }
 
-// renderPreview builds the LDIF, the Ansible task and the schema warnings for
-// one change record.
-func (s *Server) renderPreview(record directory.ChangeRecord, sch *schema.Schema) (ChangePreview, error) {
+// renderPreview builds the LDIF, the Ansible task and the warnings for one
+// change record.
+//
+// It takes the capabilities as well as the schema because two different things
+// are worth warning about: what the schema says the entry may hold, and whether
+// the entry is part of the server's own configuration.
+func (s *Server) renderPreview(record directory.ChangeRecord, sch *schema.Schema, caps directory.Capabilities) (ChangePreview, error) {
 	task, err := ansible.Task(record)
 	if err != nil {
 		return ChangePreview{}, err
@@ -650,7 +654,11 @@ func (s *Server) renderPreview(record directory.ChangeRecord, sch *schema.Schema
 		Summary:            record.Summary(),
 		AffectedAttributes: ptr(record.AffectedAttributes()),
 	}
-	if warnings := schemaWarnings(record, sch); len(warnings) > 0 {
+	// Configuration warnings come first: "this is the server's own
+	// configuration" is the more urgent thing to read, and a warning list is
+	// read from the top.
+	warnings := append(configWarnings(record, caps), schemaWarnings(record, sch)...)
+	if len(warnings) > 0 {
 		preview.Warnings = ptr(warnings)
 	}
 	return preview, nil
@@ -927,7 +935,7 @@ func (s *Server) ParseLdif(c *fiber.Ctx) error {
 		if err := change.Validate(); err != nil {
 			return badRequest(c, fmt.Sprintf("Record %d (%s) is not usable.", i+1, rec.DN), err.Error())
 		}
-		preview, prevErr := s.renderPreview(change, sch)
+		preview, prevErr := s.renderPreview(change, sch, sess.Conn.Capabilities())
 		if prevErr != nil {
 			return s.fail(c, prevErr)
 		}

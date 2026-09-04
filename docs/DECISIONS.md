@@ -274,3 +274,46 @@ to contradict the plan — add an entry.
   entries, it is bounded by how rarely schema changes, and a session that edits
   the schema sees its own change immediately — which is the case that matters,
   because it is what the entry editor consults to decide what an entry may hold.
+
+### 2026-09-04 — configuration editing, found rather than built
+
+- **It already worked, and the documentation said it did not.** Editing entries
+  in the configuration tree was never implemented: it falls out of the entry
+  editor being general and writes being routed by DN, so it arrived the moment
+  the configuration tree became browsable. The scope list still said `cn=config`
+  editing was out. Discovered by testing the shipped build rather than by
+  reading the code, which is the only way this kind of gap ever surfaces.
+- **Kept, not removed.** Taking it away would mean refusing to edit entries the
+  operator can already edit with `ldapmodify`, in a tool whose whole argument is
+  that it shows you exactly what it is about to send. The scope line changed to
+  match the software instead.
+- **But it now warns.** Editing an entry and editing the server that serves it
+  are not the same act, and Alder was presenting them identically. A change
+  addressed into the configuration tree says so; a change touching an attribute
+  you can lock yourself out with names it and says why. Nothing blocks: the
+  directory is the authority, and an operator who supplied configuration
+  credentials is doing this deliberately.
+- **Schema targets are exempt from the general warning.** Schema editing reaches
+  the configuration tree too, through a form that already says what it is doing.
+  Repeating the warning on every schema edit would teach people to click past it,
+  which would cost more than it bought.
+- **The dangerous-attribute list names attributes, not vendors.** It is the same
+  approach the value deny-list already takes for `userPassword` and
+  `nsslapd-rootpw`: what matters is what the attribute means, and a server with
+  no attribute of that name simply never matches.
+- **The warnings panel is no longer headed "the schema has something to say".**
+  It carries two kinds of warning now, and the heading would have made the more
+  serious one read as a footnote about the schema.
+- **Ordered values were the hazard worth checking, and they hold.** A
+  configuration entry keeps `{0}`, `{1}` prefixes on its multi-valued attributes
+  and the published view of schema strips them — the same shape as the bug that
+  nearly shipped in schema editing. Verified against a live server: deleting one
+  access rule by its stored text works and the server renumbers the survivors,
+  adding one without a prefix appends, and writing the whole set back unchanged
+  is a true round trip. The conformance suite now asserts the round trip.
+- **Two rough edges left deliberately.** A configuration entry created with a DN
+  the server then renames — OpenLDAP assigns `cn={5}name` — reports success at a
+  DN that no longer resolves. And a refusal such as "Unwilling to Perform" on a
+  schema entry deletion is shown as the bare LDAP result code, with no hint that
+  the server simply does not allow it. Both are reported rather than fixed here,
+  because both want a wider answer than a special case.

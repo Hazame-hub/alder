@@ -54,6 +54,17 @@ type server struct {
 	// servers regardless.
 	schemaBindDN string
 	schemaBindPW string
+
+	// configWriteDN, configWriteAttr and configWriteValue name a harmless,
+	// restorable setting in this server's configuration.
+	//
+	// Both are an idle timeout, which is the same idea on both servers and has
+	// no effect on anything the suite does. Naming them per server is what lets
+	// the case itself be identical: the assertions below never learn which
+	// server they are talking to.
+	configWriteDN    string
+	configWriteAttr  string
+	configWriteValue string
 }
 
 var servers = []server{
@@ -65,6 +76,10 @@ var servers = []server{
 		bindPW:       "alder-admin",
 		schemaBindDN: "cn=admin,cn=config",
 		schemaBindPW: "alder-config",
+
+		configWriteDN:    "cn=config",
+		configWriteAttr:  "olcIdleTimeout",
+		configWriteValue: "1800",
 	},
 	{
 		name:   "389ds",
@@ -72,6 +87,10 @@ var servers = []server{
 		port:   11636,
 		bindDN: "cn=Directory Manager",
 		bindPW: "alder-directory-manager",
+
+		configWriteDN:    "cn=config",
+		configWriteAttr:  "nsslapd-idletimeout",
+		configWriteValue: "1800",
 	},
 }
 
@@ -1542,6 +1561,139 @@ func TestSchemaStyleFollowsWhereTheSchemaIsKept(t *testing.T) {
 		if caps.ConfigContext == "" && style != directory.SchemaStyleSubschema {
 			t.Errorf("this server announces no configContext, so its subschema subentry is the "+
 				"schema, but the style is %q", style)
+		}
+	})
+}
+
+// A change addressed into the configuration tree has to actually land there.
+//
+// Editing configuration was not built as a feature: it falls out of the entry
+// editor being general and writes being routed by DN. That makes it exactly the
+// kind of capability that works until something quietly stops routing it, with
+// nothing failing loudly in between — so it is asserted here like anything else.
+//
+// On the server whose configuration needs its own identity, this also proves
+// the routing in the direction the other cases do not: a session bound to the
+// data suffix, writing successfully into a tree that bind cannot even read.
+func TestConfigEntryCanBeModified(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		if s.configWriteDN == "" {
+			t.Skip("no configuration setting is nominated for this server")
+		}
+		if !sess.Capabilities().Config.Readable {
+			t.Skipf("the configuration tree is not readable: %s", sess.Capabilities().Config.Reason)
+		}
+		target := dn.MustParse(s.configWriteDN)
+
+		read := func() []string {
+			t.Helper()
+			entry, err := sess.Read(ctx(t), target, []string{s.configWriteAttr})
+			if err != nil {
+				t.Fatalf("reading %s: %v", s.configWriteDN, err)
+			}
+			return entry.GetStrings(s.configWriteAttr)
+		}
+		set := func(values []string) error {
+			t.Helper()
+			vals := make([][]byte, 0, len(values))
+			for _, v := range values {
+				vals = append(vals, []byte(v))
+			}
+			return sess.Apply(ctx(t), directory.ChangeRecord{
+				DN:   target,
+				Type: directory.ChangeModify,
+				Mods: []directory.Mod{{Op: directory.ModReplace, Name: s.configWriteAttr, Values: vals}},
+			})
+		}
+
+		before := read()
+		if len(before) == 0 {
+			t.Fatalf("%s holds no %s to restore afterwards", s.configWriteDN, s.configWriteAttr)
+		}
+		if before[0] == s.configWriteValue {
+			t.Fatalf("%s already holds the value the test would set, so a successful write "+
+				"would be indistinguishable from no write at all", s.configWriteAttr)
+		}
+		// Restoration is registered before the change, so an assertion failing
+		// mid-test still puts the server back.
+		t.Cleanup(func() {
+			if err := set(before); err != nil {
+				t.Errorf("could not restore %s to %q: %v", s.configWriteAttr, before, err)
+			}
+		})
+
+		if err := set([]string{s.configWriteValue}); err != nil {
+			t.Fatalf("modifying the configuration entry: %v", err)
+		}
+		if after := read(); len(after) != 1 || after[0] != s.configWriteValue {
+			t.Errorf("%s is %q after the change, want [%q]", s.configWriteAttr, after, s.configWriteValue)
+		}
+	})
+}
+
+// The ordering prefixes a configuration entry keeps on its multi-valued
+// attributes are the same hazard the schema had: what the server stores is not
+// what a naive round trip would send back. Access rules are where it matters
+// most, so the suite asserts the values survive being read and written whole.
+func TestConfigOrderedValuesSurviveARoundTrip(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		if !sess.Capabilities().Config.Readable {
+			t.Skipf("the configuration tree is not readable: %s", sess.Capabilities().Config.Reason)
+		}
+		// Only one of the two servers keeps access rules as ordered values in
+		// its configuration; on the other this finds nothing and says so rather
+		// than pretending to have tested something.
+		base := dn.MustParse(sess.Capabilities().Config.DN)
+		browser, ok := sess.(interface {
+			Children(context.Context, dn.DN, []string, int, []byte) (*directory.SearchResult, error)
+		})
+		if !ok {
+			t.Skip("this session cannot list children")
+		}
+		res, err := browser.Children(ctx(t), base, []string{"olcAccess"}, 50, nil)
+		if err != nil {
+			t.Fatalf("listing the configuration tree: %v", err)
+		}
+		var holder *directory.Entry
+		for i := range res.Entries {
+			if len(res.Entries[i].Get("olcAccess")) > 1 {
+				holder = res.Entries[i]
+			}
+		}
+		if holder == nil {
+			t.Skip("this server keeps no ordered access rules in its configuration")
+		}
+
+		before := holder.Get("olcAccess")
+		// Every stored value carries its position. A round trip that dropped or
+		// renumbered them would change which rule wins, silently.
+		for i, v := range before {
+			if !strings.HasPrefix(string(v), "{") {
+				t.Errorf("access rule %d has no ordering prefix: %q", i, v)
+			}
+		}
+
+		err = sess.Apply(ctx(t), directory.ChangeRecord{
+			DN:   holder.DN,
+			Type: directory.ChangeModify,
+			Mods: []directory.Mod{{Op: directory.ModReplace, Name: "olcAccess", Values: before}},
+		})
+		if err != nil {
+			t.Fatalf("writing the access rules back unchanged: %v", err)
+		}
+
+		entry, err := sess.Read(ctx(t), holder.DN, []string{"olcAccess"})
+		if err != nil {
+			t.Fatalf("re-reading the access rules: %v", err)
+		}
+		after := entry.Get("olcAccess")
+		if len(after) != len(before) {
+			t.Fatalf("the round trip changed the number of access rules: %d -> %d", len(before), len(after))
+		}
+		for i := range before {
+			if string(after[i]) != string(before[i]) {
+				t.Errorf("access rule %d changed\n  before: %q\n  after:  %q", i, before[i], after[i])
+			}
 		}
 	})
 }

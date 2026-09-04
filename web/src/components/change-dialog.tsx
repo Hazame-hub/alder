@@ -110,7 +110,13 @@ export function ChangeDialog({
                 <div className="mb-4 rounded-md border border-warning/40 bg-warning/10 p-3">
                   <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-warning-tint-foreground">
                     <AlertTriangle className="size-4" />
-                    The schema has something to say about this
+                    {/*
+                      The list carries two kinds of warning now: what the schema
+                      says an entry may hold, and that a change is addressed into
+                      the server's own configuration. A heading naming only the
+                      schema would make the more serious one read as a schema note.
+                    */}
+                    Read this before applying
                   </div>
                   <ul className="ml-5 list-disc space-y-1 text-sm text-warning-tint-foreground/90">
                     {data.warnings.map((w) => (
@@ -118,7 +124,8 @@ export function ChangeDialog({
                     ))}
                   </ul>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    The directory decides, not Alder. You can still apply this.
+                    Nothing here blocks the change. The directory decides, and you
+                    can still apply this.
                   </p>
                 </div>
               ) : null}

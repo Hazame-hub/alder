@@ -151,10 +151,14 @@ Schema editing was moved in from the list below on 2026-09-04, deliberately and
 on the record; see the decisions log. It waited for the conformance harness to
 be green because it is the most vendor-divergent write in LDAP.
 
+Editing the configuration tree, including access rules, is in scope as of the
+same date. It was never built as a feature: it falls out of the entry editor
+being general and writes being routed by DN. Rather than take it away, it now
+warns before it lets you do something you cannot undo.
+
 Everything else is excluded on purpose, and the list is load-bearing rather than
 a backlog:
 
-- ACL editing, and `cn=config` editing beyond the schema subtree
 - any multi-user concept: RBAC, delegation, approval workflows
 - OIDC, SAML, or SSO
 - a persisted audit log

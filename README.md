@@ -128,6 +128,13 @@ administrator and the configuration as the configuration administrator, and
 neither borrows the other's rights. Without it, reaching the configuration would
 mean connecting as the configuration administrator and giving up the data.
 
+**Edit the configuration, carefully.** Configuration entries are ordinary
+entries, so the same editor and the same LDIF preview work on them. Changing
+them is not ordinary, so a change addressed into the configuration tree says so,
+and a change touching something you can lock yourself out with — access rules,
+the administrative identity, the ports the server listens on — says which and
+why. Nothing blocks; the directory decides, and you are the one who asked.
+
 **Edit the schema.** Object classes and attribute types can be added, changed
 and removed, through a form or by writing an RFC 4512 definition out by hand —
 either way it is parsed and checked before anything is sent.
