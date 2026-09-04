@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/Hazame-hub/alder/compare/v0.6.2...v0.6.3) (2026-09-04)
+
+
+### Fixes
+
+* allow editing a schema definition that an object class uses ([#26](https://github.com/Hazame-hub/alder/issues/26)) ([d11f21a](https://github.com/Hazame-hub/alder/commit/d11f21af006cf8c79ad8c91c143a8cbe96ee1e3e))
+
 ## [0.6.2](https://github.com/Hazame-hub/alder/compare/v0.6.1...v0.6.2) (2026-09-04)
 
 
