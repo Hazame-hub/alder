@@ -19,9 +19,22 @@ import (
 // cn=subschema and 389 DS publishes cn=schema, and hardcoding either is the
 // vendor branching the charter forbids.
 func (s *session) Schema(ctx context.Context) (*schema.Schema, error) {
-	s.schemaOnce.Do(func() {
-		s.schema, s.schemaErr = s.loadSchema(ctx)
+	s.schemaMu.Lock()
+	once := s.schemaOnce
+	s.schemaMu.Unlock()
+	once.Do(func() {
+		sch, err := s.loadSchema(ctx)
+		s.schemaMu.Lock()
+		defer s.schemaMu.Unlock()
+		// Only if this is still the current generation. A schema change
+		// applied while this load was in flight has already invalidated it,
+		// and writing a stale parse over the reset would undo that.
+		if s.schemaOnce == once {
+			s.schema, s.schemaErr = sch, err
+		}
 	})
+	s.schemaMu.Lock()
+	defer s.schemaMu.Unlock()
 	return s.schema, s.schemaErr
 }
 
@@ -319,7 +332,22 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 		return cleaned
 	}
 	s.logger.Info("change applied", "change", ch.Summary())
+	// A change to a schema entry changes what every later read of the schema
+	// should see, including the one the entry editor uses to decide which
+	// attributes an object class permits.
+	if s.isSchemaTarget(ch.DN.String()) {
+		s.invalidateSchema()
+	}
 	return nil
+}
+
+// isSchemaTarget reports whether a DN is one of the entries schema is written
+// to. It compares against the targets found at connect time rather than
+// pattern-matching the DN, so it says yes exactly when a schema change was
+// what happened.
+func (s *session) isSchemaTarget(target string) bool {
+	_, ok := s.caps.SchemaWrite.Target(target)
+	return ok
 }
 
 // byteValuesToStrings converts values for the go-ldap API, which takes strings.
@@ -333,4 +361,33 @@ func byteValuesToStrings(values [][]byte) []string {
 		out[i] = string(v)
 	}
 	return out
+}
+
+// SchemaDefinitions returns one schema entry's definitions as the server stores
+// them.
+//
+// Deliberately not served from the parsed schema cache. The cache holds the
+// subschema subentry's published view, and on a server whose schema lives in
+// its configuration that view has had the ordering prefix stripped from every
+// definition -- so a value taken from it would never match anything the server
+// holds. This reads the write target itself.
+func (s *session) SchemaDefinitions(ctx context.Context, targetDN string, kind directory.SchemaDefKind) ([]string, error) {
+	target, ok := s.caps.SchemaWrite.Target(targetDN)
+	if !ok {
+		return nil, fmt.Errorf("directory: %q is not one of this server's schema entries", targetDN)
+	}
+	attr, err := s.caps.SchemaWrite.Attribute(kind)
+	if err != nil {
+		return nil, err
+	}
+	req := ldap.NewSearchRequest(target.DN, ldap.ScopeBaseObject, ldap.NeverDerefAliases,
+		0, int(s.timeout.Seconds()), false, "(objectClass=*)", []string{attr}, nil)
+	res, err := s.searchLocked(ctx, req)
+	if err != nil {
+		return nil, cleanLDAPError(err)
+	}
+	if len(res.Entries) == 0 {
+		return nil, fmt.Errorf("directory: the schema entry %s could not be read", target.DN)
+	}
+	return res.Entries[0].GetAttributeValues(attr), nil
 }

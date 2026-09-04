@@ -42,15 +42,29 @@ type server struct {
 	port   int
 	bindDN string
 	bindPW string
+
+	// schemaBindDN and schemaBindPW are the identity that can write schema on
+	// this server, when it is not the one above.
+	//
+	// This is not a per-vendor exception dressed up as configuration. Where a
+	// server keeps its schema in its configuration tree, the schema is
+	// configuration, and the account that administers a suffix has no business
+	// in it -- so editing it means binding as someone else. The suite says so
+	// once, here, and every schema case below runs the same table against both
+	// servers regardless.
+	schemaBindDN string
+	schemaBindPW string
 }
 
 var servers = []server{
 	{
-		name:   "openldap",
-		host:   "localhost",
-		port:   10636,
-		bindDN: "cn=admin,dc=alder,dc=test",
-		bindPW: "alder-admin",
+		name:         "openldap",
+		host:         "localhost",
+		port:         10636,
+		bindDN:       "cn=admin,dc=alder,dc=test",
+		bindPW:       "alder-admin",
+		schemaBindDN: "cn=admin,cn=config",
+		schemaBindPW: "alder-config",
 	},
 	{
 		name:   "389ds",
@@ -105,6 +119,30 @@ func connect(t *testing.T, s server) directory.Session {
 	}
 	t.Cleanup(func() { _ = sess.Close() })
 	return sess
+}
+
+// connectForSchema binds as the identity that may write schema on this server,
+// which is the ordinary bind wherever the schema is data rather than
+// configuration.
+func connectForSchema(t *testing.T, s server) directory.Session {
+	t.Helper()
+	if s.schemaBindDN == "" {
+		return connect(t, s)
+	}
+	alt := s
+	alt.bindDN, alt.bindPW = s.schemaBindDN, s.schemaBindPW
+	return connect(t, alt)
+}
+
+// eachServerForSchema runs fn against every server, bound so that schema can be
+// written. The assertions inside are the same for both, which is the point.
+func eachServerForSchema(t *testing.T, fn func(t *testing.T, s server, sess directory.Session)) {
+	t.Helper()
+	for _, s := range servers {
+		t.Run(s.name, func(t *testing.T) {
+			fn(t, s, connectForSchema(t, s))
+		})
+	}
 }
 
 // eachServer runs fn against every server as a subtest.
@@ -1104,3 +1142,296 @@ func min(a, b int) int {
 }
 
 var _ = fmt.Sprintf
+
+// --- schema editing ---------------------------------------------------------
+//
+// What happens underneath these cases differs completely between the two
+// servers: on one it is a modify of the subschema subentry, on the other a
+// modify of a configuration entry whose stored values carry an ordering prefix.
+// The assertions do not know that, which is the whole claim being tested.
+
+// The probe OID sits in an arc of its own, so a leftover from an interrupted
+// run can never collide with the harness's own custom schema.
+const probeOID = "1.3.6.1.4.1.99997.1.1"
+
+func schemaProbe(desc string) schema.AttributeType {
+	return schema.AttributeType{
+		OID:         probeOID,
+		Names:       []string{"alderProbeAttr"},
+		Desc:        desc,
+		Equality:    "caseIgnoreMatch",
+		Syntax:      "1.3.6.1.4.1.1466.115.121.1.15",
+		SingleValue: true,
+	}
+}
+
+// schemaTarget is the collection a probe definition belongs in: the harness's
+// own, which is last on both servers. Adding to a server's core schema would be
+// a ruder test that proved nothing extra.
+func schemaTarget(t *testing.T, sess directory.Session) string {
+	t.Helper()
+	w := sess.Capabilities().SchemaWrite
+	if !w.Editable() {
+		t.Skipf("schema editing is unavailable on this connection: %s", w.Unavailable)
+	}
+	return w.Targets[len(w.Targets)-1].DN
+}
+
+// applySchemaChange performs one schema change exactly as the application does:
+// read the target as the server stores it, build the record, apply the record.
+func applySchemaChange(t *testing.T, sess directory.Session, req directory.SchemaChangeRequest) error {
+	t.Helper()
+	stored, err := sess.SchemaDefinitions(ctx(t), req.TargetDN, req.Kind)
+	if err != nil {
+		return err
+	}
+	rec, err := directory.BuildSchemaChange(sess.Capabilities().SchemaWrite, req, stored)
+	if err != nil {
+		return err
+	}
+	return sess.Apply(ctx(t), rec)
+}
+
+func deleteProbe(t *testing.T, sess directory.Session, target string) error {
+	t.Helper()
+	return applySchemaChange(t, sess, directory.SchemaChangeRequest{
+		TargetDN: target, Kind: directory.SchemaDefAttributeType,
+		Op: directory.SchemaOpDelete, OID: probeOID,
+	})
+}
+
+func TestSchemaWriteIsDiscovered(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		w := sess.Capabilities().SchemaWrite
+		if !w.Editable() {
+			t.Fatalf("no writable schema location was found: %s", w.Unavailable)
+		}
+		if w.ObjectClassAttr == "" || w.AttributeTypeAttr == "" {
+			t.Errorf("a writable location named no attributes to write to: %+v", w)
+		}
+		for _, target := range w.Targets {
+			if target.DN == "" {
+				t.Errorf("a schema target has no DN: %+v", target)
+			}
+			if target.AttributeTypes == 0 && target.ObjectClasses == 0 {
+				t.Errorf("schema target %s holds no definitions at all", target.DN)
+			}
+		}
+	})
+}
+
+// A session that cannot reach the schema must say so, rather than offering an
+// edit that will always fail. Where the schema is data this does not arise, and
+// the case asserts the opposite there: the ordinary bind can edit.
+func TestSchemaWriteReportsWhyItIsUnavailable(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		w := sess.Capabilities().SchemaWrite
+		if s.schemaBindDN == "" {
+			if !w.Editable() {
+				t.Errorf("the ordinary bind cannot edit the schema, and here it should: %s", w.Unavailable)
+			}
+			return
+		}
+		if w.Editable() {
+			t.Fatal("a bind with no rights in the configuration tree was offered schema editing")
+		}
+		if w.Unavailable == "" {
+			t.Error("schema editing is unavailable and nothing says why")
+		}
+	})
+}
+
+func TestSchemaAddReplaceDelete(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		target := schemaTarget(t, sess)
+
+		def, err := schemaProbe("probe").Definition()
+		if err != nil {
+			t.Fatalf("rendering the probe definition: %v", err)
+		}
+
+		// Clear any leftover from an interrupted run, so the suite is
+		// repeatable without resetting the harness.
+		_ = deleteProbe(t, sess, target)
+
+		if err := applySchemaChange(t, sess, directory.SchemaChangeRequest{
+			TargetDN: target, Kind: directory.SchemaDefAttributeType,
+			Op: directory.SchemaOpAdd, Definition: def,
+		}); err != nil {
+			t.Fatalf("adding a definition: %v", err)
+		}
+		t.Cleanup(func() { _ = deleteProbe(t, sess, target) })
+
+		// It must be visible through this session without reconnecting: the
+		// entry editor decides what an entry may hold from this same schema,
+		// and a stale one would offer an attribute the directory then refuses.
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("re-reading the schema: %v", err)
+		}
+		at := sch.AttributeType("alderProbeAttr")
+		if at == nil {
+			t.Fatal("the added attribute type is not visible through the session that added it")
+		}
+		if at.Desc != "probe" {
+			t.Errorf("DESC is %q, want %q", at.Desc, "probe")
+		}
+		if !at.SingleValue {
+			t.Error("SINGLE-VALUE did not survive being written and read back")
+		}
+
+		edited, err := schemaProbe("probe, edited").Definition()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := applySchemaChange(t, sess, directory.SchemaChangeRequest{
+			TargetDN: target, Kind: directory.SchemaDefAttributeType,
+			Op: directory.SchemaOpReplace, OID: probeOID, Definition: edited,
+		}); err != nil {
+			t.Fatalf("replacing a definition: %v", err)
+		}
+
+		sch, err = sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if at = sch.AttributeType("alderProbeAttr"); at == nil {
+			t.Fatal("the attribute type vanished after a replace")
+		}
+		if at.Desc != "probe, edited" {
+			t.Errorf("after the replace DESC is %q, want %q", at.Desc, "probe, edited")
+		}
+		// A replace that added instead of substituting would leave two, and the
+		// lookup above would still have found one of them.
+		var count int
+		for i := range sch.AttributeTypes {
+			if sch.AttributeTypes[i].OID == probeOID {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("after the replace the schema holds %d definitions of %s, want 1", count, probeOID)
+		}
+
+		if err := deleteProbe(t, sess, target); err != nil {
+			t.Fatalf("deleting a definition: %v", err)
+		}
+		sch, err = sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sch.AttributeType("alderProbeAttr") != nil {
+			t.Error("the attribute type is still in the schema after being deleted")
+		}
+	})
+}
+
+// The definition the browser displays is not always the one the server stores:
+// where schema lives in configuration, the stored value carries an ordering
+// prefix that the published subschema strips, so a delete built from the
+// published form matches nothing. This asserts the change is built from the
+// stored form — the single defect most likely to make schema editing look as
+// though it works right up until it silently does not.
+func TestSchemaChangeUsesTheStoredRendering(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		target := schemaTarget(t, sess)
+
+		stored, err := sess.SchemaDefinitions(ctx(t), target, directory.SchemaDefAttributeType)
+		if err != nil {
+			t.Fatalf("reading the stored definitions: %v", err)
+		}
+
+		// alderTeam is in the harness's custom schema on both servers.
+		var storedAlderTeam string
+		for _, v := range stored {
+			if strings.Contains(v, "'alderTeam'") {
+				storedAlderTeam = v
+			}
+		}
+		if storedAlderTeam == "" {
+			t.Fatalf("alderTeam is not among the %d definitions stored at %s", len(stored), target)
+		}
+
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		published := sch.AttributeType("alderTeam")
+		if published == nil {
+			t.Fatal("alderTeam is stored but not published")
+		}
+
+		rec, err := directory.BuildSchemaChange(sess.Capabilities().SchemaWrite,
+			directory.SchemaChangeRequest{
+				TargetDN: target, Kind: directory.SchemaDefAttributeType,
+				Op: directory.SchemaOpDelete, OID: published.OID,
+			}, stored)
+		if err != nil {
+			t.Fatalf("building the delete: %v", err)
+		}
+		if len(rec.Mods) != 1 || len(rec.Mods[0].Values) != 1 {
+			t.Fatalf("a delete should remove exactly one value, got %+v", rec.Mods)
+		}
+		if got := string(rec.Mods[0].Values[0]); got != storedAlderTeam {
+			t.Errorf("the delete does not use the stored rendering\n  sends:  %q\n  stored: %q",
+				got, storedAlderTeam)
+		}
+	})
+}
+
+func TestSchemaChangeRefusesAnUnknownDefinition(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		target := schemaTarget(t, sess)
+		stored, err := sess.SchemaDefinitions(ctx(t), target, directory.SchemaDefAttributeType)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = directory.BuildSchemaChange(sess.Capabilities().SchemaWrite,
+			directory.SchemaChangeRequest{
+				TargetDN: target, Kind: directory.SchemaDefAttributeType,
+				Op: directory.SchemaOpDelete, OID: "1.3.6.1.4.1.99997.999.999",
+			}, stored)
+		if !errors.Is(err, directory.ErrDefinitionNotFound) {
+			t.Errorf("deleting a definition that is absent gave %v, want ErrDefinitionNotFound", err)
+		}
+	})
+}
+
+// The schema entries are not ordinary entries, and a modification addressed
+// anywhere else must not be able to travel through the schema path.
+func TestSchemaChangeRefusesAnUnlistedTarget(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		_ = schemaTarget(t, sess) // skips where editing is unavailable
+		_, err := directory.BuildSchemaChange(sess.Capabilities().SchemaWrite,
+			directory.SchemaChangeRequest{
+				TargetDN: "uid=user0001,ou=people," + suffix,
+				Kind:     directory.SchemaDefAttributeType,
+				Op:       directory.SchemaOpAdd,
+				Definition: "( 1.3.6.1.4.1.99997.5.1 NAME 'alderNotSchema' " +
+					"SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
+			}, nil)
+		if err == nil {
+			t.Error("a change aimed at an ordinary entry was accepted as a schema change")
+		}
+	})
+}
+
+// An attribute type with neither a syntax nor a superior to inherit one from
+// parses cleanly and means nothing. Both servers would take it; the point of
+// refusing it here is that the person is told which field is missing, while
+// they are still looking at the form.
+func TestSchemaChangeRefusesADefinitionWithNoSyntax(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		target := schemaTarget(t, sess)
+		_, err := directory.BuildSchemaChange(sess.Capabilities().SchemaWrite,
+			directory.SchemaChangeRequest{
+				TargetDN:   target,
+				Kind:       directory.SchemaDefAttributeType,
+				Op:         directory.SchemaOpAdd,
+				Definition: "( 1.3.6.1.4.1.99997.5.2 NAME 'alderNoSyntax' )",
+			}, nil)
+		if err == nil {
+			t.Error("an attribute type with no syntax and no superior was accepted")
+		}
+	})
+}

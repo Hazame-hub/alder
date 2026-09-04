@@ -13,6 +13,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hazame-hub/alder/internal/dn"
@@ -40,6 +41,11 @@ type Session interface {
 	Search(ctx context.Context, req SearchRequest) (*SearchResult, error)
 	// Read returns a single entry by DN.
 	Read(ctx context.Context, target dn.DN, attrs []string) (*Entry, error)
+	// SchemaDefinitions returns the definitions one schema entry holds, exactly
+	// as the server stores them -- ordering prefixes, server-added extensions
+	// and all. A change that removes or replaces a definition has to send back
+	// the value the server matched on, and this is where that value comes from.
+	SchemaDefinitions(ctx context.Context, targetDN string, kind SchemaDefKind) ([]string, error)
 	// Apply performs a change. It is the only method that writes.
 	Apply(ctx context.Context, ch ChangeRecord) error
 	// Close releases the connection.
@@ -136,6 +142,12 @@ type Capabilities struct {
 	// SubschemaSubentry is the DN of the schema entry, as the server reported
 	// it. This is why nothing in Alder hardcodes "cn=subschema" or "cn=schema".
 	SubschemaSubentry string `json:"subschemaSubentry"`
+	// ConfigContext is the DN of the server's own configuration tree, when it
+	// publishes one. Its presence is what tells Alder that the schema this
+	// server serves is generated from configuration entries and cannot be
+	// written by modifying the subschema subentry -- which is a fact about the
+	// server's architecture, announced by the server, not a guess from its name.
+	ConfigContext string `json:"configContext,omitempty"`
 
 	SupportedControls    []string `json:"supportedControls"`
 	SupportedExtensions  []string `json:"supportedExtensions"`
@@ -157,6 +169,73 @@ type Capabilities struct {
 	// passwords with it rather than writing a hash into userPassword, so the
 	// server applies its own policy and chooses its own scheme.
 	PasswordModify bool `json:"passwordModify"`
+
+	// SchemaWrite says where a schema definition would have to be written, and
+	// whether this session can write it.
+	SchemaWrite SchemaWrite `json:"schemaWrite"`
+}
+
+// SchemaStyle is how a server stores the schema it can be told to change.
+//
+// There are two, and which one a server uses is announced rather than assumed:
+// a server that publishes a configContext generates its subschema subentry from
+// configuration entries, and a server that does not lets the subschema subentry
+// be modified directly.
+type SchemaStyle string
+
+const (
+	// SchemaStyleNone means no writable location was found.
+	SchemaStyleNone SchemaStyle = "none"
+	// SchemaStyleSubschema means definitions are added to and removed from the
+	// subschema subentry itself, with an ordinary modify.
+	SchemaStyleSubschema SchemaStyle = "subschema"
+	// SchemaStyleConfig means definitions live in configuration entries under
+	// the config context, each holding part of the schema, and the subschema
+	// subentry is a read-only view generated from them.
+	SchemaStyleConfig SchemaStyle = "config"
+)
+
+// SchemaWrite describes the writable schema location for a session.
+type SchemaWrite struct {
+	Style SchemaStyle `json:"style"`
+	// Targets are the entries a definition may be written to. There is exactly
+	// one under SchemaStyleSubschema. Under SchemaStyleConfig a server holds
+	// several, each a separate collection of definitions, and which one to add
+	// to is a choice only the person making the change can make.
+	Targets []SchemaTarget `json:"targets,omitempty"`
+	// ObjectClassAttr and AttributeTypeAttr name the attributes that carry
+	// definitions at these targets.
+	ObjectClassAttr   string `json:"objectClassAttr,omitempty"`
+	AttributeTypeAttr string `json:"attributeTypeAttr,omitempty"`
+	// Unavailable explains, in a sentence meant for the person reading it, why
+	// there is nothing to write to. Empty when Style is not None.
+	Unavailable string `json:"unavailable,omitempty"`
+}
+
+// SchemaTarget is one entry that holds schema definitions.
+type SchemaTarget struct {
+	DN   string `json:"dn"`
+	Name string `json:"name"`
+	// ObjectClasses and AttributeTypes count what this target already holds, so
+	// the UI can say which collection a definition would join.
+	ObjectClasses  int `json:"objectClasses"`
+	AttributeTypes int `json:"attributeTypes"`
+}
+
+// Editable reports whether a definition can be written at all.
+func (w SchemaWrite) Editable() bool { return w.Style != SchemaStyleNone && len(w.Targets) > 0 }
+
+// Target returns the target with the given DN, matched case-insensitively as
+// DNs compare, and reports whether it was found. A schema write names its
+// target explicitly; accepting an unlisted one would let a caller aim an
+// ordinary modify at any entry through the schema endpoint.
+func (w SchemaWrite) Target(dn string) (SchemaTarget, bool) {
+	for _, t := range w.Targets {
+		if strings.EqualFold(t.DN, dn) {
+			return t, true
+		}
+	}
+	return SchemaTarget{}, false
 }
 
 // OIDs of the controls and extensions Alder looks for. Named here so the

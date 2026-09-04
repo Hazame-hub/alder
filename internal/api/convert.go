@@ -219,7 +219,42 @@ func capabilitiesView(c directory.Capabilities) Capabilities {
 		// The editor reads this to decide whether to offer a password control
 		// at all, rather than offering one that can only fail.
 		PasswordModify: ptr(c.PasswordModify),
+		ConfigContext:  ptrIfSet(c.ConfigContext),
+		// Likewise: the schema browser offers editing only where there is
+		// somewhere to write, and says why when there is not.
+		SchemaWrite: ptr(schemaWriteView(c.SchemaWrite)),
 	}
+}
+
+func schemaWriteView(w directory.SchemaWrite) SchemaWrite {
+	out := SchemaWrite{
+		Style:             SchemaWriteStyle(w.Style),
+		ObjectClassAttr:   ptrIfSet(w.ObjectClassAttr),
+		AttributeTypeAttr: ptrIfSet(w.AttributeTypeAttr),
+		Unavailable:       ptrIfSet(w.Unavailable),
+	}
+	if len(w.Targets) > 0 {
+		targets := make([]SchemaTarget, 0, len(w.Targets))
+		for _, t := range w.Targets {
+			targets = append(targets, SchemaTarget{
+				Dn:             t.DN,
+				Name:           t.Name,
+				ObjectClasses:  t.ObjectClasses,
+				AttributeTypes: t.AttributeTypes,
+			})
+		}
+		out.Targets = &targets
+	}
+	return out
+}
+
+// ptrIfSet omits an empty string rather than sending one, so a field that means
+// "there is nothing to say here" is absent instead of present and blank.
+func ptrIfSet(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // --- tree -------------------------------------------------------------------

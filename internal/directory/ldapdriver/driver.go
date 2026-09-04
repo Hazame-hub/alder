@@ -72,10 +72,11 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 	}
 
 	s := &session{
-		conn:    conn,
-		cfg:     cfg,
-		logger:  d.Logger,
-		timeout: timeout,
+		conn:       conn,
+		cfg:        cfg,
+		logger:     d.Logger,
+		timeout:    timeout,
+		schemaOnce: new(sync.Once),
 	}
 	caps, err := s.readRootDSE(ctx)
 	if err != nil {
@@ -179,9 +180,22 @@ type session struct {
 	timeout time.Duration
 	closed  bool
 
-	schemaOnce sync.Once
+	// The parsed schema is cached because it is a few hundred kilobytes and
+	// normally changes about once a year. Editing it is the exception, so the
+	// cache is a resettable pointer rather than a sync.Once: a change applied
+	// through this session has to be visible to the next read through it.
+	schemaMu   sync.Mutex
+	schemaOnce *sync.Once
 	schema     *schema.Schema
 	schemaErr  error
+}
+
+// invalidateSchema drops the cached schema so the next read fetches it again.
+func (s *session) invalidateSchema() {
+	s.schemaMu.Lock()
+	defer s.schemaMu.Unlock()
+	s.schemaOnce = new(sync.Once)
+	s.schema, s.schemaErr = nil, nil
 }
 
 func (s *session) Capabilities() directory.Capabilities { return s.caps }
@@ -204,7 +218,7 @@ func (s *session) readRootDSE(ctx context.Context) (directory.Capabilities, erro
 		[]string{
 			"namingContexts", "subschemaSubentry", "supportedControl",
 			"supportedExtension", "supportedSASLMechanisms", "supportedLDAPVersion",
-			"vendorName", "vendorVersion",
+			"vendorName", "vendorVersion", "configContext",
 			// 389 DS reports its version here and not in vendorVersion.
 			"dataversion",
 		},
@@ -228,8 +242,10 @@ func (s *session) readRootDSE(ctx context.Context) (directory.Capabilities, erro
 		SupportedLDAPVersion: e.GetAttributeValues("supportedLDAPVersion"),
 		VendorName:           e.GetAttributeValue("vendorName"),
 		VendorVersion:        e.GetAttributeValue("vendorVersion"),
+		ConfigContext:        e.GetAttributeValue("configContext"),
 	}
 	caps.Derive()
+	caps.SchemaWrite = s.findSchemaTargets(ctx, caps)
 
 	if caps.SubschemaSubentry == "" {
 		// Every server Alder targets publishes this. A server that does not is
