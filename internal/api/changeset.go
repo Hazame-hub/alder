@@ -50,7 +50,7 @@ func (s *Server) PreviewChangeset(c *fiber.Ctx) error {
 	out := ChangesetPreview{Changes: make([]ChangePreview, 0, len(records))}
 	var tasks []string
 	for i, record := range records {
-		preview, prevErr := s.renderPreview(record, sch)
+		preview, prevErr := s.renderPreview(record, sch, sess.Conn.Capabilities())
 		if prevErr != nil {
 			return badRequest(c, fmt.Sprintf("Change %d cannot be rendered.", i+1), prevErr.Error())
 		}
