@@ -1817,16 +1817,17 @@ func TestSchemaReplaceOfAnAttributeAnObjectClassUses(t *testing.T) {
 			})
 		})
 
-		edited := schema.AttributeType{
-			OID:         oid,
-			Names:       []string{"alderTeam"},
-			Desc:        "Team the person belongs to, edited by the conformance suite",
-			Equality:    "caseIgnoreMatch",
-			Substr:      "caseIgnoreSubstringsMatch",
-			Syntax:      "1.3.6.1.4.1.1466.115.121.1.15",
-			SingleValue: true,
+		// The definition is parsed and only its description changed, which is
+		// what an edit through the UI is. Hand-writing the fields instead would
+		// assert that a definition Alder composed survives, and miss the defect
+		// that mattered: an edit built from an incomplete view of the original
+		// silently dropped the fields it could not see.
+		parsed, err := schema.ParseAttributeType(stripOrdering(before))
+		if err != nil {
+			t.Fatalf("parsing the stored definition: %v", err)
 		}
-		def, err := edited.Definition()
+		parsed.Desc = "Team the person belongs to, edited by the conformance suite"
+		def, err := parsed.Definition()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1844,6 +1845,24 @@ func TestSchemaReplaceOfAnAttributeAnObjectClassUses(t *testing.T) {
 		at := sch.AttributeType("alderTeam")
 		if at == nil {
 			t.Fatal("alderTeam disappeared")
+		}
+		// Everything the definition declared has to survive an edit that only
+		// touched the description.
+		if at.Equality != parsed.Equality {
+			t.Errorf("EQUALITY is %q after the edit, want %q", at.Equality, parsed.Equality)
+		}
+		if at.Substr != parsed.Substr {
+			t.Errorf("SUBSTR is %q after the edit, want %q — an edit dropped a field "+
+				"nobody asked it to", at.Substr, parsed.Substr)
+		}
+		if at.Ordering != parsed.Ordering {
+			t.Errorf("ORDERING is %q after the edit, want %q", at.Ordering, parsed.Ordering)
+		}
+		if at.Syntax != parsed.Syntax {
+			t.Errorf("SYNTAX is %q after the edit, want %q", at.Syntax, parsed.Syntax)
+		}
+		if at.SingleValue != parsed.SingleValue {
+			t.Errorf("SINGLE-VALUE is %v after the edit, want %v", at.SingleValue, parsed.SingleValue)
 		}
 		if !strings.Contains(at.Desc, "edited by the conformance suite") {
 			t.Errorf("DESC is %q, so the edit did not take", at.Desc)

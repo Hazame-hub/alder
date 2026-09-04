@@ -414,19 +414,8 @@ function ObjectClassDetailPane({
                 onEdit({
                   kind: "objectClass",
                   op: "replace",
-                  initial: {
-                    oid: s.oid,
-                    names: (s.names ?? [s.name]).join(" "),
-                    desc: s.desc ?? "",
-                    obsolete: s.obsolete === true,
-                    classKind: s.kind as "STRUCTURAL" | "ABSTRACT" | "AUXILIARY",
-                    superNames: (s.superiors ?? []).join(" "),
-                    // Only what this class declares itself. Prefilling the
-                    // inherited attributes as well would redeclare them here on
-                    // the next save, which changes the definition's meaning.
-                    must: (d.must ?? []).join(" "),
-                    may: (d.may ?? []).join(" "),
-                  },
+                  edit: d.edit,
+                  oid: s.oid,
                   raw: d.raw,
                 })
               }
@@ -439,7 +428,7 @@ function ObjectClassDetailPane({
               size="sm"
               className="text-destructive"
               onClick={() =>
-                onEdit({ kind: "objectClass", op: "delete", initial: { oid: s.oid }, raw: d.raw })
+                onEdit({ kind: "objectClass", op: "delete", oid: s.oid, raw: d.raw })
               }
             >
               <Trash2 />
@@ -555,16 +544,8 @@ function AttributeTypeDetailPane({
                 onEdit({
                   kind: "attributeType",
                   op: "replace",
-                  initial: {
-                    oid: s.oid,
-                    names: (s.names ?? [s.name]).join(" "),
-                    desc: s.desc ?? "",
-                    obsolete: s.obsolete === true,
-                    superName: s.superior ?? "",
-                    equality: s.equality ?? "",
-                    syntax: s.syntax ?? "",
-                    singleValue: s.singleValue === true,
-                  },
+                  edit: d.edit,
+                  oid: s.oid,
                   raw: d.raw,
                 })
               }
@@ -577,7 +558,7 @@ function AttributeTypeDetailPane({
               size="sm"
               className="text-destructive"
               onClick={() =>
-                onEdit({ kind: "attributeType", op: "delete", initial: { oid: s.oid }, raw: d.raw })
+                onEdit({ kind: "attributeType", op: "delete", oid: s.oid, raw: d.raw })
               }
             >
               <Trash2 />

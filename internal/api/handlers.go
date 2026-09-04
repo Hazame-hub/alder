@@ -571,6 +571,7 @@ func (s *Server) GetObjectClass(c *fiber.Ctx, name string) error {
 		SuperiorChain: ptr(chain),
 		Subclasses:    ptr(subNames),
 		Raw:           ptr(oc.Raw),
+		Edit:          ptr(objectClassEditForm(oc)),
 	})
 }
 
@@ -606,6 +607,7 @@ func (s *Server) GetAttributeType(c *fiber.Ctx, name string) error {
 		RequiredBy:    ptr(classNames(must)),
 		OptionalIn:    ptr(classNames(may)),
 		Raw:           ptr(at.Raw),
+		Edit:          ptr(attributeTypeEditForm(at)),
 	})
 }
 
