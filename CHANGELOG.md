@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/Hazame-hub/alder/compare/v0.4.0...v0.5.0) (2026-09-04)
+
+
+### Features
+
+* edit the schema, and browse the server's own configuration ([#18](https://github.com/Hazame-hub/alder/issues/18)) ([b63dcd9](https://github.com/Hazame-hub/alder/commit/b63dcd9b665c7155e86be9e568c1c8065273b927))
+
 ## [0.4.0](https://github.com/Hazame-hub/alder/compare/v0.3.0...v0.4.0) (2026-09-03)
 
 
