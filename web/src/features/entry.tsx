@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
+  Copy,
   Download,
   Eye,
   EyeOff,
+  KeyRound,
+  Layers,
   Loader2,
   Lock,
   Pencil,
   Plus,
-  KeyRound,
-  Copy,
   Search as SearchIconAlias,
   Tag,
   Trash2,
@@ -65,14 +66,22 @@ export function EntryPanel({
   onNavigate,
   onDeleted,
   readOnly,
+  schemaTargets,
+  onOpenSchema,
 }: {
   dn: string;
   onNavigate: (dn: string) => void;
   onDeleted: (parentDN: string) => void;
   readOnly: boolean;
+  /** The entries this server keeps its schema definitions in. */
+  schemaTargets?: string[];
+  onOpenSchema?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [showLdif, setShowLdif] = useState(false);
+  const holdsSchema = (schemaTargets ?? []).some(
+    (t) => t.toLowerCase() === dn.toLowerCase(),
+  );
 
   const entry = useQuery({
     queryKey: ["entry", dn],
@@ -133,6 +142,30 @@ export function EntryPanel({
               The entry as an LDIF content record. Sensitive attributes are
               omitted; use Export if you need them.
             </p>
+          </div>
+        ) : null}
+
+        {/*
+          Definitions in this entry are held as values of one operational
+          attribute — a thousand of them on a server that keeps its whole schema
+          here. They can be written, but not one at a time, and not legibly: the
+          editor would be a textarea list nobody can review. The schema editor
+          does it properly, so this says where to go rather than leaving someone
+          to conclude the schema cannot be edited at all.
+        */}
+        {holdsSchema ? (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5">
+            <Layers className="size-4 shrink-0 text-muted-foreground" />
+            <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+              This entry holds the server's schema. Object classes and attribute
+              types are added, changed and removed one at a time in the schema
+              browser, which previews each as LDIF like any other change.
+            </p>
+            {onOpenSchema ? (
+              <Button variant="outline" size="sm" onClick={onOpenSchema}>
+                Open the schema browser
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -433,6 +466,16 @@ function EntryReader({
   );
 }
 
+/**
+ * How many values of one attribute are drawn before the rest are asked for.
+ *
+ * Almost every attribute has one or two. A schema entry has a thousand: where a
+ * server's subschema subentry is the schema itself, attributeTypes holds one
+ * value per definition the server knows. Drawing them all costs seconds, and
+ * nobody reads past the first screen.
+ */
+const valuesShownAtFirst = 50;
+
 function AttributeRow({
   attr,
   onNavigate,
@@ -441,6 +484,8 @@ function AttributeRow({
   onNavigate: (dn: string) => void;
 }) {
   const [revealed, setRevealed] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? attr.values : attr.values.slice(0, valuesShownAtFirst);
 
   return (
     <div className="grid grid-cols-1 gap-1 px-3 py-2 sm:grid-cols-[minmax(11rem,15rem)_1fr] sm:gap-4">
@@ -477,16 +522,23 @@ function AttributeRow({
             </span>
           </div>
         ) : (
-          attr.values.map((value, i) => (
-            <ValueDisplay
-              key={i}
-              value={value}
-              kindName={attr.kind.kind}
-              revealed={revealed}
-              onReveal={() => setRevealed(true)}
-              onNavigate={onNavigate}
-            />
-          ))
+          <>
+            {shown.map((value, i) => (
+              <ValueDisplay
+                key={i}
+                value={value}
+                kindName={attr.kind.kind}
+                revealed={revealed}
+                onReveal={() => setRevealed(true)}
+                onNavigate={onNavigate}
+              />
+            ))}
+            {!showAll && attr.values.length > shown.length ? (
+              <Button variant="outline" size="sm" onClick={() => setShowAll(true)}>
+                Show all {attr.values.length} values
+              </Button>
+            ) : null}
+          </>
         )}
         {attr.values.length === 0 && !attr.withheld ? (
           <span className="text-sm italic text-muted-foreground">no values</span>
@@ -800,6 +852,10 @@ function AttributeEditor({
   // hand is the step where "add this person to that group" goes wrong.
   const isDn = kind.kind === "dn" && pickerBase !== undefined;
   const [picking, setPicking] = useState<number | null>(null);
+  // The same limit as the reader, and for a stronger reason: a thousand text
+  // inputs is not an editor, it is a stalled tab.
+  const [showAllValues, setShowAllValues] = useState(false);
+  const editable = showAllValues ? values : values.slice(0, valuesShownAtFirst);
 
   const setAt = (i: number, v: string) => {
     const next = [...values];
@@ -840,7 +896,7 @@ function AttributeEditor({
       </div>
 
       <div className="space-y-2">
-        {values.map((value, i) => (
+        {editable.map((value, i) => (
           <div key={i} className="flex items-start gap-2">
             {kind.kind === "boolean" ? (
               <Select value={value || "TRUE"} onValueChange={(v) => setAt(i, v)}>
@@ -880,6 +936,11 @@ function AttributeEditor({
             ) : null}
           </div>
         ))}
+        {!showAllValues && values.length > editable.length ? (
+          <Button variant="outline" size="sm" onClick={() => setShowAllValues(true)}>
+            Show all {values.length} values
+          </Button>
+        ) : null}
       </div>
 
       <div className="mt-2 flex items-center gap-1">

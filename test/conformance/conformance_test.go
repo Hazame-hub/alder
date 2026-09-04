@@ -1746,3 +1746,34 @@ func TestPositionPrefixedNamesAreTheServersOwn(t *testing.T) {
 		}
 	})
 }
+
+// Where the schema is an entry rather than a view, that entry is not inside any
+// naming context — which is why the tree has to be told about it separately.
+//
+// This is the fact behind the asymmetry a tester reported: on a server whose
+// schema lives in configuration entries, browsing the configuration reaches it;
+// on a server whose subschema subentry is the schema, nothing reaches it, and
+// the schema browser was the only way in.
+func TestTheSchemaEntrySitsOutsideEveryNamingContext(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		caps := sess.Capabilities()
+		if caps.SchemaWrite.Style != directory.SchemaStyleSubschema {
+			t.Skip("this server keeps its schema in configuration entries")
+		}
+		for _, target := range caps.SchemaWrite.Targets {
+			for _, nc := range caps.NamingContexts {
+				lower := strings.ToLower(target.DN)
+				base := strings.ToLower(nc)
+				if lower == base || strings.HasSuffix(lower, ","+base) {
+					t.Errorf("%s is inside the naming context %s, so the tree would show it twice",
+						target.DN, nc)
+				}
+			}
+			// And it must be readable, or offering it as a root would be a
+			// root that opens onto an error.
+			if _, err := sess.Read(ctx(t), dn.MustParse(target.DN), []string{"objectClass"}); err != nil {
+				t.Errorf("the schema entry %s cannot be read: %v", target.DN, err)
+			}
+		}
+	})
+}

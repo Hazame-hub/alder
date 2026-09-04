@@ -103,6 +103,10 @@ export function App() {
                     readOnly={info.readOnly === true}
                     onNavigate={openEntry}
                     onDeleted={(parent) => setSelectedDN(parent || null)}
+                    schemaTargets={(info.capabilities?.schemaWrite?.targets ?? []).map(
+                      (t) => t.dn,
+                    )}
+                    onOpenSchema={() => setView("schema")}
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">
