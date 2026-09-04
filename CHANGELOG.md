@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/Hazame-hub/alder/compare/v0.6.3...v0.6.4) (2026-09-04)
+
+
+### Fixes
+
+* stop an edit deleting the fields it cannot show ([#28](https://github.com/Hazame-hub/alder/issues/28)) ([ee9f62c](https://github.com/Hazame-hub/alder/commit/ee9f62c500080be9d798b9459267229055aea686))
+
 ## [0.6.3](https://github.com/Hazame-hub/alder/compare/v0.6.2...v0.6.3) (2026-09-04)
 
 
