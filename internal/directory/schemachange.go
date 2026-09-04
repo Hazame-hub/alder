@@ -142,6 +142,24 @@ func BuildSchemaChange(w SchemaWrite, req SchemaChangeRequest, stored []string) 
 		if err != nil {
 			return ChangeRecord{}, err
 		}
+		// How a definition is changed depends on how the server stores it, and
+		// the difference is not cosmetic: each server refuses one of the forms.
+		//
+		// Where the subschema subentry is the schema, adding a definition whose
+		// OID and names already exist replaces it in place. Removing it first is
+		// not merely unnecessary, it fails: a server will not delete an
+		// attribute type that an object class still names in its MUST or MAY,
+		// even when the same operation puts it straight back. Since an
+		// attribute type worth editing is usually one a class uses,
+		// delete-and-add made almost every real edit impossible.
+		//
+		// Where the schema lives in configuration entries the values are an
+		// ordinary multi-valued attribute, with no notion of replacing one by
+		// OID; an add on its own is refused there, and the old value has to go.
+		if w.Style == SchemaStyleSubschema && sameNames(existing, req.Definition) {
+			rec.Mods = []Mod{{Op: ModAdd, Name: attr, Values: [][]byte{[]byte(req.Definition)}}}
+			break
+		}
 		// Removing and adding within one modify, rather than replacing the
 		// whole attribute. The attribute holds every definition the target has
 		// -- hundreds of them -- and an LDAP replace would rewrite all of them
@@ -157,6 +175,46 @@ func BuildSchemaChange(w SchemaWrite, req SchemaChangeRequest, stored []string) 
 	}
 
 	return rec, rec.Validate()
+}
+
+// sameNames reports whether two definitions carry the same names.
+//
+// It decides which form a replace takes, and it matters because a server that
+// updates a definition in place matches it by OID *and* name: the same OID
+// offered under a new name is a collision, not an update, and is refused. A
+// rename therefore has to remove the old definition, whatever that costs.
+//
+// Anything unparseable answers false, which routes to the form that removes the
+// old value explicitly — the more conservative of the two.
+func sameNames(oldDef, newDef string) bool {
+	oldNames, ok1 := definitionNames(oldDef)
+	newNames, ok2 := definitionNames(newDef)
+	if !ok1 || !ok2 || len(oldNames) != len(newNames) {
+		return false
+	}
+	for i := range oldNames {
+		if !strings.EqualFold(oldNames[i], newNames[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// definitionNames returns the NAME list of a definition of either kind.
+func definitionNames(def string) ([]string, bool) {
+	def = strings.TrimSpace(def)
+	if strings.HasPrefix(def, "{") {
+		if end := strings.IndexByte(def, '}'); end > 0 {
+			def = strings.TrimSpace(def[end+1:])
+		}
+	}
+	if at, err := schema.ParseAttributeType(def); err == nil && len(at.Names) > 0 {
+		return at.Names, true
+	}
+	if oc, err := schema.ParseObjectClass(def); err == nil && len(oc.Names) > 0 {
+		return oc.Names, true
+	}
+	return nil, false
 }
 
 // findStored locates the value the server holds for an OID.

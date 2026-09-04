@@ -377,3 +377,28 @@ to contradict the plan — add an entry.
   edited at all, the entry carries a line saying the schema browser does it, and
   a button that goes there. That is the likeliest explanation for the report: the
   place a person looks and the place the work happens were not connected.
+
+### 2026-09-04 — editing a schema definition that something uses
+
+- **The bug the tester actually hit.** He could see the schema and not edit it.
+  The cause was not access, not reachability: a server whose subschema subentry
+  is the schema refuses to delete an attribute type that an object class names
+  in its MUST or MAY, even inside the one operation that adds it straight back.
+  Alder expressed every edit as delete-and-add, so any attribute type a class
+  used could not be edited — which is most of the ones worth editing.
+- **A replace is now written the way the server stores schema.** Where the
+  subentry is the schema, offering the definition again under the same OID and
+  names replaces it in place, and no delete is needed. Where the schema lives in
+  configuration entries the values are an ordinary multi-valued attribute with no
+  notion of replacing one by OID; an add alone is refused there, so the old value
+  must go. Both forms were tried against both servers, and each server refuses
+  the other one — this is a real difference in how schema is stored, not a
+  preference.
+- **A rename still removes the old definition.** An update in place matches by
+  OID *and* name, so the same OID under a new name is a collision rather than an
+  update. Renaming an attribute type a class uses therefore remains impossible on
+  such a server; that is the server's rule, and the refusal now explains itself.
+- **The suite was testing the easy half.** Every schema edit it covered was of a
+  definition nothing referenced. The new case edits alderTeam, which
+  alderEmployee requires on both servers, and it was confirmed to fail with the
+  fix disabled — a test that passes either way would have been worse than none.
