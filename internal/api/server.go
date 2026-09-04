@@ -205,9 +205,33 @@ func (s *Server) fail(c *fiber.Ctx, err error) error {
 		"Something went wrong.", "")
 }
 
+// failChange is fail() for a change that the directory refused.
+//
+// A result code on its own rarely tells an operator what to do; knowing what was
+// being attempted usually does. Everything else about the response is identical,
+// so a caller that ignores the hint sees no difference.
+func (s *Server) failChange(
+	c *fiber.Ctx, err error, record directory.ChangeRecord, caps directory.Capabilities,
+) error {
+	var ldapErr *ldapdriver.Error
+	if errors.As(err, &ldapErr) {
+		if hint := ldapHint(ldapErr.Code, record, caps); hint != "" {
+			c.Locals(hintLocal, hint)
+		}
+	}
+	return s.fail(c, err)
+}
+
+// hintLocal carries the explanation from failChange to the writer below without
+// threading it through every error path that has nothing to explain.
+const hintLocal = "alder.ldap.hint"
+
 func writeErrorWithLDAP(c *fiber.Ctx, status int, code ErrorError, message, detail string, ldapCode uint16) error {
 	n := int(ldapCode)
 	body := Error{Error: code, Message: message, Detail: &detail, LdapCode: &n}
+	if hint, ok := c.Locals(hintLocal).(string); ok && hint != "" {
+		body.Hint = &hint
+	}
 	return c.Status(status).JSON(body)
 }
 

@@ -765,7 +765,9 @@ function EntryEditor({
         onOpenChange={(open) => !open && setChange(null)}
         onApplied={(result) => {
           onDone();
-          onNavigate(result.dn);
+          // Where the entry actually is, which is not always where it was
+          // addressed: a server may put its own position into the name.
+          onNavigate(result.storedDn ?? result.dn);
         }}
       />
     </div>
@@ -1389,7 +1391,7 @@ export function NewEntryDialog({
           }
         }}
         title="Create this entry"
-        onApplied={(result) => onCreated(result.dn)}
+        onApplied={(result) => onCreated(result.storedDn ?? result.dn)}
       />
     </>
   );

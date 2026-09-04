@@ -223,6 +223,12 @@ export function ErrorNote({ title, error }: { title: string; error: ApiFailure }
         {title}
       </div>
       <p className="mt-1 text-sm">{error.message}</p>
+      {/*
+        The likely cause comes before the raw diagnostic and the code. A result
+        code is what the server said; the hint is what to do about it, and that
+        is what the reader wants first.
+      */}
+      {error.hint ? <p className="mt-1.5 text-sm">{error.hint}</p> : null}
       {error.detail ? (
         <p className="mt-1 font-mono text-xs text-muted-foreground">{error.detail}</p>
       ) : null}

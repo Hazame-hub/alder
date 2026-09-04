@@ -345,6 +345,18 @@ export interface components {
             detail?: string;
             /** @description The LDAP result code, where the failure came from the directory. */
             ldapCode?: number;
+            /**
+             * @description What that result code usually means for the operation that was
+             *     attempted, and what to do about it.
+             *
+             *     Written by Alder from the standard result code and the change being
+             *     made. It never repeats the server's own diagnostic text, which is
+             *     withheld on purpose: some servers name entries the caller may not be
+             *     allowed to know exist, and some echo part of the request back. A
+             *     result code alone is rarely enough to act on, which is what this is
+             *     for.
+             */
+            hint?: string;
         };
         ConnectRequest: {
             host: string;
@@ -734,6 +746,22 @@ export interface components {
             applied: boolean;
             /** @description The entry's DN after the change, which differs for a rename. */
             dn: string;
+            /**
+             * @description Where the entry actually came to rest, when that is not the DN the
+             *     change was addressed to.
+             *
+             *     A directory may store an added entry under a different name: where
+             *     an entry's position among its siblings forms part of that name, the
+             *     server assigns the position and rewrites the RDN. Reporting the
+             *     requested DN in that case sends the caller to an entry that is not
+             *     there.
+             */
+            storedDn?: string;
+            /**
+             * @description Present when the change was accepted but Alder could not confirm
+             *     where the entry ended up.
+             */
+            note?: string;
             summary?: string;
             ldif?: string;
         };

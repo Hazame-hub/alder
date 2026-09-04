@@ -1697,3 +1697,52 @@ func TestConfigOrderedValuesSurviveARoundTrip(t *testing.T) {
 		}
 	})
 }
+
+// A server may store an entry under a name of its own choosing.
+//
+// Where an entry's position among its siblings forms part of that name, the
+// server assigns the position and rewrites the RDN, so the DN a caller asked
+// for resolves to nothing afterwards. Alder looks up where an added entry
+// actually landed because of this; the case asserts the convention is real
+// rather than something inferred from one observation.
+//
+// Nothing is created here. The harness's own schema collection already
+// demonstrates it, and creating a collection would be a change this suite
+// cannot undo: servers refuse to remove one while it is loaded.
+func TestPositionPrefixedNamesAreTheServersOwn(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		w := sess.Capabilities().SchemaWrite
+		if w.Style != directory.SchemaStyleConfig {
+			t.Skip("this server does not put an entry's position into its name")
+		}
+
+		var prefixed string
+		for _, target := range w.Targets {
+			if strings.HasPrefix(strings.SplitN(target.DN, ",", 2)[0], "cn={") {
+				prefixed = target.DN
+			}
+		}
+		if prefixed == "" {
+			t.Fatalf("no schema collection carries a position prefix: %+v", w.Targets)
+		}
+
+		// The prefixed name is the real one.
+		if _, err := sess.Read(ctx(t), dn.MustParse(prefixed), []string{"cn"}); err != nil {
+			t.Fatalf("reading %s: %v", prefixed, err)
+		}
+
+		// The name without the position is not, which is exactly the trap: a
+		// caller who asked for this name and was told it succeeded would send
+		// the next reader here.
+		rdn, rest, _ := strings.Cut(prefixed, ",")
+		bare := strings.Replace(rdn, "{", "", 1)
+		if i := strings.Index(bare, "}"); i >= 0 {
+			bare = bare[:strings.Index(bare, "=")+1] + bare[i+1:]
+		}
+		unprefixed := bare + "," + rest
+		if _, err := sess.Read(ctx(t), dn.MustParse(unprefixed), []string{"cn"}); err == nil {
+			t.Errorf("%s resolves as well as %s, so the position is not part of the name "+
+				"on this server after all", unprefixed, prefixed)
+		}
+	})
+}

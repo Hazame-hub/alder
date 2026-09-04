@@ -317,3 +317,35 @@ to contradict the plan — add an entry.
   schema entry deletion is shown as the bare LDAP result code, with no hint that
   the server simply does not allow it. Both are reported rather than fixed here,
   because both want a wider answer than a special case.
+
+### 2026-09-04 — the two rough edges, closed
+
+- **An added entry is looked for, not assumed.** A directory need not store an
+  entry under the name it was given: where an entry's position among its
+  siblings forms part of that name, the server assigns the position and rewrites
+  the RDN. Alder reported the DN it sent, so a successful create was followed by
+  navigating to nothing. It now reads the requested DN back, and only when that
+  fails searches one level of the parent for an entry whose RDN differs solely
+  by a position prefix. The ordinary case costs one base read; the search happens
+  only where something has already gone unexpectedly.
+- **It claims a location or it says it could not find one.** Where the search
+  finds exactly one candidate, that DN is reported. Where it finds none or
+  several, the requested DN is returned with a note saying the location was not
+  confirmed. Guessing between two entries whose names differ only by a position
+  would be worse than admitting ignorance.
+- **A refusal is explained from the result code and the attempt, never from what
+  the server said.** The driver withholds the server's diagnostic on purpose —
+  some servers name entries the caller may not be allowed to know exist, and
+  some echo the request back — and that decision stands. What it left behind was
+  "Unwilling To Perform (code 53)" and nothing else, which is not enough to act
+  on. The explanation is now written by Alder from two things it knows for
+  certain: the standard RFC 4511 code, and the change that was being made. It is
+  phrased as the likely cause rather than a diagnosis of this particular failure.
+- **Context sharpens the explanation without vendor branching.** The same code 53
+  reads differently for deleting a schema collection, deleting some other
+  configuration entry, renaming one, and refusing an ordinary change — because
+  what was attempted differs, not because the server differs. Code 50 in the
+  configuration tree points at the configuration credentials, which is the thing
+  that would actually fix it.
+- **Alder stays quiet where it has nothing to add.** Codes with no useful
+  explanation produce no hint rather than a platitude, and a test asserts it.
