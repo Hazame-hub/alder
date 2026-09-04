@@ -402,3 +402,30 @@ to contradict the plan — add an entry.
   definition nothing referenced. The new case edits alderTeam, which
   alderEmployee requires on both servers, and it was confirmed to fail with the
   fix disabled — a test that passes either way would have been worse than none.
+
+### 2026-09-04 — an edit was quietly deleting fields
+
+- **Found by testing the fix rather than announcing it.** Asked to verify before
+  handing the previous fix over, the first run through the actual editor showed
+  a worse bug than the one just repaired: editing an attribute type to change
+  its description also removed `SUBSTR caseIgnoreSubstringsMatch`. The change
+  was accepted, nothing was said, and substring search on that attribute would
+  simply have stopped working.
+- **The editor was prefilled from the wrong thing.** It used the display
+  summary, which is wrong for editing in two separate ways. It omits fields —
+  SUBSTR, ORDERING, COLLECTIVE, NO-USER-MODIFICATION, USAGE, the syntax length
+  and the extensions — so an edit wrote a definition without them. And it
+  reports *effective* values, resolved through SUP, so an attribute inheriting
+  its syntax from a superior would have had that syntax written in as its own.
+- **The detail responses now carry the definition as it declares itself**, in
+  the same shape a change posts back. Round-tripping is then true by
+  construction rather than by keeping two lists of fields in step, and the tests
+  assert exactly that: parse, hand to the editor, convert back, render, and the
+  meaning is unchanged.
+- **What the form cannot show travels with the request.** Submitting spreads the
+  original definition and overrides only the fields the form owns. Extensions,
+  and anything a later revision of the schema adds, pass through untouched
+  instead of being dropped for want of an input.
+- **The summary stays as it is.** Resolving inheritance is right for reading —
+  somebody looking at an attribute wants to know what it effectively does — and
+  wrong for writing. The mistake was using one view for both, not the view.

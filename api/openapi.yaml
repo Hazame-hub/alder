@@ -624,6 +624,9 @@ components:
           # Named explicitly: the generated constant for "config" would
           # otherwise be Config, which the server package already uses.
           x-enum-varnames: [SchemaStyleNone, SchemaStyleSubschema, SchemaStyleConfig]
+          # Named explicitly: the generated constant for "config" would
+          # otherwise be Config, which the server package already uses.
+          x-enum-varnames: [SchemaStyleNone, SchemaStyleSubschema, SchemaStyleConfig]
         targets:
           type: array
           items: { $ref: "#/components/schemas/SchemaTarget" }
@@ -941,6 +944,8 @@ components:
         raw:
           type: string
           description: The definition exactly as the server published it.
+        edit:
+          $ref: "#/components/schemas/ObjectClassInput"
 
     AttributeTypeDetail:
       type: object
@@ -958,6 +963,8 @@ components:
           items: { type: string }
           description: Object classes that name this attribute in MAY.
         raw: { type: string }
+        edit:
+          $ref: "#/components/schemas/AttributeTypeInput"
 
     ChangeMod:
       type: object
@@ -1093,6 +1100,10 @@ components:
 
     ObjectClassInput:
       type: object
+      description: |
+        An object class as it declares itself, in the shape a change posts back.
+        Returned by the detail response so an edit starts from the definition
+        rather than from the summary, which resolves inherited attributes.
       required: [oid, names]
       properties:
         oid: { type: string }
@@ -1112,6 +1123,16 @@ components:
 
     AttributeTypeInput:
       type: object
+      description: |
+        An attribute type as it declares itself, in the shape a change posts
+        back.
+
+        The detail responses return one of these so an edit starts from what the
+        definition actually says. The summary alongside it is for reading: it
+        reports effective values, resolved through SUP, which is what somebody
+        looking at an attribute wants to know and exactly what an editor must not
+        write back — a value inherited from a superior would become one declared
+        here.
       required: [oid, names]
       properties:
         oid: { type: string }

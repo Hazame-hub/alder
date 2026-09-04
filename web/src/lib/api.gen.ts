@@ -680,6 +680,7 @@ export interface components {
             subclasses?: string[];
             /** @description The definition exactly as the server published it. */
             raw?: string;
+            edit?: components["schemas"]["ObjectClassInput"];
         };
         AttributeTypeDetail: {
             summary: components["schemas"]["AttributeTypeSummary"];
@@ -690,6 +691,7 @@ export interface components {
             /** @description Object classes that name this attribute in MAY. */
             optionalIn?: string[];
             raw?: string;
+            edit?: components["schemas"]["AttributeTypeInput"];
         };
         ChangeMod: {
             /** @enum {string} */
@@ -787,6 +789,11 @@ export interface components {
              */
             definition?: string;
         };
+        /**
+         * @description An object class as it declares itself, in the shape a change posts back.
+         *     Returned by the detail response so an edit starts from the definition
+         *     rather than from the summary, which resolves inherited attributes.
+         */
         ObjectClassInput: {
             oid: string;
             names: string[];
@@ -801,6 +808,17 @@ export interface components {
                 [key: string]: string[];
             };
         };
+        /**
+         * @description An attribute type as it declares itself, in the shape a change posts
+         *     back.
+         *
+         *     The detail responses return one of these so an edit starts from what the
+         *     definition actually says. The summary alongside it is for reading: it
+         *     reports effective values, resolved through SUP, which is what somebody
+         *     looking at an attribute wants to know and exactly what an editor must not
+         *     write back — a value inherited from a superior would become one declared
+         *     here.
+         */
         AttributeTypeInput: {
             oid: string;
             names: string[];

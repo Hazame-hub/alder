@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
-import type { ChangeRequest, SchemaWrite, SchemaTarget } from "@/lib/api";
+import type {
+  AttributeTypeInput,
+  ChangeRequest,
+  ObjectClassInput,
+  SchemaTarget,
+  SchemaWrite,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,8 +48,17 @@ import { ErrorNote } from "@/components/change-dialog";
 export type SchemaEditorRequest = {
   kind: "objectClass" | "attributeType";
   op: "add" | "replace" | "delete";
-  /** Prefilled when editing; the OID also identifies what to replace. */
-  initial?: Partial<DefinitionForm> & { oid?: string };
+  /**
+   * The definition as it declares itself, straight from the API.
+   *
+   * Editing starts from this rather than from the summary shown alongside it.
+   * The summary reports effective values, resolved through SUP, and omits
+   * fields the form has no input for — an edit built from it wrote back
+   * inherited values as declared ones and silently dropped the rest.
+   */
+  edit?: ObjectClassInput | AttributeTypeInput;
+  /** The OID, for a removal, where no definition is being written. */
+  oid?: string;
   /** The stored definition, shown when removing one. */
   raw?: string;
 };
@@ -87,6 +102,46 @@ const empty: DefinitionForm = {
 /** Directory String, the syntax a new text attribute almost always wants. */
 const directoryString = "1.3.6.1.4.1.1466.115.121.1.15";
 
+/**
+ * The editor's fields, taken from the definition the API returned.
+ *
+ * Only the fields the form draws are read out; the rest travel with the request
+ * and are spread back in on submit.
+ */
+function formFrom(request: SchemaEditorRequest | null): DefinitionForm {
+  const edit = request?.edit;
+  if (!edit) return { ...empty };
+
+  const shared = {
+    oid: edit.oid,
+    names: (edit.names ?? []).join(" "),
+    desc: edit.desc ?? "",
+    obsolete: edit.obsolete === true,
+  };
+  if (request?.kind === "objectClass") {
+    const oc = edit as ObjectClassInput;
+    return {
+      ...empty,
+      ...shared,
+      superNames: (oc.superNames ?? []).join(" "),
+      classKind: (oc.kind ?? "STRUCTURAL") as DefinitionForm["classKind"],
+      must: (oc.must ?? []).join(" "),
+      may: (oc.may ?? []).join(" "),
+    };
+  }
+  const at = edit as AttributeTypeInput;
+  return {
+    ...empty,
+    ...shared,
+    superName: at.superName ?? "",
+    equality: at.equality ?? "",
+    ordering: at.ordering ?? "",
+    substr: at.substr ?? "",
+    syntax: at.syntax ?? "",
+    singleValue: at.singleValue === true,
+  };
+}
+
 function list(s: string): string[] {
   return s
     .split(/[,\s]+/)
@@ -115,7 +170,7 @@ export function SchemaEditorDialog({
   // at the worst target. The same reason the order is never rearranged applies:
   // Alder does not choose for you.
   const [targetDn, setTargetDn] = useState(targets.length === 1 ? (targets[0]?.dn ?? "") : "");
-  const [form, setForm] = useState<DefinitionForm>({ ...empty, ...request?.initial });
+  const [form, setForm] = useState<DefinitionForm>(() => formFrom(request));
   const [raw, setRaw] = useState(request?.raw ?? "");
   const [mode, setMode] = useState<"form" | "raw">("form");
 
@@ -133,7 +188,7 @@ export function SchemaEditorDialog({
             targetDn,
             kind,
             op,
-            oid: request?.initial?.oid ?? form.oid,
+            oid: request?.oid ?? form.oid,
             ...(isDelete
               ? {}
               : mode === "raw"
@@ -141,6 +196,11 @@ export function SchemaEditorDialog({
                 : kind === "objectClass"
                   ? {
                       objectClass: {
+                        // Everything the definition declared, then the fields
+                        // this form owns. What the form cannot show — the
+                        // extensions, and anything a later schema revision adds
+                        // — passes through untouched rather than being dropped.
+                        ...(request?.edit as ObjectClassInput | undefined),
                         oid: form.oid,
                         names: list(form.names),
                         desc: form.desc || undefined,
@@ -153,6 +213,7 @@ export function SchemaEditorDialog({
                     }
                   : {
                       attributeType: {
+                        ...(request?.edit as AttributeTypeInput | undefined),
                         oid: form.oid,
                         names: list(form.names),
                         desc: form.desc || undefined,
