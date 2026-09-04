@@ -45,9 +45,14 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		BindDN:     strings.TrimSpace(deref(body.BindDn)),
 		ServerName: strings.TrimSpace(deref(body.ServerName)),
 		Timeout:    requestTimeout,
+
+		ConfigBindDN: strings.TrimSpace(deref(body.ConfigBindDn)),
 	}
 	if body.BindPassword != nil {
 		cfg.BindPassword = *body.BindPassword
+	}
+	if body.ConfigBindPassword != nil {
+		cfg.ConfigBindPassword = *body.ConfigBindPassword
 	}
 	if body.InsecureSkipVerify != nil {
 		cfg.InsecureSkipVerify = *body.InsecureSkipVerify
@@ -188,10 +193,20 @@ func (s *Server) ListChildren(c *fiber.Ctx, params ListChildrenParams) error {
 	return c.JSON(page)
 }
 
-// namingContextNodes returns the tree's roots, read from the RootDSE.
+// namingContextNodes returns the tree's roots.
+//
+// The data suffixes come from the RootDSE. The server's own configuration tree
+// is a root too, when this session can read it: it is where the schema, the
+// databases and the access rules actually live, and leaving it out of the tree
+// meant the one part of the directory an engineer most often needs to look at
+// was the one part Alder would not show them.
 func (s *Server) namingContextNodes(c *fiber.Ctx, ctx context.Context, sess *session.Session, sch *schema.Schema) error {
 	browser, _ := sess.Conn.(treeBrowser)
-	contexts := sess.Conn.Capabilities().NamingContexts
+	caps := sess.Conn.Capabilities()
+	contexts := caps.NamingContexts
+	if caps.Config.Readable && caps.Config.DN != "" {
+		contexts = append(append([]string{}, contexts...), caps.Config.DN)
+	}
 
 	page := TreePage{Nodes: make([]TreeNode, 0, len(contexts))}
 	for _, raw := range contexts {

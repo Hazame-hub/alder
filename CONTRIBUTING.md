@@ -7,7 +7,7 @@ You need Go 1.25+, Node 22+, and Docker.
 ```sh
 task compose:up             # OpenLDAP and 389 DS, seeded, with TLS
 task check                  # vet, lint, unit tests — what CI runs
-task test:conformance      # the suite that decides whether a change is done
+task test:conformance       # the suite that decides whether a change is done
 ```
 
 For working on the UI, run the API and the Vite dev server separately so the
@@ -142,14 +142,19 @@ expired.
 
 ## Scope
 
-v1 does eight things: connect over LDAPS or StartTLS, browse the DIT, browse the
-schema, view and edit entries, preview every write as LDIF, export LDIF, export
-Ansible, and search.
+v1 does eleven things: connect over LDAPS or StartTLS, browse the DIT and the
+server's own configuration tree, browse and edit the schema, view and edit
+entries, preview every write as LDIF, stage changes into a changeset, export
+LDIF, export Ansible, and search.
+
+Schema editing was moved in from the list below on 2026-09-04, deliberately and
+on the record; see the decisions log. It waited for the conformance harness to
+be green because it is the most vendor-divergent write in LDAP.
 
 Everything else is excluded on purpose, and the list is load-bearing rather than
 a backlog:
 
-- schema editing, and ACL or `cn=config` editing
+- ACL editing, and `cn=config` editing beyond the schema subtree
 - any multi-user concept: RBAC, delegation, approval workflows
 - OIDC, SAML, or SSO
 - a persisted audit log

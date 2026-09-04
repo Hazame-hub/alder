@@ -72,10 +72,11 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 	}
 
 	s := &session{
-		conn:    conn,
-		cfg:     cfg,
-		logger:  d.Logger,
-		timeout: timeout,
+		conn:       conn,
+		cfg:        cfg,
+		logger:     d.Logger,
+		timeout:    timeout,
+		schemaOnce: new(sync.Once),
 	}
 	caps, err := s.readRootDSE(ctx)
 	if err != nil {
@@ -83,6 +84,37 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 		return nil, err
 	}
 	s.caps = caps
+
+	// The second identity, when there is one. It is dialled separately rather
+	// than re-binding the first: re-binding would change who the session is for
+	// every later operation, which is the opposite of what routing by DN is
+	// for.
+	if cfg.ConfigBindDN != "" {
+		configConn, cfgErr := d.dial(ctx, cfg, timeout)
+		if cfgErr != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("directory: connecting for the configuration tree: %w", cfgErr)
+		}
+		if bindErr := configConn.Bind(cfg.ConfigBindDN, cfg.ConfigBindPassword); bindErr != nil {
+			_ = configConn.Close()
+			_ = conn.Close()
+			// Named, because the alternative is a bind failure the person reads
+			// as their main credentials being wrong.
+			return nil, fmt.Errorf("directory: binding as the configuration identity %q: %w",
+				cfg.ConfigBindDN, cleanLDAPError(bindErr))
+		}
+		s.configConn = configConn
+	}
+
+	// Resolved after the second bind, because the second identity is often the
+	// only one that can see the tree at all. The announced value is left alone:
+	// what is browsable and what the schema architecture is are two different
+	// questions, and only the announcement answers the second.
+	s.caps.Config = s.configAccess(ctx, s.resolveConfigContext(ctx, caps.ConfigContext))
+	// The schema targets are found last: on a server that keeps its schema in
+	// its configuration, whether there is anywhere to write depends on
+	// everything above.
+	s.caps.SchemaWrite = s.findSchemaTargets(ctx, s.caps)
 
 	d.Logger.Info("connected to directory",
 		"address", cfg.Address(),
@@ -92,7 +124,10 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 		"vendor", caps.VendorName,
 		"naming_contexts", caps.NamingContexts,
 		"subschema", caps.SubschemaSubentry,
-		"paging", caps.Paging)
+		"paging", caps.Paging,
+		"config_context", s.caps.Config.DN,
+		"config_readable", s.caps.Config.Readable,
+		"schema_writable", s.caps.SchemaWrite.Editable())
 	return s, nil
 }
 
@@ -179,9 +214,31 @@ type session struct {
 	timeout time.Duration
 	closed  bool
 
-	schemaOnce sync.Once
+	// configConn is the connection bound as the configuration identity, when
+	// one was supplied. It is guarded by the same mutex as conn: the two are
+	// never used concurrently, and one lock keeps that obviously true.
+	configConn *ldap.Conn
+	// configTreeDN is the configuration tree this session can actually reach,
+	// which is what operations are routed by. Distinct from
+	// Capabilities.ConfigContext, which is only ever what the server announced.
+	configTreeDN string
+
+	// The parsed schema is cached because it is a few hundred kilobytes and
+	// normally changes about once a year. Editing it is the exception, so the
+	// cache is a resettable pointer rather than a sync.Once: a change applied
+	// through this session has to be visible to the next read through it.
+	schemaMu   sync.Mutex
+	schemaOnce *sync.Once
 	schema     *schema.Schema
 	schemaErr  error
+}
+
+// invalidateSchema drops the cached schema so the next read fetches it again.
+func (s *session) invalidateSchema() {
+	s.schemaMu.Lock()
+	defer s.schemaMu.Unlock()
+	s.schemaOnce = new(sync.Once)
+	s.schema, s.schemaErr = nil, nil
 }
 
 func (s *session) Capabilities() directory.Capabilities { return s.caps }
@@ -193,6 +250,9 @@ func (s *session) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.configConn != nil {
+		_ = s.configConn.Close()
+	}
 	return s.conn.Close()
 }
 
@@ -204,7 +264,7 @@ func (s *session) readRootDSE(ctx context.Context) (directory.Capabilities, erro
 		[]string{
 			"namingContexts", "subschemaSubentry", "supportedControl",
 			"supportedExtension", "supportedSASLMechanisms", "supportedLDAPVersion",
-			"vendorName", "vendorVersion",
+			"vendorName", "vendorVersion", "configContext",
 			// 389 DS reports its version here and not in vendorVersion.
 			"dataversion",
 		},
@@ -228,6 +288,7 @@ func (s *session) readRootDSE(ctx context.Context) (directory.Capabilities, erro
 		SupportedLDAPVersion: e.GetAttributeValues("supportedLDAPVersion"),
 		VendorName:           e.GetAttributeValue("vendorName"),
 		VendorVersion:        e.GetAttributeValue("vendorVersion"),
+		ConfigContext:        e.GetAttributeValue("configContext"),
 	}
 	caps.Derive()
 
@@ -252,7 +313,7 @@ func (s *session) searchLocked(ctx context.Context, req *ldap.SearchRequest) (*l
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	res, err := s.conn.Search(req)
+	res, err := s.connFor(req.BaseDN).Search(req)
 	if err != nil {
 		return nil, cleanLDAPError(err)
 	}

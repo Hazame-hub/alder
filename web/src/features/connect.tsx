@@ -40,6 +40,9 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
   const [tls, setTls] = useState<Tls>(remembered?.tls ?? "ldaps");
   const [bindDn, setBindDn] = useState(remembered?.bindDn ?? "");
   const [bindPassword, setBindPassword] = useState("");
+  const [configBindDn, setConfigBindDn] = useState(remembered?.configBindDn ?? "");
+  const [configBindPassword, setConfigBindPassword] = useState("");
+  const [showConfig, setShowConfig] = useState(false);
   const [insecure, setInsecure] = useState(remembered?.insecureSkipVerify ?? false);
   const [showCa, setShowCa] = useState(false);
   const [caCertificate, setCaCertificate] = useState(remembered?.caCertificate ?? "");
@@ -55,6 +58,8 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
             tls,
             bindDn: bindDn.trim() || undefined,
             bindPassword: bindPassword || undefined,
+            configBindDn: configBindDn.trim() || undefined,
+            configBindPassword: configBindPassword || undefined,
             insecureSkipVerify: insecure,
             caCertificate: caCertificate.trim() || undefined,
             serverName: serverName.trim() || undefined,
@@ -71,6 +76,7 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
         port,
         tls,
         bindDn: bindDn.trim(),
+        configBindDn: configBindDn.trim(),
         serverName: serverName.trim(),
         caCertificate: caCertificate.trim(),
         insecureSkipVerify: insecure,
@@ -186,6 +192,61 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
               disk, not put in a token, not stored in your browser.
             </p>
           </div>
+
+          {/*
+            Collapsed by default, and worth being explicit about why it exists.
+            A directory keeps its configuration beside its data, and the account
+            that administers a suffix normally has no rights there. Without a
+            second identity, reaching the configuration means connecting as the
+            configuration administrator and giving up access to the data — which
+            on a server that stores its schema in its configuration makes schema
+            editing and entry browsing mutually exclusive.
+          */}
+          <details
+            open={showConfig || (remembered?.configBindDn ?? "") !== ""}
+            onToggle={(e) => setShowConfig((e.currentTarget as HTMLDetailsElement).open)}
+            className="rounded-md border border-border"
+          >
+            <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+              Configuration access
+            </summary>
+            <div className="space-y-3 border-t border-border p-3">
+              <p className="text-xs text-muted-foreground">
+                Optional, and only needed where the account above has no rights
+                in the server's own configuration tree. Supplying it lets one
+                session browse the data as the directory administrator and the
+                configuration — including the schema, on servers that keep it
+                there — as the configuration administrator. Requests are routed
+                by DN; neither identity borrows the other's rights.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="configbinddn">Configuration bind DN</Label>
+                <Input
+                  id="configbinddn"
+                  value={configBindDn}
+                  placeholder="cn=admin,cn=config"
+                  className="font-dn"
+                  autoComplete="off"
+                  onChange={(e) => setConfigBindDn(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="configpassword">Configuration password</Label>
+                <Input
+                  id="configpassword"
+                  type="password"
+                  value={configBindPassword}
+                  autoComplete="off"
+                  onChange={(e) => setConfigBindPassword(e.target.value)}
+                />
+                <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
+                  Held exactly like the bind password: in the server's memory for
+                  this session, and nowhere else.
+                </p>
+              </div>
+            </div>
+          </details>
 
           <details
             open={showCa || (remembered?.caCertificate ?? "") !== ""}

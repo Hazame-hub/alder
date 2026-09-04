@@ -200,3 +200,77 @@ to contradict the plan — add an entry.
   changeset view offers as a download is something Import can read. A password
   change, which has no LDIF form, still appears in it as comments; a document
   describing fewer steps than the run performs would be worse than none.
+
+### 2026-09-04 — the configuration tree, and schema editing
+
+- **Schema editing moved into scope, on the record.** It had been deferred to v2
+  with a stated prerequisite: that the conformance harness be green first,
+  because schema writes are the most vendor-divergent operation in LDAP. That
+  prerequisite is met, and the decision to move it in was taken deliberately
+  rather than by drift. The v1 scope list in CONTRIBUTING and the charter both
+  say so.
+- **A schema change is an ordinary modify, not a second write path.** A
+  definition is a value of an attribute on an entry, which is what both
+  arrangements actually are. Expressing it as a `ChangeRecord` means schema
+  editing arrives already holding the LDIF preview, the Ansible task and a place
+  in a changeset, instead of having to earn each of them again. `Session.Apply`
+  is still the only method that writes.
+- **Where the schema is kept is read from the server, not guessed from its
+  name.** A server that publishes a `configContext` is declaring that its
+  configuration is part of its protocol surface, and that is also what makes its
+  subschema subentry a generated, read-only view of configuration entries. A
+  server that publishes none has a subschema subentry that *is* the schema. The
+  announcement is the signal, and it is the server's own statement about its
+  architecture.
+- **Announced and reachable are two different facts, kept apart.** An early
+  version conflated them and broke the case that already worked: probing found a
+  configuration tree on the server that keeps its schema in its subschema
+  subentry, and the schema style followed the probe instead of the
+  announcement. `ConfigContext` is now only ever what the server announced, and
+  `Config.DN` is what can be browsed.
+- **The configuration DN is preferred from the announcement, and otherwise
+  found by trying the conventional location.** Trying `cn=config` and believing
+  only what the server answers is observation, not a vendor check: the candidate
+  is tried against every server, the answer decides, and an entry that turns out
+  to sit inside a naming context is data rather than configuration and is
+  rejected.
+- **A connection may carry a second identity, for the configuration tree only.**
+  The account that administers a suffix normally has no rights in the
+  configuration, and the reverse. Without this, reaching the configuration means
+  connecting as the configuration administrator and giving up the data — which,
+  on a server that keeps its schema in its configuration, makes schema editing
+  and entry browsing mutually exclusive. Operations are routed by DN, so neither
+  identity borrows the other's rights. It is held in memory for the life of the
+  session exactly like the bind password, and the connection screen remembers
+  the DN and never the password.
+- **A removal or an edit uses the value the server stores, never the one the
+  browser displays.** They differ: a server keeping its schema in configuration
+  prefixes each stored definition with its load order and strips that prefix
+  from what it publishes, and 389 DS records `X-ORIGIN 'user defined'` on
+  anything added at runtime. A change built from the displayed form matches
+  nothing on a removal, and on an edit leaves two definitions of one OID. The
+  conformance suite asserts this directly, because it is the defect most likely
+  to make schema editing look as though it works right until it silently does
+  not.
+- **An edit is a delete and an add of one value, not a replace of the
+  attribute.** The attribute holds every definition the target has — a thousand
+  of them on 389 DS — and replacing it to change one would rewrite the lot and
+  produce a preview nobody could read.
+- **The collection is never preselected when there is a choice.** Where the
+  schema lives in configuration a server holds several collections, they load in
+  order, and the first is its core schema — the one place a new definition
+  almost never belongs. A default here would quietly aim the change at the worst
+  target, so the form asks. This was found by using it: the first version
+  defaulted to the first collection and built a change against the server's core
+  schema.
+- **`internal/schema` gained rendering, and the round trip is what is tested.**
+  `parse(render(x)) == x`, fuzzed, rather than assertions about formatting. It
+  found a real parser bug in the first second: `SYNTAX {1}`, a length with no
+  OID, was accepted and silently lost its length, so a definition read and
+  written back meant something else. RFC 4512's `noidlen` requires the OID.
+- **The parsed schema cache is per session and invalidated by that session's own
+  writes.** A change made in one session is not seen by another until it
+  reconnects. That is the same staleness the entry editor already reports for
+  entries, it is bounded by how rarely schema changes, and a session that edits
+  the schema sees its own change immediately — which is the case that matters,
+  because it is what the entry editor consults to decide what an entry may hold.

@@ -151,6 +151,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/schema/change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build the modification that installs, replaces or removes a definition
+         * @description Renders a definition and returns the change that would apply it, without
+         *     applying anything.
+         *
+         *     A schema definition is a value of an attribute on an ordinary entry, so
+         *     the change this returns is an ordinary modify, and it goes on to the
+         *     same preview, the same confirmation and the same changeset as every
+         *     other write. There is still exactly one path that writes.
+         *
+         *     The definition text is built here rather than in the browser, for the
+         *     same reason the LDIF preview is: what the person confirms and what the
+         *     directory receives have to be the same bytes.
+         *
+         *     A replace or a delete needs the value the server actually stores, which
+         *     is not always the value the schema browser displays — a server keeping
+         *     its schema in configuration prefixes each stored definition with its
+         *     load order and strips that prefix from what it publishes. This reads the
+         *     target to find it, which is why the request names an OID rather than
+         *     carrying a definition to remove.
+         */
+        post: operations["buildSchemaChange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/changes/preview": {
         parameters: {
             query?: never;
@@ -331,6 +368,26 @@ export interface components {
             /** @description Omit for an anonymous bind. */
             bindDn?: string;
             /**
+             * @description An optional second identity, used only for the server's own
+             *     configuration tree.
+             *
+             *     A directory keeps its configuration beside its data, and the account
+             *     that administers a suffix normally has no rights there; they are
+             *     separate administrative domains on purpose. Without this, reaching
+             *     the configuration means connecting as the configuration
+             *     administrator and losing access to the data — which on a server that
+             *     stores its schema in its configuration makes schema editing and
+             *     entry browsing mutually exclusive. Operations are routed by DN, so
+             *     one session does both.
+             */
+            configBindDn?: string;
+            /**
+             * Format: password
+             * @description Held in the server's memory for the life of the session, exactly
+             *     like the bind password. Never written to disk, never returned.
+             */
+            configBindPassword?: string;
+            /**
              * Format: password
              * @description Held in memory for the life of the session and nowhere else.
              */
@@ -351,6 +408,65 @@ export interface components {
              *     the scheme and applies its own policy.
              */
             passwordModify?: boolean;
+            /**
+             * @description The DN of the server's own configuration tree, when it publishes
+             *     one. Its presence is how Alder knows the subschema subentry is a
+             *     generated view rather than the schema itself.
+             */
+            configContext?: string;
+            schemaWrite?: components["schemas"]["SchemaWrite"];
+            config?: components["schemas"]["ConfigAccess"];
+        };
+        /**
+         * @description This session's reach into the server's own configuration tree. The DN
+         *     is preferred from what the server announces and otherwise found by
+         *     trying the conventional location and believing only what the server
+         *     answers.
+         */
+        ConfigAccess: {
+            /** @description The configuration tree's root. Absent where there is none. */
+            dn?: string;
+            /**
+             * @description Whether this session can actually read it. A server may announce a
+             *     tree the bound identity has no rights in.
+             */
+            readable: boolean;
+            /** @description Whether a second identity is being used for it. */
+            separateBind: boolean;
+            /** @description The identity the configuration tree is read as. */
+            boundAs?: string;
+            /** @description Why it is unreachable, in a sentence meant to be read. */
+            reason?: string;
+        };
+        /**
+         * @description Where, and whether, this session can write schema definitions. Style is
+         *     derived from what the server announced, never from its name: a server
+         *     that publishes a configContext keeps its schema in configuration
+         *     entries, and one that does not lets its subschema subentry be modified.
+         */
+        SchemaWrite: {
+            /** @enum {string} */
+            style: "none" | "subschema" | "config";
+            /**
+             * @description The entries a definition may be written to. Exactly one under the
+             *     subschema style. Under the config style a server holds several, and
+             *     which one a new definition joins is a choice with consequences,
+             *     because they load in order.
+             */
+            targets?: components["schemas"]["SchemaTarget"][];
+            objectClassAttr?: string;
+            attributeTypeAttr?: string;
+            /**
+             * @description Why there is nowhere to write, in a sentence meant to be read.
+             *     Present only when style is none.
+             */
+            unavailable?: string;
+        };
+        SchemaTarget: {
+            dn: string;
+            name: string;
+            objectClasses: number;
+            attributeTypes: number;
         };
         SessionInfo: {
             connected: boolean;
@@ -620,6 +736,72 @@ export interface components {
             dn: string;
             summary?: string;
             ldif?: string;
+        };
+        SchemaChangeRequest: {
+            /**
+             * @description The schema entry to change. It must be one the capabilities listed;
+             *     any other DN is refused, because accepting one would turn this into
+             *     a way to aim an arbitrary modification at an arbitrary entry.
+             */
+            targetDn: string;
+            /** @enum {string} */
+            kind: "objectClass" | "attributeType";
+            /** @enum {string} */
+            op: "add" | "replace" | "delete";
+            /** @description Which definition to replace or remove. Ignored for an add. */
+            oid?: string;
+            objectClass?: components["schemas"]["ObjectClassInput"];
+            attributeType?: components["schemas"]["AttributeTypeInput"];
+            /**
+             * @description A complete RFC 4512 definition, for someone who would rather write
+             *     one than fill in a form. Takes precedence over the structured input
+             *     when both are given, and is parsed and checked either way.
+             */
+            definition?: string;
+        };
+        ObjectClassInput: {
+            oid: string;
+            names: string[];
+            desc?: string;
+            obsolete?: boolean;
+            superNames?: string[];
+            /** @enum {string} */
+            kind?: "STRUCTURAL" | "ABSTRACT" | "AUXILIARY";
+            must?: string[];
+            may?: string[];
+            extensions?: {
+                [key: string]: string[];
+            };
+        };
+        AttributeTypeInput: {
+            oid: string;
+            names: string[];
+            desc?: string;
+            obsolete?: boolean;
+            superName?: string;
+            equality?: string;
+            ordering?: string;
+            substr?: string;
+            syntax?: string;
+            syntaxLen?: number;
+            singleValue?: boolean;
+            collective?: boolean;
+            noUserModification?: boolean;
+            /** @enum {string} */
+            usage?: "userApplications" | "directoryOperation" | "distributedOperation" | "dSAOperation";
+            extensions?: {
+                [key: string]: string[];
+            };
+        };
+        SchemaChangeBuild: {
+            change: components["schemas"]["ChangeRequest"];
+            /** @description The RFC 4512 text this change installs. Absent for a delete. */
+            definition?: string;
+            /**
+             * @description The definition this change removes, exactly as the server stores it.
+             *     Shown so a replace can be read as the substitution it is.
+             */
+            removes?: string;
         };
         ChangesetRequest: {
             /**
@@ -940,6 +1122,32 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    buildSchemaChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchemaChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description The change that would perform this, and the definition it carries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaChangeBuild"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     previewChange: {

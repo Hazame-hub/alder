@@ -32,7 +32,11 @@ tasks:
     # The spec is the source of truth. Edit it, run this, then satisfy the
     # compiler on both sides.
     cmds:
-      - go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen -config api/codegen.yaml api/openapi.yaml
+      # Pinned, and run straight from the module cache: the generator is a
+      # build tool, not something the binary links against, so it has no
+      # business in go.mod. Without the version this needs it to be a
+      # dependency, and it is not one.
+      - go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0 -config api/codegen.yaml api/openapi.yaml
       - npm --prefix web run generate
 
   web:

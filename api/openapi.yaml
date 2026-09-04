@@ -222,6 +222,44 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /schema/change:
+    post:
+      operationId: buildSchemaChange
+      summary: Build the modification that installs, replaces or removes a definition
+      description: |
+        Renders a definition and returns the change that would apply it, without
+        applying anything.
+
+        A schema definition is a value of an attribute on an ordinary entry, so
+        the change this returns is an ordinary modify, and it goes on to the
+        same preview, the same confirmation and the same changeset as every
+        other write. There is still exactly one path that writes.
+
+        The definition text is built here rather than in the browser, for the
+        same reason the LDIF preview is: what the person confirms and what the
+        directory receives have to be the same bytes.
+
+        A replace or a delete needs the value the server actually stores, which
+        is not always the value the schema browser displays — a server keeping
+        its schema in configuration prefixes each stored definition with its
+        load order and strips that prefix from what it publishes. This reads the
+        target to find it, which is why the request names an OID rather than
+        carrying a definition to remove.
+      tags: [schema]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SchemaChangeRequest" }
+      responses:
+        "200":
+          description: The change that would perform this, and the definition it carries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchemaChangeBuild" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /changes/preview:
     post:
       tags: [changes]
@@ -477,6 +515,27 @@ components:
         bindDn:
           type: string
           description: Omit for an anonymous bind.
+        configBindDn:
+          type: string
+          description: |
+            An optional second identity, used only for the server's own
+            configuration tree.
+
+            A directory keeps its configuration beside its data, and the account
+            that administers a suffix normally has no rights there; they are
+            separate administrative domains on purpose. Without this, reaching
+            the configuration means connecting as the configuration
+            administrator and losing access to the data — which on a server that
+            stores its schema in its configuration makes schema editing and
+            entry browsing mutually exclusive. Operations are routed by DN, so
+            one session does both.
+        configBindPassword:
+          type: string
+          format: password
+          writeOnly: true
+          description: |
+            Held in the server's memory for the life of the session, exactly
+            like the bind password. Never written to disk, never returned.
         bindPassword:
           type: string
           format: password
@@ -500,6 +559,83 @@ components:
             RFC 3062 Password Modify. Where a server offers it, Alder sets
             passwords with it rather than writing a hash, so the server chooses
             the scheme and applies its own policy.
+        configContext:
+          type: string
+          description: |
+            The DN of the server's own configuration tree, when it publishes
+            one. Its presence is how Alder knows the subschema subentry is a
+            generated view rather than the schema itself.
+        schemaWrite:
+          $ref: "#/components/schemas/SchemaWrite"
+        config:
+          $ref: "#/components/schemas/ConfigAccess"
+
+    ConfigAccess:
+      type: object
+      description: |
+        This session's reach into the server's own configuration tree. The DN
+        is preferred from what the server announces and otherwise found by
+        trying the conventional location and believing only what the server
+        answers.
+      required: [readable, separateBind]
+      properties:
+        dn:
+          type: string
+          description: The configuration tree's root. Absent where there is none.
+        readable:
+          type: boolean
+          description: |
+            Whether this session can actually read it. A server may announce a
+            tree the bound identity has no rights in.
+        separateBind:
+          type: boolean
+          description: Whether a second identity is being used for it.
+        boundAs:
+          type: string
+          description: The identity the configuration tree is read as.
+        reason:
+          type: string
+          description: Why it is unreachable, in a sentence meant to be read.
+
+    SchemaWrite:
+      type: object
+      description: |
+        Where, and whether, this session can write schema definitions. Style is
+        derived from what the server announced, never from its name: a server
+        that publishes a configContext keeps its schema in configuration
+        entries, and one that does not lets its subschema subentry be modified.
+      required: [style]
+      properties:
+        style:
+          type: string
+          enum: [none, subschema, config]
+          # Named explicitly: the generated constant for "config" would
+          # otherwise be Config, which the server package already uses.
+          x-enum-varnames: [SchemaStyleNone, SchemaStyleSubschema, SchemaStyleConfig]
+        targets:
+          type: array
+          items: { $ref: "#/components/schemas/SchemaTarget" }
+          description: |
+            The entries a definition may be written to. Exactly one under the
+            subschema style. Under the config style a server holds several, and
+            which one a new definition joins is a choice with consequences,
+            because they load in order.
+        objectClassAttr: { type: string }
+        attributeTypeAttr: { type: string }
+        unavailable:
+          type: string
+          description: |
+            Why there is nowhere to write, in a sentence meant to be read.
+            Present only when style is none.
+
+    SchemaTarget:
+      type: object
+      required: [dn, name, objectClasses, attributeTypes]
+      properties:
+        dn: { type: string }
+        name: { type: string }
+        objectClasses: { type: integer }
+        attributeTypes: { type: integer }
 
     SessionInfo:
       type: object
@@ -896,6 +1032,99 @@ components:
           description: The entry's DN after the change, which differs for a rename.
         summary: { type: string }
         ldif: { type: string }
+
+    SchemaChangeRequest:
+      type: object
+      required: [targetDn, kind, op]
+      properties:
+        targetDn:
+          type: string
+          description: |
+            The schema entry to change. It must be one the capabilities listed;
+            any other DN is refused, because accepting one would turn this into
+            a way to aim an arbitrary modification at an arbitrary entry.
+        kind:
+          type: string
+          enum: [objectClass, attributeType]
+        op:
+          type: string
+          enum: [add, replace, delete]
+        oid:
+          type: string
+          description: Which definition to replace or remove. Ignored for an add.
+        objectClass:
+          $ref: "#/components/schemas/ObjectClassInput"
+        attributeType:
+          $ref: "#/components/schemas/AttributeTypeInput"
+        definition:
+          type: string
+          description: |
+            A complete RFC 4512 definition, for someone who would rather write
+            one than fill in a form. Takes precedence over the structured input
+            when both are given, and is parsed and checked either way.
+
+    ObjectClassInput:
+      type: object
+      required: [oid, names]
+      properties:
+        oid: { type: string }
+        names: { type: array, items: { type: string } }
+        desc: { type: string }
+        obsolete: { type: boolean }
+        superNames: { type: array, items: { type: string } }
+        kind:
+          type: string
+          enum: [STRUCTURAL, ABSTRACT, AUXILIARY]
+          x-enum-varnames: [KindStructural, KindAbstract, KindAuxiliary]
+        must: { type: array, items: { type: string } }
+        may: { type: array, items: { type: string } }
+        extensions:
+          type: object
+          additionalProperties: { type: array, items: { type: string } }
+
+    AttributeTypeInput:
+      type: object
+      required: [oid, names]
+      properties:
+        oid: { type: string }
+        names: { type: array, items: { type: string } }
+        desc: { type: string }
+        obsolete: { type: boolean }
+        superName: { type: string }
+        equality: { type: string }
+        ordering: { type: string }
+        substr: { type: string }
+        syntax: { type: string }
+        syntaxLen: { type: integer }
+        singleValue: { type: boolean }
+        collective: { type: boolean }
+        noUserModification: { type: boolean }
+        usage:
+          type: string
+          enum: [userApplications, directoryOperation, distributedOperation, dSAOperation]
+          # Named explicitly. The generator only prefixes enum constants when
+          # they collide, so leaving these bare means a later enum sharing a
+          # value silently renames them.
+          x-enum-varnames:
+            [UsageUserApplications, UsageDirectoryOperation, UsageDistributedOperation, UsageDSAOperation]
+        extensions:
+          type: object
+          additionalProperties: { type: array, items: { type: string } }
+
+    SchemaChangeBuild:
+      type: object
+      required: [change]
+      properties:
+        change:
+          $ref: "#/components/schemas/ChangeRequest"
+        definition:
+          type: string
+          description: The RFC 4512 text this change installs. Absent for a delete.
+        removes:
+          type: string
+          description: |
+            The definition this change removes, exactly as the server stores it.
+            Shown so a replace can be read as the substitution it is.
 
     ChangesetRequest:
       type: object

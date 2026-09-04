@@ -35,6 +35,9 @@ func (f *fakeSession) Read(context.Context, dn.DN, []string) (*directory.Entry, 
 func (f *fakeSession) Apply(context.Context, directory.ChangeRecord) error {
 	return errors.New("not used")
 }
+func (f *fakeSession) SchemaDefinitions(context.Context, string, directory.SchemaDefKind) ([]string, error) {
+	return nil, errors.New("not used")
+}
 func (f *fakeSession) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

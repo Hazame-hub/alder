@@ -1,13 +1,18 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, Search as SearchIcon } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Loader2, Pencil, Plus, Search as SearchIcon, Trash2 } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
 import type { SchemaView } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui";
 import { LdifBlock } from "@/components/ldif-block";
+import { ChangeDialog } from "@/components/change-dialog";
+import { SchemaEditorDialog } from "@/features/schema-editor";
+import type { SchemaEditorRequest } from "@/features/schema-editor";
+import type { ChangeRequest, SchemaWrite } from "@/lib/api";
 
 type Section = "objectClasses" | "attributeTypes" | "syntaxes" | "matchingRules";
 
@@ -23,11 +28,38 @@ export function SchemaBrowser() {
   const [section, setSection] = useState<Section>("objectClasses");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Editing runs in two steps on purpose: the form builds a change, and the
+  // ordinary confirmation dialog applies it. Holding both here is what lets the
+  // second one be the same dialog every other write in the application uses.
+  const [editing, setEditing] = useState<SchemaEditorRequest | null>(null);
+  const [editorKey, setEditorKey] = useState(0);
+  const [pending, setPending] = useState<{
+    change: ChangeRequest;
+    title: string;
+    destructive: boolean;
+  } | null>(null);
 
   const schema = useQuery({
     queryKey: ["schema"],
     queryFn: async () => unwrap(await api.GET("/schema")),
   });
+
+  const session = useQuery({
+    queryKey: ["session"],
+    queryFn: async () => unwrap(await api.GET("/session")),
+  });
+  const write: SchemaWrite | undefined = session.data?.capabilities?.schemaWrite;
+  const canEdit =
+    session.data?.readOnly !== true && write !== undefined && write.style !== "none";
+
+  // A fresh key on every open, so the form never opens showing the previous
+  // definition's fields.
+  const openEditor = (req: SchemaEditorRequest) => {
+    setEditorKey((k) => k + 1);
+    setEditing(req);
+  };
 
   if (schema.isPending) {
     return (
@@ -76,6 +108,25 @@ export function SchemaBrowser() {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+          {canEdit && (section === "objectClasses" || section === "attributeTypes") ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() =>
+                openEditor({
+                  kind: section === "objectClasses" ? "objectClass" : "attributeType",
+                  op: "add",
+                })
+              }
+            >
+              <Plus />
+              New {section === "objectClasses" ? "object class" : "attribute type"}
+            </Button>
+          ) : null}
+          {write && write.style === "none" && write.unavailable ? (
+            <p className="text-xs text-muted-foreground">{write.unavailable}</p>
+          ) : null}
         </div>
         <SchemaList
           schema={data}
@@ -89,9 +140,21 @@ export function SchemaBrowser() {
       <div className="min-w-0 flex-1 overflow-y-auto">
         {selected ? (
           section === "attributeTypes" ? (
-            <AttributeTypeDetailPane name={selected} onNavigate={setSelected} onSection={setSection} />
+              <AttributeTypeDetailPane
+              name={selected}
+              onNavigate={setSelected}
+              onSection={setSection}
+              canEdit={canEdit}
+              onEdit={openEditor}
+            />
           ) : section === "objectClasses" ? (
-            <ObjectClassDetailPane name={selected} onNavigate={setSelected} onSection={setSection} />
+            <ObjectClassDetailPane
+              name={selected}
+              onNavigate={setSelected}
+              onSection={setSection}
+              canEdit={canEdit}
+              onEdit={openEditor}
+            />
           ) : (
             <SimpleDetail schema={data} section={section} id={selected} />
           )
@@ -99,6 +162,42 @@ export function SchemaBrowser() {
           <SchemaOverview schema={data} />
         )}
       </div>
+
+      {write ? (
+        <SchemaEditorDialog
+          key={editorKey}
+          request={editing}
+          write={write}
+          open={editing !== null}
+          onOpenChange={(o) => {
+            if (!o) setEditing(null);
+          }}
+          onBuilt={(change, title, destructive) =>
+            setPending({ change, title, destructive })
+          }
+        />
+      ) : null}
+
+      <ChangeDialog
+        change={pending?.change ?? null}
+        open={pending !== null}
+        onOpenChange={(o) => {
+          if (!o) setPending(null);
+        }}
+        title={pending?.title}
+        destructive={pending?.destructive}
+        onApplied={() => {
+          // A schema change invalidates more than the schema view: the entry
+          // editor decides what an entry may hold from the same schema, so a
+          // stale copy would offer an attribute the directory then refuses.
+          void queryClient.invalidateQueries({ queryKey: ["schema"] });
+          void queryClient.invalidateQueries({ queryKey: ["objectclass"] });
+          void queryClient.invalidateQueries({ queryKey: ["attributetype"] });
+          void queryClient.invalidateQueries({ queryKey: ["entry"] });
+          setPending(null);
+          setSelected(null);
+        }}
+      />
     </div>
   );
 }
@@ -259,10 +358,14 @@ function ObjectClassDetailPane({
   name,
   onNavigate,
   onSection,
+  canEdit,
+  onEdit,
 }: {
   name: string;
   onNavigate: (id: string) => void;
   onSection: (s: Section) => void;
+  canEdit: boolean;
+  onEdit: (req: SchemaEditorRequest) => void;
 }) {
   const detail = useQuery({
     queryKey: ["objectclass", name],
@@ -301,6 +404,48 @@ function ObjectClassDetailPane({
           <p className="mt-1 text-xs text-muted-foreground">
             also known as {(s.names ?? []).slice(1).join(", ")}
           </p>
+        ) : null}
+        {canEdit ? (
+          <div className="mt-3 flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                onEdit({
+                  kind: "objectClass",
+                  op: "replace",
+                  initial: {
+                    oid: s.oid,
+                    names: (s.names ?? [s.name]).join(" "),
+                    desc: s.desc ?? "",
+                    obsolete: s.obsolete === true,
+                    classKind: s.kind as "STRUCTURAL" | "ABSTRACT" | "AUXILIARY",
+                    superNames: (s.superiors ?? []).join(" "),
+                    // Only what this class declares itself. Prefilling the
+                    // inherited attributes as well would redeclare them here on
+                    // the next save, which changes the definition's meaning.
+                    must: (d.must ?? []).join(" "),
+                    may: (d.may ?? []).join(" "),
+                  },
+                  raw: d.raw,
+                })
+              }
+            >
+              <Pencil />
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive"
+              onClick={() =>
+                onEdit({ kind: "objectClass", op: "delete", initial: { oid: s.oid }, raw: d.raw })
+              }
+            >
+              <Trash2 />
+              Remove
+            </Button>
+          </div>
         ) : null}
       </header>
 
@@ -358,10 +503,14 @@ function AttributeTypeDetailPane({
   name,
   onNavigate,
   onSection,
+  canEdit,
+  onEdit,
 }: {
   name: string;
   onNavigate: (id: string) => void;
   onSection: (s: Section) => void;
+  canEdit: boolean;
+  onEdit: (req: SchemaEditorRequest) => void;
 }) {
   const detail = useQuery({
     queryKey: ["attributetype", name],
@@ -397,6 +546,45 @@ function AttributeTypeDetailPane({
         </div>
         {s.desc ? <p className="mt-1 text-sm">{s.desc}</p> : null}
         <p className="mt-1 font-dn text-xs text-muted-foreground">{s.oid}</p>
+        {canEdit ? (
+          <div className="mt-3 flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                onEdit({
+                  kind: "attributeType",
+                  op: "replace",
+                  initial: {
+                    oid: s.oid,
+                    names: (s.names ?? [s.name]).join(" "),
+                    desc: s.desc ?? "",
+                    obsolete: s.obsolete === true,
+                    superName: s.superior ?? "",
+                    equality: s.equality ?? "",
+                    syntax: s.syntax ?? "",
+                    singleValue: s.singleValue === true,
+                  },
+                  raw: d.raw,
+                })
+              }
+            >
+              <Pencil />
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive"
+              onClick={() =>
+                onEdit({ kind: "attributeType", op: "delete", initial: { oid: s.oid }, raw: d.raw })
+              }
+            >
+              <Trash2 />
+              Remove
+            </Button>
+          </div>
+        ) : null}
       </header>
 
       <Section title="Syntax and matching">

@@ -638,6 +638,13 @@ func splitNOIDLen(v string) (string, int) {
 	if open < 0 || !strings.HasSuffix(v, "}") {
 		return v, 0
 	}
+	// RFC 4512 noidlen is a numericoid followed by an optional length, so a
+	// bare "{64}" is not a syntax with an unspecified OID -- it is malformed.
+	// Keeping the length while dropping the OID would leave a definition that
+	// cannot be written back to mean what it said, which is how this was found.
+	if open == 0 {
+		return v, 0
+	}
 	n, err := strconv.Atoi(v[open+1 : len(v)-1])
 	if err != nil || n < 0 {
 		return v[:open], 0
