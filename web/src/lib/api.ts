@@ -52,6 +52,8 @@ export class ApiFailure extends Error {
   readonly code: ApiError["error"] | "unknown";
   readonly detail?: string;
   readonly ldapCode?: number;
+  /** What the result code usually means for what was attempted. */
+  readonly hint?: string;
 
   constructor(status: number, body?: ApiError) {
     super(body?.message ?? `Request failed with status ${status}`);
@@ -60,6 +62,7 @@ export class ApiFailure extends Error {
     this.code = body?.error ?? "unknown";
     this.detail = body?.detail;
     this.ldapCode = body?.ldapCode;
+    this.hint = body?.hint;
   }
 
   /** True when the session is gone and the user must connect again. */

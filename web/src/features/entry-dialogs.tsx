@@ -261,7 +261,8 @@ export function CopyEntryDialog({
             onOpenChange(false);
           }
         }}
-        onApplied={(result) => onCreated(result.dn)}
+        // A copy is an add, so the server may store it under a name of its own.
+        onApplied={(result) => onCreated(result.storedDn ?? result.dn)}
       />
     </>
   );

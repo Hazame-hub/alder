@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/hazame-hub/alder/internal/ansible"
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
 )
 
@@ -116,7 +118,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 				Dn:      record.DN.String(),
 				Applied: false,
 				Summary: ptr(record.Summary()),
-				Error:   ptr(errorBody(applyErr)),
+				Error:   ptr(errorBody(applyErr, record, sess.Conn.Capabilities())),
 			})
 			continue
 		}
@@ -274,7 +276,18 @@ func joinInts(ns []int) string {
 
 // errorBody renders an apply failure into the shape the API uses everywhere
 // else, so a caller parses one error type rather than two.
-func errorBody(err error) Error {
+// It carries the same explanation a single change would get. A changeset is
+// where an unexplained result code is least welcome: the run has stopped, part
+// of it has applied, and the operator has to decide what to do next.
+func errorBody(err error, record directory.ChangeRecord, caps directory.Capabilities) Error {
 	body := Error{Error: ErrorErrorUpstream, Message: err.Error()}
+	var ldapErr *ldapdriver.Error
+	if errors.As(err, &ldapErr) {
+		code := int(ldapErr.Code)
+		body.LdapCode = &code
+		if hint := ldapHint(ldapErr.Code, record, caps); hint != "" {
+			body.Hint = &hint
+		}
+	}
 	return body
 }

@@ -776,19 +776,28 @@ func (s *Server) ApplyChange(c *fiber.Ctx) error {
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 
+	caps := sess.Conn.Capabilities()
 	if err := sess.Conn.Apply(ctx, record); err != nil {
-		return s.fail(c, err)
+		return s.failChange(c, err, record, caps)
 	}
 	target, err := record.Target()
 	if err != nil {
 		return s.fail(c, err)
 	}
-	return c.JSON(ApplyResult{
+	result := ApplyResult{
 		Applied: true,
 		Dn:      target.String(),
 		Summary: ptr(record.Summary()),
 		Ldif:    ptr(record.LDIF()),
-	})
+	}
+	// An added entry is not always stored under the name it was given, so where
+	// it actually went is looked up rather than assumed.
+	if stored, moved, note := storedLocation(ctx, sess, record); moved {
+		result.StoredDn = ptr(stored)
+	} else if note != "" {
+		result.Note = ptr(note)
+	}
+	return c.JSON(result)
 }
 
 // --- transfer ---------------------------------------------------------------
