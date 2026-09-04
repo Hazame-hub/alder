@@ -1777,3 +1777,103 @@ func TestTheSchemaEntrySitsOutsideEveryNamingContext(t *testing.T) {
 		}
 	})
 }
+
+// An attribute type that an object class uses must still be editable.
+//
+// This is the case a tester hit and the suite did not: every schema edit it
+// covered was of a definition nothing referenced, which is the easy half. A
+// server refuses to delete an attribute type named in a class's MUST or MAY,
+// even inside the operation that puts it straight back — so expressing an edit
+// as delete-and-add made almost every real edit fail, because an attribute type
+// worth editing is usually one a class uses.
+//
+// alderTeam is MUST in alderEmployee on both servers, which is what makes it
+// the right subject.
+func TestSchemaReplaceOfAnAttributeAnObjectClassUses(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		target := schemaTarget(t, sess)
+		const oid = "1.3.6.1.4.1.99999.1.1" // alderTeam
+
+		stored, err := sess.SchemaDefinitions(ctx(t), target, directory.SchemaDefAttributeType)
+		if err != nil {
+			t.Fatalf("reading the stored definitions: %v", err)
+		}
+		var before string
+		for _, v := range stored {
+			if strings.Contains(v, "'alderTeam'") {
+				before = v
+			}
+		}
+		if before == "" {
+			t.Skipf("alderTeam is not held at %s", target)
+		}
+		// Restoration is registered first, so a failure part way still leaves
+		// the harness as it was.
+		t.Cleanup(func() {
+			_ = applySchemaChange(t, sess, directory.SchemaChangeRequest{
+				TargetDN: target, Kind: directory.SchemaDefAttributeType,
+				Op: directory.SchemaOpReplace, OID: oid,
+				Definition: stripOrdering(before),
+			})
+		})
+
+		edited := schema.AttributeType{
+			OID:         oid,
+			Names:       []string{"alderTeam"},
+			Desc:        "Team the person belongs to, edited by the conformance suite",
+			Equality:    "caseIgnoreMatch",
+			Substr:      "caseIgnoreSubstringsMatch",
+			Syntax:      "1.3.6.1.4.1.1466.115.121.1.15",
+			SingleValue: true,
+		}
+		def, err := edited.Definition()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := applySchemaChange(t, sess, directory.SchemaChangeRequest{
+			TargetDN: target, Kind: directory.SchemaDefAttributeType,
+			Op: directory.SchemaOpReplace, OID: oid, Definition: def,
+		}); err != nil {
+			t.Fatalf("editing an attribute type that an object class uses: %v", err)
+		}
+
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := sch.AttributeType("alderTeam")
+		if at == nil {
+			t.Fatal("alderTeam disappeared")
+		}
+		if !strings.Contains(at.Desc, "edited by the conformance suite") {
+			t.Errorf("DESC is %q, so the edit did not take", at.Desc)
+		}
+		// And exactly one definition of the OID, whichever form the change took.
+		var count int
+		for i := range sch.AttributeTypes {
+			if sch.AttributeTypes[i].OID == oid {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("the schema holds %d definitions of %s, want 1", count, oid)
+		}
+		// The class that uses it must still resolve, which is the reason the
+		// server refused the other form in the first place.
+		if oc := sch.ObjectClass("alderEmployee"); oc == nil {
+			t.Error("alderEmployee no longer resolves after editing an attribute it requires")
+		}
+	})
+}
+
+// stripOrdering removes the position prefix a configuration entry keeps, so a
+// stored value can be offered back as a definition to write.
+func stripOrdering(v string) string {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, "{") {
+		if end := strings.IndexByte(v, '}'); end > 0 {
+			return strings.TrimSpace(v[end+1:])
+		}
+	}
+	return v
+}
