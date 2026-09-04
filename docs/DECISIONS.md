@@ -349,3 +349,31 @@ to contradict the plan — add an entry.
   that would actually fix it.
 - **Alder stays quiet where it has nothing to add.** Codes with no useful
   explanation produce no hint rather than a platitude, and a test asserts it.
+
+### 2026-09-04 — the schema entry was unreachable on one of the two servers
+
+- **Reported from outside.** A tester said he could not edit 99user.ldif on
+  389 DS. No further detail was available, so the response was to remove every
+  obstacle that could produce that sentence rather than to guess which one had.
+- **The objective gap: a subschema subentry sits outside every naming context.**
+  Where a server keeps its schema in configuration entries, browsing the
+  configuration reaches it. Where the subentry *is* the schema, nothing reached
+  it — not the naming contexts, not the configuration tree — and the schema
+  browser was the only way in. It is now a root of its own.
+- **Only where it is writable.** Offering a generated, read-only view of the
+  schema as a browsable entry would be a trap: the edit control appears and the
+  server refuses the write. So the root is added when the subentry is the thing
+  that gets written, which is the same question as whether it is the real schema.
+  Nothing changes on a server whose schema lives in configuration, because the
+  entries holding it were already reachable.
+- **Values are drawn fifty at a time.** That entry holds one value per definition
+  the server knows: a thousand for attributeTypes alone, and about eighteen
+  hundred across the entry. Rendering them all took seconds and, in the editor,
+  would have meant a thousand text inputs. The rest are drawn on request, in both
+  the reader and the editor, which also makes any other outsized entry usable.
+- **The entry says where its definitions are edited.** Schema definitions are
+  values of an operational attribute; they can be written, but not one at a time
+  and not legibly. Rather than leave someone to conclude the schema cannot be
+  edited at all, the entry carries a line saying the schema browser does it, and
+  a button that goes there. That is the likeliest explanation for the report: the
+  place a person looks and the place the work happens were not connected.

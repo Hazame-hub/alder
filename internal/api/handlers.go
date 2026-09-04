@@ -203,9 +203,29 @@ func (s *Server) ListChildren(c *fiber.Ctx, params ListChildrenParams) error {
 func (s *Server) namingContextNodes(c *fiber.Ctx, ctx context.Context, sess *session.Session, sch *schema.Schema) error {
 	browser, _ := sess.Conn.(treeBrowser)
 	caps := sess.Conn.Capabilities()
-	contexts := caps.NamingContexts
+	contexts := append([]string{}, caps.NamingContexts...)
 	if caps.Config.Readable && caps.Config.DN != "" {
-		contexts = append(append([]string{}, contexts...), caps.Config.DN)
+		contexts = append(contexts, caps.Config.DN)
+	}
+	// The schema entry, where the schema is that entry rather than a view
+	// generated from configuration.
+	//
+	// A subschema subentry sits outside every naming context, so it appears
+	// under none of the roots above. Where the schema lives in configuration
+	// that costs nothing — the entries holding it are already reachable under
+	// the configuration root — but where the subentry *is* the schema, it was
+	// the one part of the directory the tree could not reach, and the only way
+	// to it was the schema browser.
+	//
+	// It is added only when it is writable, which is the same condition as it
+	// being the real thing. Offering a generated, read-only view as an editable
+	// entry would be a trap: the edit looks available and the server refuses it.
+	if caps.SchemaWrite.Style == directory.SchemaStyleSubschema {
+		for _, target := range caps.SchemaWrite.Targets {
+			if !reachableFrom(target.DN, contexts) {
+				contexts = append(contexts, target.DN)
+			}
+		}
 	}
 
 	page := TreePage{Nodes: make([]TreeNode, 0, len(contexts))}
@@ -237,6 +257,17 @@ func (s *Server) namingContextNodes(c *fiber.Ctx, ctx context.Context, sess *ses
 	}
 	sortNodes(page.Nodes)
 	return c.JSON(page)
+}
+
+// reachableFrom reports whether a DN already sits at or beneath one of the
+// roots the tree is about to show, so that nothing is offered twice.
+func reachableFrom(target string, roots []string) bool {
+	for _, root := range roots {
+		if withinConfigTree(target, root) {
+			return true
+		}
+	}
+	return false
 }
 
 // sortNodes orders siblings by their RDN, case-insensitively. Directories

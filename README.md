@@ -135,6 +135,11 @@ and a change touching something you can lock yourself out with — access rules,
 the administrative identity, the ports the server listens on — says which and
 why. Nothing blocks; the directory decides, and you are the one who asked.
 
+Where a server keeps its schema in the subschema subentry rather than in
+configuration entries, that entry is a root of its own. It sits outside every
+naming context, so it appears under nothing else — which made it the one part of
+such a directory the tree could not reach.
+
 **Edit the schema.** Object classes and attribute types can be added, changed
 and removed, through a form or by writing an RFC 4512 definition out by hand —
 either way it is parsed and checked before anything is sent.
