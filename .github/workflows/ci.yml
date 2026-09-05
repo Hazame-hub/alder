@@ -60,6 +60,23 @@ jobs:
       - name: conformance suite compiles
         run: go vet -tags conformance ./test/conformance/
 
+      # The SPA was not checked here at all until now, so a type error or a
+      # broken unit test reached main and was found by building locally.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: install the SPA dependencies
+        run: npm --prefix web ci
+
+      - name: type-check the SPA
+        run: npm --prefix web run typecheck
+
+      - name: SPA unit tests
+        run: npm --prefix web run test
+
   seed:
     name: seed data is up to date
     runs-on: ubuntu-latest

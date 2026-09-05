@@ -128,12 +128,22 @@ tasks:
     cmds:
       - npm --prefix web run typecheck
 
+  test:web:
+    desc: Run the SPA unit tests
+    # Node, not a browser. What is tested is the logic that decides what
+    # reaches a directory: which modification a diff produces, how a value is
+    # escaped into a DN, whether a value looks like a switch.
+    cmds:
+      - npm --prefix web run test
+
   check:
     desc: Everything CI runs
     cmds:
       - task: vet
       - task: lint
       - task: test
+      - task: typecheck
+      - task: test:web
 
   # --- the conformance harness ---------------------------------------------
 

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -44,6 +45,15 @@ export default defineConfig({
     outDir: embedDir,
     emptyOutDir: true,
     sourcemap: false,
+  },
+  test: {
+    // Node, not jsdom: what is worth testing here is the logic that decides
+    // what to send to a directory — which modification a diff produces, how a
+    // value is escaped into a DN, whether a value looks like a switch. None of
+    // it touches the DOM, and a DOM environment would only add a dependency and
+    // a second way for these to fail.
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
   server: {
     port: 5173,
