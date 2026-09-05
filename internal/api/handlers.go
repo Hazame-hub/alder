@@ -322,6 +322,9 @@ func (s *Server) GetEntry(c *fiber.Ctx, params GetEntryParams) error {
 	if kinds := candidateKinds(entry, sch, req); len(kinds) > 0 {
 		view.CandidateKinds = &kinds
 	}
+	if members := membershipAttributes(sch, req); len(members) > 0 {
+		view.MembershipAttributes = &members
+	}
 	if browser, canBrowse := sess.Conn.(treeBrowser); canBrowse {
 		if hasKids, kidErr := browser.HasChildren(ctx, target); kidErr == nil {
 			view.HasChildren = ptr(hasKids)
@@ -549,6 +552,41 @@ func attributeTypeSummary(sch *schema.Schema, at *schema.AttributeType) Attribut
 }
 
 // GetObjectClass returns one object class with its cross-links resolved.
+// GetRequirements answers what an entry of the named classes would look like.
+//
+// The creation form is built from this, so it offers the same controls the
+// editor does — a Boolean gets a Boolean, a DN gets the entry picker, and every
+// field carries the schema's own description. Building it from attribute names
+// alone is what left creation with a text box for everything.
+func (s *Server) GetRequirements(c *fiber.Ctx, params GetRequirementsParams) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	if len(params.Class) == 0 {
+		return badRequest(c, "Name at least one object class.",
+			"The class parameter is required, and may be repeated.")
+	}
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+
+	sch, err := sess.Conn.Schema(ctx)
+	if err != nil {
+		return s.fail(c, err)
+	}
+
+	req := sch.Requirements(params.Class)
+	names := append(append([]string{}, req.Must...), req.May...)
+	kinds := make([]AttributeKind, 0, len(names))
+	for _, name := range names {
+		kinds = append(kinds, attributeKind(sch.KindOf(name)))
+	}
+	return c.JSON(RequirementsView{
+		Requirements: requirementsView(req),
+		Kinds:        kinds,
+	})
+}
+
 func (s *Server) GetObjectClass(c *fiber.Ctx, name string) error {
 	sess := s.require(c)
 	if sess == nil {

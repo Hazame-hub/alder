@@ -2056,3 +2056,59 @@ func TestPermittedAttributesAreAllDescribed(t *testing.T) {
 		}
 	})
 }
+
+// TestOnlyStructuralClassesCanBeCreated asserts the rule the creation form
+// offers classes by — and it is a rule, not a convention, because the two
+// servers disagree about a class both of them define.
+//
+// posixGroup is STRUCTURAL on one server and AUXILIARY on the other. An entry
+// whose only class is an auxiliary one is refused, so offering posixGroup as
+// something to create would work against one server and fail against the other.
+// Nothing in Alder knows which is which: the form offers what the connected
+// server calls structural, and the divergence disappears.
+func TestOnlyStructuralClassesCanBeCreated(t *testing.T) {
+	kinds := map[string]map[string]schema.Kind{}
+
+	for _, s := range servers {
+		s := s
+		t.Run(s.name, func(t *testing.T) {
+			sess := connect(t, s, false)
+			defer sess.Close()
+			sch, err := sess.Schema(ctx(t))
+			if err != nil {
+				t.Fatalf("Schema: %v", err)
+			}
+			kinds[s.name] = map[string]schema.Kind{}
+			for _, name := range []string{"posixGroup", "groupOfNames", "inetOrgPerson", "organizationalUnit"} {
+				if oc := sch.ObjectClass(name); oc != nil {
+					kinds[s.name][name] = oc.Kind
+				}
+			}
+
+			// Whatever each server says, a class an entry is created as has to
+			// be structural there.
+			for _, name := range []string{"groupOfNames", "inetOrgPerson", "organizationalUnit"} {
+				oc := sch.ObjectClass(name)
+				if oc == nil {
+					t.Errorf("%s does not define %s", s.name, name)
+					continue
+				}
+				if oc.Kind != schema.KindStructural {
+					t.Errorf("%s calls %s %v; the creation form would offer a class "+
+						"that cannot stand alone", s.name, name, oc.Kind)
+				}
+			}
+		})
+	}
+
+	// And the divergence itself, recorded so a future change to either server's
+	// seed makes this visible rather than silently altering what is offered.
+	if len(kinds) == 2 {
+		a, b := kinds["openldap"]["posixGroup"], kinds["389ds"]["posixGroup"]
+		t.Logf("posixGroup is %v on openldap and %v on 389ds", a, b)
+		if a == b {
+			t.Logf("the two servers now agree about posixGroup; nothing is wrong, " +
+				"but the case this test was written for no longer exists")
+		}
+	}
+}
