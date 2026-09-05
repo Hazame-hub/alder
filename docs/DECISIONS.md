@@ -564,3 +564,51 @@ to contradict the plan — add an entry.
   but which it does not have, so the editor needs no second round trip and the
   control is right the moment the field appears. A conformance case asserts both
   servers can describe every attribute their suffix entry permits.
+
+### 2026-09-05 — creation and membership (console slice 3)
+
+- **A wizard has no finish button of its own.** Its last step hands a
+  `ChangeRequest` to the same confirmation dialog every other write goes
+  through, with the same LDIF, the same Ansible tab and the same Stage button.
+  This was the invariant most likely to be eroded by somebody being helpful, so
+  it is written down: a wizard composes a change record and nothing else.
+- **Creation and editing now share one field implementation.** They had two, and
+  the creation form had fallen a long way behind: a plain text box for every
+  attribute, including the ones the editor gave a Boolean control, an entry
+  picker, or the attribute's own description. `AttributeEditor` moved to
+  `components/attribute-editor.tsx` and both use it, so the two cannot drift
+  again.
+- **`GET /schema/requirements` exists so creation is generated, not templated.**
+  It answers what an entry of a set of classes must and may hold, with the
+  schema's opinion about each attribute. Building the form from attribute names
+  alone is exactly what produced the text boxes.
+- **The wizard's first step is the object views.** The kind step offers what
+  `/views` already derived — user, group, organizational unit — and narrows the
+  class list to that view's structural classes. A server publishes hundreds of
+  structural classes and a list of all of them is not a choice anybody can make;
+  "Something else" still reaches the full list.
+- **Only structural classes are offered for creation, and the servers disagree
+  about which those are.** `posixGroup` is STRUCTURAL on OpenLDAP and AUXILIARY
+  on 389 DS. It is a groups *anchor* on both, so posix groups are listed either
+  way — but it is offered as something to *create* only where the server calls
+  it structural, because an entry whose only class is auxiliary is refused.
+  Nothing in Alder knows which server is which; asking the schema makes the
+  divergence disappear. A conformance case records it.
+- **Membership is one action, not an edit of a list.** Add member produces
+  `add: member` with a single value and Remove produces `delete: member` with a
+  single value. The alternative — reading the list, changing it, posting it back
+  — silently removes anybody another administrator added in between, and group
+  membership is the most concurrently edited attribute a directory has. Neither
+  path reads the current list to build its change, so neither can overwrite it.
+- **The membership controls come from the classes, not the values.** An empty
+  group is still a group. Deciding from the values present would mean the
+  control for adding the first member appears only after somebody has added the
+  first member by some other route.
+- **The membership attribute names are standards-track, like the view anchors.**
+  member and uniqueMember from RFC 4519, memberUid from RFC 2307, memberURL from
+  the dynamic-group draft — each used only where the server defines it and the
+  entry's classes permit it. Where an entry permits more than one they are
+  offered as a choice, with the warning that they are not interchangeable.
+- **memberUid gets a text box, not the entry picker.** It holds a login name
+  rather than a distinguished name, so there is nothing to browse to. The field
+  says so rather than leaving it looking like a missing feature.

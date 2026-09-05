@@ -250,6 +250,41 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /schema/requirements:
+    get:
+      tags: [schema]
+      operationId: getRequirements
+      summary: What an entry of these object classes must and may hold
+      description: |
+        The MUST and MAY sets for a set of object classes, with the schema's
+        opinion about each attribute — syntax, single-valuedness, description,
+        which control to offer.
+
+        It exists so a creation form is generated from the schema rather than
+        from a template. Without it the form has attribute names and nothing
+        else, which is how creating an entry ended up with a plain text box for
+        every field while editing the same entry a moment later offered a
+        Boolean control, an entry picker and the attribute's description.
+      parameters:
+        - name: class
+          in: query
+          required: true
+          explode: true
+          schema:
+            type: array
+            items: { type: string }
+          description: |
+            The object classes, repeated. Superiors are followed, so naming the
+            most specific one is enough.
+      responses:
+        "200":
+          description: What such an entry would require and permit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RequirementsView" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /schema/change:
     post:
       operationId: buildSchemaChange
@@ -784,6 +819,17 @@ components:
           type: array
           items: { $ref: "#/components/schemas/EntryAttribute" }
         requirements: { $ref: "#/components/schemas/Requirements" }
+        membershipAttributes:
+          type: array
+          items: { type: string }
+          description: |
+            The attributes this entry's object classes use to hold members,
+            canonically spelled, whether the entry currently has values in them
+            or not. Empty for an entry that is not a group.
+
+            Present so adding a member can be one action rather than an edit of
+            a list: replacing a fifty-member list to add one person removes
+            anybody another administrator added since the entry was read.
         candidateKinds:
           type: array
           items: { $ref: "#/components/schemas/AttributeKind" }
@@ -904,6 +950,15 @@ components:
           description: |
             The object classes the filter matches on. Shown to the user, so the
             view can say what it means by "user" rather than ask to be trusted.
+        createClasses:
+          type: array
+          items: { type: string }
+          description: |
+            The structural classes this view matches, which are the classes a
+            new one could be created as. A server publishes hundreds of
+            structural classes and a list of all of them is not a choice anybody
+            can make; this is the handful that would produce an entry this view
+            would then show.
         columns:
           type: array
           items: { $ref: "#/components/schemas/ObjectViewColumn" }
@@ -1016,6 +1071,16 @@ components:
             Definitions the server published that this parser could not read.
             A non-empty list is a partial load, not a failed one, and the UI
             says so rather than pretending the schema is complete.
+
+    RequirementsView:
+      type: object
+      required: [requirements, kinds]
+      properties:
+        requirements: { $ref: "#/components/schemas/Requirements" }
+        kinds:
+          type: array
+          items: { $ref: "#/components/schemas/AttributeKind" }
+          description: One per attribute in the MUST and MAY sets.
 
     ObjectClassDetail:
       type: object

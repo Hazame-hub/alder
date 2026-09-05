@@ -184,6 +184,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/schema/requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What an entry of these object classes must and may hold
+         * @description The MUST and MAY sets for a set of object classes, with the schema's
+         *     opinion about each attribute — syntax, single-valuedness, description,
+         *     which control to offer.
+         *
+         *     It exists so a creation form is generated from the schema rather than
+         *     from a template. Without it the form has attribute names and nothing
+         *     else, which is how creating an entry ended up with a plain text box for
+         *     every field while editing the same entry a moment later offered a
+         *     Boolean control, an entry picker and the attribute's description.
+         */
+        get: operations["getRequirements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/schema/change": {
         parameters: {
             query?: never;
@@ -589,6 +617,16 @@ export interface components {
             attributes: components["schemas"]["EntryAttribute"][];
             requirements?: components["schemas"]["Requirements"];
             /**
+             * @description The attributes this entry's object classes use to hold members,
+             *     canonically spelled, whether the entry currently has values in them
+             *     or not. Empty for an entry that is not a group.
+             *
+             *     Present so adding a member can be one action rather than an edit of
+             *     a list: replacing a fifty-member list to add one person removes
+             *     anybody another administrator added since the entry was read.
+             */
+            membershipAttributes?: string[];
+            /**
              * @description The schema's opinion about the attributes this entry's classes
              *     permit but which it does not currently carry.
              *
@@ -666,6 +704,14 @@ export interface components {
              *     view can say what it means by "user" rather than ask to be trusted.
              */
             anchors: string[];
+            /**
+             * @description The structural classes this view matches, which are the classes a
+             *     new one could be created as. A server publishes hundreds of
+             *     structural classes and a list of all of them is not a choice anybody
+             *     can make; this is the handful that would produce an entry this view
+             *     would then show.
+             */
+            createClasses?: string[];
             columns: components["schemas"]["ObjectViewColumn"][];
         };
         ObjectViewColumn: {
@@ -744,6 +790,11 @@ export interface components {
              *     says so rather than pretending the schema is complete.
              */
             errors?: components["schemas"]["SchemaParseError"][];
+        };
+        RequirementsView: {
+            requirements: components["schemas"]["Requirements"];
+            /** @description One per attribute in the MUST and MAY sets. */
+            kinds: components["schemas"]["AttributeKind"][];
         };
         ObjectClassDetail: {
             summary: components["schemas"]["ObjectClassSummary"];
@@ -1265,6 +1316,34 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getRequirements: {
+        parameters: {
+            query: {
+                /**
+                 * @description The object classes, repeated. Superiors are followed, so naming the
+                 *     most specific one is enough.
+                 */
+                class: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What such an entry would require and permit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementsView"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     buildSchemaChange: {
