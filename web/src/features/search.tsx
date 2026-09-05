@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { SearchResponse } from "@/lib/api";
@@ -19,7 +19,7 @@ import {
   TabsTrigger,
 } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
-import { rdnOf } from "@/lib/values";
+import { EntryTable } from "@/components/entry-table";
 
 type Scope = "base" | "one" | "sub";
 
@@ -32,53 +32,83 @@ type Scope = "base" | "one" | "sub";
  * convenience rather than a second source of truth.
  */
 export function SearchPanel({
-  initialBase,
+  base,
+  scope,
+  filter,
+  limit,
+  readOnly,
+  onChange,
   onOpenEntry,
 }: {
-  initialBase: string;
-  onOpenEntry: (dn: string) => void;
+  base: string;
+  scope: Scope;
+  filter: string;
+  limit: number;
+  readOnly: boolean;
+  /** Writes the search back into the URL, which is what makes it shareable. */
+  onChange: (next: {
+    base?: string;
+    scope?: Scope;
+    filter?: string;
+    limit?: number;
+  }) => void;
+  onOpenEntry: (dn: string, forEdit?: boolean) => void;
 }) {
-  const [baseDn, setBaseDn] = useState(initialBase);
-  const [scope, setScope] = useState<Scope>("sub");
-  const [filter, setFilter] = useState("(objectClass=*)");
-  const [limit, setLimit] = useState(100);
+  // The boxes are local while they are being typed in: putting every keystroke
+  // in the URL would fill the history with half-written filters. The location is
+  // written when a search actually runs, which is also when it becomes worth
+  // sharing.
+  const [draftBase, setDraftBase] = useState(base);
+  const [draftFilter, setDraftFilter] = useState(filter);
+  const [draftLimit, setDraftLimit] = useState(limit);
 
-  const search = useMutation<SearchResponse, ApiFailure>({
-    mutationFn: async () =>
+  // A location reached by back, forward or a pasted link has to land in the
+  // boxes, or the page would show one search and have run another.
+  useEffect(() => setDraftBase(base), [base]);
+  useEffect(() => setDraftFilter(filter), [filter]);
+  useEffect(() => setDraftLimit(limit), [limit]);
+
+  const search = useQuery<SearchResponse, ApiFailure>({
+    queryKey: ["search", base, scope, filter, limit],
+    // Nothing runs without a base: an empty one searches the root DSE, which is
+    // never what was meant.
+    enabled: base !== "",
+    queryFn: async () =>
       unwrap(
         await api.POST("/search", {
           body: {
-            baseDn,
+            baseDn: base,
             scope,
             filter,
             limit,
             // The page size is a wire detail; the limit is what the user chose.
             pageSize: Math.min(limit, 200),
-            attributes: ["cn", "objectClass"],
+            attributes: ["cn", "objectClass", "uid", "mail", "ou", "description"],
           },
         }),
       ),
   });
 
-  const run = () => search.mutate();
+  const run = () =>
+    onChange({ base: draftBase, filter: draftFilter, limit: draftLimit, scope });
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="space-y-3 border-b border-border p-4">
+      <div className="shrink-0 space-y-3 border-b border-border p-4">
         <div className="grid gap-3 md:grid-cols-[1fr_10rem_7rem]">
           <div className="space-y-1.5">
             <Label htmlFor="base">Search base</Label>
             <Input
               id="base"
-              value={baseDn}
+              value={draftBase}
               className="font-dn"
-              onChange={(e) => setBaseDn(e.target.value)}
+              onChange={(e) => setDraftBase(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && run()}
             />
           </div>
           <div className="space-y-1.5">
             <Label>Scope</Label>
-            <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
+            <Select value={scope} onValueChange={(v) => onChange({ scope: v as Scope })}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -96,8 +126,8 @@ export function SearchPanel({
               type="number"
               min={1}
               max={10000}
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value) || 100)}
+              value={draftLimit}
+              onChange={(e) => setDraftLimit(Number(e.target.value) || 100)}
             />
           </div>
         </div>
@@ -111,44 +141,49 @@ export function SearchPanel({
           <TabsContent value="raw" className="pt-3">
             <div className="flex gap-2">
               <Input
-                value={filter}
+                value={draftFilter}
                 className="font-dn"
-                placeholder="(&(objectClass=inetOrgPerson)(mail=*@example.com))"
-                onChange={(e) => setFilter(e.target.value)}
+                placeholder="(objectClass=inetOrgPerson)"
+                onChange={(e) => setDraftFilter(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && run()}
               />
-              <Button onClick={run} disabled={search.isPending}>
-                {search.isPending ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <SearchIcon />
-                )}
+              <Button onClick={run} disabled={search.isFetching}>
+                {search.isFetching ? <Loader2 className="animate-spin" /> : <SearchIcon />}
                 Search
               </Button>
             </div>
             <p className="mt-1.5 text-xs text-muted-foreground">
               An RFC 4515 filter. It is parsed, not pasted: a value containing
               filter metacharacters becomes an escaped assertion, never
-              structure.
+              structure. The search is in the address bar, so the link
+              reproduces it exactly.
             </p>
           </TabsContent>
 
           <TabsContent value="builder" className="pt-3">
-            <FilterBuilder onApply={setFilter} />
+            <FilterBuilder
+              onApply={(f) => {
+                setDraftFilter(f);
+                onChange({ base: draftBase, filter: f, limit: draftLimit, scope });
+              }}
+            />
           </TabsContent>
         </Tabs>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {search.isError ? (
           <div className="p-4">
             <ErrorNote title="The search failed" error={search.error} />
           </div>
-        ) : null}
-
-        {search.data ? (
-          <Results data={search.data} onOpenEntry={onOpenEntry} />
-        ) : search.isPending ? null : (
+        ) : search.data ? (
+          <Results data={search.data} readOnly={readOnly} onOpenEntry={onOpenEntry} />
+        ) : search.isFetching ? (
+          <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Searching {base}
+          </p>
+        ) : (
           <p className="p-6 text-sm text-muted-foreground">
             Run a search to see results.
           </p>
@@ -160,20 +195,36 @@ export function SearchPanel({
 
 function Results({
   data,
+  readOnly,
   onOpenEntry,
 }: {
   data: SearchResponse;
-  onOpenEntry: (dn: string) => void;
+  readOnly: boolean;
+  onOpenEntry: (dn: string, forEdit?: boolean) => void;
 }) {
+  // The columns are the attributes that were asked for and that something
+  // actually returned. A search spans object classes, so a fixed set would show
+  // an email column over a page of organizational units.
+  const columns = useMemo(() => {
+    const present = new Set<string>();
+    for (const entry of data.entries) {
+      for (const a of entry.attributes ?? []) {
+        const name = (a.name.split(";")[0] ?? a.name).toLowerCase();
+        if (name !== "objectclass" && a.values.length > 0) present.add(name);
+      }
+    }
+    return ["cn", "uid", "mail", "ou", "description"]
+      .filter((n) => present.has(n))
+      .map((n) => ({ attribute: n, label: labels[n] ?? n }));
+  }, [data.entries]);
+
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-sm">
-        <span className="font-medium">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-sm">
+        <span className="font-medium tabular-nums">
           {data.entries.length} {data.entries.length === 1 ? "entry" : "entries"}
         </span>
-        {data.took ? (
-          <span className="text-muted-foreground">in {data.took}</span>
-        ) : null}
+        {data.took ? <span className="text-muted-foreground">in {data.took}</span> : null}
         {data.truncated ? (
           <Badge variant="warning">
             truncated — there are more results than were returned
@@ -186,32 +237,43 @@ function Results({
         ) : null}
       </div>
 
-      <ul className="divide-y divide-border">
-        {data.entries.map((entry) => (
-          <li key={entry.dn}>
-            <button
-              type="button"
-              className="block w-full px-4 py-2 text-left transition-colors hover:bg-accent/60"
-              onClick={() => onOpenEntry(entry.dn)}
-            >
-              <div className="font-dn font-medium">{rdnOf(entry.dn)}</div>
-              <div className="truncate font-dn text-xs text-muted-foreground">
-                {entry.dn}
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      {data.entries.length === 0 ? (
-        <p className="p-6 text-sm text-muted-foreground">
-          Nothing matched. The filter was valid; the directory holds no entry
-          that satisfies it under this base.
-        </p>
-      ) : null}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <EntryTable
+          columns={columns}
+          entries={data.entries}
+          truncated={data.truncated}
+          readOnly={readOnly}
+          onOpen={onOpenEntry}
+          onEdit={(dn) => onOpenEntry(dn, true)}
+          onExport={(dn) => {
+            const params = new URLSearchParams({ dn, scope: "base" });
+            window.location.href = "/api/v1/export/ldif?" + params.toString();
+          }}
+          empty={
+            <div className="max-w-prose space-y-2">
+              <p className="font-medium text-foreground">Nothing matched.</p>
+              <p>
+                The filter was valid; the directory holds no entry satisfying it
+                under this base. A directory answers "nothing matched" and "you
+                may not see these" identically, so an unexpected empty result can
+                also be the bind identity.
+              </p>
+            </div>
+          }
+        />
+      </div>
     </div>
   );
 }
+
+/** Headings for the attributes the results table asks for. */
+const labels: Record<string, string> = {
+  cn: "Name",
+  uid: "User ID",
+  mail: "Email",
+  ou: "Unit",
+  description: "Description",
+};
 
 type Clause = { attribute: string; op: string; value: string };
 

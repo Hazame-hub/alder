@@ -230,6 +230,12 @@ func capabilitiesView(c directory.Capabilities) Capabilities {
 			BoundAs:      ptrIfSet(c.Config.BoundAs),
 			Reason:       ptrIfSet(c.Config.Reason),
 		}),
+		// The overview shows a monitoring section only where there is one to
+		// show, which is why this crosses the wire even when it is absent.
+		Monitor: ptr(MonitorAccess{
+			Dn:       ptrIfSet(c.Monitor.DN),
+			Readable: c.Monitor.Readable,
+		}),
 	}
 }
 

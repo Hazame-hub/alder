@@ -1,7 +1,14 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { ApiFailure } from "@/lib/api";
+import { validateAppSearch } from "@/lib/route";
 import { App } from "@/app";
 import "@/styles.css";
 
@@ -22,13 +29,44 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * One route, and everything in its search parameters.
+ *
+ * Nested paths would mean encoding a DN into a path segment, which is the one
+ * thing the API deliberately avoids — a DN carries commas, equals signs and
+ * non-ASCII text, and proxies disagree about double-encoding them. So the route
+ * tree is a single page and the query string says where you are.
+ */
+const rootRoute = createRootRoute();
+
+const appRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  validateSearch: validateAppSearch,
+  component: App,
+});
+
+const router = createRouter({
+  routeTree: rootRoute.addChildren([appRoute]),
+  // A path nobody defined lands on the application rather than on an error
+  // page: the SPA is served for every path, so a stray URL is a typo, not a
+  // missing feature.
+  defaultNotFoundComponent: App,
+});
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}
+
 const root = document.getElementById("root");
 if (!root) throw new Error("the #root element is missing from index.html");
 
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 );

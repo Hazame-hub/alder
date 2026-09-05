@@ -584,3 +584,45 @@ to contradict the plan — add an entry.
 - **memberUid gets a text box, not the entry picker.** It holds a login name
   rather than a distinguished name, so there is nothing to browse to. The field
   says so rather than leaving it looking like a missing feature.
+
+### 2026-09-05 — the URL, and a landing page (console slice 4)
+
+- **The location is in the query string of one route, not in a path.** A DN
+  carries commas, equals signs and non-ASCII text, and no two proxies agree
+  about double-encoding one — which is the same reason the API takes a DN as a
+  query parameter rather than a path segment. So the route tree is a single page
+  and `?view=…&dn=…&filter=…` says where you are.
+- **TanStack Router, which section 4 named and nothing had used.** It was a
+  declared dependency that had never been imported; all navigation was
+  `useState`. Hand-rolling the History API instead would have been substituting
+  for a documented stack choice to avoid using the thing already installed.
+- **A search is a link.** Base, scope, filter and limit live in the URL, so a
+  search survives a reload, goes in a bug report, and can be sent to somebody.
+  The boxes stay local while being typed into — putting every keystroke in the
+  history would fill it with half-written filters — and the location is written
+  when a search runs, which is when it becomes worth sharing.
+- **Recent searches were cut, as planned.** They are a stored thing in a
+  stateless application, and the URL is the durable artefact worth having.
+- **The results table is the object views' table.** Its columns are the
+  attributes that were asked for *and that something returned*: a search spans
+  object classes, so a fixed set would show an email column over a page of
+  organizational units.
+- **The landing page counts nothing on load.** Counting a naming context is a
+  subtree search, and doing three of them because somebody opened a page is
+  what an administration tool must not do behind your back. It is a button per
+  context, and the answer says "at least N" when it stopped at the limit rather
+  than reporting a number that is merely the limit. `GET /count` asks for no
+  attributes at all, so the cost is the search rather than the values.
+- **The monitoring entry is probed, exactly as the configuration tree is.**
+  `cn=monitor` is read at the conventional location and believed only if the
+  server answers there and the answer is outside every naming context. 389 DS
+  publishes one; OpenLDAP does not. A server with none gets no monitoring
+  section rather than a row of dashes implying something failed.
+- **What the monitor shows is whatever it publishes.** The attributes differ
+  completely between the two servers, so a curated list of interesting counters
+  would be a list of one server's counters.
+- **A found bug: the probe worked and the answer never left the server.** The
+  capability was resolved at connect time and stored, but `capabilitiesView`
+  never mapped it, so both servers reported no monitoring entry. It is the third
+  time in this programme that a correct back end has been invisible because the
+  conversion to the API type was not updated with it.

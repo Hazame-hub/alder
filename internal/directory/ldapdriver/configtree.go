@@ -139,3 +139,22 @@ func (s *session) configBindDN() string {
 	}
 	return s.cfg.BindDN
 }
+
+// monitorCandidates are the DNs tried for a server's monitoring entry.
+//
+// A convention, like configCandidates above, and checked the same way: it
+// counts only if the server answers there and the answer is outside every
+// naming context. One of the two servers Alder targets publishes such an entry
+// and the other does not, which is a fact about the server in front of you
+// rather than about its name — so it is probed, not assumed.
+var monitorCandidates = []string{"cn=monitor"}
+
+// resolveMonitor returns the monitoring entry this session can read, or "".
+func (s *session) resolveMonitor(ctx context.Context) directory.MonitorAccess {
+	for _, candidate := range monitorCandidates {
+		if s.readsAsConfigRoot(ctx, candidate) {
+			return directory.MonitorAccess{DN: candidate, Readable: true}
+		}
+	}
+	return directory.MonitorAccess{}
+}
