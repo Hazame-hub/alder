@@ -319,6 +319,9 @@ func (s *Server) GetEntry(c *fiber.Ctx, params GetEntryParams) error {
 		Requirements:  ptr(requirementsView(req)),
 		Ldif:          ptr(directory.EntryLDIF(entry).String()),
 	}
+	if kinds := candidateKinds(entry, sch, req); len(kinds) > 0 {
+		view.CandidateKinds = &kinds
+	}
 	if browser, canBrowse := sess.Conn.(treeBrowser); canBrowse {
 		if hasKids, kidErr := browser.HasChildren(ctx, target); kidErr == nil {
 			view.HasChildren = ptr(hasKids)
