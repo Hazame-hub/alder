@@ -2112,3 +2112,52 @@ func TestOnlyStructuralClassesCanBeCreated(t *testing.T) {
 		}
 	}
 }
+
+// TestProvenanceIsAvailableOnBothServersByDifferentMeans asserts that "where
+// did this definition come from" has an answer on each server — and that the
+// answer arrives by a different route on each, which is the reason the schema
+// table reports provenance rather than a shipped-or-custom flag.
+//
+// One server keeps its schema in configuration entries and discards X-ORIGIN
+// when it loads a schema file, so the collection holding a definition is the
+// only thing distinguishing them. The other keeps X-ORIGIN and has a single
+// schema entry, where the collection would say nothing. A flag claiming
+// "shipped" or "custom" would be a guess on the first of those.
+func TestProvenanceIsAvailableOnBothServersByDifferentMeans(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		caps := sess.Capabilities()
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+
+		byCollection := len(caps.SchemaWrite.Origin)
+		byExtension := 0
+		for _, oc := range sch.ObjectClasses {
+			if v, ok := oc.Extensions["X-ORIGIN"]; ok && len(v) > 0 {
+				byExtension++
+			}
+		}
+		t.Logf("%s: %d definitions placed by collection, %d object classes carrying X-ORIGIN",
+			s.name, byCollection, byExtension)
+
+		if byCollection == 0 && byExtension == 0 {
+			t.Errorf("%s offers no provenance by either route, so the schema table "+
+				"could not say where anything came from", s.name)
+		}
+
+		// And the harness's own class must be attributable, whichever route the
+		// server uses: "which of this schema is mine" is the question the column
+		// exists to answer.
+		const custom = "alderEmployee"
+		oc := sch.ObjectClass(custom)
+		if oc == nil {
+			t.Fatalf("%s does not define %s, which the harness installs", s.name, custom)
+		}
+		_, placed := caps.SchemaWrite.Origin[oc.OID]
+		_, extended := oc.Extensions["X-ORIGIN"]
+		if !placed && !extended {
+			t.Errorf("%s can say nothing about where %s came from", s.name, custom)
+		}
+	})
+}

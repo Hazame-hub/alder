@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Loader2, Pencil, Plus, Search as SearchIcon, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  List as ListIcon,
+  Loader2,
+  Pencil,
+  Plus,
+  Search as SearchIcon,
+  Table as TableIcon,
+  Trash2,
+} from "lucide-react";
 import { api, unwrap } from "@/lib/api";
 import type { SchemaView } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -10,6 +19,11 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui";
 import { LdifBlock } from "@/components/ldif-block";
 import { ChangeDialog } from "@/components/change-dialog";
+import {
+  attributeTypeRows,
+  objectClassRows,
+  SchemaTable,
+} from "@/features/schema-table";
 import { SchemaEditorDialog } from "@/features/schema-editor";
 import type { SchemaEditorRequest } from "@/features/schema-editor";
 import type { ChangeRequest, SchemaWrite } from "@/lib/api";
@@ -28,6 +42,16 @@ export function SchemaBrowser() {
   const [section, setSection] = useState<Section>("objectClasses");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  /*
+   * Two shapes for two questions.
+   *
+   * The list beside a detail pane answers "what does this definition say",
+   * which is what you want having followed a cross-link. The table answers
+   * "what does this directory define, where did it come from, and which of it
+   * is mine" — and a thousand attribute types in a two-hundred-pixel column
+   * cannot answer that at all.
+   */
+  const [asTable, setAsTable] = useState(false);
   const queryClient = useQueryClient();
 
   // Editing runs in two steps on purpose: the form builds a change, and the
@@ -79,6 +103,116 @@ export function SchemaBrowser() {
 
   const data = schema.data;
 
+  // The table covers the two sections a definition can be written in; syntaxes
+  // and matching rules are read-only lists with nothing to sort by.
+  const tabular = section === "objectClasses" || section === "attributeTypes";
+
+  const matches = (...fields: (string | undefined)[]) => {
+    const q = query.trim().toLowerCase();
+    return q === "" || fields.some((f) => (f ?? "").toLowerCase().includes(q));
+  };
+
+  if (asTable && tabular) {
+    const rows =
+      section === "objectClasses"
+        ? objectClassRows(
+            (data.objectClasses ?? []).filter((c) =>
+              matches(c.name, c.oid, c.desc, ...(c.names ?? [])),
+            ),
+          )
+        : attributeTypeRows(
+            (data.attributeTypes ?? []).filter((a) =>
+              matches(a.name, a.oid, a.desc, ...(a.names ?? [])),
+            ),
+          );
+
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <SchemaHeader
+          section={section}
+          onSection={setSection}
+          query={query}
+          onQuery={setQuery}
+          asTable={asTable}
+          onAsTable={setAsTable}
+          tabular={tabular}
+        />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <SchemaTable
+            rows={rows}
+            extraLabel={section === "objectClasses" ? "Superiors" : "Notes"}
+            canEdit={canEdit}
+            editableReason={
+              write && write.style === "none" ? write.unavailable : undefined
+            }
+            onOpen={(id) => {
+              // Opening a definition drops back to the reading shape, which is
+              // where the cross-links and the full definition live.
+              setSelected(id);
+              setAsTable(false);
+            }}
+            onEdit={(id) => {
+              setSelected(id);
+              setAsTable(false);
+              openEditor({
+                kind: section === "objectClasses" ? "objectClass" : "attributeType",
+                op: "replace",
+                oid: id,
+              });
+            }}
+            onDelete={(id) => {
+              setSelected(id);
+              setAsTable(false);
+              openEditor({
+                kind: section === "objectClasses" ? "objectClass" : "attributeType",
+                op: "delete",
+                oid: id,
+              });
+            }}
+            onCreate={() =>
+              openEditor({
+                kind: section === "objectClasses" ? "objectClass" : "attributeType",
+                op: "add",
+              })
+            }
+          />
+        </div>
+
+        {write ? (
+          <SchemaEditorDialog
+            key={editorKey}
+            request={editing}
+            write={write}
+            open={editing !== null}
+            onOpenChange={(o) => {
+              if (!o) setEditing(null);
+            }}
+            onBuilt={(change, title, destructive) =>
+              setPending({ change, title, destructive })
+            }
+          />
+        ) : null}
+
+        <ChangeDialog
+          change={pending?.change ?? null}
+          open={pending !== null}
+          onOpenChange={(o) => {
+            if (!o) setPending(null);
+          }}
+          title={pending?.title}
+          destructive={pending?.destructive}
+          onApplied={() => {
+            void queryClient.invalidateQueries({ queryKey: ["schema"] });
+            void queryClient.invalidateQueries({ queryKey: ["objectclass"] });
+            void queryClient.invalidateQueries({ queryKey: ["attributetype"] });
+            void queryClient.invalidateQueries({ queryKey: ["entry"] });
+            setPending(null);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0">
       <div className="flex w-80 shrink-0 flex-col border-r border-border">
@@ -108,6 +242,17 @@ export function SchemaBrowser() {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+          {tabular ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => setAsTable(true)}
+            >
+              <TableIcon />
+              Show as a table
+            </Button>
+          ) : null}
           {canEdit && (section === "objectClasses" || section === "attributeTypes") ? (
             <Button
               variant="outline"
@@ -198,6 +343,60 @@ export function SchemaBrowser() {
           setSelected(null);
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * The section tabs, the filter and the shape toggle, shared by both shapes.
+ *
+ * It exists so switching to the table does not lose the filter or the section,
+ * which is the whole reason a toggle is worth having rather than two pages.
+ */
+function SchemaHeader({
+  section,
+  onSection,
+  query,
+  onQuery,
+  asTable,
+  onAsTable,
+  tabular,
+}: {
+  section: Section;
+  onSection: (s: Section) => void;
+  query: string;
+  onQuery: (q: string) => void;
+  asTable: boolean;
+  onAsTable: (v: boolean) => void;
+  tabular: boolean;
+}) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-2">
+      <Tabs value={section} onValueChange={(v) => onSection(v as Section)}>
+        <TabsList>
+          <TabsTrigger value="objectClasses">Object classes</TabsTrigger>
+          <TabsTrigger value="attributeTypes">Attribute types</TabsTrigger>
+          <TabsTrigger value="syntaxes">Syntaxes</TabsTrigger>
+          <TabsTrigger value="matchingRules">Matching rules</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      <div className="relative min-w-48 flex-1">
+        <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          placeholder="name, OID or description"
+          className="pl-8"
+          onChange={(e) => onQuery(e.target.value)}
+        />
+      </div>
+
+      {tabular ? (
+        <Button variant="outline" size="sm" onClick={() => onAsTable(!asTable)}>
+          {asTable ? <ListIcon /> : <TableIcon />}
+          {asTable ? "Show as a list" : "Show as a table"}
+        </Button>
+      ) : null}
     </div>
   );
 }

@@ -118,12 +118,24 @@ func (s *session) configSchemaTargets(ctx context.Context, caps directory.Capabi
 	}
 
 	targets := make([]directory.SchemaTarget, 0, len(res.Entries))
+	// The definitions are already in hand — they were read to be counted — so
+	// noting which collection each one came from costs nothing beyond reading
+	// the OID off the front of it.
+	origin := map[string]string{}
 	for _, e := range res.Entries {
+		name := schemaEntryName(e)
+		classes := e.GetAttributeValues(attrOLCObjectClasses)
+		attrs := e.GetAttributeValues(attrOLCAttributeTypes)
+		for _, def := range append(append([]string{}, classes...), attrs...) {
+			if oid := definitionOID(def); oid != "" {
+				origin[oid] = name
+			}
+		}
 		targets = append(targets, directory.SchemaTarget{
 			DN:             e.DN,
-			Name:           schemaEntryName(e),
-			ObjectClasses:  len(e.GetAttributeValues(attrOLCObjectClasses)),
-			AttributeTypes: len(e.GetAttributeValues(attrOLCAttributeTypes)),
+			Name:           name,
+			ObjectClasses:  len(classes),
+			AttributeTypes: len(attrs),
 		})
 	}
 	return directory.SchemaWrite{
@@ -131,6 +143,7 @@ func (s *session) configSchemaTargets(ctx context.Context, caps directory.Capabi
 		ObjectClassAttr:   attrOLCObjectClasses,
 		AttributeTypeAttr: attrOLCAttributeTypes,
 		Targets:           targets,
+		Origin:            origin,
 	}
 }
 
@@ -151,4 +164,30 @@ func schemaEntryName(e *ldap.Entry) string {
 		}
 	}
 	return cn
+}
+
+// definitionOID reads the numeric OID off the front of an RFC 4512 definition.
+//
+// Every one of them opens "( 1.3.6.1.4.1.… " and the OID is the first token, so
+// this is a deliberate shortcut past the real parser: it is used only to say
+// which collection a definition came from, it runs over every definition on
+// every connect, and a definition it cannot read simply reports no origin.
+//
+// A stored definition may carry the position prefix its server maintains —
+// "{4}( 1.2.3 …" — which is skipped here for the same reason it is skipped
+// everywhere else: the prefix is the server's bookkeeping, not part of the
+// definition.
+func definitionOID(def string) string {
+	def = strings.TrimSpace(def)
+	if strings.HasPrefix(def, "{") {
+		if end := strings.IndexByte(def, '}'); end > 0 {
+			def = strings.TrimSpace(def[end+1:])
+		}
+	}
+	def = strings.TrimSpace(strings.TrimPrefix(def, "("))
+	end := strings.IndexAny(def, " \t")
+	if end <= 0 {
+		return ""
+	}
+	return def[:end]
 }

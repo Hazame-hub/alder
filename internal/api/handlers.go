@@ -502,6 +502,9 @@ func (s *Server) GetSchema(c *fiber.Ctx) error {
 	if err != nil {
 		return s.fail(c, err)
 	}
+	// Where each definition came from, which the connection worked out once at
+	// connect time.
+	write := sess.Conn.Capabilities().SchemaWrite
 
 	counts := sch.Counts()
 	view := SchemaView{
@@ -520,7 +523,7 @@ func (s *Server) GetSchema(c *fiber.Ctx) error {
 
 	classes := make([]ObjectClassSummary, 0, len(sch.ObjectClasses))
 	for _, oc := range sch.ObjectClasses {
-		classes = append(classes, objectClassSummary(oc))
+		classes = append(classes, objectClassSummary(oc, write))
 	}
 	sort.Slice(classes, func(i, j int) bool {
 		return strings.ToLower(classes[i].Name) < strings.ToLower(classes[j].Name)
@@ -529,7 +532,7 @@ func (s *Server) GetSchema(c *fiber.Ctx) error {
 
 	attrs := make([]AttributeTypeSummary, 0, len(sch.AttributeTypes))
 	for _, at := range sch.AttributeTypes {
-		attrs = append(attrs, attributeTypeSummary(sch, at))
+		attrs = append(attrs, attributeTypeSummary(sch, at, write))
 	}
 	sort.Slice(attrs, func(i, j int) bool {
 		return strings.ToLower(attrs[i].Name) < strings.ToLower(attrs[j].Name)
@@ -581,7 +584,7 @@ func (s *Server) GetSchema(c *fiber.Ctx) error {
 	return c.JSON(view)
 }
 
-func objectClassSummary(oc *schema.ObjectClass) ObjectClassSummary {
+func objectClassSummary(oc *schema.ObjectClass, origins directory.SchemaWrite) ObjectClassSummary {
 	return ObjectClassSummary{
 		Name:      oc.Name(),
 		Names:     ptr(oc.Names),
@@ -590,10 +593,11 @@ func objectClassSummary(oc *schema.ObjectClass) ObjectClassSummary {
 		Kind:      ObjectClassSummaryKind(oc.Kind.String()),
 		Obsolete:  ptr(oc.Obsolete),
 		Superiors: ptr(oc.SuperNames),
+		Origin:    ptrIfSet(provenance(oc.OID, oc.Extensions, origins)),
 	}
 }
 
-func attributeTypeSummary(sch *schema.Schema, at *schema.AttributeType) AttributeTypeSummary {
+func attributeTypeSummary(sch *schema.Schema, at *schema.AttributeType, origins directory.SchemaWrite) AttributeTypeSummary {
 	syn := sch.EffectiveSyntax(at)
 	return AttributeTypeSummary{
 		Name:        at.Name(),
@@ -607,7 +611,33 @@ func attributeTypeSummary(sch *schema.Schema, at *schema.AttributeType) Attribut
 		Equality:    ptr(sch.EffectiveEquality(at)),
 		SingleValue: ptr(sch.EffectiveSingleValue(at)),
 		Operational: ptr(sch.EffectiveUsage(at).Operational()),
+		Origin:      ptrIfSet(provenance(at.OID, at.Extensions, origins)),
 	}
+}
+
+// provenance says where a definition came from, in the server's own words.
+//
+// Two servers answer this in two different ways and neither is named here. One
+// keeps its schema in configuration entries and discards X-ORIGIN when it loads
+// a schema file, so the collection holding the definition is the only thing
+// left that distinguishes them — and it is the more useful answer anyway, since
+// "which file is this in" is the question an administrator actually asks. The
+// other keeps X-ORIGIN and has a single schema entry, where the collection
+// would say nothing.
+//
+// So: the collection where there is one, the extension otherwise, and nothing
+// at all where the server published neither. What this deliberately does not do
+// is decide whether a definition was "shipped" or "added" — on the first server
+// that is not knowable, and a column that guesses on one of two supported
+// servers is worse than a column that is absent.
+func provenance(oid string, ext schema.Extensions, origins directory.SchemaWrite) string {
+	if collection, ok := origins.Origin[oid]; ok && collection != "" {
+		return collection
+	}
+	if values, ok := ext["X-ORIGIN"]; ok && len(values) > 0 {
+		return strings.Join(values, ", ")
+	}
+	return ""
 }
 
 // GetObjectClass returns one object class with its cross-links resolved.
@@ -684,7 +714,7 @@ func (s *Server) GetObjectClass(c *fiber.Ctx, name string) error {
 	}
 
 	return c.JSON(ObjectClassDetail{
-		Summary:       objectClassSummary(oc),
+		Summary:       objectClassSummary(oc, sess.Conn.Capabilities().SchemaWrite),
 		Must:          ptr(canonicalAll(sch, oc.Must)),
 		May:           ptr(canonicalAll(sch, oc.May)),
 		InheritedMust: ptr(sortedKeys(inheritedMust)),
@@ -722,7 +752,7 @@ func (s *Server) GetAttributeType(c *fiber.Ctx, name string) error {
 	}
 	must, may := sch.UsedBy(at.Name())
 	return c.JSON(AttributeTypeDetail{
-		Summary:       attributeTypeSummary(sch, at),
+		Summary:       attributeTypeSummary(sch, at, sess.Conn.Capabilities().SchemaWrite),
 		Kind:          ptr(attributeKind(sch.KindOf(at.Name()))),
 		SuperiorChain: ptr(chain),
 		RequiredBy:    ptr(classNames(must)),

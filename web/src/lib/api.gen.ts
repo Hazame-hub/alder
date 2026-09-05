@@ -641,6 +641,20 @@ export interface components {
              */
             withheld?: boolean;
             valueCount?: number;
+            /**
+             * @description For a withheld attribute, the storage scheme of each value — the
+             *     `{SSHA}` or `{PBKDF2-SHA512}` prefix RFC 2307 puts in front of a
+             *     hash — where the value carries one.
+             *
+             *     Only the label crosses the wire. The hash itself is never sent, and
+             *     a value that does not begin with `{` reports nothing rather than
+             *     having its first characters guessed at.
+             *
+             *     It is worth reporting because the scheme is the one thing about a
+             *     stored password an administrator needs to see: it is what says
+             *     whether the directory is still handing out crypt(3) hashes.
+             */
+            valueSchemes?: string[];
         };
         Requirements: {
             must?: string[];
@@ -787,6 +801,18 @@ export interface components {
             errors?: number;
         };
         ObjectClassSummary: {
+            /**
+             * @description Where this definition came from, in the server's own words. The
+             *     X-ORIGIN extension where the server keeps one, and otherwise the
+             *     schema collection holding it on a server that stores its schema in
+             *     configuration entries.
+             *
+             *     Deliberately not a "shipped or custom" flag. One of the two servers
+             *     Alder targets discards X-ORIGIN when it loads a schema file, so on
+             *     that server such a flag would be a guess. This reports what was
+             *     actually published, and is absent where nothing was.
+             */
+            origin?: string;
             name: string;
             names?: string[];
             oid: string;
@@ -797,6 +823,18 @@ export interface components {
             superiors?: string[];
         };
         AttributeTypeSummary: {
+            /**
+             * @description Where this definition came from, in the server's own words. The
+             *     X-ORIGIN extension where the server keeps one, and otherwise the
+             *     schema collection holding it on a server that stores its schema in
+             *     configuration entries.
+             *
+             *     Deliberately not a "shipped or custom" flag. One of the two servers
+             *     Alder targets discards X-ORIGIN when it loads a schema file, so on
+             *     that server such a flag would be a guess. This reports what was
+             *     actually published, and is absent where nothing was.
+             */
+            origin?: string;
             name: string;
             names?: string[];
             oid: string;
