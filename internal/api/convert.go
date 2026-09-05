@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"sort"
@@ -144,9 +145,14 @@ func entryAttributes(e *directory.Entry, sch *schema.Schema, req schema.Attribut
 		}
 		if kind.Sensitive {
 			// The count is reported so the UI can say "set" without ever
-			// carrying the hash to the browser.
+			// carrying the hash to the browser, and the scheme alongside it for
+			// the same reason: it is the one thing about a stored password
+			// somebody needs to see, and it is not itself a secret.
 			attr.Withheld = ptr(true)
 			attr.Values = []AttributeValue{}
+			if schemes := valueSchemes(values); len(schemes) > 0 {
+				attr.ValueSchemes = &schemes
+			}
 		} else {
 			attr.Values = make([]AttributeValue, 0, len(values))
 			for _, v := range values {
@@ -481,6 +487,49 @@ func candidateKinds(
 		}
 		seen[key] = true
 		out = append(out, attributeKind(sch.KindOf(name)))
+	}
+	return out
+}
+
+// valueSchemes reads the storage scheme off each value of a withheld attribute.
+//
+// RFC 2307 puts the scheme in braces in front of the hash — {SSHA}, {CRYPT},
+// {PBKDF2-SHA512} — and that prefix is the one part of a stored password worth
+// showing: it says whether the directory is still handing out crypt(3) hashes,
+// which is a thing an administrator has to be able to see.
+//
+// An empty string in the result is not "unknown", it is the answer: RFC 2307
+// says an unprefixed userPassword *is* the cleartext password, so a value with
+// no scheme is a password stored in the clear. Reporting nothing there would
+// hide the worst case behind the same blank the best case leaves — which is
+// exactly backwards for the one fact this exists to surface.
+//
+// The parse is deliberately the narrowest thing that works. It reads up to the
+// first closing brace and no further, so the label is all that can ever escape
+// this function; a value that does not begin with a brace reports nothing
+// rather than having its first characters guessed at and shown. Everything else
+// about the value stays where it is.
+func valueSchemes(values [][]byte) []string {
+	const maxSchemeLen = 32 // {PBKDF2-SHA512} and friends; nothing real is longer
+
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		scheme := ""
+		if len(v) > 1 && v[0] == '{' {
+			if end := bytes.IndexByte(v, '}'); end > 1 && end <= maxSchemeLen {
+				// Valid UTF-8 only: a brace-delimited run of arbitrary bytes is
+				// not a scheme name, and rendering it as one would put part of
+				// a secret on the screen.
+				if candidate := string(v[1:end]); utf8.ValidString(candidate) {
+					scheme = candidate
+				}
+			}
+		}
+		out = append(out, scheme)
 	}
 	return out
 }

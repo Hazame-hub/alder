@@ -253,6 +253,16 @@ const (
 // SchemaWrite describes the writable schema location for a session.
 type SchemaWrite struct {
 	Style SchemaStyle `json:"style"`
+	// Origin maps a definition's OID to the collection that holds it.
+	//
+	// Only the config style populates it, and only because the entries were
+	// read anyway to count them: on a server keeping its schema in
+	// configuration, which collection a definition lives in is the honest
+	// answer to "where did this come from", and it is the answer X-ORIGIN
+	// cannot give there — that server discards X-ORIGIN when it loads a schema
+	// file, so every definition it holds reports the same thing: nothing.
+	Origin map[string]string `json:"origin,omitempty"`
+
 	// Targets are the entries a definition may be written to. There is exactly
 	// one under SchemaStyleSubschema. Under SchemaStyleConfig a server holds
 	// several, each a separate collection of definitions, and which one to add

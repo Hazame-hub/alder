@@ -626,3 +626,43 @@ to contradict the plan — add an entry.
   never mapped it, so both servers reported no monitoring entry. It is the third
   time in this programme that a correct back end has been invisible because the
   conversion to the API type was not updated with it.
+
+### 2026-09-05 — schema provenance and the password scheme (console slice 5)
+
+- **Provenance is reported, never inferred, and the two servers answer by
+  different routes.** One keeps its schema in configuration entries and
+  discards `X-ORIGIN` when it loads a schema file; the other keeps `X-ORIGIN`
+  and has a single schema entry where the collection would say nothing. The
+  measurements are exact and a conformance case records them: 186 definitions
+  placed by collection and no `X-ORIGIN` on one, 177 carrying `X-ORIGIN` and no
+  collection on the other.
+- **So there is no "shipped or custom" column.** It was the original plan and it
+  is not buildable honestly: on the server that discards `X-ORIGIN` such a flag
+  would be a guess, and a column that guesses on one of two supported servers is
+  worse than a column that is absent. "Which collection is this in" is the more
+  useful question anyway, and it is the one an administrator actually asks.
+- **The origin map costs nothing.** The config-style schema entries were already
+  being read to count their definitions, so noting which collection each OID
+  came from is one pass over values already in memory, at connect time.
+- **The schema keeps both shapes.** A list beside a detail pane is right for
+  reading one definition, having followed a cross-link. A table is right for
+  "what does this directory define, where did it come from, and which of it is
+  mine" — a thousand attribute types in a two-hundred-pixel column cannot answer
+  that. The toggle preserves the section and the filter, which is why it is a
+  toggle rather than two pages.
+- **The password scheme crosses the wire; the hash never does.** The server
+  already read `userPassword` and withheld it. It now also reads the `{SCHEME}`
+  prefix off the front and sends only that. The parse stops at the first closing
+  brace, refuses anything that is not valid UTF-8, and caps the label at
+  thirty-two characters, so the hash cannot escape through it. Tested against
+  every shape that could make it: no closing brace, a brace far past anything
+  real, empty braces, a brace that is not at the start.
+- **An unprefixed value is reported as stored in the clear, not as unknown.**
+  RFC 2307 says an unprefixed `userPassword` *is* the cleartext password. The
+  first implementation returned nothing for it, which hid the worst case behind
+  the same blank the best case leaves — exactly backwards for the one fact this
+  feature exists to surface. Found by running it: the harness's OpenLDAP has no
+  default password hash configured and stores the seeded passwords verbatim,
+  and Alder said nothing about it until this was changed.
+- **The password policy form was cut, as planned.** Showing the scheme is the
+  small honest half and answers the question that was actually asked.

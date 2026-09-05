@@ -558,13 +558,34 @@ function AttributeRow({
       </dt>
       <dd className="min-w-0 space-y-1">
         {attr.withheld ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <Ban className="size-3.5" />
             <span>
               {attr.valueCount === 1
                 ? "set, and withheld"
                 : `${attr.valueCount ?? 0} values, withheld`}
             </span>
+            {/*
+              The scheme, where the value carries one. It is the one part of a
+              stored password worth seeing — it says whether the directory is
+              still handing out crypt(3) hashes — and it is not itself a secret.
+              The server reads it off the value; the hash never leaves it.
+            */}
+            {(attr.valueSchemes ?? []).map((scheme, i) =>
+              scheme !== "" ? (
+                <Badge key={`s${i}`} variant="secondary" className="font-dn">
+                  {scheme}
+                </Badge>
+              ) : (
+                // No prefix is not "unknown". RFC 2307 says an unprefixed
+                // userPassword is the cleartext password, so saying nothing
+                // here would hide the worst case behind the same blank the
+                // best case leaves.
+                <Badge key={`s${i}`} variant="destructive" title="No {scheme} prefix">
+                  stored in the clear
+                </Badge>
+              ),
+            )}
             <span className="text-xs">
               (a secret; Alder never sends it to the browser)
             </span>
