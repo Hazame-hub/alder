@@ -118,6 +118,39 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /count:
+    get:
+      tags: [browse]
+      operationId: countEntries
+      summary: Count the entries under a base, up to a limit
+      description: |
+        A subtree count, bounded like every other search. It asks the server for
+        no attributes at all, so the cost is the search rather than the values.
+
+        `truncated` is the important half of the answer: it means the count
+        reached the limit and the real number is higher. The UI reports "at
+        least N" in that case rather than a number that is simply wrong, which
+        is why this is an action somebody asks for rather than something a
+        landing page does to every naming context on load.
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100000, default: 10000 }
+      responses:
+        "200":
+          description: How many entries were counted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CountResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /entry:
     get:
       tags: [browse]
@@ -644,6 +677,23 @@ components:
           $ref: "#/components/schemas/SchemaWrite"
         config:
           $ref: "#/components/schemas/ConfigAccess"
+        monitor:
+          $ref: "#/components/schemas/MonitorAccess"
+
+    MonitorAccess:
+      type: object
+      description: |
+        A server's monitoring entry, where it publishes one this session can
+        read. Found by reading the conventional location and believing only what
+        the server answers, exactly as the configuration tree is.
+
+        Absent is an ordinary answer. One of the two servers Alder targets
+        publishes such an entry and the other does not, and a directory with
+        none gets no monitoring section rather than an empty one.
+      required: [readable]
+      properties:
+        dn: { type: string }
+        readable: { type: boolean }
 
     ConfigAccess:
       type: object
@@ -870,6 +920,18 @@ components:
           items: { $ref: "#/components/schemas/TreeNode" }
         cookie: { type: string }
         truncated: { type: boolean }
+
+    CountResult:
+      type: object
+      required: [count, truncated]
+      properties:
+        count: { type: integer }
+        truncated:
+          type: boolean
+          description: |
+            True when the limit was reached, so the real total is higher and the
+            count must be reported as "at least".
+        took: { type: string }
 
     SearchRequest:
       type: object

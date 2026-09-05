@@ -55,6 +55,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the entries under a base, up to a limit
+         * @description A subtree count, bounded like every other search. It asks the server for
+         *     no attributes at all, so the cost is the search rather than the values.
+         *
+         *     `truncated` is the important half of the answer: it means the count
+         *     reached the limit and the real number is higher. The UI reports "at
+         *     least N" in that case rather than a number that is simply wrong, which
+         *     is why this is an action somebody asks for rather than something a
+         *     landing page does to every naming context on load.
+         */
+        get: operations["countEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/entry": {
         parameters: {
             query?: never;
@@ -489,6 +516,20 @@ export interface components {
             configContext?: string;
             schemaWrite?: components["schemas"]["SchemaWrite"];
             config?: components["schemas"]["ConfigAccess"];
+            monitor?: components["schemas"]["MonitorAccess"];
+        };
+        /**
+         * @description A server's monitoring entry, where it publishes one this session can
+         *     read. Found by reading the conventional location and believing only what
+         *     the server answers, exactly as the configuration tree is.
+         *
+         *     Absent is an ordinary answer. One of the two servers Alder targets
+         *     publishes such an entry and the other does not, and a directory with
+         *     none gets no monitoring section rather than an empty one.
+         */
+        MonitorAccess: {
+            dn?: string;
+            readable: boolean;
         };
         /**
          * @description This session's reach into the server's own configuration tree. The DN
@@ -654,6 +695,15 @@ export interface components {
             nodes: components["schemas"]["TreeNode"][];
             cookie?: string;
             truncated?: boolean;
+        };
+        CountResult: {
+            count: number;
+            /**
+             * @description True when the limit was reached, so the real total is higher and the
+             *     count must be reported as "at least".
+             */
+            truncated: boolean;
+            took?: string;
         };
         SearchRequest: {
             baseDn: string;
@@ -1169,6 +1219,33 @@ export interface operations {
                     "application/json": components["schemas"]["TreePage"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    countEntries: {
+        parameters: {
+            query: {
+                dn: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many entries were counted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

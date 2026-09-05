@@ -333,6 +333,65 @@ func (s *Server) GetEntry(c *fiber.Ctx, params GetEntryParams) error {
 	return c.JSON(view)
 }
 
+// CountEntries counts a subtree, up to a limit.
+//
+// It exists because "how many users are there" is the first question anybody
+// asks of a directory and the last one a browser should answer casually: it is
+// a search, and on a large suffix an expensive one. So it is an action somebody
+// takes, one naming context at a time, and it says when it stopped rather than
+// reporting a number that is merely the limit.
+//
+// No attributes are requested — 1.1 in RFC 4511 terms — so the cost is the
+// search itself rather than shipping every entry back to be counted.
+func (s *Server) CountEntries(c *fiber.Ctx, params CountEntriesParams) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	base, ok := parseDNParam(c, params.Dn)
+	if !ok {
+		return nil
+	}
+	limit := clamp(deref(params.Limit), 10000, 1, 100000)
+
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+
+	started := time.Now()
+	count := 0
+	var cookie []byte
+	for {
+		res, err := sess.Conn.Search(ctx, directory.SearchRequest{
+			BaseDN:     base,
+			Scope:      directory.ScopeSubtree,
+			Filter:     filter.Present("objectClass"),
+			Attributes: []string{"1.1"},
+			Limit:      limit - count,
+			PageSize:   directory.MaxPageSize,
+			Cookie:     cookie,
+		})
+		if err != nil {
+			return s.fail(c, err)
+		}
+		count += len(res.Entries)
+		cookie = res.Cookie
+		if count >= limit {
+			return c.JSON(CountResult{
+				Count: limit, Truncated: true,
+				Took: ptr(time.Since(started).Round(time.Millisecond).String()),
+			})
+		}
+		// A server that cannot page returns no cookie, and Truncated is then
+		// the only thing that says the answer is short.
+		if len(cookie) == 0 {
+			return c.JSON(CountResult{
+				Count: count, Truncated: res.Truncated,
+				Took: ptr(time.Since(started).Round(time.Millisecond).String()),
+			})
+		}
+	}
+}
+
 // --- search -----------------------------------------------------------------
 
 // Search runs a bounded, paged search.

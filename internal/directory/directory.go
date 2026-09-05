@@ -198,6 +198,19 @@ type Capabilities struct {
 	// Config says whether this session can reach the server's own
 	// configuration tree, and how.
 	Config ConfigAccess `json:"config"`
+
+	// Monitor says whether this server publishes a monitoring entry this
+	// session can read. Found by probing, never by knowing which server it is.
+	Monitor MonitorAccess `json:"monitor"`
+}
+
+// MonitorAccess describes a server's monitoring entry, where it has one.
+//
+// Absent is a perfectly ordinary answer: a server that publishes nothing gets
+// no monitoring section rather than an empty one full of dashes.
+type MonitorAccess struct {
+	DN       string `json:"dn,omitempty"`
+	Readable bool   `json:"readable"`
 }
 
 // ConfigAccess describes this session's reach into the configuration tree.

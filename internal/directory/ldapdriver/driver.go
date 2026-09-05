@@ -115,6 +115,7 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 	// its configuration, whether there is anywhere to write depends on
 	// everything above.
 	s.caps.SchemaWrite = s.findSchemaTargets(ctx, s.caps)
+	s.caps.Monitor = s.resolveMonitor(ctx)
 
 	d.Logger.Info("connected to directory",
 		"address", cfg.Address(),
