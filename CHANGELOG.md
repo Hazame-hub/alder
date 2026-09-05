@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/Hazame-hub/alder/compare/v0.6.4...v0.7.0) (2026-09-05)
+
+
+### Features
+
+* browse users, groups and organizational units as tables ([#30](https://github.com/Hazame-hub/alder/issues/30)) ([c482bfc](https://github.com/Hazame-hub/alder/commit/c482bfc570da977af68deaa6f2d718bc7b77f2c3))
+* create entries from the schema, and manage membership as a task ([#33](https://github.com/Hazame-hub/alder/issues/33)) ([40d88fc](https://github.com/Hazame-hub/alder/commit/40d88fc49930c1520f61096c55755cc2095839f8))
+* document fields from the schema, and fix the boolean controls ([#32](https://github.com/Hazame-hub/alder/issues/32)) ([d22c19d](https://github.com/Hazame-hub/alder/commit/d22c19d904b09002f6af0072c55e4fe6c5a30000))
+* put the location in the URL, and add an overview page ([#36](https://github.com/Hazame-hub/alder/issues/36)) ([f6b77e6](https://github.com/Hazame-hub/alder/commit/f6b77e6351ecaa570f56d6d2152c39a5610de8dc))
+* show where a definition came from, and how a password is stored ([#37](https://github.com/Hazame-hub/alder/issues/37)) ([995d8f3](https://github.com/Hazame-hub/alder/commit/995d8f3a33bf4f34fc412851a6d653d40db0057c))
+
 ## [0.6.4](https://github.com/Hazame-hub/alder/compare/v0.6.3...v0.6.4) (2026-09-04)
 
 
