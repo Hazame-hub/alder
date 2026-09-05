@@ -430,34 +430,6 @@ to contradict the plan — add an entry.
   somebody looking at an attribute wants to know what it effectively does — and
   wrong for writing. The mistake was using one view for both, not the view.
 
-### 2026-09-05 — where the paid line falls, decided before there is one
-
-- **Count the humans.** A feature that helps one person operate one directory is
-  free, permanently, with no host limit and no nag. A feature that exists
-  because there is a second person, an auditor, or a second server is paid. The
-  rule is stated here rather than discovered feature by feature, because the
-  alternative is deciding it under revenue pressure and getting it wrong.
-- **The whole console programme is free, without exception.** Object-aware
-  views, the table, wizards, search as a destination, inline documentation, the
-  landing page, membership tasks, empty and error states, boolean inputs, the
-  schema tables, password scheme visibility. Each one helps a single
-  administrator do their job, and that is the entire case against the
-  twenty-year-old PHP tool. Charging for any of it means somebody tries Alder,
-  hits a wall on an ordinary task, and goes back to what they had.
-- **Every write path, both drivers, `cn=config`, schema editing, the LDIF
-  preview and the Ansible export stay free too** — and so does every security
-  feature, always. A security tier costs more trust than it earns.
-- **Paid, by the same test:** SSO, RBAC within Alder, approval workflow on a
-  changeset, an audit log with SIEM export, shared connection profiles,
-  multi-server diff, Git and CI export, the AD and Entra drivers, and the
-  support relationship — hardened builds, LTS, an SLA.
-- **Staging sits exactly on the line, and the split is the verb.** Staging a
-  changeset for yourself to apply later is one administrator, and free.
-  Staging it for somebody else to approve is a second pair of eyes, and paid.
-  So `ChangeRecord` and the basket stay a primitive with no reviewer, no
-  assignee and no state in them; a review layer is something built above,
-  never a flag threaded through.
-
 ### 2026-09-05 — object views and the table (console slice 1)
 
 - **A view is a search, not a stored list.** Users, Groups and Organizational
