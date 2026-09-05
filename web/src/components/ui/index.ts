@@ -16,6 +16,14 @@ export {
   DialogTrigger,
 } from "./dialog";
 export {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./dropdown-menu";
+export {
   Select,
   SelectContent,
   SelectItem,

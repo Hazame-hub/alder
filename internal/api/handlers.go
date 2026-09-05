@@ -404,6 +404,27 @@ func (s *Server) Search(c *fiber.Ctx) error {
 // --- schema -----------------------------------------------------------------
 
 // GetSchema returns the whole schema, indexed for browsing.
+// ListObjectViews answers what "users" and "groups" mean on this directory.
+//
+// The schema is already read and cached by the session, so this costs nothing
+// beyond the derivation, and it is a read of published schema rather than of
+// any entry: a session that cannot see a single user still gets the views, and
+// finds out what it can read by running one.
+func (s *Server) ListObjectViews(c *fiber.Ctx) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+
+	sch, err := sess.Conn.Schema(ctx)
+	if err != nil {
+		return s.fail(c, err)
+	}
+	return c.JSON(ObjectViewList{Views: objectViews(sch)})
+}
+
 func (s *Server) GetSchema(c *fiber.Ctx) error {
 	sess := s.require(c)
 	if sess == nil {

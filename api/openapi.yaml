@@ -170,6 +170,34 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /views:
+    get:
+      tags: [browse]
+      operationId: listObjectViews
+      summary: The object-aware views this directory supports
+      description: |
+        Users, groups and organizational units, expressed as saved searches
+        derived from the schema the connected server published.
+
+        A view is offered only where the server defines a class to anchor it
+        on, so a directory holding no person class has no Users view rather
+        than an empty one. The anchors are standards-track classes — RFC 4519,
+        RFC 4524, RFC 2307 — never vendor names, and a site class inheriting
+        from one of them is matched without being named, because an entry
+        carries its superclasses in its own `objectClass` attribute.
+
+        The filter is built here and goes back to `/search` unmodified. The
+        columns are the attributes the anchor classes actually permit, so a
+        directory without `inetOrgPerson` gets no mail column instead of an
+        empty one.
+      responses:
+        "200":
+          description: The views this connection supports.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ObjectViewList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /schema:
     get:
       tags: [schema]
@@ -624,9 +652,6 @@ components:
           # Named explicitly: the generated constant for "config" would
           # otherwise be Config, which the server package already uses.
           x-enum-varnames: [SchemaStyleNone, SchemaStyleSubschema, SchemaStyleConfig]
-          # Named explicitly: the generated constant for "config" would
-          # otherwise be Config, which the server package already uses.
-          x-enum-varnames: [SchemaStyleNone, SchemaStyleSubschema, SchemaStyleConfig]
         targets:
           type: array
           items: { $ref: "#/components/schemas/SchemaTarget" }
@@ -834,6 +859,60 @@ components:
         took:
           type: string
           description: How long the search took, as a duration string.
+
+    ObjectViewList:
+      type: object
+      required: [views]
+      properties:
+        views:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectView" }
+
+    ObjectView:
+      type: object
+      required: [id, label, filter, anchors, columns]
+      properties:
+        id:
+          type: string
+          enum: [users, groups, organizationalUnits]
+          # Named explicitly: the bare generated constants would be Users and
+          # Groups, which are far too general to sit in the package namespace.
+          x-enum-varnames: [ViewUsers, ViewGroups, ViewOrganizationalUnits]
+        label: { type: string }
+        description:
+          type: string
+          description: One line on what this view is showing, in the UI's words.
+        filter:
+          type: string
+          description: |
+            An RFC 4515 filter over the anchor classes this server defines,
+            rendered by the filter builder. It is posted to /search as-is.
+        anchors:
+          type: array
+          items: { type: string }
+          description: |
+            The object classes the filter matches on. Shown to the user, so the
+            view can say what it means by "user" rather than ask to be trusted.
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectViewColumn" }
+
+    ObjectViewColumn:
+      type: object
+      required: [attribute, label]
+      properties:
+        attribute:
+          type: string
+          description: The attribute type, canonically spelled by the schema.
+        label:
+          type: string
+          description: |
+            A readable heading. Falls back to the attribute name itself, which
+            is always shown alongside it: a friendly label that hides the real
+            name is how somebody learns the wrong thing about their directory.
+        desc:
+          type: string
+          description: The schema's own DESC, where the server published one.
 
     SchemaCounts:
       type: object

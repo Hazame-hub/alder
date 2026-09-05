@@ -429,3 +429,59 @@ to contradict the plan — add an entry.
 - **The summary stays as it is.** Resolving inheritance is right for reading —
   somebody looking at an attribute wants to know what it effectively does — and
   wrong for writing. The mistake was using one view for both, not the view.
+
+### 2026-09-05 — object views and the table (console slice 1)
+
+- **A view is a search, not a stored list.** Users, Groups and Organizational
+  units are `GET /views` — a filter and a set of columns derived from the schema
+  the connected server published — run through the same `/search` as everything
+  else. Nothing is cached, nothing is held server-side, and the page is bounded
+  at 200 with truncation reported. The moment one of these becomes a list Alder
+  keeps, v1 stops being stateless.
+- **The anchors are standards-track class names, and that is not a vendor
+  branch.** person, account and posixAccount; groupOfNames, groupOfUniqueNames,
+  posixGroup and groupOfURLs; organizationalUnit. Each is used only if the
+  server defines it, which is why the groups filter has four terms on 389 DS and
+  three on OpenLDAP without a line of code knowing which is which. You cannot
+  know what a "user" is without some anchor; what you can avoid is asserting one
+  the server never published.
+- **Site classes need nothing.** An entry carries its superclasses in its own
+  objectClass, so `myCompanyPerson SUP person` is matched by
+  `(objectClass=person)` without being named anywhere.
+- **The columns walk down the class tree, not across it.** person permits no
+  mail; inetOrgPerson does, and an inetOrgPerson entry is a user. Deriving the
+  columns from the anchors alone dropped the most useful column in the table on
+  the grounds that a superclass did not mention it. The permitted set is
+  computed over every class the filter matches.
+- **Every heading carries the attribute name under the label.** "Email" over
+  `mail`, in the schema's own spelling. A heading that says only Email teaches
+  somebody their directory has a field called Email, and the next thing they
+  write is a filter on it. The label is a convenience; the name is the fact.
+- **Sorting is over the rows that arrived, and says so.** Client-side, on the
+  loaded page, with a line under the table whenever the search was truncated. A
+  "first alphabetically" that is really "first out of the two hundred returned"
+  is a lie a table tells very convincingly.
+- **Bulk selection stages; it does not apply.** Selecting rows and choosing
+  Stage deletions adds them to the basket and says so — the changeset view then
+  shows all of them as one LDIF document with a single apply. No second write
+  path was added, and the one confirmation step is where it always was.
+- **Directory became a section with pages, rather than a dropdown.** Users is a
+  destination; hiding it one click inside a menu would undo the reason for
+  having it. The tree stays as the first page, unchanged.
+- **A seventh Radix package, deliberately.** `react-dropdown-menu`, for the row
+  menu. Menu keyboard behaviour — focus return, roving tabindex, typeahead, not
+  fighting the dialog overlay — is invisible until it is missing, and a table of
+  several hundred rows is where it matters. Asked and approved before install,
+  per the dependency rule.
+- **`task generate` was broken on main and nobody had run it.** `api/openapi.yaml`
+  carried a duplicated `x-enum-varnames` key, which YAML rejects outright; the
+  committed generated files predated it. Fixed here because it blocked the spec
+  change, and worth noting: generated output being committed hid a broken
+  generator for two releases.
+- **Two bugs the tests could not have found, and running it did.** The table
+  rendered two hundred rows into a container it could not scroll, so everything
+  past the fold was unreachable — a missing `h-full`, invisible to a typecheck.
+  And the select-all checkbox drew a tick for the indeterminate state, so one
+  row selected out of two hundred looked exactly like all two hundred, on the
+  control that arms a bulk deletion. Both were found by opening the page against
+  both servers before handing it over, which is now simply how a slice finishes.

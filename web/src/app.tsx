@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Database,
   FileUp,
+  FolderTree,
   Layers,
   ListChecks,
   Loader2,
@@ -11,9 +12,11 @@ import {
   Search as SearchIcon,
   ShieldAlert,
   Sun,
+  User,
+  Users,
 } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
-import type { SessionInfo } from "@/lib/api";
+import type { ObjectViewId, SessionInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,15 +29,29 @@ import { SchemaBrowser } from "@/features/schema";
 import { SearchPanel } from "@/features/search";
 import { ImportPanel } from "@/features/import";
 import { ChangesetView } from "@/features/changeset";
+import { ObjectListPanel } from "@/features/objects";
 import { useChangeset } from "@/lib/changeset";
 import { SourceLink } from "@/components/source-link";
 
-type View = "browse" | "schema" | "search" | "changeset" | "import";
+/**
+ * Sections are what the top bar offers. Directory is the only one with pages of
+ * its own, and they sit on a second row rather than behind a menu: Users is a
+ * destination, and putting it one click deep inside a dropdown would undo the
+ * reason for having it.
+ */
+type Section = "directory" | "search" | "schema" | "changeset" | "import";
+
+/** A page within Directory. Browse is the tree; the rest are the object views. */
+type DirectoryPage = "browse" | ObjectViewId;
 
 export function App() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<View>("browse");
+  const [section, setSection] = useState<Section>("directory");
+  const [page, setPage] = useState<DirectoryPage>("browse");
   const [selectedDN, setSelectedDN] = useState<string | null>(null);
+  // Whether the entry panel should arrive already in edit mode. Set only by a
+  // caller whose action was Edit, and cleared by every other way of opening one.
+  const [openForEdit, setOpenForEdit] = useState(false);
 
   const session = useQuery({
     queryKey: ["session"],
@@ -68,72 +85,96 @@ export function App() {
         onConnected={(info) => {
           queryClient.setQueryData(["session"], info);
           setSelectedDN(info.capabilities?.namingContexts?.[0] ?? null);
-          setView("browse");
+          setSection("directory");
+          setPage("browse");
         }}
       />
     );
   }
 
   const info = session.data;
-  const openEntry = (dn: string) => {
+  const contexts = info.capabilities?.namingContexts ?? [];
+
+  // Opening an entry always lands on the tree, whichever page asked for it. The
+  // entry panel is where an entry is read and edited, and it lives there.
+  const openEntry = (dn: string, forEdit = false) => {
     setSelectedDN(dn);
-    setView("browse");
+    setOpenForEdit(forEdit);
+    setSection("directory");
+    setPage("browse");
   };
 
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full flex-col">
-        <TopBar info={info} view={view} onView={setView} />
+        <TopBar info={info} section={section} onSection={setSection} />
+        {section === "directory" ? (
+          <DirectoryNav page={page} onPage={setPage} />
+        ) : null}
 
         <div className="flex min-h-0 flex-1">
-          {view === "browse" ? (
-            <>
-              <aside className="flex w-72 shrink-0 flex-col border-r border-border">
-                <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Directory
-                </div>
-                <div className="min-h-0 flex-1 overflow-auto px-1">
-                  <Tree selectedDN={selectedDN} onSelect={setSelectedDN} />
-                </div>
-              </aside>
+          {section === "directory" ? (
+            page === "browse" ? (
+              <>
+                <aside className="flex w-72 shrink-0 flex-col border-r border-border">
+                  <div className="border-b border-border px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Directory
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-auto px-1">
+                    <Tree
+                      selectedDN={selectedDN}
+                      onSelect={(dn) => {
+                        setSelectedDN(dn);
+                        setOpenForEdit(false);
+                      }}
+                    />
+                  </div>
+                </aside>
+                <main className="min-w-0 flex-1">
+                  {selectedDN ? (
+                    <EntryPanel
+                      dn={selectedDN}
+                      readOnly={info.readOnly === true}
+                      onNavigate={openEntry}
+                      startEditing={openForEdit}
+                      onDeleted={(parent) => setSelectedDN(parent || null)}
+                      schemaTargets={(info.capabilities?.schemaWrite?.targets ?? []).map(
+                        (t) => t.dn,
+                      )}
+                      onOpenSchema={() => setSection("schema")}
+                    />
+                  ) : (
+                    <p className="p-8 text-sm text-muted-foreground">
+                      Pick an entry from the tree.
+                    </p>
+                  )}
+                </main>
+              </>
+            ) : (
               <main className="min-w-0 flex-1">
-                {selectedDN ? (
-                  <EntryPanel
-                    dn={selectedDN}
-                    readOnly={info.readOnly === true}
-                    onNavigate={openEntry}
-                    onDeleted={(parent) => setSelectedDN(parent || null)}
-                    schemaTargets={(info.capabilities?.schemaWrite?.targets ?? []).map(
-                      (t) => t.dn,
-                    )}
-                    onOpenSchema={() => setView("schema")}
-                  />
-                ) : (
-                  <p className="p-8 text-sm text-muted-foreground">
-                    Pick an entry from the tree.
-                  </p>
-                )}
+                <ObjectListPanel
+                  viewId={page}
+                  namingContexts={contexts}
+                  readOnly={info.readOnly === true}
+                  onOpenEntry={openEntry}
+                  onReviewChangeset={() => setSection("changeset")}
+                />
               </main>
-            </>
-          ) : view === "schema" ? (
+            )
+          ) : section === "schema" ? (
             <main className="min-w-0 flex-1">
               <SchemaBrowser />
             </main>
-          ) : view === "search" ? (
+          ) : section === "search" ? (
             <main className="min-w-0 flex-1">
               <SearchPanel
                 initialBase={searchBaseFor(info, selectedDN)}
                 onOpenEntry={openEntry}
               />
             </main>
-          ) : view === "changeset" ? (
+          ) : section === "changeset" ? (
             <main className="min-w-0 flex-1 overflow-y-auto">
-              <ChangesetView
-                onBrowse={(dn) => {
-                  setSelectedDN(dn);
-                  setView("browse");
-                }}
-              />
+              <ChangesetView onBrowse={openEntry} />
             </main>
           ) : (
             <main className="min-w-0 flex-1 overflow-y-auto">
@@ -165,14 +206,49 @@ function searchBaseFor(info: SessionInfo, selectedDN: string | null): string {
   return contexts[0] ?? selectedDN ?? "";
 }
 
+function DirectoryNav({
+  page,
+  onPage,
+}: {
+  page: DirectoryPage;
+  onPage: (p: DirectoryPage) => void;
+}) {
+  const pages: [DirectoryPage, string, typeof Database][] = [
+    ["browse", "Browse", FolderTree],
+    ["users", "Users", User],
+    ["groups", "Groups", Users],
+    ["organizationalUnits", "Organizational units", Database],
+  ];
+  return (
+    <nav className="flex shrink-0 items-center gap-0.5 border-b border-border px-3 py-1">
+      {pages.map(([id, label, Icon]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onPage(id)}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm transition-colors",
+            page === id
+              ? "bg-accent font-medium text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+          )}
+        >
+          <Icon className="size-3.5" />
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 function TopBar({
   info,
-  view,
-  onView,
+  section,
+  onSection,
 }: {
   info: SessionInfo;
-  view: View;
-  onView: (v: View) => void;
+  section: Section;
+  onSection: (s: Section) => void;
 }) {
   const queryClient = useQueryClient();
   const [dark, setDark] = useState(
@@ -193,8 +269,8 @@ function TopBar({
 
   const staged = useChangeset();
 
-  const tabs: [View, string, typeof Database][] = [
-    ["browse", "Browse", Database],
+  const tabs: [Section, string, typeof Database][] = [
+    ["directory", "Directory", Database],
     ["search", "Search", SearchIcon],
     ["schema", "Schema", Layers],
     ["changeset", "Changeset", ListChecks],
@@ -213,10 +289,10 @@ function TopBar({
           <button
             key={id}
             type="button"
-            onClick={() => onView(id)}
+            onClick={() => onSection(id)}
             className={cn(
               "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-              view === id
+              section === id
                 ? "bg-accent font-medium text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
             )}
