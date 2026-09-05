@@ -485,3 +485,54 @@ to contradict the plan — add an entry.
   row selected out of two hundred looked exactly like all two hundred, on the
   control that arms a bulk deletion. Both were found by opening the page against
   both servers before handing it over, which is now simply how a slice finishes.
+
+### 2026-09-05 — field documentation and boolean inputs (console slice 2)
+
+- **The syntax picks the control; nothing else does.** An attribute declaring
+  RFC 4517's Boolean syntax gets TRUE / FALSE / not set. One holding text that
+  reads like a switch gets a text box with a suggestion. The two servers land on
+  opposite sides of that line and neither is named: in `cn=config`, OpenLDAP has
+  five real Booleans and no on/off strings, 389 DS has ninety-two on/off strings
+  and no real Booleans at all. A conformance case now asserts the syntax lookup
+  holds on both.
+- **A Boolean with no value reads "not set", not TRUE.** The old control
+  defaulted an empty value to TRUE, which showed a value the entry did not have
+  and invited a change nobody made. Not set is also selectable, so an optional
+  Boolean can be cleared — it produces `delete: <attr>`, which is what an absent
+  attribute is. A value that is neither TRUE nor FALSE is displayed as it is,
+  because a blank box over a real value is worse than an odd-looking one.
+- **The pseudo-boolean control is a text box, not a select.** It is a datalist:
+  the two words are offered, free text stays reachable, and what is in the box
+  is what is sent. A control that corrected `on` to `TRUE` would be the same
+  class of bug as the edit that dropped `SUBSTR` — a change nobody asked for,
+  applied silently. The field says so in as many words.
+- **`0` and `1` are not a boolean pair.** They read as one until the attribute
+  is `nsslapd-auditlog-logrotationsyncmin`, whose value is `0` and whose unit is
+  minutes. Forty fields on 389 DS's `cn=config` hold `0` or `1` and are genuine
+  numbers. Nothing in the value distinguishes the two cases, so neither is
+  guessed at; the vocabulary is on/off, yes/no, true/false, enabled/disabled.
+- **The suggestion is seeded once, from what the server sent.** Recomputing it
+  as the box is typed into made it vanish mid-edit, the moment the field was
+  cleared to retype it.
+- **A description repeated across an entry is a category, not a description.**
+  389 DS answers "Netscape defined attribute type" for a hundred and
+  forty-nine of the attributes on `cn=config`; only six distinct descriptions
+  cover a hundred and ninety-three fields. Printing all of them buries the one
+  line worth reading. So a description is shown beside the field when it belongs
+  to exactly one attribute on screen, and stays on the name's tooltip otherwise.
+  Nothing the server said is discarded.
+- **No prose of our own.** Every description shown is the server's `DESC`.
+  A hand-written gloss is one more thing to drift out of step with the directory
+  in front of you, and the server has already answered.
+- **A found bug: the editor knew nothing about any attribute being added.** It
+  looked an attribute's schema up among the attributes the entry already had,
+  which by definition never contains the one being added. So everything added
+  through the picker arrived badged "not in the schema" with a plain text box —
+  no description, no syntax, no single-valued flag, and a text box for something
+  the schema calls a Boolean. Worst precisely when it matters most: you reached
+  for the picker because you did not already know the attribute.
+- **The fix sends the schema with the entry.** `EntryView.candidateKinds`
+  carries the schema's opinion about every attribute the entry's classes permit
+  but which it does not have, so the editor needs no second round trip and the
+  control is right the moment the field appears. A conformance case asserts both
+  servers can describe every attribute their suffix entry permits.

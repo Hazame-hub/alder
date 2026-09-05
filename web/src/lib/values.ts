@@ -150,3 +150,60 @@ export function ancestorsOf(dn: string): string[] {
   }
   return out;
 }
+
+/**
+ * The word pairs a plain-text value can plausibly belong to.
+ *
+ * A directory has a Boolean syntax, and servers use it — but not always. One of
+ * the two servers Alder targets keeps every switch in its configuration as a
+ * DirectoryString holding "on" or "off": ninety-two of them in cn=config alone,
+ * and not one real Boolean. The other uses the Boolean syntax properly and has
+ * none of these. Neither fact is branched on anywhere; the syntax decides which
+ * control appears, and this decides whether that control gets a suggestion.
+ *
+ * "0" and "1" are deliberately absent. They read as a boolean right up until
+ * the attribute is nsslapd-auditlog-logrotationsyncmin, which is a number of
+ * minutes and whose value is 0. There is nothing in the value that
+ * distinguishes the two cases, so neither gets guessed at.
+ */
+const booleanWords: readonly (readonly [string, string])[] = [
+  ["on", "off"],
+  ["yes", "no"],
+  ["true", "false"],
+  ["enabled", "disabled"],
+];
+
+/**
+ * booleanPairFor returns the two words a value sits between, or null.
+ *
+ * The pair comes back in the casing of the value it was matched from, so a
+ * server writing "off" is offered "on", and one writing "OFF" is offered "ON".
+ * This is a suggestion and nothing more: the control it feeds stays a text box,
+ * free text remains reachable, and the value sent is whatever is in the box.
+ * Correcting "on" to "TRUE" behind the operator's back would be a change nobody
+ * asked for, applied silently, which is the one thing this application does not
+ * do.
+ */
+export function booleanPairFor(value: string): [string, string] | null {
+  const folded = value.trim().toLowerCase();
+  if (folded === "") return null;
+  for (const pair of booleanWords) {
+    const i = pair.indexOf(folded);
+    if (i === -1) continue;
+    return [matchCase(pair[0] as string, value), matchCase(pair[1] as string, value)];
+  }
+  return null;
+}
+
+/** matchCase rewrites word in the capitalisation style of sample. */
+function matchCase(word: string, sample: string): string {
+  const trimmed = sample.trim();
+  const head = trimmed.charAt(0);
+  if (trimmed === trimmed.toUpperCase() && trimmed !== trimmed.toLowerCase()) {
+    return word.toUpperCase();
+  }
+  if (head === head.toUpperCase() && head !== head.toLowerCase()) {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }
+  return word;
+}

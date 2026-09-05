@@ -447,3 +447,34 @@ func encodeRawValues(values [][]byte) []AttributeValue {
 func searchScope(s SearchRequestScope) (directory.Scope, error) {
 	return directory.ParseScope(string(s))
 }
+
+// candidateKinds describes the attributes this entry could have but does not.
+//
+// The editor offers them under "Add an attribute", and until it had these it
+// knew nothing about one until the entry already carried it: an added attribute
+// arrived as a bare text box badged "not in the schema", whatever the schema
+// actually said. That is worst exactly when it matters most — you are adding an
+// attribute because you do not already know it — and it meant a Boolean got a
+// text box instead of a Boolean control.
+func candidateKinds(
+	e *directory.Entry,
+	sch *schema.Schema,
+	req schema.AttributeRequirements,
+) []AttributeKind {
+	present := make(map[string]bool, len(e.Order))
+	for _, name := range e.Order {
+		present[foldName(name)] = true
+	}
+
+	seen := make(map[string]bool, len(req.Must)+len(req.May))
+	out := make([]AttributeKind, 0, len(req.Must)+len(req.May))
+	for _, name := range append(append([]string{}, req.Must...), req.May...) {
+		key := foldName(name)
+		if present[key] || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, attributeKind(sch.KindOf(name)))
+	}
+	return out
+}

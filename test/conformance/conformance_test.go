@@ -1966,3 +1966,93 @@ func TestObjectViewAnchorsExistOnBothServers(t *testing.T) {
 		}
 	})
 }
+
+// TestBooleanSyntaxIsRecognisedOnBothServers asserts the fact the editor's
+// Boolean control depends on: that an attribute declaring RFC 4517's Boolean
+// syntax is reported as a Boolean, on either server, whether it declares the
+// syntax itself or inherits it through SUP.
+//
+// The control is chosen from this and nothing else, which is what lets the two
+// servers be handled without naming either. They diverge sharply in practice —
+// one keeps its configuration switches as real Booleans, the other as
+// DirectoryString holding "on" and "off" — and neither fact is written down
+// anywhere in Alder. The syntax is asked, and the answer decides.
+func TestBooleanSyntaxIsRecognisedOnBothServers(t *testing.T) {
+	const booleanSyntax = "1.3.6.1.4.1.1466.115.121.1.7"
+
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+
+		found := 0
+		for _, at := range sch.AttributeTypes {
+			if sch.EffectiveSyntax(at) != booleanSyntax {
+				continue
+			}
+			found++
+			if kind := sch.KindOf(at.Name()); kind.Kind != schema.KindBoolean {
+				t.Errorf("%s: %s declares the Boolean syntax but is reported as %q, "+
+					"so the editor would offer a text box for it",
+					s.name, at.Name(), kind.Kind)
+			}
+		}
+		t.Logf("%s: %d attribute types use the Boolean syntax", s.name, found)
+		if found == 0 {
+			t.Errorf("%s publishes no Boolean attribute at all, which no real "+
+				"directory schema does — the syntax lookup is probably wrong", s.name)
+		}
+
+		// And the other half of the same claim: an attribute that is not a
+		// Boolean must not be reported as one, or an operator gets a TRUE/FALSE
+		// control over a value that is neither.
+		for _, name := range []string{"cn", "description"} {
+			at := sch.AttributeType(name)
+			if at == nil {
+				continue
+			}
+			if kind := sch.KindOf(name); kind.Kind == schema.KindBoolean {
+				t.Errorf("%s: %s is reported as a Boolean", s.name, name)
+			}
+		}
+	})
+}
+
+// TestPermittedAttributesAreAllDescribed asserts what the "Add an attribute"
+// list depends on: every attribute an entry's classes permit is one the schema
+// can describe.
+//
+// It could not be taken for granted. The editor used to look an added attribute
+// up among the attributes the entry already had, which by definition never
+// contains it, so everything added arrived badged "not in the schema" with a
+// plain text box. The lookup is fixed; this asserts the data behind it is
+// there on both servers.
+func TestPermittedAttributesAreAllDescribed(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+		base, err := dn.Parse(suffix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry, err := sess.Read(ctx(t), base, []string{"*"})
+		if err != nil {
+			t.Fatalf("Read(%s): %v", suffix, err)
+		}
+
+		req := sch.Requirements(entry.ObjectClasses())
+		if len(req.May)+len(req.Must) == 0 {
+			t.Fatalf("%s: the suffix entry permits no attributes at all", s.name)
+		}
+		for _, name := range append(append([]string{}, req.Must...), req.May...) {
+			if kind := sch.KindOf(name); !kind.Known {
+				t.Errorf("%s: %s is permitted by the suffix entry's classes but the "+
+					"schema cannot describe it, so adding it would offer a bare text box",
+					s.name, name)
+			}
+		}
+	})
+}
