@@ -784,6 +784,17 @@ components:
           type: array
           items: { $ref: "#/components/schemas/EntryAttribute" }
         requirements: { $ref: "#/components/schemas/Requirements" }
+        candidateKinds:
+          type: array
+          items: { $ref: "#/components/schemas/AttributeKind" }
+          description: |
+            The schema's opinion about the attributes this entry's classes
+            permit but which it does not currently carry.
+
+            Without it the editor knows nothing about an attribute until the
+            entry already has one, so adding an attribute produced a bare text
+            box labelled "not in the schema" — no description, no syntax, and a
+            text box for something the schema calls a Boolean.
         ldif:
           type: string
           description: The entry as an LDIF content record, ready to copy.

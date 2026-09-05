@@ -588,6 +588,16 @@ export interface components {
             objectClasses?: string[];
             attributes: components["schemas"]["EntryAttribute"][];
             requirements?: components["schemas"]["Requirements"];
+            /**
+             * @description The schema's opinion about the attributes this entry's classes
+             *     permit but which it does not currently carry.
+             *
+             *     Without it the editor knows nothing about an attribute until the
+             *     entry already has one, so adding an attribute produced a bare text
+             *     box labelled "not in the schema" — no description, no syntax, and a
+             *     text box for something the schema calls a Boolean.
+             */
+            candidateKinds?: components["schemas"]["AttributeKind"][];
             /** @description The entry as an LDIF content record, ready to copy. */
             ldif?: string;
             hasChildren?: boolean;

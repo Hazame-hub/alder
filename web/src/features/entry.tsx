@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
@@ -27,6 +27,7 @@ import type {
   SessionInfo,
 } from "@/lib/api";
 import {
+  booleanPairFor,
   displayText,
   formatGeneralizedTime,
   inputType,
@@ -55,6 +56,9 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@/components/ui";
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { DnPicker } from "@/components/dn-picker";
@@ -498,12 +502,29 @@ function AttributeRow({
   return (
     <div className="grid grid-cols-1 gap-1 px-3 py-2 sm:grid-cols-[minmax(11rem,15rem)_1fr] sm:gap-4">
       <dt className="flex items-start gap-1.5 pt-0.5">
-        <span
-          className="font-dn font-medium"
-          title={attr.kind.desc ?? attr.kind.syntaxLabel ?? undefined}
-        >
-          {attr.name}
-        </span>
+        {attr.kind.desc ? (
+          // Underlined, so there is something to hover. A description sitting in
+          // a title attribute with no affordance is a description nobody reads.
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-help font-dn font-medium underline decoration-dotted decoration-muted-foreground/50 underline-offset-4">
+                {attr.name}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p className="text-xs leading-relaxed">{attr.kind.desc}</p>
+              {attr.kind.syntaxLabel ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {attr.kind.syntaxLabel}
+                </p>
+              ) : null}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className="font-dn font-medium" title={attr.kind.syntaxLabel ?? undefined}>
+            {attr.name}
+          </span>
+        )}
         {attr.required ? (
           <span className="text-destructive" title="Required by an object class">
             *
@@ -719,13 +740,58 @@ function EntryEditor({
     return candidates.filter((name) => !present.has(name.toLowerCase())).sort();
   }, [entry.attributes, entry.requirements, added]);
 
+  /*
+   * The descriptions that say something about the attribute they are on.
+   *
+   * A DESC repeated across the entry is a category label, not a description.
+   * One server answers "Netscape defined attribute type" for a hundred and
+   * forty-nine of the attributes on cn=config, which pushes the one genuinely
+   * useful line — "Check CRL when opening outbound TLS connections. Valid
+   * options are none, peer, all." — off the screen behind its own boilerplate.
+   *
+   * So a description is shown beside the field when it belongs to exactly one
+   * attribute here, and stays on the name's tooltip otherwise. Nothing the
+   * server said is discarded; the repeated ones simply stop crowding out the
+   * ones that were worth reading.
+   */
+  const distinctiveDescs = useMemo(() => {
+    const counts = new Map<string, number>();
+    const bump = (d?: string) => {
+      if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
+    };
+    for (const a of editable) bump(a.kind.desc);
+    // Attributes being added are on screen too, and they are where a
+    // description is wanted most: it is being set for the first time, by
+    // somebody who reached for the picker because they did not already know it.
+    for (const name of added) {
+      const folded = name.toLowerCase();
+      bump(entry.candidateKinds?.find((k) => k.name.toLowerCase() === folded)?.desc);
+    }
+    const once = new Set<string>();
+    for (const [desc, n] of counts) if (n === 1) once.add(desc);
+    return once;
+  }, [editable, added, entry.candidateKinds]);
+
   const mods = useMemo(
     () => computeMods(original, draft, added),
     [original, draft, added],
   );
 
-  const kindOf = (name: string) =>
-    entry.attributes.find((a) => a.name.toLowerCase() === name.toLowerCase())?.kind;
+  /*
+   * The schema's opinion about an attribute, present on the entry or not.
+   *
+   * The second lookup is the one that matters. An attribute being added is by
+   * definition not on the entry yet, so searching only what is there returned
+   * nothing every time and the editor fell back to "not in the schema" with a
+   * plain text box — for an attribute the schema describes perfectly well.
+   */
+  const kindOf = (name: string) => {
+    const folded = name.toLowerCase();
+    return (
+      entry.attributes.find((a) => a.name.toLowerCase() === folded)?.kind ??
+      entry.candidateKinds?.find((k) => k.name.toLowerCase() === folded)
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -750,6 +816,7 @@ function EntryEditor({
             required={attr.required === true}
             values={draft[attr.name] ?? []}
             pickerBase={pickerBase}
+            distinctiveDescs={distinctiveDescs}
             onChange={(values) => setDraft((d) => ({ ...d, [attr.name]: values }))}
           />
         ))}
@@ -768,6 +835,7 @@ function EntryEditor({
             required={(entry.requirements?.must ?? []).includes(name)}
             values={draft[name] ?? [""]}
             pickerBase={pickerBase}
+            distinctiveDescs={distinctiveDescs}
             isNew
             onRemove={() => {
               setAdded((a) => a.filter((n) => n !== name));
@@ -834,6 +902,77 @@ function EntryEditor({
   );
 }
 
+/** Not a legal Boolean, so it cannot be confused with a value the server holds. */
+const unsetOption = "__unset";
+
+/**
+ * The control for an attribute whose syntax is RFC 4517 Boolean.
+ *
+ * Three things it does that a two-option select does not. An attribute with no
+ * value reads as "not set" rather than defaulting to TRUE — showing TRUE over
+ * an absent value is how an editor invents a change nobody made. Not set is
+ * offered as a choice, so an optional Boolean can be cleared without hunting
+ * for a remove button. And a value that is neither TRUE nor FALSE is shown as
+ * it is, because the alternative is a blank box over a value the server really
+ * does hold.
+ */
+function BooleanValue({
+  value,
+  required,
+  onChange,
+}: {
+  value: string;
+  required: boolean;
+  onChange: (v: string) => void;
+}) {
+  const recognised = value === "TRUE" || value === "FALSE";
+  return (
+    <Select
+      value={value === "" ? unsetOption : value}
+      onValueChange={(v) => onChange(v === unsetOption ? "" : v)}
+    >
+      <SelectTrigger className="max-w-64">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="TRUE">TRUE</SelectItem>
+        <SelectItem value="FALSE">FALSE</SelectItem>
+        <SelectItem value={unsetOption} disabled={required}>
+          {required ? "not set — this attribute is required" : "not set"}
+        </SelectItem>
+        {!recognised && value !== "" ? (
+          <SelectItem value={value}>{value} — not TRUE or FALSE</SelectItem>
+        ) : null}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * What the schema says about an attribute, in the schema's own words.
+ *
+ * The description is the server's DESC and nothing else. Alder writes no prose
+ * about attributes it did not define: a hand-written gloss is one more thing to
+ * drift out of step with the directory in front of you, and the server has
+ * already answered the question.
+ */
+function FieldDoc({
+  kind,
+  distinctiveDescs,
+}: {
+  kind: EntryAttribute["kind"];
+  /** When given, only a description unique to this entry is shown here. */
+  distinctiveDescs?: Set<string>;
+}) {
+  if (!kind.desc) return null;
+  if (distinctiveDescs && !distinctiveDescs.has(kind.desc)) return null;
+  return (
+    <p className="mb-2 max-w-prose text-xs leading-relaxed text-muted-foreground">
+      {kind.desc}
+    </p>
+  );
+}
+
 function AttributeEditor({
   name,
   kind,
@@ -843,6 +982,7 @@ function AttributeEditor({
   onRemove,
   isNew,
   pickerBase,
+  distinctiveDescs,
 }: {
   name: string;
   kind: EntryAttribute["kind"];
@@ -853,6 +993,8 @@ function AttributeEditor({
   isNew?: boolean;
   /** Search base for the DN picker, when this attribute holds DNs. */
   pickerBase?: string;
+  /** The descriptions worth showing beside a field, rather than on hover. */
+  distinctiveDescs?: Set<string>;
 }) {
   const single = kind.singleValue === true;
   const asText = multiline(kind, values.map(textValue));
@@ -864,6 +1006,24 @@ function AttributeEditor({
   // inputs is not an editor, it is a stalled tab.
   const [showAllValues, setShowAllValues] = useState(false);
   const editable = showAllValues ? values : values.slice(0, valuesShownAtFirst);
+  const listId = useId();
+
+  /*
+   * The word pair this attribute's values sit between, if any.
+   *
+   * Seeded once from what the server sent rather than recomputed as the box is
+   * typed into, so clearing the field to retype it does not make the suggestion
+   * flicker out from under the cursor. It is per attribute, not per value:
+   * every value of one attribute shares a vocabulary.
+   */
+  const [wordPair] = useState<[string, string] | null>(() => {
+    if (kind.kind === "boolean") return null; // it has a real control already
+    for (const v of values) {
+      const pair = booleanPairFor(v);
+      if (pair) return pair;
+    }
+    return null;
+  });
 
   const setAt = (i: number, v: string) => {
     const next = [...values];
@@ -880,14 +1040,40 @@ function AttributeEditor({
     >
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Label className="font-dn">
-          {name}
+          {kind.desc ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help underline decoration-dotted decoration-muted-foreground/50 underline-offset-4">
+                  {name}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p className="text-xs leading-relaxed">{kind.desc}</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            name
+          )}
           {required ? <span className="ml-0.5 text-destructive">*</span> : null}
         </Label>
         {single ? <Badge variant="outline">single-valued</Badge> : null}
         {kind.known === false ? (
           <Badge variant="warning">not in the schema</Badge>
         ) : kind.syntaxLabel ? (
-          <Badge variant="secondary">{kind.syntaxLabel}</Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="secondary" className="cursor-help">
+                {kind.syntaxLabel}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p className="font-dn text-xs">{kind.syntax}</p>
+              {kind.maxLength ? (
+                <p className="text-xs">at most {kind.maxLength} characters</p>
+              ) : null}
+              {kind.oid ? <p className="font-dn text-xs">{kind.oid}</p> : null}
+            </TooltipContent>
+          </Tooltip>
         ) : null}
         {kind.sensitive ? <Badge variant="destructive">secret</Badge> : null}
         {onRemove ? (
@@ -903,19 +1089,17 @@ function AttributeEditor({
         ) : null}
       </div>
 
+      <FieldDoc kind={kind} distinctiveDescs={distinctiveDescs} />
+
       <div className="space-y-2">
         {editable.map((value, i) => (
           <div key={i} className="flex items-start gap-2">
             {kind.kind === "boolean" ? (
-              <Select value={value || "TRUE"} onValueChange={(v) => setAt(i, v)}>
-                <SelectTrigger className="max-w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="TRUE">TRUE</SelectItem>
-                  <SelectItem value="FALSE">FALSE</SelectItem>
-                </SelectContent>
-              </Select>
+              <BooleanValue
+                value={value}
+                required={required}
+                onChange={(v) => setAt(i, v)}
+              />
             ) : asText ? (
               <Textarea
                 value={value}
@@ -924,13 +1108,24 @@ function AttributeEditor({
                 onChange={(e) => setAt(i, e.target.value)}
               />
             ) : (
-              <Input
-                value={value}
-                type={inputType(kind)}
-                maxLength={kind.maxLength}
-                className="font-dn"
-                onChange={(e) => setAt(i, e.target.value)}
-              />
+              <>
+                <Input
+                  value={value}
+                  type={inputType(kind)}
+                  maxLength={kind.maxLength}
+                  className="font-dn"
+                  // A datalist, not a select. The suggestion is a suggestion:
+                  // the box stays free text and sends exactly what it holds.
+                  list={wordPair ? `${listId}-words` : undefined}
+                  onChange={(e) => setAt(i, e.target.value)}
+                />
+                {wordPair ? (
+                  <datalist id={`${listId}-words`}>
+                    <option value={wordPair[0]} />
+                    <option value={wordPair[1]} />
+                  </datalist>
+                ) : null}
+              </>
             )}
             {values.length > 1 ? (
               <Button
@@ -948,6 +1143,15 @@ function AttributeEditor({
           <Button variant="outline" size="sm" onClick={() => setShowAllValues(true)}>
             Show all {values.length} values
           </Button>
+        ) : null}
+        {wordPair ? (
+          <p className="text-xs text-muted-foreground">
+            The schema calls this {kind.syntaxLabel ?? "text"}, not a Boolean, so
+            this stays a text box. <span className="font-dn">{wordPair[0]}</span>{" "}
+            and <span className="font-dn">{wordPair[1]}</span> are offered because
+            that is what the value looks like — anything else is still accepted,
+            and what you type is what is sent.
+          </p>
         ) : null}
       </div>
 
