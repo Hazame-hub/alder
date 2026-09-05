@@ -1,6 +1,8 @@
 package api
 
 import (
+	"sort"
+
 	"github.com/hazame-hub/alder/internal/filter"
 	"github.com/hazame-hub/alder/internal/schema"
 )
@@ -70,6 +72,41 @@ var viewSpecs = []viewSpec{
 	},
 }
 
+// membershipAttrs are the attributes a directory holds members in.
+//
+// Standards-track names, like the anchor classes above: RFC 4519 for member and
+// uniqueMember, RFC 2307 for memberUid, and the dynamic-group draft for
+// memberURL. One is used only where the connected server defines it and the
+// entry's own classes permit it, so an entry that is not a group reports none
+// and gets no membership controls.
+var membershipAttrs = []string{"member", "uniqueMember", "memberUid", "memberURL"}
+
+// membershipAttributes returns the membership attributes this entry may hold.
+//
+// It answers from the class requirements rather than from the values present,
+// so an empty group is still a group. Reading it off the values would mean the
+// controls for adding the first member appear only after somebody has added the
+// first member by some other route.
+func membershipAttributes(sch *schema.Schema, req schema.AttributeRequirements) []string {
+	permitted := make(map[string]bool, len(req.Must)+len(req.May))
+	for _, name := range req.Must {
+		permitted[foldName(name)] = true
+	}
+	for _, name := range req.May {
+		permitted[foldName(name)] = true
+	}
+
+	var out []string
+	for _, candidate := range membershipAttrs {
+		at := sch.AttributeType(candidate)
+		if at == nil || !permitted[foldName(at.Name())] {
+			continue
+		}
+		out = append(out, at.Name())
+	}
+	return out
+}
+
 // columnLabels gives a heading a reader recognises.
 //
 // Deliberately small, and covering only the attributes the views above ask for.
@@ -123,12 +160,13 @@ func buildView(sch *schema.Schema, spec viewSpec) (ObjectView, bool) {
 	}
 
 	return ObjectView{
-		Id:          spec.id,
-		Label:       spec.label,
-		Description: ptrIfSet(spec.desc),
-		Filter:      f,
-		Anchors:     classNames(anchors),
-		Columns:     viewColumns(sch, spec, anchors),
+		Id:            spec.id,
+		Label:         spec.label,
+		Description:   ptrIfSet(spec.desc),
+		Filter:        f,
+		Anchors:       classNames(anchors),
+		Columns:       viewColumns(sch, spec, anchors),
+		CreateClasses: ptrIfAny(structuralNames(withDescendants(sch, anchors))),
 	}, true
 }
 
@@ -200,6 +238,30 @@ func viewColumns(sch *schema.Schema, spec viewSpec, anchors []*schema.ObjectClas
 		})
 	}
 	return cols
+}
+
+// structuralNames keeps the structural classes of a set, sorted.
+//
+// Only a structural class can be the class of a new entry — an abstract one
+// cannot be instantiated and an auxiliary one has to accompany a structural
+// one — so these are exactly the classes a creation form may offer.
+func structuralNames(classes []*schema.ObjectClass) []string {
+	var out []string
+	for _, oc := range classes {
+		if oc.Kind == schema.KindStructural {
+			out = append(out, oc.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ptrIfAny omits an empty list rather than sending one.
+func ptrIfAny(v []string) *[]string {
+	if len(v) == 0 {
+		return nil
+	}
+	return &v
 }
 
 // withDescendants returns the anchors plus every class inheriting from one,

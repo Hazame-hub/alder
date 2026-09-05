@@ -41,6 +41,8 @@ func testSchema(t *testing.T, extraClasses ...string) *schema.Schema {
 		"( 2.5.4.13 NAME 'description' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
 		"( 2.5.4.20 NAME 'telephoneNumber' SYNTAX 1.3.6.1.4.1.1466.115.121.1.50 )",
 		"( 2.5.4.31 NAME 'member' SYNTAX 1.3.6.1.4.1.1466.115.121.1.12 )",
+		"( 2.5.4.50 NAME 'uniqueMember' SYNTAX 1.3.6.1.4.1.1466.115.121.1.34 )",
+		"( 1.3.6.1.1.1.1.12 NAME 'memberUid' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
 		"( 2.5.4.35 NAME 'userPassword' SYNTAX 1.3.6.1.4.1.1466.115.121.1.40 )",
 		"( 2.5.4.42 NAME 'givenName' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
 		"( 0.9.2342.19200300.100.1.1 NAME 'uid' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
@@ -286,4 +288,95 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// Membership is answered from what the entry's classes permit, not from what it
+// currently holds. An empty group is still a group, and a control that appeared
+// only once a group had a member would be useless for adding the first one.
+func TestMembershipAttributesComeFromTheClassesNotTheValues(t *testing.T) {
+	sch := testSchema(t,
+		"( 2.5.6.17 NAME 'groupOfUniqueNames' SUP top STRUCTURAL MUST ( uniqueMember $ cn ) )",
+		"( 1.3.6.1.1.1.2.2 NAME 'posixGroup' SUP top STRUCTURAL MUST ( cn $ gidNumber ) "+
+			"MAY memberUid )",
+	)
+
+	for _, tc := range []struct {
+		classes []string
+		want    []string
+	}{
+		{[]string{"groupOfNames"}, []string{"member"}},
+		{[]string{"groupOfUniqueNames"}, []string{"uniqueMember"}},
+		{[]string{"posixGroup"}, []string{"memberUid"}},
+		// An entry carrying both styles permits both, and they are reported in
+		// a stable order so the UI does not shuffle between reads.
+		{[]string{"groupOfNames", "groupOfUniqueNames"}, []string{"member", "uniqueMember"}},
+		// Not a group.
+		{[]string{"inetOrgPerson"}, nil},
+		{[]string{"organizationalUnit"}, nil},
+	} {
+		got := membershipAttributes(sch, sch.Requirements(tc.classes))
+		if !equalStrings(got, tc.want) {
+			t.Errorf("classes %v give %v, want %v", tc.classes, got, tc.want)
+		}
+	}
+}
+
+// A membership attribute the server does not define is not offered, however
+// standard its name.
+func TestMembershipAttributesNeedTheServerToDefineThem(t *testing.T) {
+	sch := schema.Load("cn=subschema", map[string][]string{
+		schema.AttrObjectClasses: {
+			"( 2.5.6.0 NAME 'top' ABSTRACT MUST objectClass )",
+			// Permits uniqueMember, which the attribute list below omits.
+			"( 2.5.6.17 NAME 'groupOfUniqueNames' SUP top STRUCTURAL MUST ( uniqueMember $ cn ) )",
+		},
+		schema.AttrAttributeTypes: {
+			"( 2.5.4.0 NAME 'objectClass' SYNTAX 1.3.6.1.4.1.1466.115.121.1.38 )",
+			"( 2.5.4.3 NAME 'cn' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
+		},
+	})
+	if got := membershipAttributes(sch, sch.Requirements([]string{"groupOfUniqueNames"})); got != nil {
+		t.Errorf("got %v; uniqueMember is not an attribute type this schema defines", got)
+	}
+}
+
+// The creation form offers structural classes only. An abstract class cannot be
+// instantiated and an auxiliary one cannot stand alone, so offering either
+// produces an entry the server refuses.
+func TestCreateClassesAreStructuralOnly(t *testing.T) {
+	sch := testSchema(t,
+		"( 1.2.9 NAME 'alderEmployee' SUP person AUXILIARY MAY title )",
+		"( 1.2.10 NAME 'alderAbstractPerson' SUP person ABSTRACT )",
+	)
+	users := viewByID(objectViews(sch), ViewUsers)
+	if users == nil {
+		t.Fatal("there is no users view")
+	}
+	if users.CreateClasses == nil {
+		t.Fatal("the users view offers no classes to create")
+	}
+	got := *users.CreateClasses
+	for _, unwanted := range []string{"alderEmployee", "alderAbstractPerson"} {
+		if contains(got, unwanted) {
+			t.Errorf("%s is offered for creation and it is not structural: %v", unwanted, got)
+		}
+	}
+	// The structural descendants are what should be there.
+	for _, want := range []string{"person", "organizationalPerson", "inetOrgPerson"} {
+		if !contains(got, want) {
+			t.Errorf("%s is missing from the classes a user can be created as: %v", want, got)
+		}
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
