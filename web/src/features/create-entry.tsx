@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
 import type { AttributeKind, ChangeRequest, ObjectView } from "@/lib/api";
-import { textValue } from "@/lib/values";
+import { buildAddChange, escapeRDNValue } from "@/lib/create";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -132,39 +132,15 @@ export function CreateEntryDialog({
     return may.filter((n) => !taken.has(n.toLowerCase())).sort();
   }, [may, added, must]);
 
-  const build = (): ChangeRequest | null => {
-    if (structural === "" || rdnAttr === "" || rdnValue.trim() === "") return null;
-    const attributes: { name: string; values: ReturnType<typeof textValue>[] }[] = [
-      {
-        name: "objectClass",
-        values: ["top", structural, ...auxiliary].map(textValue),
-      },
-    ];
-    for (const name of [...must, ...added]) {
-      const set = (values[name] ?? []).filter((v) => v.trim() !== "");
-      if (set.length === 0) continue;
-      attributes.push({ name, values: set.map(textValue) });
-    }
-    // The RDN's own attribute has to carry the RDN's value, or the directory
-    // refuses the entry. Filling it in beats making somebody type it twice.
-    if (!attributes.some((a) => a.name.toLowerCase() === rdnAttr.toLowerCase())) {
-      attributes.push({ name: rdnAttr, values: [textValue(rdnValue)] });
-    } else {
-      const existing = attributes.find(
-        (a) => a.name.toLowerCase() === rdnAttr.toLowerCase(),
-      );
-      if (existing && !existing.values.some((v) => v.text === rdnValue)) {
-        existing.values.unshift(textValue(rdnValue));
-      }
-    }
-    return {
-      dn: `${rdnAttr}=${escapeRDNValue(rdnValue)},${parentDN}`,
-      type: "add",
-      attributes,
-    };
-  };
-
-  const candidate = build();
+  const candidate = buildAddChange({
+    parentDN,
+    structural,
+    auxiliary,
+    rdnAttr,
+    rdnValue,
+    attributes: [...must, ...added],
+    values,
+  });
   const stepIndex = steps.findIndex(([id]) => id === step);
 
   const canAdvance =
@@ -646,20 +622,6 @@ function DetailsStep({
       <AddAttribute available={availableToAdd} onAdd={onAdd} />
     </div>
   );
-}
-
-/**
- * escapeRDNValue applies the RFC 4514 escaping an RDN value needs.
- *
- * The server parses and re-renders the DN, so this is not the only defence. It
- * is here so the DN shown under the name field is the DN that will be created,
- * rather than one that looks wrong until the server corrects it.
- */
-function escapeRDNValue(value: string): string {
-  let out = value.replace(/(["+,;<>\\])/g, "\\$1");
-  if (out.startsWith("#") || out.startsWith(" ")) out = "\\" + out;
-  if (out.endsWith(" ")) out = out.slice(0, -1) + "\\ ";
-  return out;
 }
 
 /** singular turns a view's plural label into the thing being created. */
