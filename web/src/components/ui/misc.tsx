@@ -2,7 +2,7 @@ import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { Check } from "lucide-react";
+import { Check, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* --- tabs ---------------------------------------------------------------- */
@@ -65,12 +65,25 @@ const Checkbox = React.forwardRef<
       "peer size-4 shrink-0 rounded-sm border border-input shadow-xs",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
       "data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
+      // Indeterminate fills too, or the dash sits on the page background
+      // and reads as an empty box with a smudge in it.
+      "data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground",
       className,
     )}
     {...props}
   >
     <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
-      <Check className="size-3" strokeWidth={3} />
+      {/*
+        A dash for indeterminate, not a tick. Radix shows the indicator for both
+        states, so drawing a tick either way makes "one of two hundred rows is
+        selected" look exactly like "all two hundred are selected" — on the
+        control that arms a bulk action.
+      */}
+      {props.checked === "indeterminate" ? (
+        <Minus className="size-3" strokeWidth={3} />
+      ) : (
+        <Check className="size-3" strokeWidth={3} />
+      )}
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>
 ));

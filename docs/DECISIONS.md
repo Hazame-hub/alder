@@ -429,3 +429,87 @@ to contradict the plan — add an entry.
 - **The summary stays as it is.** Resolving inheritance is right for reading —
   somebody looking at an attribute wants to know what it effectively does — and
   wrong for writing. The mistake was using one view for both, not the view.
+
+### 2026-09-05 — where the paid line falls, decided before there is one
+
+- **Count the humans.** A feature that helps one person operate one directory is
+  free, permanently, with no host limit and no nag. A feature that exists
+  because there is a second person, an auditor, or a second server is paid. The
+  rule is stated here rather than discovered feature by feature, because the
+  alternative is deciding it under revenue pressure and getting it wrong.
+- **The whole console programme is free, without exception.** Object-aware
+  views, the table, wizards, search as a destination, inline documentation, the
+  landing page, membership tasks, empty and error states, boolean inputs, the
+  schema tables, password scheme visibility. Each one helps a single
+  administrator do their job, and that is the entire case against the
+  twenty-year-old PHP tool. Charging for any of it means somebody tries Alder,
+  hits a wall on an ordinary task, and goes back to what they had.
+- **Every write path, both drivers, `cn=config`, schema editing, the LDIF
+  preview and the Ansible export stay free too** — and so does every security
+  feature, always. A security tier costs more trust than it earns.
+- **Paid, by the same test:** SSO, RBAC within Alder, approval workflow on a
+  changeset, an audit log with SIEM export, shared connection profiles,
+  multi-server diff, Git and CI export, the AD and Entra drivers, and the
+  support relationship — hardened builds, LTS, an SLA.
+- **Staging sits exactly on the line, and the split is the verb.** Staging a
+  changeset for yourself to apply later is one administrator, and free.
+  Staging it for somebody else to approve is a second pair of eyes, and paid.
+  So `ChangeRecord` and the basket stay a primitive with no reviewer, no
+  assignee and no state in them; a review layer is something built above,
+  never a flag threaded through.
+
+### 2026-09-05 — object views and the table (console slice 1)
+
+- **A view is a search, not a stored list.** Users, Groups and Organizational
+  units are `GET /views` — a filter and a set of columns derived from the schema
+  the connected server published — run through the same `/search` as everything
+  else. Nothing is cached, nothing is held server-side, and the page is bounded
+  at 200 with truncation reported. The moment one of these becomes a list Alder
+  keeps, v1 stops being stateless.
+- **The anchors are standards-track class names, and that is not a vendor
+  branch.** person, account and posixAccount; groupOfNames, groupOfUniqueNames,
+  posixGroup and groupOfURLs; organizationalUnit. Each is used only if the
+  server defines it, which is why the groups filter has four terms on 389 DS and
+  three on OpenLDAP without a line of code knowing which is which. You cannot
+  know what a "user" is without some anchor; what you can avoid is asserting one
+  the server never published.
+- **Site classes need nothing.** An entry carries its superclasses in its own
+  objectClass, so `myCompanyPerson SUP person` is matched by
+  `(objectClass=person)` without being named anywhere.
+- **The columns walk down the class tree, not across it.** person permits no
+  mail; inetOrgPerson does, and an inetOrgPerson entry is a user. Deriving the
+  columns from the anchors alone dropped the most useful column in the table on
+  the grounds that a superclass did not mention it. The permitted set is
+  computed over every class the filter matches.
+- **Every heading carries the attribute name under the label.** "Email" over
+  `mail`, in the schema's own spelling. A heading that says only Email teaches
+  somebody their directory has a field called Email, and the next thing they
+  write is a filter on it. The label is a convenience; the name is the fact.
+- **Sorting is over the rows that arrived, and says so.** Client-side, on the
+  loaded page, with a line under the table whenever the search was truncated. A
+  "first alphabetically" that is really "first out of the two hundred returned"
+  is a lie a table tells very convincingly.
+- **Bulk selection stages; it does not apply.** Selecting rows and choosing
+  Stage deletions adds them to the basket and says so — the changeset view then
+  shows all of them as one LDIF document with a single apply. No second write
+  path was added, and the one confirmation step is where it always was.
+- **Directory became a section with pages, rather than a dropdown.** Users is a
+  destination; hiding it one click inside a menu would undo the reason for
+  having it. The tree stays as the first page, unchanged.
+- **A seventh Radix package, deliberately.** `react-dropdown-menu`, for the row
+  menu. Menu keyboard behaviour — focus return, roving tabindex, typeahead, not
+  fighting the dialog overlay — is invisible until it is missing, and a table of
+  several hundred rows is where it matters. Asked and approved before install,
+  per the dependency rule.
+- **`task generate` was broken on main and nobody had run it.** `api/openapi.yaml`
+  carried a duplicated `x-enum-varnames` key, which YAML rejects outright; the
+  committed generated files predated it. Fixed here because it blocked the spec
+  change, and worth noting: generated output being committed hid a broken
+  generator for two releases.
+- **Two bugs the tests could not have found, and running it did.** The table
+  rendered two hundred rows into a container it could not scroll, so everything
+  past the fold was unreachable — a missing `h-full`, invisible to a typecheck.
+  And the select-all checkbox drew a tick for the indeterminate state, so one
+  row selected out of two hundred looked exactly like all two hundred, on the
+  control that arms a bulk deletion. Both were found by opening the page against
+  both servers before handing it over, which is now simply how a slice finishes.

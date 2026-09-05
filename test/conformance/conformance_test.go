@@ -1896,3 +1896,73 @@ func stripOrdering(v string) string {
 	}
 	return v
 }
+
+// TestObjectViewAnchorsExistOnBothServers asserts the premise the object views
+// rest on: that "user", "group" and "organizational unit" can be expressed in
+// standards-track classes both servers define.
+//
+// The views themselves are derived in internal/api from the parsed schema, and
+// that derivation is unit-tested there. What only a real server can answer is
+// whether the anchors are actually published — if either server stopped
+// defining person, the Users view would silently disappear on one of them and
+// nothing else in the suite would notice.
+func TestObjectViewAnchorsExistOnBothServers(t *testing.T) {
+	// One anchor per view is enough for the view to be offered. These are the
+	// ones both servers are expected to have; the derivation copes with the
+	// rest being absent.
+	required := map[string][]string{
+		"users":               {"person"},
+		"groups":              {"groupOfNames", "groupOfUniqueNames"},
+		"organizationalUnits": {"organizationalUnit"},
+	}
+
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+		for view, anchors := range required {
+			for _, name := range anchors {
+				if sch.ObjectClass(name) == nil {
+					t.Errorf("%s does not define %s, so the %s view would not be offered",
+						s.name, name, view)
+				}
+			}
+		}
+
+		// The column derivation walks down from the anchors, not just across
+		// them. inetOrgPerson is what puts mail and uid in the users table, and
+		// it is only reachable because it inherits from person.
+		person := sch.ObjectClass("person")
+		inet := sch.ObjectClass("inetOrgPerson")
+		if person == nil || inet == nil {
+			t.Fatalf("%s: person=%v inetOrgPerson=%v; both are needed for the users columns",
+				s.name, person != nil, inet != nil)
+		}
+		descends := false
+		for _, sup := range sch.Supers(inet) {
+			if sup == person {
+				descends = true
+				break
+			}
+		}
+		if !descends {
+			t.Errorf("%s: inetOrgPerson does not inherit from person, so an entry carrying it "+
+				"would not be matched by the users filter", s.name)
+		}
+
+		// And the attributes those columns name have to exist, or the column is
+		// dropped and the table is poorer on one server than the other.
+		req := sch.Requirements([]string{"person", "inetOrgPerson"})
+		permitted := map[string]bool{}
+		for _, n := range append(append([]string{}, req.Must...), req.May...) {
+			permitted[strings.ToLower(n)] = true
+		}
+		for _, attr := range []string{"cn", "uid", "mail", "telephoneNumber"} {
+			if !permitted[strings.ToLower(attr)] {
+				t.Errorf("%s: neither person nor inetOrgPerson permits %s, so the users table "+
+					"loses that column here but not on the other server", s.name, attr)
+			}
+		}
+	})
+}
