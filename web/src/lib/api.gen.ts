@@ -100,6 +100,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The object-aware views this directory supports
+         * @description Users, groups and organizational units, expressed as saved searches
+         *     derived from the schema the connected server published.
+         *
+         *     A view is offered only where the server defines a class to anchor it
+         *     on, so a directory holding no person class has no Users view rather
+         *     than an empty one. The anchors are standards-track classes — RFC 4519,
+         *     RFC 4524, RFC 2307 — never vendor names, and a site class inheriting
+         *     from one of them is matched without being named, because an entry
+         *     carries its superclasses in its own `objectClass` attribute.
+         *
+         *     The filter is built here and goes back to `/search` unmodified. The
+         *     columns are the attributes the anchor classes actually permit, so a
+         *     directory without `inetOrgPerson` gets no mail column instead of an
+         *     empty one.
+         */
+        get: operations["listObjectViews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/schema": {
         parameters: {
             query?: never;
@@ -604,6 +637,39 @@ export interface components {
             /** @description How long the search took, as a duration string. */
             took?: string;
         };
+        ObjectViewList: {
+            views: components["schemas"]["ObjectView"][];
+        };
+        ObjectView: {
+            /** @enum {string} */
+            id: "users" | "groups" | "organizationalUnits";
+            label: string;
+            /** @description One line on what this view is showing, in the UI's words. */
+            description?: string;
+            /**
+             * @description An RFC 4515 filter over the anchor classes this server defines,
+             *     rendered by the filter builder. It is posted to /search as-is.
+             */
+            filter: string;
+            /**
+             * @description The object classes the filter matches on. Shown to the user, so the
+             *     view can say what it means by "user" rather than ask to be trusted.
+             */
+            anchors: string[];
+            columns: components["schemas"]["ObjectViewColumn"][];
+        };
+        ObjectViewColumn: {
+            /** @description The attribute type, canonically spelled by the schema. */
+            attribute: string;
+            /**
+             * @description A readable heading. Falls back to the attribute name itself, which
+             *     is always shown alongside it: a friendly label that hides the real
+             *     name is how somebody learns the wrong thing about their directory.
+             */
+            label: string;
+            /** @description The schema's own DESC, where the server published one. */
+            desc?: string;
+        };
         SchemaCounts: {
             objectClasses?: number;
             attributeTypes?: number;
@@ -1098,6 +1164,27 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listObjectViews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The views this connection supports. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectViewList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     getSchema: {

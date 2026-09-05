@@ -68,6 +68,7 @@ export function EntryPanel({
   readOnly,
   schemaTargets,
   onOpenSchema,
+  startEditing = false,
 }: {
   dn: string;
   onNavigate: (dn: string) => void;
@@ -76,8 +77,13 @@ export function EntryPanel({
   /** The entries this server keeps its schema definitions in. */
   schemaTargets?: string[];
   onOpenSchema?: () => void;
+  /**
+   * Open straight into the editor, for callers whose action was "edit this"
+   * rather than "show me this" — the row menu in a table, mainly.
+   */
+  startEditing?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(startEditing && !readOnly);
   const [showLdif, setShowLdif] = useState(false);
   const holdsSchema = (schemaTargets ?? []).some(
     (t) => t.toLowerCase() === dn.toLowerCase(),
@@ -96,8 +102,10 @@ export function EntryPanel({
   });
 
   // Leaving edit mode when the DN changes prevents an edit begun on one entry
-  // from being applied to another.
-  useEffect(() => setEditing(false), [dn]);
+  // from being applied to another. The caller's intent is re-read at the same
+  // moment, so "edit that one" opens the editor on arrival, and cancelling out
+  // of it afterwards still sticks.
+  useEffect(() => setEditing(startEditing && !readOnly), [dn, startEditing, readOnly]);
 
   if (entry.isPending) {
     return (
