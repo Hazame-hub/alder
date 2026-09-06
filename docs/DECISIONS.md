@@ -666,3 +666,46 @@ to contradict the plan — add an entry.
   and Alder said nothing about it until this was changed.
 - **The password policy form was cut, as planned.** Showing the scheme is the
   small honest half and answers the question that was actually asked.
+
+### 2026-09-06 — the changeset had a bound nothing enforced
+
+- **`maxItems: 500` was a description, not a check.** `api/openapi.yaml` declared
+  it on `ChangesetRequest.changes`, with the note that a cap exists because the
+  whole set is rendered and applied in one request — and neither changeset
+  handler looked at the length. There is no request-validator middleware, so
+  the spec's bound reached nothing.
+- **It held by accident, and the accident was about to end.** The only route
+  into the basket was one confirmation dialog at a time, so nobody could reach
+  five hundred by clicking. Every feature that stages in bulk removes that: an
+  imported document is bounded at eight megabytes, which is tens of thousands
+  of records, and the changeset view previews automatically on any non-empty
+  basket rather than on a button press. So the check goes in before anything
+  that fills the basket, not alongside it.
+- **The refusal names both numbers and what to do.** A bound that says only
+  "too many" cannot be acted on: the operator needs the limit and the count.
+- **`changesetSizeOK` returns a bool, and that is not the clumsier shape.**
+  `badRequest` ends in `c.Status(400).JSON(...)`, and `JSON` returns nil when
+  the write succeeds — so a helper returning that error hands its caller nil
+  after refusing, and the handler writes a 400 and then carries on processing
+  the request it just rejected. This was written the tidy way first and the
+  test caught it immediately, which is the same reason `parseDNParam` returns
+  `(value, ok)`.
+- **Bulk staging is all-or-nothing.** `changeset.addMany` stages every change or
+  none. Staging as many as fit is the tempting implementation and the wrong
+  one: it leaves the basket holding part of a set that was asked for as a whole
+  — a subtree missing its deepest entries, the first four hundred records of a
+  document — which looks like it worked and then applies to something nobody
+  chose.
+- **The client's copy of the bound is a courtesy, not the enforcement.** It
+  exists so a refusal happens before anything is staged rather than at preview
+  time. The server decides; if the two disagree the failure is a refusal, not a
+  wrong write.
+- **The search results table can stage deletions.** It was one prop:
+  `EntryTable` has carried the selection column and the staging bar since the
+  object views shipped, and offered them only where `onStageDeletes` was
+  passed. A search under an arbitrary OU could not reach what the three view
+  pages could.
+- **Tested at the boundary, which had never been tested at all.** No test in
+  `internal/api` had ever built a fiber context; every one ran against pure
+  functions. An unvalidated request is exactly the failure that shape of test
+  cannot see.

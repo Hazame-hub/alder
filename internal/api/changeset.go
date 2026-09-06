@@ -36,8 +36,8 @@ func (s *Server) PreviewChangeset(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return badRequest(c, "The request body is not valid JSON.", err.Error())
 	}
-	if len(body.Changes) == 0 {
-		return badRequest(c, "A changeset needs at least one change.", "")
+	if !changesetSizeOK(c, body.Changes) {
+		return nil
 	}
 
 	records, err := changeRecords(body.Changes)
@@ -78,8 +78,8 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return badRequest(c, "The request body is not valid JSON.", err.Error())
 	}
-	if len(body.Changes) == 0 {
-		return badRequest(c, "A changeset needs at least one change.", "")
+	if !changesetSizeOK(c, body.Changes) {
+		return nil
 	}
 
 	records, err := changeRecords(body.Changes)
@@ -149,6 +149,47 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 // position twelve does not apply the first eleven and then stop. It cannot make
 // the run atomic -- nothing can, LDAP has no transaction across entries -- but
 // it removes the failures that were knowable in advance.
+// MaxChangesetChanges is the bound api/openapi.yaml declares on a changeset.
+//
+// It is not a style preference. Both handlers render the whole set in one
+// request — the combined LDIF document, the Ansible playbook, a preview per
+// record — and the apply path walks it as a single unit of work. The number
+// lives here as well as in the spec because the spec's maxItems is a
+// description of the API and nothing validates a request against it.
+const MaxChangesetChanges = 500
+
+// changesetSizeOK enforces the bound, writing the refusal and returning false
+// when the set is unusable.
+//
+// The bound was unenforced until now, and held only by accident: the only way
+// into the basket was one confirmation dialog at a time, so nobody could reach
+// five hundred by clicking. Anything that stages in bulk removes that accident
+// — an imported document is bounded at eight megabytes, which is tens of
+// thousands of records, and the changeset view previews automatically on any
+// non-empty basket rather than on a button press.
+//
+// It returns a bool rather than an error, which reads as the clumsier shape
+// until you notice why parseDNParam does the same: badRequest ends in
+// c.Status(400).JSON(...), and JSON returns nil when the write succeeds. A
+// helper that returned that error would hand the caller nil after refusing, and
+// the handler would write a 400 and then carry on processing the very request
+// it just rejected.
+func changesetSizeOK(c *fiber.Ctx, changes []ChangeRequest) bool {
+	if len(changes) == 0 {
+		_ = badRequest(c, "A changeset needs at least one change.", "")
+		return false
+	}
+	if len(changes) > MaxChangesetChanges {
+		_ = badRequest(c,
+			fmt.Sprintf("A changeset holds at most %d changes, and this one has %d.",
+				MaxChangesetChanges, len(changes)),
+			"The whole set is rendered and applied in one request, so it is bounded. "+
+				"Apply what is staged, then stage the rest.")
+		return false
+	}
+	return true
+}
+
 func changeRecords(changes []ChangeRequest) ([]directory.ChangeRecord, error) {
 	out := make([]directory.ChangeRecord, 0, len(changes))
 	for i, ch := range changes {

@@ -181,6 +181,7 @@ export function App() {
                 readOnly={info.readOnly === true}
                 onChange={(next) => go(next)}
                 onOpenEntry={openEntry}
+                onReviewChangeset={() => go({ view: "changeset" })}
               />
             </main>
           ) : view === "changeset" ? (
