@@ -823,3 +823,44 @@ to contradict the plan — add an entry.
   asserted "10,000" and got "10 000": the message is formatted with
   `toLocaleString`, which is right — a thousands mark belongs to the reader —
   and the assertion was wrong to hardcode one.
+
+### 2026-09-06 — the columns you asked for, and the file they make
+
+- **The candidate columns are computed on the server, and this is a correctness
+  decision rather than a preference.** The set has to be walked *down* the class
+  tree — over every class the view's filter matches — not along the anchors'
+  superior chains. `person` permits no `mail` and `inetOrgPerson` does, so the
+  superior walk drops the column people came for. That is the bug the object
+  views were fixed for on 2026-09-05, and repeating the walk in the browser is
+  exactly how a second copy of the rule would drift from the first.
+- **There was no route to a site attribute at all.** `employeeNumber`, a
+  cost-centre attribute, anything a directory owner added — none of it could
+  appear in any table. The users view now offers 65 candidates on OpenLDAP and
+  56 on 389 DS, against 5 shown by default.
+- **The chosen columns are part of the search's cache key,** so choosing one
+  re-runs the search asking for it. Without that a column added after the fact
+  shows a dash in every row, which reads as "this directory holds no such value"
+  rather than "nobody asked for it" — the two are indistinguishable on screen
+  and only one of them is true.
+- **The choice lives in the tab and nowhere else.** A stored column preference
+  is server-side state in an application that has none, which the changeset
+  decision already settled.
+- **`GET /export/ldif` takes a filter,** parsed by `internal/filter` and never
+  pasted, so a table can export what it is showing. Before this the only
+  exports were one entry or a whole subtree, and "the thirty people I just
+  searched for" — the thing that actually goes in a ticket — could only be
+  assembled by hand.
+- **The filter goes in the file's header.** A filtered export describes
+  something narrower than its base, and a file that does not say so reads as
+  the whole of it later, which is the same failure the truncation warning
+  already guards against.
+- **Nothing matched is not a 404.** Without a filter, no entries means the base
+  is not there. With one it means the base exists and holds nothing matching —
+  a different thing to be told, and not a missing entry.
+- **`format=ansible` was deliberately left out.** It rides in on this
+  parameter's coat-tails and does not deserve to: `community.general.ldap_entry`
+  with `state: present` asserts existence and does not reconcile an entry that
+  already exists, so a playbook rendered from live content is "recreate these if
+  absent" rather than "enforce this". It needs its own design, its own
+  server-side attribute sanitiser and parent-first ordering, and its own
+  decision.
