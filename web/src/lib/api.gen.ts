@@ -422,6 +422,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/export/ansible": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export an entry or a subtree as a playbook that enforces it
+         * @description A playbook that makes a directory match what is here, rather than one
+         *     that merely reports on it.
+         *
+         *     This is a separate path from `/export/ldif` on purpose. The obvious
+         *     alternative was `format=ansible` on that operation, which would leave
+         *     the URL saying "ldif" while returning YAML — and the two differ in more
+         *     than serialisation. An LDIF export is a transcription of entries; this
+         *     is an assertion about what they should be, and it is ordered parent
+         *     first because `ldap_entry` cannot create a child under a parent that
+         *     does not exist yet.
+         *
+         *     Each entry becomes two tasks: `community.general.ldap_entry` to create
+         *     it if it is missing, and `community.general.ldap_attrs` with
+         *     `state: exact` to bring the listed attributes to exactly these values.
+         *     `ldap_entry` with `state: present` alone would report success against
+         *     an entry that exists with entirely different attributes, which is the
+         *     failure this endpoint exists to avoid.
+         *
+         *     Attributes the directory owns — operational, `NO-USER-MODIFICATION` —
+         *     are omitted, because enforcing them would produce a task that fails on
+         *     every run against a server doing its job. Sensitive attributes are
+         *     omitted with no option to include them: a playbook is a file destined
+         *     for a repository.
+         */
+        get: operations["exportAnsible"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/import/ldif": {
         parameters: {
             query?: never;
@@ -1776,6 +1818,38 @@ export interface operations {
                     "text/plain": string;
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    exportAnsible: {
+        parameters: {
+            query: {
+                dn: string;
+                scope?: "base" | "one" | "sub";
+                /**
+                 * @description An RFC 4515 filter, defaulting to `(objectClass=*)`, parsed here
+                 *     and never pasted — so a table can export what it is showing.
+                 */
+                filter?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The playbook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
         };

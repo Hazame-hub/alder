@@ -1008,3 +1008,45 @@ to contradict the plan — add an entry.
 - **The guard was verified by breaking it.** Dropping the `WhoAmI` mapping makes
   it fail and name the field and the file. A guard that has never failed is a
   guard nobody has checked.
+
+### 2026-09-06 — the Ansible export of live content, settled
+
+- **`ldap_entry` with `state: present` does not converge, so a playbook made of
+  it alone is a lie.** It asserts an entry exists and creates it when it does
+  not, then stops: run it against an entry that exists holding entirely
+  different attributes and it reports "ok" and changes nothing. A file generated
+  from live content, named like a playbook, that silently does not enforce what
+  it lists is worse than no file — somebody runs it, sees green, and believes
+  the directory matches it. Of the two options this decision was parked on, the
+  converging one was taken rather than the disclaimer.
+- **Each entry becomes two tasks:** `ldap_entry` to bring it into existence, and
+  `ldap_attrs` with `state: exact` to bring the listed attributes to exactly
+  those values. `exact` is the state `stateFor` already maps a replace onto, so
+  this is the existing vocabulary used for the existing meaning.
+- **`Task(ChangeRecord)` was deliberately left alone.** It renders a change the
+  operator authored and has not applied, and its LDIF and Ansible renderings
+  must describe the same change — an `add` is a create in both, and making the
+  Ansible converge would have broken exactly the invariant that package exists
+  to hold. Enforcement is a different job on different input: entries as they
+  are, with no change record anywhere in sight. Hence a separate renderer,
+  `EnforceTasks`, rather than a flag on the old one.
+- **Ordered parent first, because a DN is a slice of RDNs and depth is its
+  length.** A search returns the server's order, not the tree's, and
+  `ldap_entry` cannot create a child under a parent that does not exist yet — an
+  unordered playbook fails on its second task against an empty directory, which
+  is the case somebody generates one for. Sorting is stable, so entries at one
+  depth keep the order the directory gave them.
+- **`/export/ansible`, not `format=ansible` on `/export/ldif`.** The obvious
+  change was the parameter; it would have left the URL saying "ldif" while
+  returning YAML. The two are also not one operation with two serialisations: an
+  LDIF export transcribes entries, this asserts what they should be, which is
+  why only one of them is ordered and only one of them drops attributes.
+- **There is no "include sensitive" option, and that asymmetry is the point.**
+  LDIF export offers one because recreating an entry elsewhere is a real reason
+  to carry a hash. A playbook is a file destined for a repository, and the
+  same argument does not transfer. Operational and `NO-USER-MODIFICATION`
+  attributes are dropped too: a task enforcing one fails on every run against a
+  server doing its job.
+- **Verified with the real tool.** The generated file parses as YAML and passes
+  `ansible-playbook --syntax-check` with `community.general` installed. Nothing
+  was run against the harness.

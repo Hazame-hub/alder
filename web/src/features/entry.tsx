@@ -419,20 +419,22 @@ function EntryHeader({
 
 function ExportButton({ dn }: { dn: string }) {
   const [open, setOpen] = useState(false);
+  const [format, setFormat] = useState<"ldif" | "ansible">("ldif");
   const [scope, setScope] = useState<"base" | "one" | "sub">("base");
   const [operational, setOperational] = useState(false);
   const [sensitive, setSensitive] = useState(false);
 
   const download = () => {
-    const params = new URLSearchParams({
-      dn,
-      scope,
-      includeOperational: String(operational),
-      includeSensitive: String(sensitive),
-    });
+    const params = new URLSearchParams({ dn, scope });
+    if (format === "ldif") {
+      // Neither option exists for a playbook: it never enforces an attribute
+      // the directory owns, and it never carries a secret into a repository.
+      params.set("includeOperational", String(operational));
+      params.set("includeSensitive", String(sensitive));
+    }
     // A plain navigation, so the browser's own download handling applies and
     // the session cookie goes with it.
-    window.location.href = `/api/v1/export/ldif?${params.toString()}`;
+    window.location.href = `/api/v1/export/${format}?${params.toString()}`;
     setOpen(false);
   };
 
@@ -445,10 +447,32 @@ function ExportButton({ dn }: { dn: string }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Export as LDIF</DialogTitle>
+            <DialogTitle>Export</DialogTitle>
             <DialogDescription className="font-dn">{dn}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-5 py-4">
+            <div className="space-y-1.5">
+              <Label>Format</Label>
+              <Select value={format} onValueChange={(v) => setFormat(v as typeof format)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ldif">LDIF — the entries as they are</SelectItem>
+                  <SelectItem value="ansible">
+                    Ansible playbook — tasks that enforce them
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {format === "ansible" ? (
+                <p className="text-xs text-muted-foreground">
+                  Each entry becomes a task that creates it and a task that sets
+                  its attributes to exactly these values, ordered parent first.
+                  Running it against a directory whose entries differ will change
+                  them.
+                </p>
+              ) : null}
+            </div>
             <div className="space-y-1.5">
               <Label>Scope</Label>
               <Select value={scope} onValueChange={(v) => setScope(v as typeof scope)}>
@@ -462,6 +486,15 @@ function ExportButton({ dn }: { dn: string }) {
                 </SelectContent>
               </Select>
             </div>
+            {format === "ansible" ? (
+              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Operational attributes and attributes the directory owns are
+                left out, because a task enforcing one fails on every run.
+                Sensitive attributes are left out with no way to include them: a
+                playbook is a file destined for a repository.
+              </p>
+            ) : (
+              <>
             <label className="flex items-start gap-2.5 text-sm">
               <Checkbox
                 checked={operational}
@@ -490,6 +523,8 @@ function ExportButton({ dn }: { dn: string }) {
                 </span>
               </span>
             </label>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>

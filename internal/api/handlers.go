@@ -1011,50 +1011,23 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 	if params.Scope != nil {
 		scopeName = string(*params.Scope)
 	}
-	scope, err := directory.ParseScope(scopeName)
-	if err != nil {
-		return badRequest(c, "Unknown export scope.", err.Error())
-	}
 
 	attrs := []string{"*"}
 	if params.IncludeOperational != nil && *params.IncludeOperational {
 		attrs = append(attrs, "+")
 	}
 
-	// Parsed into a tree, never pasted into one — the same rule the search
-	// endpoint follows, and for the same reason: this value comes from a URL.
-	exportFilter := filter.Present("objectClass")
-	if raw := strings.TrimSpace(deref(params.Filter)); raw != "" {
-		parsed, parseErr := filter.Parse(raw)
-		if parseErr != nil {
-			return badRequest(c, "The export filter is not a valid RFC 4515 filter.", parseErr.Error())
-		}
-		exportFilter = parsed
-	}
-
-	ctx, cancel := reqCtx(c)
-	defer cancel()
-
-	res, err := sess.Conn.Search(ctx, directory.SearchRequest{
-		BaseDN:     base,
-		Scope:      scope,
-		Filter:     exportFilter,
+	found, ok := s.searchForExport(c, sess, exportQuery{
+		Base:       base,
+		Scope:      scopeName,
+		RawFilter:  deref(params.Filter),
 		Attributes: attrs,
 		Limit:      clamp(deref(params.Limit), 1000, 1, directory.MaxResults),
 	})
-	if err != nil {
-		return s.fail(c, err)
+	if !ok {
+		return nil
 	}
-	if len(res.Entries) == 0 {
-		// Without a filter this means the base is not there. With one it means
-		// the base holds nothing matching, which is a different thing to be
-		// told — and not a 404, because the entry the caller named does exist.
-		if deref(params.Filter) == "" {
-			return writeError(c, fiber.StatusNotFound, ErrorErrorNotFound, "No such entry.", "")
-		}
-		return badRequest(c, "Nothing matched, so there is nothing to export.",
-			"The filter is valid and the base exists; no entry under it satisfies the filter.")
-	}
+	scope, res, exportFilter := found.Scope, found.Result, found.Filter
 
 	withSecrets := params.IncludeSensitive != nil && *params.IncludeSensitive
 	records := make([]*ldif.Record, 0, len(res.Entries))
