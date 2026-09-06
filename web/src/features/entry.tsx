@@ -59,6 +59,7 @@ import {
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
+import { DeleteSubtreeButton } from "@/features/delete-subtree";
 import { AddAttribute, AttributeEditor } from "@/components/attribute-editor";
 import { computeMods, snapshot, type Draft } from "@/lib/mods";
 import { CreateEntryDialog } from "@/features/create-entry";
@@ -72,6 +73,7 @@ export function EntryPanel({
   schemaTargets,
   onOpenSchema,
   onSearch,
+  onReviewChangeset,
   startEditing = false,
 }: {
   dn: string;
@@ -83,6 +85,8 @@ export function EntryPanel({
   onOpenSchema?: () => void;
   /** Runs a filter on the search page. Used by the "referenced by" link. */
   onSearch?: (filter: string, base: string) => void;
+  /** Opens the changeset, after a subtree has been staged into it. */
+  onReviewChangeset?: () => void;
   /**
    * Open straight into the editor, for callers whose action was "edit this"
    * rather than "show me this" — the row menu in a table, mainly.
@@ -136,6 +140,7 @@ export function EntryPanel({
       <EntryHeader
         entry={data}
         onSearch={onSearch}
+        onReviewChangeset={onReviewChangeset}
         editing={editing}
         readOnly={readOnly}
         onEdit={() => setEditing(true)}
@@ -206,6 +211,7 @@ export function EntryPanel({
 function EntryHeader({
   entry,
   onSearch,
+  onReviewChangeset,
   editing,
   readOnly,
   onEdit,
@@ -217,6 +223,7 @@ function EntryHeader({
 }: {
   entry: EntryView;
   onSearch?: (filter: string, base: string) => void;
+  onReviewChangeset?: () => void;
   editing: boolean;
   readOnly: boolean;
   onEdit: () => void;
@@ -235,9 +242,10 @@ function EntryHeader({
   // Only offer a password control where the server can actually perform the
   // operation, rather than offering one that can only fail.
   const queryClient = useQueryClient();
-  const canSetPassword =
-    queryClient.getQueryData<SessionInfo>(["session"])?.capabilities
-      ?.passwordModify === true;
+  const session = queryClient.getQueryData<SessionInfo>(["session"]) ?? {
+    connected: true,
+  };
+  const canSetPassword = session.capabilities?.passwordModify === true;
 
   // The picker searches the naming context this entry sits in. Searching from
   // the entry itself would only ever find the entry.
@@ -320,6 +328,13 @@ function EntryHeader({
                   void queryClient.invalidateQueries({ queryKey: ["entry", entry.dn] })
                 }
               />
+              {entry.hasChildren && onReviewChangeset ? (
+                <DeleteSubtreeButton
+                  dn={entry.dn}
+                  info={session}
+                  onReviewChangeset={onReviewChangeset}
+                />
+              ) : null}
               <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
                 <Plus />
                 Child

@@ -111,9 +111,12 @@ export function parentOf(dn: string): string {
 /**
  * splitDN splits on unescaped commas.
  *
- * The server is the authority on DN syntax and this is only for display, but
- * splitting on a bare comma would break every DN whose RDN contains an escaped
- * one, and the harness has such an entry precisely because tools get this wrong.
+ * The server is the authority on DN syntax, and this used to be described as
+ * display-only. It is not any more: lib/subtree.ts counts these components to
+ * order a subtree's deletions, where a child must precede its parent, so an RDN
+ * with an escaped comma counted naively would look a level deeper than it is
+ * and be staged ahead of its own children. The harness holds such an entry
+ * precisely because tools get this wrong.
  */
 export function splitDN(dn: string): string[] {
   const parts: string[] = [];
