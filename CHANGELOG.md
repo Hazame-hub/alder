@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.8.0](https://github.com/Hazame-hub/alder/compare/v0.7.0...v0.8.0) (2026-09-06)
+
+
+### Features
+
+* choose a table's columns, and export what it is showing ([#44](https://github.com/Hazame-hub/alder/issues/44)) ([d233191](https://github.com/Hazame-hub/alder/commit/d233191c3c5136063cd88bd920b19508b284b3c7))
+* delete a container by staging what is under it ([#42](https://github.com/Hazame-hub/alder/issues/42)) ([f84c3bb](https://github.com/Hazame-hub/alder/commit/f84c3bb2210e8aa708e51b8d0cbe14115f43bd28))
+* find every entry that names this one ([#40](https://github.com/Hazame-hub/alder/issues/40)) ([72d4d43](https://github.com/Hazame-hub/alder/commit/72d4d43a889e73b6940d2dc41ec4a5384022c2c7))
+* say which attribute names an entry, and remove one reference ([#45](https://github.com/Hazame-hub/alder/issues/45)) ([2e82513](https://github.com/Hazame-hub/alder/commit/2e825137439882f151f3389838e68bc89e58054c))
+* stage a parsed LDIF document into the changeset ([#41](https://github.com/Hazame-hub/alder/issues/41)) ([111447d](https://github.com/Hazame-hub/alder/commit/111447d45bef9c61f8b66e169871d28ca254b9d5))
+
+
+### Fixes
+
+* enforce the changeset bound the spec has always declared ([#38](https://github.com/Hazame-hub/alder/issues/38)) ([0e1a907](https://github.com/Hazame-hub/alder/commit/0e1a907bd9e1c74fdf05a11a34c17c69d95acbb3))
+
+
+### Documentation
+
+* describe what 0.8.0 added, and correct the harness entry count ([#46](https://github.com/Hazame-hub/alder/issues/46)) ([d4d10aa](https://github.com/Hazame-hub/alder/commit/d4d10aae7ba3d06d60c2da732dd8f0ecb18799bf))
+
 ## [0.7.0](https://github.com/Hazame-hub/alder/compare/v0.6.4...v0.7.0) (2026-09-05)
 
 
