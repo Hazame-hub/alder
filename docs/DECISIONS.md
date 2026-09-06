@@ -709,3 +709,44 @@ to contradict the plan — add an entry.
   `internal/api` had ever built a fiber context; every one ran against pure
   functions. An unvalidated request is exactly the failure that shape of test
   cannot see.
+
+### 2026-09-06 — which groups is this person in
+
+- **The most-asked question about an account had no answer.** Membership was
+  forward-only by construction: a group's members render as links, and there
+  was no way back. `memberOf` appears nowhere in the codebase, and nothing in
+  the API asks a reverse question.
+- **It ships as a link, not a panel.** The search page already renders the
+  answer as a table with row actions, and its filter is in the URL — so the
+  answer is shareable, the query is visible and editable rather than hidden
+  behind a button, and the whole feature is one string on `EntryView` plus a
+  button. A panel with its own removal controls was the larger shape, and it is
+  worth building only once the reading half has been used.
+- **The filter is built in Go, not in the browser.** A DN is somebody else's
+  data and the escaping rule lives in `internal/filter`; concatenating it in
+  TypeScript would put that rule in a second place, next to a `esc()` helper
+  whose own comment calls itself belt and braces. Tested with DNs carrying a
+  comma, parentheses, an asterisk and a backslash.
+- **Seven standards-track names, and only what the server defines.** member,
+  uniqueMember, owner, manager, seeAlso, roleOccupant and secretary — RFC 4519
+  and RFC 4524, resolved against the connected schema exactly as the view
+  anchors and the membership attributes are. A sweep of every DN-syntax
+  attribute would put forty terms in one filter, most of them operational, and
+  ask a far more expensive question than anybody meant.
+- **An attribute the directory owns is not asserted.** NO-USER-MODIFICATION or
+  an operational usage means a reference nobody can remove, and a row offering
+  to unpick it can only fail. `memberUid` is excluded for a different reason: it
+  holds a login name, not a DN, so it cannot match a subject DN at all.
+- **The seed only ever exercised one shape.** It held 307 `member` values and
+  not one `uniqueMember`, `owner`, `manager` or `seeAlso` — so a conformance
+  case asserting "every entry that names this person" would have passed while
+  testing a single attribute. Two groups were added: one `groupOfUniqueNames`,
+  which is structural on both servers and therefore keeps the seed byte
+  identical, and one carrying an `owner`. The suite now asserts all three
+  shapes on both servers.
+- **A test that failed for the right reason.** The first conformance run
+  expected `cn=platform` and got `cn=network`: the generator spreads users
+  across teams by index, and user0001 lands in the second. The lookup had found
+  all three references correctly; the expectation was wrong. Worth recording
+  because a reverse-lookup test that asserts the wrong group would otherwise be
+  fixed by loosening it.

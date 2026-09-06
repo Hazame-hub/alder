@@ -360,3 +360,20 @@ member: cn=support,ou=groups,dc=alder,dc=test
 member: cn=data,ou=groups,dc=alder,dc=test
 member: cn=release,ou=groups,dc=alder,dc=test
 
+dn: cn=auditors,ou=groups,dc=alder,dc=test
+objectClass: top
+objectClass: groupOfUniqueNames
+cn: auditors
+description: Membership by uniqueMember, the other DN-valued style
+uniqueMember: uid=user0001,ou=people,dc=alder,dc=test
+uniqueMember: uid=user0002,ou=people,dc=alder,dc=test
+uniqueMember: cn=platform,ou=groups,dc=alder,dc=test
+
+dn: cn=platform-owned,ou=groups,dc=alder,dc=test
+objectClass: top
+objectClass: groupOfNames
+cn: platform-owned
+description: Owned by a person, so owner has something to find
+owner: uid=user0001,ou=people,dc=alder,dc=test
+member: uid=user0003,ou=people,dc=alder,dc=test
+

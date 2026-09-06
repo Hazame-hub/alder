@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Link2,
   Layers,
   Loader2,
   Lock,
@@ -70,6 +71,7 @@ export function EntryPanel({
   readOnly,
   schemaTargets,
   onOpenSchema,
+  onSearch,
   startEditing = false,
 }: {
   dn: string;
@@ -79,6 +81,8 @@ export function EntryPanel({
   /** The entries this server keeps its schema definitions in. */
   schemaTargets?: string[];
   onOpenSchema?: () => void;
+  /** Runs a filter on the search page. Used by the "referenced by" link. */
+  onSearch?: (filter: string, base: string) => void;
   /**
    * Open straight into the editor, for callers whose action was "edit this"
    * rather than "show me this" — the row menu in a table, mainly.
@@ -131,6 +135,7 @@ export function EntryPanel({
     <div className="flex h-full flex-col">
       <EntryHeader
         entry={data}
+        onSearch={onSearch}
         editing={editing}
         readOnly={readOnly}
         onEdit={() => setEditing(true)}
@@ -200,6 +205,7 @@ export function EntryPanel({
 
 function EntryHeader({
   entry,
+  onSearch,
   editing,
   readOnly,
   onEdit,
@@ -210,6 +216,7 @@ function EntryHeader({
   onToggleLdif,
 }: {
   entry: EntryView;
+  onSearch?: (filter: string, base: string) => void;
   editing: boolean;
   readOnly: boolean;
   onEdit: () => void;
@@ -271,6 +278,27 @@ function EntryHeader({
             {showLdif ? <EyeOff /> : <Eye />}
             LDIF
           </Button>
+          {/*
+            Which groups is this in, and what else names it — the question
+            asked most often about an account, and the one to ask before
+            deleting anything. It is a link rather than a panel: the search
+            page already renders the answer as a table with row actions, and
+            the filter is in the URL, so the answer is shareable and the query
+            is visible and editable rather than hidden behind a button.
+          */}
+          {entry.referencedByFilter && onSearch ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                onSearch(entry.referencedByFilter as string, membershipBase)
+              }
+              title="Find every entry that names this one"
+            >
+              <Link2 />
+              Referenced by
+            </Button>
+          ) : null}
           <ExportButton dn={entry.dn} />
           {readOnly ? (
             <Badge variant="outline" className="gap-1">

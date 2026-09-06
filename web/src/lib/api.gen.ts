@@ -672,6 +672,21 @@ export interface components {
             attributes: components["schemas"]["EntryAttribute"][];
             requirements?: components["schemas"]["Requirements"];
             /**
+             * @description An RFC 4515 filter matching every entry that names this one — the
+             *     answer to "which groups is this person in", and to "what would
+             *     break if I deleted this".
+             *
+             *     Built here rather than in the browser, with the filter builder, so
+             *     the DN is escaped once by the code that owns that rule. It asserts
+             *     only the attributes this server actually defines, and only ones a
+             *     user may modify, so it is the same question phrased in whatever
+             *     vocabulary the connected directory has.
+             *
+             *     Absent when the server defines none of them, or when the entry has
+             *     no DN to search for.
+             */
+            referencedByFilter?: string;
+            /**
              * @description The attributes this entry's object classes use to hold members,
              *     canonically spelled, whether the entry currently has values in them
              *     or not. Empty for an entry that is not a group.

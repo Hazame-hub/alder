@@ -325,6 +325,7 @@ func (s *Server) GetEntry(c *fiber.Ctx, params GetEntryParams) error {
 	if members := membershipAttributes(sch, req); len(members) > 0 {
 		view.MembershipAttributes = &members
 	}
+	view.ReferencedByFilter = ptrIfSet(referencedByFilter(sch, entry.DN.String()))
 	if browser, canBrowse := sess.Conn.(treeBrowser); canBrowse {
 		if hasKids, kidErr := browser.HasChildren(ctx, target); kidErr == nil {
 			view.HasChildren = ptr(hasKids)
