@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { CheckCircle2, FileUp, Loader2, Upload } from "lucide-react";
+import { CheckCircle2, FileUp, ListChecks, Loader2, Upload } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { ChangeRequest, ImportResult } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -8,20 +8,34 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { LdifBlock } from "@/components/ldif-block";
+import { stageChanges, type StageOutcome } from "@/lib/stage-deletes";
 
 /**
- * ImportPanel parses an LDIF document and lets the user apply its records one
- * at a time.
+ * ImportPanel parses an LDIF document and offers two ways to act on it: one
+ * record at a time, or the whole document staged for a single review.
  *
- * One at a time is the deliberate part. A directory has no transactions across
- * entries, so a bulk apply that fails halfway leaves the directory in a state
- * nobody chose. Every record goes through the same preview and confirm as any
- * other change, and the ones already applied are marked so a partial run can be
- * resumed rather than restarted.
+ * Applying one at a time is what happens either way. A directory has no
+ * transaction across entries, so a run that fails halfway leaves a state nobody
+ * chose — and the changeset applies its records in order, one at a time,
+ * stopping at the first failure. What staging changes is where the reading
+ * happens: the combined document, its ordering warnings, and the playbook only
+ * exist for a set, and the whole-set validation Alder already wrote could not
+ * be reached from here at all.
+ *
+ * A record is in exactly one of three states, and that is deliberate. Once it
+ * is staged its own button is disabled, because a document with two live routes
+ * to the directory is a document you can apply twice — harmless for an add,
+ * which fails with entryAlreadyExists, and silent for a delete or a replace.
  */
-export function ImportPanel() {
+export function ImportPanel({
+  onReviewChangeset,
+}: {
+  onReviewChangeset: () => void;
+}) {
   const [text, setText] = useState("");
   const [applied, setApplied] = useState<Set<number>>(new Set());
+  const [staged, setStaged] = useState<Set<number>>(new Set());
+  const [staging, setStaging] = useState<StageOutcome | null>(null);
   const [pending, setPending] = useState<{ index: number; change: ChangeRequest } | null>(
     null,
   );
@@ -29,8 +43,18 @@ export function ImportPanel() {
 
   const parse = useMutation<ImportResult, ApiFailure>({
     mutationFn: async () => unwrap(await api.POST("/import/ldif", { body: { ldif: text } })),
-    onSuccess: () => setApplied(new Set()),
+    onSuccess: () => {
+      setApplied(new Set());
+      setStaged(new Set());
+      setStaging(null);
+    },
   });
+
+  // What the button would act on: everything parsed that is neither already
+  // applied from this panel nor already in the basket.
+  const remaining = (parse.data?.requests ?? [])
+    .map((request, index) => ({ request, index }))
+    .filter(({ request, index }) => request && !applied.has(index) && !staged.has(index));
 
   const loadFile = (file: File) => {
     const reader = new FileReader();
@@ -109,7 +133,7 @@ export function ImportPanel() {
 
       {parse.data ? (
         <section className="space-y-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-medium">
               {parse.data.changes.length} change
               {parse.data.changes.length === 1 ? "" : "s"}
@@ -117,28 +141,78 @@ export function ImportPanel() {
             {applied.size > 0 ? (
               <Badge variant="success">{applied.size} applied</Badge>
             ) : null}
+            {staged.size > 0 ? (
+              <Badge variant="secondary">{staged.size} staged</Badge>
+            ) : null}
+
+            {remaining.length > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto"
+                onClick={() => {
+                  const outcome = stageChanges(
+                    remaining.map(({ request, index }) => ({
+                      change: request,
+                      label: parse.data?.changes[index]?.summary ?? request.dn,
+                    })),
+                    {
+                      noun: "change",
+                      nothing: "Every record here is already applied or staged.",
+                    },
+                  );
+                  setStaging(outcome);
+                  if (outcome.ok) {
+                    setStaged((prev) => {
+                      const next = new Set(prev);
+                      remaining.forEach(({ index }) => next.add(index));
+                      return next;
+                    });
+                  }
+                }}
+              >
+                <ListChecks />
+                Stage the remaining {remaining.length}
+              </Button>
+            ) : null}
           </div>
+
+          {staging ? (
+            <div className={cnNotice(staging.ok)}>
+              <span>{staging.message}</span>
+              <Button size="sm" variant="outline" onClick={onReviewChangeset}>
+                {staging.ok ? "Review the changeset" : "Open the changeset"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setStaging(null)}>
+                Dismiss
+              </Button>
+            </div>
+          ) : null}
 
           {parse.data.changes.map((change, i) => {
             const request = parse.data?.requests?.[i];
             const done = applied.has(i);
+            const inBasket = staged.has(i);
             return (
               <div
                 key={i}
-                className={cnCard(done)}
+                className={cnCard(done, inBasket)}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
                   <div className="flex items-center gap-2">
                     {done ? <CheckCircle2 className="size-4 text-success" /> : null}
+                    {inBasket ? (
+                      <ListChecks className="size-4 text-muted-foreground" />
+                    ) : null}
                     <span className="font-dn text-sm">{change.summary}</span>
                   </div>
                   <Button
                     size="sm"
-                    variant={done ? "outline" : "default"}
-                    disabled={!request || done}
+                    variant={done || inBasket ? "outline" : "default"}
+                    disabled={!request || done || inBasket}
                     onClick={() => request && setPending({ index: i, change: request })}
                   >
-                    {done ? "Applied" : "Review and apply"}
+                    {done ? "Applied" : inBasket ? "Staged" : "Review and apply"}
                   </Button>
                 </div>
                 {change.warnings?.length ? (
@@ -173,9 +247,22 @@ export function ImportPanel() {
   );
 }
 
-function cnCard(done: boolean) {
+function cnCard(done: boolean, staged: boolean) {
   return [
     "overflow-hidden rounded-lg border",
-    done ? "border-success/40 bg-success/5" : "border-border bg-card",
+    done
+      ? "border-success/40 bg-success/5"
+      : staged
+        ? "border-primary/40 bg-primary/5"
+        : "border-border bg-card",
+  ].join(" ");
+}
+
+function cnNotice(ok: boolean) {
+  return [
+    "flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm",
+    ok
+      ? "border-border bg-accent/40"
+      : "border-warning/40 bg-warning/10 text-warning-tint-foreground",
   ].join(" ");
 }

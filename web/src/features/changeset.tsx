@@ -76,9 +76,10 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
           <h2 className="text-base font-medium">The changeset is empty</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
             Every change dialog has an <strong>Add to changeset</strong> button
-            next to Apply. Stage several, read them as one LDIF document, and
-            apply them in order — or export the lot as a single Ansible playbook
-            and never apply them here at all.
+            next to Apply. A table's selection can stage its deletions, and a
+            parsed LDIF document can be staged whole from the Import tab. Read
+            them as one document, apply them in order — or export the lot as a
+            single Ansible playbook and never apply them here at all.
           </p>
           <p className="mx-auto mt-3 max-w-md text-xs text-muted-foreground">
             The changeset lives in this tab only. Reloading the page clears it,
