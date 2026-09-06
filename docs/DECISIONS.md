@@ -918,3 +918,30 @@ to contradict the plan — add an entry.
   generate entries from a spreadsheet or a feed, and that is what the excluded
   line means; it now says so instead of leaving a reader to infer it from a
   count.
+### 2026-09-06 — the changeset cap is 2000, and the number was measured
+
+- **500 blocked the case it cost least to allow.** A container delete of 600
+  entries could not be staged at all, and a delete is the smallest record the
+  changeset can hold — two lines of LDIF. The cap was refusing a legitimate,
+  cheap operation while a 500-record bulk *modify*, which costs half again as
+  much to render, was allowed.
+- **The number came from measuring the thing the cap protects,** which is one
+  `/changeset/preview` request rendering every record's LDIF, the combined
+  document and the playbook. Against the harness: 500 deletes is 0.85 MiB and
+  0.19s; 2000 deletes is 3.3 MiB and 0.14s; 2000 modifies — the heaviest shape
+  — is 4.9 MiB and 0.18s. Server time is not the constraint at any of these
+  sizes; response size is, and a few MiB to a browser on a LAN is not a reason
+  to refuse a real container.
+- **A cap is a guard against absurdity, not a review-quality mechanism.**
+  Nobody reads 2000 LDIF records one at a time, and the changeset never asked
+  anybody to: a subtree deletion is reviewed as a set — this subtree, this many
+  entries, deepest first — which is why the count and the ordering are what the
+  panel leads with. Choosing the number as "the most a human can review" would
+  be choosing it for a review that does not happen that way.
+- **One over the limit is still refused, and refused before any work.** 2001
+  records returns 400 in 0.05s, naming both the limit and how far over the
+  request is. That refusal is what makes the bound honest, and it is why the
+  number can be raised again later without anything becoming unsafe.
+- **Three files hold this number** — the Go constant, `maxItems` in the spec,
+  and the SPA's `maxStagedChanges` — and two tests exist solely to fail when
+  they drift apart. They were updated with it.

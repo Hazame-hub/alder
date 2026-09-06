@@ -156,7 +156,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 // record — and the apply path walks it as a single unit of work. The number
 // lives here as well as in the spec because the spec's maxItems is a
 // description of the API and nothing validates a request against it.
-const MaxChangesetChanges = 500
+const MaxChangesetChanges = 2000
 
 // changesetSizeOK enforces the bound, writing the refusal and returning false
 // when the set is unusable.
