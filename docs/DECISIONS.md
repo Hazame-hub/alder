@@ -864,3 +864,43 @@ to contradict the plan — add an entry.
   absent" rather than "enforce this". It needs its own design, its own
   server-side attribute sanitiser and parent-first ordering, and its own
   decision.
+
+### 2026-09-06 — the referenced-by panel
+
+- **A search says which entries matched, never which term matched.** The link
+  shipped alongside "referenced by" answers "what names this entry", and that
+  is the whole answer for reading. It is half of it for removing: unpicking a
+  reference is a delete of one value of one *named* attribute on the
+  *referring* entry, and `uid=user0001` in the harness is a `member` of one
+  group, a `uniqueMember` of another and the `owner` of a third. Offering a
+  Remove button without knowing which of those a row is would be guessing at a
+  write, so `GET /references` does the matching and reports the attribute.
+- **The matching happens on the server, where the values already are.** The
+  alternative is sending every reference attribute of every matching entry to
+  the browser to be compared and thrown away, and a group with five hundred
+  members is five hundred DNs that never need to cross the wire.
+- **References are compared as DNs, not as strings.** A directory may return a
+  reference spelled differently from the entry's own DN — a different case in
+  an attribute name, a different escaping of the same value — and a string
+  comparison would report no reference where there is one. Under-reporting is
+  the worst available answer to "what would break if I deleted this", so the
+  comparison is the one the directory itself would make.
+- **`uniqueMember` is trimmed at its `#uid` suffix, and not only when the DN
+  parser refuses the value.** RFC 4517's Name and Optional UID is a DN with an
+  optional bit string appended, and `#` is only special at the *start* of an
+  RFC 4514 value — so `dc=test#'01'B` parses perfectly happily as a naming
+  attribute whose value ends in a bit string. Retrying the comparison only on a
+  parse error would therefore skip exactly the syntax the retry exists for.
+  A test caught this; the first version of the code had it wrong.
+- **The removal names the value the directory stores, not the subject's DN.**
+  `uniqueMemberMatch` compares the UID part as well, so deleting the bare DN
+  where the stored value carries a suffix matches nothing — and the directory
+  reports the modification a success while the reference survives it. That is
+  why `Reference` carries `value` and not just `dn` and `attribute`.
+- **The panel keeps the link, as "Open as a search".** The link's own argument
+  was that a filter in the URL is shareable and editable where a panel is not,
+  which is still true and still worth having — and it is the answer when the
+  bounded search truncates.
+- **The bound is 200, and truncation is said out loud.** A list of references
+  that quietly omits some is worse than no list at all, because it is read as
+  "this is everything" by someone about to delete an entry.
