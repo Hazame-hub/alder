@@ -1050,3 +1050,23 @@ to contradict the plan — add an entry.
 - **Verified with the real tool.** The generated file parses as YAML and passes
   `ansible-playbook --syntax-check` with `community.general` installed. Nothing
   was run against the harness.
+
+### 2026-09-06 — the format choice reaches the tables
+
+- **The playbook export shipped where it was least useful.** The entry page had
+  the choice and the tables did not, which left "the thirty people I just
+  searched for, as a playbook" unreachable — and that is the set worth
+  enforcing. A single entry rarely is.
+- **A menu, not the entry page's dialog.** There is one decision to make here.
+  The base, scope and filter are not choices: they are the search already on
+  screen, which is the whole reason for exporting from a table rather than from
+  a subtree that happens to contain it. A dialog would ask for confirmation of
+  things nobody chose.
+- **One component for both tables, and `exportUrl` in `objects.tsx` went with
+  it.** Two call sites building the same URL by hand is how they come to
+  disagree about which parameters an export takes — and a third would have
+  arrived the next time a table did.
+- **The truncation warning was already right, and is what makes this safe.** The
+  users view stops at 200; a playbook of those 200 says in its header that the
+  result was truncated and does not describe the whole subtree. Without that,
+  enforcing a partial export would silently describe a directory nobody has.
