@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Info, Loader2, RefreshCw } from "lucide-react";
+import { Info, Loader2, RefreshCw } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
 import type {
   ApiFailure,
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui";
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
+import { ExportMenu } from "@/components/export-menu";
 import { ColumnPicker } from "@/components/column-picker";
 
 /**
@@ -134,16 +135,6 @@ export function ObjectListPanel({
   const stageDeletes = (dns: string[]) => setStaging(stageDeletions(dns));
 
   const columns = chosen[viewId] ?? view.columns;
-  const exportUrl = () => {
-    const params = new URLSearchParams({
-      dn: base,
-      scope: "sub",
-      filter: view.filter,
-      limit: String(pageLimit),
-    });
-    return `/api/v1/export/ldif?${params.toString()}`;
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 border-b border-border px-4 py-3">
@@ -201,18 +192,12 @@ export function ObjectListPanel({
                   : undefined
               }
             />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-              title="Export every entry this view matches, as LDIF"
-              onClick={() => {
-                window.location.href = exportUrl();
-              }}
-            >
-              <Download />
-              Export
-            </Button>
+            <ExportMenu
+              dn={base}
+              scope="sub"
+              filter={view.filter}
+              limit={pageLimit}
+            />
             <Button
               variant="ghost"
               size="icon-sm"

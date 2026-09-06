@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Download,
   Loader2,
   Plus,
   Search as SearchIcon,
@@ -27,6 +26,7 @@ import {
 } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
+import { ExportMenu } from "@/components/export-menu";
 import { LdifBlock } from "@/components/ldif-block";
 import {
   buildFilter,
@@ -293,27 +293,20 @@ function Results({
           </Button>
         ) : null}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className={data.command ? "text-muted-foreground" : "ml-auto text-muted-foreground"}
-          title="Export these results as LDIF"
-          onClick={() => {
-            // The same filter, base and scope the page ran, so the file is
-            // what is on screen rather than a subtree that happens to contain
-            // it. The export applies its own limit and says so in its header.
-            const params = new URLSearchParams({
-              dn: base,
-              scope,
-              filter,
-              limit: String(limit),
-            });
-            window.location.href = `/api/v1/export/ldif?${params.toString()}`;
-          }}
-        >
-          <Download />
-          Export these
-        </Button>
+        {/*
+          The same filter, base and scope the page ran, so the file is what is
+          on screen rather than a subtree that happens to contain it. The
+          export applies its own limit and says so in its header.
+        */}
+        <span className={data.command ? undefined : "ml-auto"}>
+          <ExportMenu
+            dn={base}
+            scope={scope}
+            filter={filter}
+            limit={limit}
+            label="Export these"
+          />
+        </span>
       </div>
 
       {showCommand && data.command ? (
