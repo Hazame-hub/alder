@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Info, Loader2, RefreshCw } from "lucide-react";
+import { Download, Info, Loader2, RefreshCw } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
-import type { ApiFailure, ChangeRequest, ObjectView, ObjectViewId } from "@/lib/api";
+import type {
+  ApiFailure,
+  ChangeRequest,
+  ObjectView,
+  ObjectViewColumn,
+  ObjectViewId,
+} from "@/lib/api";
 import { stageDeletions, type StageOutcome } from "@/lib/stage-deletes";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +23,7 @@ import {
 } from "@/components/ui";
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
+import { ColumnPicker } from "@/components/column-picker";
 
 /**
  * Users, groups and organizational units, as pages of their own.
@@ -50,6 +57,14 @@ export function ObjectListPanel({
 }) {
   const [base, setBase] = useState(namingContexts[0] ?? "");
   const [showDefinition, setShowDefinition] = useState(false);
+  /*
+   * The columns being shown, or null while the server's suggestion stands.
+   *
+   * Held per view and only for this tab, like everything else here: a stored
+   * preference would be state on a server that has none, and the changeset
+   * decision already settled that this application does not keep any.
+   */
+  const [chosen, setChosen] = useState<Record<string, ObjectViewColumn[]>>({});
   const [deleteChange, setDeleteChange] = useState<ChangeRequest | null>(null);
   const [staging, setStaging] = useState<StageOutcome | null>(null);
 
@@ -67,8 +82,12 @@ export function ObjectListPanel({
 
   const view = views.data?.views.find((v) => v.id === viewId);
 
+  const attributeNames = (chosen[viewId] ?? view?.columns ?? []).map((c) => c.attribute);
+
   const results = useQuery({
-    queryKey: ["objects", viewId, base, view?.filter],
+    // The chosen columns are part of the key: changing them changes what is
+    // asked for, so the previous result is not the answer to the new question.
+    queryKey: ["objects", viewId, base, view?.filter, attributeNames.join(",")],
     enabled: view !== undefined && base !== "",
     queryFn: async () =>
       unwrap(
@@ -79,10 +98,10 @@ export function ObjectListPanel({
             filter: (view as ObjectView).filter,
             limit: pageLimit,
             pageSize: 100,
-            attributes: [
-              ...alwaysFetch,
-              ...(view as ObjectView).columns.map((c) => c.attribute),
-            ],
+            // Whatever the columns need. A column chosen after the search ran
+            // would otherwise show a dash for every row, which reads as "this
+            // directory has no such value" rather than "nobody asked for it".
+            attributes: [...alwaysFetch, ...attributeNames],
           },
         }),
       ),
@@ -113,6 +132,17 @@ export function ObjectListPanel({
   }
 
   const stageDeletes = (dns: string[]) => setStaging(stageDeletions(dns));
+
+  const columns = chosen[viewId] ?? view.columns;
+  const exportUrl = () => {
+    const params = new URLSearchParams({
+      dn: base,
+      scope: "sub",
+      filter: view.filter,
+      limit: String(pageLimit),
+    });
+    return `/api/v1/export/ldif?${params.toString()}`;
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -156,6 +186,33 @@ export function ObjectListPanel({
             ) : (
               <span className="font-dn text-xs text-muted-foreground">{base}</span>
             )}
+            <ColumnPicker
+              available={view.permittedColumns ?? view.columns}
+              chosen={columns}
+              onChange={(next) => setChosen((prev) => ({ ...prev, [viewId]: next }))}
+              onReset={
+                chosen[viewId]
+                  ? () =>
+                      setChosen((prev) => {
+                        const next = { ...prev };
+                        delete next[viewId];
+                        return next;
+                      })
+                  : undefined
+              }
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              title="Export every entry this view matches, as LDIF"
+              onClick={() => {
+                window.location.href = exportUrl();
+              }}
+            >
+              <Download />
+              Export
+            </Button>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -218,7 +275,7 @@ export function ObjectListPanel({
             />
             <div className="min-h-0 flex-1 overflow-hidden">
               <EntryTable
-                columns={view.columns}
+                columns={columns}
                 entries={results.data.entries}
                 truncated={results.data.truncated}
                 readOnly={readOnly}

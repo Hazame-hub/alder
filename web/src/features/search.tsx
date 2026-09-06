@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
+import { Download, Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { SearchResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -183,6 +183,10 @@ export function SearchPanel({
         ) : search.data ? (
           <Results
             data={search.data}
+            base={base}
+            scope={scope}
+            filter={filter}
+            limit={limit}
             readOnly={readOnly}
             onOpenEntry={onOpenEntry}
             onReviewChangeset={onReviewChangeset}
@@ -204,11 +208,19 @@ export function SearchPanel({
 
 function Results({
   data,
+  base,
+  scope,
+  filter,
+  limit,
   readOnly,
   onOpenEntry,
   onReviewChangeset,
 }: {
   data: SearchResponse;
+  base: string;
+  scope: Scope;
+  filter: string;
+  limit: number;
   readOnly: boolean;
   onOpenEntry: (dn: string, forEdit?: boolean) => void;
   onReviewChangeset: () => void;
@@ -247,6 +259,28 @@ function Results({
             {data.referrals.length} referral(s), not followed
           </Badge>
         ) : null}
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto text-muted-foreground"
+          title="Export these results as LDIF"
+          onClick={() => {
+            // The same filter, base and scope the page ran, so the file is
+            // what is on screen rather than a subtree that happens to contain
+            // it. The export applies its own limit and says so in its header.
+            const params = new URLSearchParams({
+              dn: base,
+              scope,
+              filter,
+              limit: String(limit),
+            });
+            window.location.href = `/api/v1/export/ldif?${params.toString()}`;
+          }}
+        >
+          <Download />
+          Export these
+        </Button>
       </div>
 
       {staging ? (

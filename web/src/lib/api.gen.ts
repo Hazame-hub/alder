@@ -792,6 +792,18 @@ export interface components {
              */
             createClasses?: string[];
             columns: components["schemas"]["ObjectViewColumn"][];
+            /**
+             * @description Every attribute an entry this view matches could hold, as candidates
+             *     for the columns. `columns` is the default subset of this.
+             *
+             *     Computed over every class the view's filter matches, not just the
+             *     classes it anchors on — walking the superior chain alone would drop
+             *     `mail` from Users, because `person` does not permit it and
+             *     `inetOrgPerson` does. That is the bug the object views were fixed
+             *     for once already, and repeating the walk in the browser is how the
+             *     two copies would drift apart again.
+             */
+            permittedColumns?: components["schemas"]["ObjectViewColumn"][];
         };
         ObjectViewColumn: {
             /** @description The attribute type, canonically spelled by the schema. */
@@ -1634,6 +1646,17 @@ export interface operations {
                  *     export ends up in tickets and repositories.
                  */
                 includeSensitive?: boolean;
+                /**
+                 * @description An RFC 4515 filter, defaulting to `(objectClass=*)`. It is parsed
+                 *     here, never pasted, exactly as the search filter is.
+                 *
+                 *     It exists so a table can export what it is showing. Without it the
+                 *     only exports available are one entry, or a whole subtree, and
+                 *     "the thirty people I just searched for" — which is what somebody
+                 *     actually wants to put in a ticket or a repository — could only be
+                 *     assembled by hand.
+                 */
+                filter?: string;
                 limit?: number;
             };
             header?: never;

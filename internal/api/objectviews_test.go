@@ -380,3 +380,81 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// The candidate columns must be computed the way the filter selects entries —
+// over every class the view matches — not over the anchors' superior chains.
+//
+// This is the same bug the object views were fixed for once already: person
+// permits no mail, inetOrgPerson does, and an inetOrgPerson entry is a user. A
+// picker offering only what the anchors permit would not offer the column
+// people actually came for.
+func TestPermittedColumnsWalkDownTheClassTree(t *testing.T) {
+	users := viewByID(objectViews(testSchema(t)), ViewUsers)
+	if users == nil || users.PermittedColumns == nil {
+		t.Fatal("the users view offers no candidate columns")
+	}
+	got := map[string]bool{}
+	for _, c := range *users.PermittedColumns {
+		got[c.Attribute] = true
+	}
+
+	// From inetOrgPerson, which the filter matches but which is not an anchor.
+	for _, want := range []string{"mail", "uid", "givenName", "displayName"} {
+		if !got[want] {
+			t.Errorf("%s is not offered as a column; it is permitted by a class this view matches", want)
+		}
+	}
+	// And from the anchors themselves.
+	for _, want := range []string{"cn", "sn", "telephoneNumber"} {
+		if !got[want] {
+			t.Errorf("%s is not offered as a column", want)
+		}
+	}
+	// objectClass is on every entry and would make a useless column.
+	if got["objectClass"] {
+		t.Error("objectClass is offered as a column")
+	}
+}
+
+// The defaults have to be a subset of what can be chosen, or the picker opens
+// showing a column it cannot offer.
+func TestDefaultColumnsAreAmongThePermittedOnes(t *testing.T) {
+	for _, view := range objectViews(testSchema(t)) {
+		if view.PermittedColumns == nil {
+			t.Errorf("%s offers no candidate columns at all", view.Id)
+			continue
+		}
+		permitted := map[string]bool{}
+		for _, c := range *view.PermittedColumns {
+			permitted[c.Attribute] = true
+		}
+		for _, c := range view.Columns {
+			if !permitted[c.Attribute] {
+				t.Errorf("%s shows %s by default but does not offer it as a choice",
+					view.Id, c.Attribute)
+			}
+		}
+	}
+}
+
+// A candidate carries the same label and description a default column does, so
+// the picker and the table cannot describe the same attribute differently.
+func TestPermittedColumnsCarryTheirLabelAndDescription(t *testing.T) {
+	users := viewByID(objectViews(testSchema(t)), ViewUsers)
+	if users == nil || users.PermittedColumns == nil {
+		t.Fatal("no candidates")
+	}
+	for _, c := range *users.PermittedColumns {
+		if c.Attribute == "" || c.Label == "" {
+			t.Errorf("a candidate is missing its name or label: %+v", c)
+		}
+		if c.Attribute == "cn" {
+			if c.Label != "Name" {
+				t.Errorf("cn is labelled %q in the picker, want Name", c.Label)
+			}
+			if c.Desc == nil || *c.Desc != "Common name" {
+				t.Errorf("cn carries desc %v, want the schema's own", c.Desc)
+			}
+		}
+	}
+}

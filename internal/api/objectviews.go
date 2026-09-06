@@ -217,13 +217,14 @@ func buildView(sch *schema.Schema, spec viewSpec) (ObjectView, bool) {
 	}
 
 	return ObjectView{
-		Id:            spec.id,
-		Label:         spec.label,
-		Description:   ptrIfSet(spec.desc),
-		Filter:        f,
-		Anchors:       classNames(anchors),
-		Columns:       viewColumns(sch, spec, anchors),
-		CreateClasses: ptrIfAny(structuralNames(withDescendants(sch, anchors))),
+		Id:               spec.id,
+		Label:            spec.label,
+		Description:      ptrIfSet(spec.desc),
+		Filter:           f,
+		Anchors:          classNames(anchors),
+		Columns:          viewColumns(sch, spec, anchors),
+		PermittedColumns: ptrIfAnyColumns(permittedColumns(sch, anchors)),
+		CreateClasses:    ptrIfAny(structuralNames(withDescendants(sch, anchors))),
 	}, true
 }
 
@@ -315,6 +316,51 @@ func structuralNames(classes []*schema.ObjectClass) []string {
 
 // ptrIfAny omits an empty list rather than sending one.
 func ptrIfAny(v []string) *[]string {
+	if len(v) == 0 {
+		return nil
+	}
+	return &v
+}
+
+// permittedColumns is every attribute an entry this view matches could hold.
+//
+// It walks the same set viewColumns does — every class the filter matches, not
+// just the anchors — because that is what the filter selects, and because
+// asking only the superior chain would drop mail from Users: person does not
+// permit it, inetOrgPerson does. Doing that walk in the browser instead is how
+// the second copy of this rule would drift from the first.
+//
+// objectClass is excluded: every entry has it, it is on the page already, and
+// it is not something a column would usefully show.
+func permittedColumns(sch *schema.Schema, anchors []*schema.ObjectClass) []ObjectViewColumn {
+	req := sch.Requirements(classNames(withDescendants(sch, anchors)))
+
+	seen := map[string]bool{}
+	out := make([]ObjectViewColumn, 0, len(req.Must)+len(req.May))
+	for _, name := range append(append([]string{}, req.Must...), req.May...) {
+		at := sch.AttributeType(name)
+		if at == nil {
+			continue
+		}
+		key := foldName(at.Name())
+		if key == "objectclass" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ObjectViewColumn{
+			Attribute: at.Name(),
+			Label:     columnLabel(at.Name()),
+			Desc:      ptrIfSet(at.Desc),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return foldName(out[i].Attribute) < foldName(out[j].Attribute)
+	})
+	return out
+}
+
+// ptrIfAnyColumns omits an empty list rather than sending one.
+func ptrIfAnyColumns(v []ObjectViewColumn) *[]ObjectViewColumn {
 	if len(v) == 0 {
 		return nil
 	}
