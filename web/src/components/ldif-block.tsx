@@ -20,7 +20,7 @@ export function LdifBlock({
   text: string;
   className?: string;
   filename?: string;
-  language?: "ldif" | "yaml";
+  language?: "ldif" | "yaml" | "shell";
 }) {
   return (
     <div className={cn("relative", className)}>
@@ -52,7 +52,13 @@ const directives = new Set([
   "version",
 ]);
 
-function LdifLine({ line, language }: { line: string; language: "ldif" | "yaml" }) {
+function LdifLine({
+  line,
+  language,
+}: {
+  line: string;
+  language: "ldif" | "yaml" | "shell";
+}) {
   if (line.startsWith("#")) {
     return (
       <div>
@@ -67,7 +73,10 @@ function LdifLine({ line, language }: { line: string; language: "ldif" | "yaml" 
       </div>
     );
   }
-  if (language === "yaml") {
+  if (language === "yaml" || language === "shell") {
+    // A shell command's indented continuations are not LDIF continuation
+    // lines and its colons are not attribute separators, so none of the
+    // rules below apply to one.
     return <div>{line || " "}</div>;
   }
   // A continuation line begins with a single space and carries no name.

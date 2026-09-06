@@ -67,6 +67,12 @@ func (s *Session) Port() int      { return s.Config.Port }
 func (s *Session) TLS() string    { return string(s.Config.TLS) }
 func (s *Session) BindDN() string { return s.Config.BindDN }
 
+// SkipsVerification and HasCustomCA describe how the connection was secured.
+// Neither reveals anything secret, and both are needed to hand back a command
+// that reaches the same directory the same way.
+func (s *Session) SkipsVerification() bool { return s.Config.InsecureSkipVerify }
+func (s *Session) HasCustomCA() bool       { return s.Config.CACertificates != nil }
+
 // Verified reports whether the connection verified the server certificate.
 func (s *Session) Verified() bool {
 	return s.Config.TLS != directory.TLSModePlaintext && !s.Config.InsecureSkipVerify
