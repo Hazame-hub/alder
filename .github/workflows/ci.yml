@@ -93,8 +93,35 @@ jobs:
 
       - name: the generated API files match the spec
         run: |
+          # oapi-codegen embeds a compressed copy of the spec in swaggerSpec,
+          # and its bytes depend on the Go toolchain that ran the generator —
+          # a developer on Go 1.27 and this runner on 1.25 produce the same
+          # types and a different blob. It is rebuilt from the spec on every
+          # generate and describes nothing the compiler uses, so comparing it
+          # would only ever report which Go somebody had installed.
+          #
+          # Everything else is compared exactly, and the TypeScript has no
+          # embedded copy at all, so it is compared whole.
+          strip_embedded_spec() {
+            awk '/^var swaggerSpec = \[\]string\{$/ { skip = 1 }
+                 !skip { print }
+                 skip && /^\}$/ { skip = 0 }' "$1"
+          }
+
+          git show HEAD:internal/api/api.gen.go > /tmp/api.gen.go.committed
           task generate
-          if ! git diff --exit-code -- internal/api/api.gen.go web/src/lib/api.gen.ts; then
+
+          strip_embedded_spec /tmp/api.gen.go.committed > /tmp/committed.go
+          strip_embedded_spec internal/api/api.gen.go   > /tmp/regenerated.go
+
+          status=0
+          if ! diff -u /tmp/committed.go /tmp/regenerated.go; then
+            status=1
+          fi
+          if ! git diff --exit-code -- web/src/lib/api.gen.ts; then
+            status=1
+          fi
+          if [ "$status" -ne 0 ]; then
             echo
             echo "The generated API files do not match api/openapi.yaml."
             echo "Run 'task generate' and commit the result."
