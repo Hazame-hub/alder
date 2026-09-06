@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.0](https://github.com/Hazame-hub/alder/compare/v0.8.0...v0.9.0) (2026-09-06)
+
+
+### Features
+
+* export a subtree as a playbook that enforces it, not one that hopes ([#52](https://github.com/Hazame-hub/alder/issues/52)) ([24e8be7](https://github.com/Hazame-hub/alder/commit/24e8be747131f95d44f2652c95172e2182313733))
+* hand back the ldapsearch that runs the search you just ran ([#49](https://github.com/Hazame-hub/alder/issues/49)) ([832348b](https://github.com/Hazame-hub/alder/commit/832348bb6abab17fbcb686e0d1969c5151bceef6))
+* raise the changeset cap to 2000, measured rather than guessed ([#48](https://github.com/Hazame-hub/alder/issues/48)) ([a34f197](https://github.com/Hazame-hub/alder/commit/a34f19739f757e0e571c09c6197726a575f8ad10))
+
+
+### Documentation
+
+* describe the ldapsearch command and the enforcing Ansible export ([#53](https://github.com/Hazame-hub/alder/issues/53)) ([4dc18e0](https://github.com/Hazame-hub/alder/commit/4dc18e0255c28d831417d002e45710e4b7031b34))
+* say that staging many changes for one review is in scope ([#47](https://github.com/Hazame-hub/alder/issues/47)) ([811f3ae](https://github.com/Hazame-hub/alder/commit/811f3ae461749b092aba36138840f466ee94fd01))
+
 ## [0.8.0](https://github.com/Hazame-hub/alder/compare/v0.7.0...v0.8.0) (2026-09-06)
 
 
