@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Info, Loader2, RefreshCw } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
 import type { ApiFailure, ChangeRequest, ObjectView, ObjectViewId } from "@/lib/api";
-import { changeset } from "@/lib/changeset";
+import { stageDeletions, type StageOutcome } from "@/lib/stage-deletes";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -50,7 +51,7 @@ export function ObjectListPanel({
   const [base, setBase] = useState(namingContexts[0] ?? "");
   const [showDefinition, setShowDefinition] = useState(false);
   const [deleteChange, setDeleteChange] = useState<ChangeRequest | null>(null);
-  const [justStaged, setJustStaged] = useState(0);
+  const [staging, setStaging] = useState<StageOutcome | null>(null);
 
   // A connection change can leave the old base selected, which would search a
   // suffix this server does not hold.
@@ -111,12 +112,7 @@ export function ObjectListPanel({
     return <NoSuchView viewId={viewId} />;
   }
 
-  const stageDeletes = (dns: string[]) => {
-    for (const dn of dns) {
-      changeset.add({ dn, type: "delete" }, `Delete ${dn}`);
-    }
-    setJustStaged(dns.length);
-  };
+  const stageDeletes = (dns: string[]) => setStaging(stageDeletions(dns));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -173,16 +169,26 @@ export function ObjectListPanel({
 
         {showDefinition ? <ViewDefinition view={view} base={base} /> : null}
 
-        {justStaged > 0 ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-accent/40 px-3 py-2 text-sm">
-            <span>
-              {justStaged} {justStaged === 1 ? "deletion is" : "deletions are"} staged.
-              Nothing has been sent to the directory.
-            </span>
-            <Button size="sm" variant="outline" onClick={onReviewChangeset}>
-              Review the changeset
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setJustStaged(0)}>
+        {staging ? (
+          <div
+            className={cn(
+              "mt-3 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm",
+              staging.ok
+                ? "border-border bg-accent/40"
+                : "border-warning/40 bg-warning/10 text-warning-tint-foreground",
+            )}
+          >
+            <span>{staging.message}</span>
+            {staging.ok ? (
+              <Button size="sm" variant="outline" onClick={onReviewChangeset}>
+                Review the changeset
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={onReviewChangeset}>
+                Open the changeset
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => setStaging(null)}>
               Dismiss
             </Button>
           </div>

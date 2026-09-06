@@ -20,6 +20,8 @@ import {
 } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
+import { stageDeletions, type StageOutcome } from "@/lib/stage-deletes";
+import { cn } from "@/lib/utils";
 
 type Scope = "base" | "one" | "sub";
 
@@ -39,6 +41,7 @@ export function SearchPanel({
   readOnly,
   onChange,
   onOpenEntry,
+  onReviewChangeset,
 }: {
   base: string;
   scope: Scope;
@@ -53,6 +56,7 @@ export function SearchPanel({
     limit?: number;
   }) => void;
   onOpenEntry: (dn: string, forEdit?: boolean) => void;
+  onReviewChangeset: () => void;
 }) {
   // The boxes are local while they are being typed in: putting every keystroke
   // in the URL would fill the history with half-written filters. The location is
@@ -177,7 +181,12 @@ export function SearchPanel({
             <ErrorNote title="The search failed" error={search.error} />
           </div>
         ) : search.data ? (
-          <Results data={search.data} readOnly={readOnly} onOpenEntry={onOpenEntry} />
+          <Results
+            data={search.data}
+            readOnly={readOnly}
+            onOpenEntry={onOpenEntry}
+            onReviewChangeset={onReviewChangeset}
+          />
         ) : search.isFetching ? (
           <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
@@ -197,11 +206,14 @@ function Results({
   data,
   readOnly,
   onOpenEntry,
+  onReviewChangeset,
 }: {
   data: SearchResponse;
   readOnly: boolean;
   onOpenEntry: (dn: string, forEdit?: boolean) => void;
+  onReviewChangeset: () => void;
 }) {
+  const [staging, setStaging] = useState<StageOutcome | null>(null);
   // The columns are the attributes that were asked for and that something
   // actually returned. A search spans object classes, so a fixed set would show
   // an email column over a page of organizational units.
@@ -237,6 +249,23 @@ function Results({
         ) : null}
       </div>
 
+      {staging ? (
+        <div
+          className={cn(
+            "flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-sm",
+            staging.ok ? "bg-accent/40" : "bg-warning/10 text-warning-tint-foreground",
+          )}
+        >
+          <span>{staging.message}</span>
+          <Button size="sm" variant="outline" onClick={onReviewChangeset}>
+            {staging.ok ? "Review the changeset" : "Open the changeset"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setStaging(null)}>
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
+
       <div className="min-h-0 flex-1 overflow-hidden">
         <EntryTable
           columns={columns}
@@ -245,6 +274,7 @@ function Results({
           readOnly={readOnly}
           onOpen={onOpenEntry}
           onEdit={(dn) => onOpenEntry(dn, true)}
+          onStageDeletes={(dns) => setStaging(stageDeletions(dns))}
           onExport={(dn) => {
             const params = new URLSearchParams({ dn, scope: "base" });
             window.location.href = "/api/v1/export/ldif?" + params.toString();

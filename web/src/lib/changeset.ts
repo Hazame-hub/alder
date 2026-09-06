@@ -47,13 +47,54 @@ function subscribe(listener: () => void) {
 
 let counter = 0;
 
+/**
+ * The bound the server enforces on a changeset, mirrored here.
+ *
+ * The server is the one that decides — internal/api/changeset.go refuses past
+ * this, and api/openapi.yaml declares it. This copy exists only so a bulk
+ * stager can say "that will not fit" before it stages anything, rather than
+ * filling the basket and having the preview fail afterwards. If the two ever
+ * disagree the server wins, and the failure mode is a refusal at preview time
+ * rather than a wrong write.
+ */
+export const maxStagedChanges = 500;
+
 export const changeset = {
   all: () => staged,
+
+  /** How many more changes will fit. */
+  capacity: () => maxStagedChanges - staged.length,
 
   add(change: ChangeRequest, label: string) {
     counter += 1;
     staged.push({ id: `c${counter}`, change, label });
     emit();
+  },
+
+  /**
+   * Stage many changes, or none.
+   *
+   * All-or-nothing on purpose. Staging a prefix and stopping would leave the
+   * basket holding some of a set the operator asked for as a whole — a subtree
+   * missing its deepest entries, or the first four hundred records of a
+   * document — which looks like it worked and applies to something nobody
+   * chose. It returns what it did so the caller can say so.
+   */
+  addMany(items: { change: ChangeRequest; label: string }[]): {
+    staged: number;
+    refused: number;
+    capacity: number;
+  } {
+    const capacity = maxStagedChanges - staged.length;
+    if (items.length > capacity) {
+      return { staged: 0, refused: items.length, capacity };
+    }
+    for (const item of items) {
+      counter += 1;
+      staged.push({ id: `c${counter}`, change: item.change, label: item.label });
+    }
+    emit();
+    return { staged: items.length, refused: 0, capacity };
   },
 
   remove(id: string) {
