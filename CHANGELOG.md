@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/Hazame-hub/alder/compare/v0.9.0...v0.10.0) (2026-09-06)
+
+
+### Features
+
+* offer the playbook format from the search and object tables ([#54](https://github.com/Hazame-hub/alder/issues/54)) ([26c4b0b](https://github.com/Hazame-hub/alder/commit/26c4b0b4c8cc0d757a4571b9baedc7c002b4d282))
+
 ## [0.9.0](https://github.com/Hazame-hub/alder/compare/v0.8.0...v0.9.0) (2026-09-06)
 
 
