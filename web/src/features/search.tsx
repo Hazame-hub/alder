@@ -28,6 +28,12 @@ import {
 import { ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
 import { LdifBlock } from "@/components/ldif-block";
+import {
+  buildFilter,
+  isAttributeName,
+  operators,
+  type Clause,
+} from "@/lib/filter-builder";
 import { stageDeletions, type StageOutcome } from "@/lib/stage-deletes";
 import { cn } from "@/lib/utils";
 
@@ -378,77 +384,13 @@ const labels: Record<string, string> = {
   description: "Description",
 };
 
-type Clause = { attribute: string; op: string; value: string };
-
-const operators = [
-  { id: "eq", label: "is", render: (a: string, v: string) => `(${a}=${esc(v)})` },
-  {
-    id: "contains",
-    label: "contains",
-    render: (a: string, v: string) => `(${a}=*${esc(v)}*)`,
-  },
-  {
-    id: "starts",
-    label: "starts with",
-    render: (a: string, v: string) => `(${a}=${esc(v)}*)`,
-  },
-  {
-    id: "ends",
-    label: "ends with",
-    render: (a: string, v: string) => `(${a}=*${esc(v)})`,
-  },
-  { id: "present", label: "is set", render: (a: string) => `(${a}=*)` },
-  { id: "gte", label: "is at least", render: (a: string, v: string) => `(${a}>=${esc(v)})` },
-  { id: "lte", label: "is at most", render: (a: string, v: string) => `(${a}<=${esc(v)})` },
-  {
-    id: "not",
-    label: "is not",
-    render: (a: string, v: string) => `(!(${a}=${esc(v)}))`,
-  },
-];
-
-/**
- * esc applies RFC 4515 escaping to a value the user typed.
- *
- * The server escapes again when it parses and rebuilds the filter, so this is
- * belt and braces rather than the only defence. It is here so the filter the
- * builder writes into the box is one the user can read and trust, instead of
- * one that looks broken until the server fixes it.
- */
-function esc(v: string): string {
-  return v.replace(/[\\*()\0]/g, (c) => {
-    switch (c) {
-      case "\\":
-        return "\\5c";
-      case "*":
-        return "\\2a";
-      case "(":
-        return "\\28";
-      case ")":
-        return "\\29";
-      default:
-        return "\\00";
-    }
-  });
-}
-
 function FilterBuilder({ onApply }: { onApply: (filter: string) => void }) {
   const [join, setJoin] = useState<"and" | "or">("and");
   const [clauses, setClauses] = useState<Clause[]>([
     { attribute: "objectClass", op: "eq", value: "inetOrgPerson" },
   ]);
 
-  const build = () => {
-    const parts = clauses
-      .filter((c) => c.attribute.trim() !== "")
-      .map((c) => {
-        const op = operators.find((o) => o.id === c.op) ?? operators[0];
-        return op!.render(c.attribute.trim(), c.value);
-      });
-    if (parts.length === 0) return "(objectClass=*)";
-    if (parts.length === 1) return parts[0] as string;
-    return `(${join === "and" ? "&" : "|"}${parts.join("")})`;
-  };
+  const build = () => buildFilter(join, clauses);
 
   const set = (i: number, patch: Partial<Clause>) =>
     setClauses((prev) => prev.map((c, j) => (j === i ? { ...c, ...patch } : c)));
@@ -476,7 +418,20 @@ function FilterBuilder({ onApply }: { onApply: (filter: string) => void }) {
             <Input
               value={clause.attribute}
               placeholder="attribute"
-              className="w-44 font-dn"
+              className={cn(
+                "w-44 font-dn",
+                clause.attribute.trim() !== "" && !isAttributeName(clause.attribute)
+                  ? "border-destructive"
+                  : undefined,
+              )}
+              aria-invalid={
+                clause.attribute.trim() !== "" && !isAttributeName(clause.attribute)
+              }
+              title={
+                clause.attribute.trim() !== "" && !isAttributeName(clause.attribute)
+                  ? "Not an attribute name, so this condition is left out of the filter"
+                  : undefined
+              }
               onChange={(e) => set(i, { attribute: e.target.value })}
             />
             <Select value={clause.op} onValueChange={(v) => set(i, { op: v })}>

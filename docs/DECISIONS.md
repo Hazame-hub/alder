@@ -978,3 +978,33 @@ to contradict the plan — add an entry.
   `'\''` dance for an apostrophe.
 - **Verified by running it.** The emitted command, given to a real `ldapsearch`
   in the harness, returned the same twelve entries the API did.
+### 2026-09-06 — three pieces of debt, cleared
+
+- **`NewEntryDialog` is gone.** It was exported from `entry.tsx`, imported by
+  nothing, superseded by `CreateEntryDialog`, and it was the last place in the
+  SPA that built a DN by string concatenation and split an RDN on `=`. Dead code
+  that breaks a hard rule is worse than dead code: it is a worked example of the
+  wrong way, sitting in the file somebody copies from.
+- **The filter builder validates the attribute rather than escaping it.** It
+  escaped the value and interpolated the attribute name raw, into a free-text
+  box. That was never a hole — the server parses and rebuilds every filter, so
+  nothing malformed reaches the directory — but it let the builder write a
+  filter that read as one query and described another, into a box the operator
+  is invited to trust and edit. Escaping was the wrong fix: RFC 4515 escaping is
+  for assertion values, and an attribute holding a parenthesis is not a name
+  needing escaping, it is not a name. So a clause whose attribute cannot be an
+  attribute description is marked in the row and left out of the filter.
+- **The builder's logic moved to `web/src/lib/filter-builder.ts` with tests,**
+  which is what made the above testable rather than a claim.
+- **`capabilitiesView` now has a test that fails when it falls behind.** The
+  mapping is hand-written and nothing kept it in step with the struct it maps;
+  a field the driver fills and the wire drops is invisible in the worst way —
+  correct back end, green tests, absent feature. That has cost three debugging
+  sessions. Every `directory.Capabilities` field must now either change the
+  rendered view or be named in `notOnTheWire` with a reason, and the allowlist
+  is itself checked for names that no longer exist. Five fields are excused:
+  the two vendor fields ride on `SessionInfo`, and `StartTLS`, `AllOperional`
+  and `SupportedLDAPVersion` answer questions the browser does not ask.
+- **The guard was verified by breaking it.** Dropping the `WhoAmI` mapping makes
+  it fail and name the field and the file. A guard that has never failed is a
+  guard nobody has checked.
