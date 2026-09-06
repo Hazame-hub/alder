@@ -904,3 +904,17 @@ to contradict the plan — add an entry.
 - **The bound is 200, and truncation is said out loud.** A list of references
   that quietly omits some is worse than no list at all, because it is read as
   "this is everything" by someone about to delete an entry.
+
+### 2026-09-06 — bulk staging is in scope, and the line says where entries come from
+
+- **The scope list said "bulk or CSV provisioning" and the software had grown
+  three ways to stage many changes at once.** That is the shape the `cn=config`
+  entry already records: a line in the list was contradicted by the code, and
+  the fix was to correct the line rather than the software. Doing it before
+  someone reads the list and closes a pull request over it is the cheap moment.
+- **The distinction is where the entries come from, not how many there are.**
+  Alder stages what the operator authored or what the directory already holds —
+  a subtree's deletions, a parsed document, a table's selected rows. It does not
+  generate entries from a spreadsheet or a feed, and that is what the excluded
+  line means; it now says so instead of leaving a reader to infer it from a
+  count.
