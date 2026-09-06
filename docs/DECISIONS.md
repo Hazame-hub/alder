@@ -945,3 +945,36 @@ to contradict the plan — add an entry.
 - **Three files hold this number** — the Go constant, `maxItems` in the spec,
   and the SPA's `maxStagedChanges` — and two tests exist solely to fail when
   they drift apart. They were updated with it.
+### 2026-09-06 — the search, as the command you would have typed
+
+- **Rendered by the server, for the same reason the LDIF preview is.** The
+  browser holds the filter as it was typed; the server holds the filter it
+  parsed and actually sent, and normalising it is the entire point of parsing
+  it. A command built from the typed text would describe a different search
+  from the results sitting beside it — which is the one thing this product
+  cannot do.
+- **A field on `SearchResponse`, not a new endpoint.** The search already
+  happened and the server already holds the base, scope, parsed filter, limit
+  and attribute list; there is nothing to ask for. It also cannot drift from
+  the search that produced it, because it is produced by the same request —
+  the same argument as `referencedByFilter` on `EntryView`.
+- **`-W`, never `-w`.** The password prompts. It is not in the string, and a
+  test asserts that `-w`, the flag that takes one on the command line, never
+  appears. This is a new surface that could have carried a credential out of
+  the session, and it is the reason the renderer takes a `commandTarget` rather
+  than the session itself.
+- **The command reproduces what the session did, not what it should have
+  done.** A session that skipped verification emits `LDAPTLS_REQCERT=never`,
+  and one given a private CA gets a comment saying the bundle has to be
+  installed or named — the bytes cannot go on a command line, and a command
+  that omits them fails with a certificate error the reader then has to
+  diagnose. StartTLS gets `-ZZ` rather than `-Z`, because the single form
+  continues unencrypted when the upgrade fails, which is not what Alder did.
+- **Arguments are shell-quoted, and that is the same class of bug as the rest
+  of this codebase.** A DN carries commas and spaces, a filter carries
+  parentheses and ampersands; pasted unquoted, one of them does something other
+  than it appears to. `=` and `,` are not shell metacharacters, so ordinary DNs
+  come out unquoted and readable, and everything else is single-quoted with the
+  `'\''` dance for an apostrophe.
+- **Verified by running it.** The emitted command, given to a real `ldapsearch`
+  in the harness, returned the same twelve entries the API did.

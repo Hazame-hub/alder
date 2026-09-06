@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Loader2, Plus, Search as SearchIcon, X } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  Plus,
+  Search as SearchIcon,
+  Terminal,
+  X,
+} from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { SearchResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -20,6 +27,7 @@ import {
 } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
+import { LdifBlock } from "@/components/ldif-block";
 import { stageDeletions, type StageOutcome } from "@/lib/stage-deletes";
 import { cn } from "@/lib/utils";
 
@@ -226,6 +234,7 @@ function Results({
   onReviewChangeset: () => void;
 }) {
   const [staging, setStaging] = useState<StageOutcome | null>(null);
+  const [showCommand, setShowCommand] = useState(false);
   // The columns are the attributes that were asked for and that something
   // actually returned. A search spans object classes, so a fixed set would show
   // an email column over a page of organizational units.
@@ -260,10 +269,28 @@ function Results({
           </Badge>
         ) : null}
 
+        {/*
+          The same search, as the command you would have typed. It sits beside
+          the export because both answer "how do I take this away with me" —
+          one as a file, one as something to paste into a runbook.
+        */}
+        {data.command ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto text-muted-foreground"
+            title="Show the ldapsearch that runs this search"
+            onClick={() => setShowCommand((v) => !v)}
+          >
+            <Terminal />
+            {showCommand ? "Hide command" : "Command"}
+          </Button>
+        ) : null}
+
         <Button
           variant="ghost"
           size="sm"
-          className="ml-auto text-muted-foreground"
+          className={data.command ? "text-muted-foreground" : "ml-auto text-muted-foreground"}
           title="Export these results as LDIF"
           onClick={() => {
             // The same filter, base and scope the page ran, so the file is
@@ -282,6 +309,18 @@ function Results({
           Export these
         </Button>
       </div>
+
+      {showCommand && data.command ? (
+        <div className="shrink-0 space-y-2 border-b border-border px-4 py-3">
+          <LdifBlock text={data.command} language="shell" filename="search.sh" />
+          <p className="text-xs text-muted-foreground">
+            The filter is the one the server parsed and sent, which is not
+            always the text in the box — that is the point of parsing it.{" "}
+            <span className="font-dn">-W</span> prompts for the password; it is
+            not here, and it never will be.
+          </p>
+        </div>
+      ) : null}
 
       {staging ? (
         <div

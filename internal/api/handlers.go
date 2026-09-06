@@ -464,6 +464,16 @@ func (s *Server) Search(c *fiber.Ctx) error {
 	if len(res.Referrals) > 0 {
 		out.Referrals = ptr(res.Referrals)
 	}
+	// Built from req rather than from body: the filter in it is the parsed one,
+	// which is what the directory was actually asked.
+	out.Command = ptrIfSet(searchCommand(commandTarget{
+		Host:       sess.Host(),
+		Port:       sess.Port(),
+		TLS:        sess.TLS(),
+		BindDN:     sess.BindDN(),
+		SkipVerify: sess.SkipsVerification(),
+		CustomCA:   sess.HasCustomCA(),
+	}, req))
 	return c.JSON(out)
 }
 

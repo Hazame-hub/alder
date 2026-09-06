@@ -795,6 +795,19 @@ export interface components {
             referrals?: string[];
             /** @description How long the search took, as a duration string. */
             took?: string;
+            /**
+             * @description The `ldapsearch` that would run this same search, for a runbook, a
+             *     ticket or a script.
+             *
+             *     Rendered here rather than in the browser for the reason the LDIF
+             *     preview is: the browser holds the filter as it was typed, the
+             *     server holds the filter it parsed and would send, and normalising
+             *     it is the point of parsing it. A command built from the typed text
+             *     would describe a different search from the results beside it.
+             *
+             *     Never contains the bind password. `-W` makes ldapsearch prompt.
+             */
+            command?: string;
         };
         ObjectViewList: {
             views: components["schemas"]["ObjectView"][];
