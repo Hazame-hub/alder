@@ -64,7 +64,7 @@ func TestChangesetSizeRefusesPastTheCap(t *testing.T) {
 		message, _ := body["message"].(string)
 		// The refusal has to name both numbers, or it cannot be acted on: the
 		// operator needs to know the limit and how far over they are.
-		if !strings.Contains(message, "500") {
+		if !strings.Contains(message, "2000") {
 			t.Errorf("the refusal does not name the limit: %q", message)
 		}
 		if !strings.Contains(message, itoa(n)) {
@@ -92,9 +92,10 @@ func TestChangesetSizeStillRefusesAnEmptySet(t *testing.T) {
 // maxItems is a description that nothing validates against, so the only thing
 // keeping them together is this.
 func TestTheCapMatchesTheSpec(t *testing.T) {
-	if MaxChangesetChanges != 500 {
-		t.Errorf("MaxChangesetChanges is %d; api/openapi.yaml declares maxItems: 500 on "+
-			"ChangesetRequest.changes. Change both or neither.", MaxChangesetChanges)
+	if MaxChangesetChanges != 2000 {
+		t.Errorf("MaxChangesetChanges is %d; api/openapi.yaml declares maxItems: 2000 on "+
+			"ChangesetRequest.changes, and web/src/lib/changeset.ts declares the same "+
+			"number. Change all three or none.", MaxChangesetChanges)
 	}
 }
 

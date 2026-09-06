@@ -88,6 +88,6 @@ describe("changeset.capacity", () => {
   it("matches what the server enforces", () => {
     // internal/api/changeset.go refuses past MaxChangesetChanges, and
     // api/openapi.yaml declares the same number. Three files, one bound.
-    expect(maxStagedChanges).toBe(500);
+    expect(maxStagedChanges).toBe(2000);
   });
 });

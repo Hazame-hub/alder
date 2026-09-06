@@ -57,7 +57,7 @@ let counter = 0;
  * disagree the server wins, and the failure mode is a refusal at preview time
  * rather than a wrong write.
  */
-export const maxStagedChanges = 500;
+export const maxStagedChanges = 2000;
 
 export const changeset = {
   all: () => staged,
