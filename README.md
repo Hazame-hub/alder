@@ -94,6 +94,14 @@ discarding your work or silently clobbering theirs.
 never interpolated. Every search is paged and bounded, and a truncated result
 says so.
 
+Every search hands back the `ldapsearch` that runs it, for a runbook, a ticket
+or a script. The server renders it, so the filter in it is the one the server
+parsed and sent rather than the text in the box — normalising it is the whole
+point of parsing it, and a command built from what was typed would describe a
+different search from the results beside it. It reproduces what the session
+actually did, down to `-ZZ` for StartTLS and an `LDAPTLS_REQCERT=never` where
+verification was skipped. The password is not in it: `-W` prompts.
+
 Searching for people and groups is most of what anyone does, so those are ready
 made: tabs that run the filter for you and show the columns that matter for what
 you asked about. The columns are yours to choose, from what the schema says the
@@ -186,13 +194,23 @@ that prefix from what it publishes, and 389 DS records `X-ORIGIN 'user defined'`
 on anything added at runtime. A change built from the displayed form would match
 nothing on a removal and leave two definitions of one OID on an edit.
 
-**Import and export LDIF.** Export an entry, a subtree, or what a search is
+**Import and export.** Export an entry, a subtree, or what a search is
 showing — the table's filter goes to the exporter, because "the thirty people I
 just searched for" is the thing that actually goes in a ticket, and it used to be
 assembled by hand. The entries come out whole rather than cut down to the
 displayed columns: a partial entry is not something you can put back. A filtered
 export says so in the file's header, since a file that does not describes
 something narrower than its base and reads later as the whole of it.
+
+The same thing exports as an Ansible playbook that *enforces* it rather than one
+that merely creates what is missing. `ldap_entry` with `state: present` asserts
+an entry exists and stops there — run it against an entry holding entirely
+different attributes and it reports success and changes nothing — so each entry
+gets a create task and an `ldap_attrs` task with `state: exact`, ordered parent
+first because nothing can create a child under a parent that does not exist yet.
+Attributes the directory owns are left out, since a task enforcing one fails on
+every run, and sensitive ones are left out with no way to include them: a
+playbook is a file destined for a repository.
 
 Import a document and apply its records one at a time, each through the same
 confirmation, or stage the whole parsed document into the changeset and review it
