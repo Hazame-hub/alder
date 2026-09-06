@@ -94,6 +94,29 @@ discarding your work or silently clobbering theirs.
 never interpolated. Every search is paged and bounded, and a truncated result
 says so.
 
+Searching for people and groups is most of what anyone does, so those are ready
+made: tabs that run the filter for you and show the columns that matter for what
+you asked about. The columns are yours to choose, from what the schema says the
+matching entries can actually hold rather than from a fixed list — a directory's
+own attributes are the interesting ones, and a fixed list never has them.
+Choosing a column re-runs the search asking for it, because a column added to
+rows already fetched shows a dash that reads as "there is no value" when it
+means "nobody asked for one".
+
+**See what names an entry** before you break it. Which groups is this account in,
+what else points at it — the question asked most often about an account, and the
+one to ask before deleting anything. The answer says which attribute each
+referring entry uses, not merely that it refers, because they are not the same
+thing to undo: one entry can hold the same person as a `member` and as an
+`owner`, and removing either is a delete of one value of that one attribute on
+the entry doing the naming. So each is offered separately, and each goes through
+the usual preview.
+
+The values are compared as the directory would compare them. A server may return
+a reference spelled differently from the entry's own DN, and `uniqueMember`
+carries an optional UID suffix that is not part of the DN at all; a reference
+missed for either reason is a reference nobody is warned about.
+
 **Browse the schema** — object classes, attribute types, syntaxes and matching
 rules, fully cross-linked. A class shows what it requires and permits, split
 between its own and its inherited attributes, and every one is a link. An
@@ -163,8 +186,25 @@ that prefix from what it publishes, and 389 DS records `X-ORIGIN 'user defined'`
 on anything added at runtime. A change built from the displayed form would match
 nothing on a removal and leave two definitions of one OID on an edit.
 
-**Import and export LDIF.** Export an entry or a subtree; import a document and
-apply its records one at a time, each through the same confirmation.
+**Import and export LDIF.** Export an entry, a subtree, or what a search is
+showing — the table's filter goes to the exporter, because "the thirty people I
+just searched for" is the thing that actually goes in a ticket, and it used to be
+assembled by hand. The entries come out whole rather than cut down to the
+displayed columns: a partial entry is not something you can put back. A filtered
+export says so in the file's header, since a file that does not describes
+something narrower than its base and reads later as the whole of it.
+
+Import a document and apply its records one at a time, each through the same
+confirmation, or stage the whole parsed document into the changeset and review it
+as one thing. A file of forty records is a decision about forty records, and
+confirming them one by one is not the same review.
+
+**Delete a container** by staging what is under it. LDAP deletes one leaf at a
+time, so removing an organisational unit means removing everything below it
+first, deepest first, in order. Alder walks the subtree, stages the deletions in
+that order, and hands you the list to review as one changeset — rather than
+refusing because the entry has children, which is what it used to do while
+offering no way to do the thing it was suggesting.
 
 ## Two servers, one behaviour
 
@@ -227,7 +267,7 @@ interface and the TypeScript client are both generated from it.
 | `internal/session` | In-memory session store. |
 | `internal/web` | The embedded SPA. |
 | `web/` | The React application. |
-| `test/compose` | OpenLDAP and 389 DS, TLS from one CA, 318 identical entries each. |
+| `test/compose` | OpenLDAP and 389 DS, TLS from one CA, 320 identical entries each. |
 | `test/conformance` | One suite, both servers, identical assertions. |
 
 ## Licence
