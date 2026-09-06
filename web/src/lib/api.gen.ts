@@ -160,6 +160,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/references": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The entries that name this one, and the attribute each names it by
+         * @description Answers "which groups is this in, and what else points at it" — and,
+         *     unlike the filter on the entry itself, says *how* each one points.
+         *
+         *     That is the part a link cannot give you. A search returns the entries
+         *     matching the filter but not which term matched, and removing a
+         *     reference means modifying a named attribute on the referencing entry:
+         *     without knowing whether a group holds this DN in `member` or in `owner`,
+         *     there is nothing safe to offer.
+         *
+         *     It is one bounded search. The reference attributes are requested and
+         *     matched here rather than in the browser, so a group's five hundred
+         *     members are compared where they already are instead of being sent
+         *     across to be compared and discarded.
+         */
+        get: operations["listReferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/schema": {
         parameters: {
             query?: never;
@@ -817,6 +849,37 @@ export interface components {
             /** @description The schema's own DESC, where the server published one. */
             desc?: string;
         };
+        ReferenceList: {
+            references: components["schemas"]["Reference"][];
+            /**
+             * @description True when the search stopped early, so there are references this
+             *     does not list. A list that quietly omits some is worse than none
+             *     when the question is "what would break if I deleted this".
+             */
+            truncated: boolean;
+            /** @description The naming context this looked in. */
+            searchedBase?: string;
+        };
+        Reference: {
+            /** @description The entry doing the naming. */
+            dn: string;
+            rdn?: string;
+            /**
+             * @description The attribute it names this entry by, canonically spelled. Removing
+             *     the reference is a delete of one value of this attribute on that
+             *     entry — which is why it is reported rather than inferred.
+             */
+            attribute: string;
+            /**
+             * @description The value as the directory stores it, which is not always the
+             *     subject's own DN: `uniqueMember` may carry a `#uid` suffix, and a
+             *     server may return a different but equivalent spelling. A delete has
+             *     to name the stored value — `uniqueMemberMatch` compares the UID
+             *     part too, so a delete of the bare DN would match nothing and the
+             *     reference would survive a change that reported success.
+             */
+            value: string;
+        };
         SchemaCounts: {
             objectClasses?: number;
             attributeTypes?: number;
@@ -1387,6 +1450,32 @@ export interface operations {
                     "application/json": components["schemas"]["ObjectViewList"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listReferences: {
+        parameters: {
+            query: {
+                /** @description The entry being referred to. */
+                dn: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What names this entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferenceList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };

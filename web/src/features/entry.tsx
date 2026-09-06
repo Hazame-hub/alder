@@ -7,7 +7,6 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  Link2,
   Layers,
   Loader2,
   Lock,
@@ -59,6 +58,7 @@ import {
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
+import { ReferencedByButton } from "@/features/referenced-by";
 import { DeleteSubtreeButton } from "@/features/delete-subtree";
 import { AddAttribute, AttributeEditor } from "@/components/attribute-editor";
 import { computeMods, snapshot, type Draft } from "@/lib/mods";
@@ -289,23 +289,22 @@ function EntryHeader({
           {/*
             Which groups is this in, and what else names it — the question
             asked most often about an account, and the one to ask before
-            deleting anything. It is a link rather than a panel: the search
-            page already renders the answer as a table with row actions, and
-            the filter is in the URL, so the answer is shareable and the query
-            is visible and editable rather than hidden behind a button.
+            deleting anything. This started as a link to the search page and
+            became a panel when removal arrived: a search says which entries
+            matched, never which term matched, and removing a reference is a
+            delete of a *named* attribute on the referring entry. The link's
+            argument — a filter in the URL is shareable and editable — still
+            holds, so the panel keeps it as "Open as a search".
           */}
-          {entry.referencedByFilter && onSearch ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                onSearch(entry.referencedByFilter as string, membershipBase)
-              }
-              title="Find every entry that names this one"
-            >
-              <Link2 />
-              Referenced by
-            </Button>
+          {entry.referencedByFilter ? (
+            <ReferencedByButton
+              dn={entry.dn}
+              filter={entry.referencedByFilter}
+              searchBase={membershipBase}
+              readOnly={readOnly}
+              onNavigate={onNavigate}
+              onSearch={onSearch}
+            />
           ) : null}
           <ExportButton dn={entry.dn} />
           {readOnly ? (

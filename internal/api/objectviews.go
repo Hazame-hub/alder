@@ -130,8 +130,27 @@ var referenceAttrs = []string{
 // escaping rule lives, so a DN carrying parentheses or an asterisk becomes an
 // assertion value rather than structure.
 func referencedByFilter(sch *schema.Schema, subject string) string {
-	if sch == nil || subject == "" {
+	f, ok := referencedByFilterTree(sch, subject)
+	if !ok {
 		return ""
+	}
+	rendered, err := f.Render()
+	if err != nil {
+		// Only reachable if a schema published an attribute name that cannot be
+		// an assertion type. Offering no link beats offering a broken one.
+		return ""
+	}
+	return rendered
+}
+
+// referencedByFilterTree is the same question as a filter tree.
+//
+// The panel takes this rather than the rendered string, because rendering a
+// filter only to parse it straight back is two chances to disagree about
+// escaping where there should be none.
+func referencedByFilterTree(sch *schema.Schema, subject string) (filter.Filter, bool) {
+	if sch == nil || subject == "" {
+		return filter.Filter{}, false
 	}
 
 	subs := make([]filter.Filter, 0, len(referenceAttrs))
@@ -145,23 +164,14 @@ func referencedByFilter(sch *schema.Schema, subject string) string {
 		}
 		subs = append(subs, filter.Equal(at.Name(), subject))
 	}
-	if len(subs) == 0 {
-		return ""
+	switch len(subs) {
+	case 0:
+		return filter.Filter{}, false
+	case 1:
+		return subs[0], true
+	default:
+		return filter.Or(subs...), true
 	}
-
-	var f filter.Filter
-	if len(subs) == 1 {
-		f = subs[0]
-	} else {
-		f = filter.Or(subs...)
-	}
-	rendered, err := f.Render()
-	if err != nil {
-		// Only reachable if a schema published an attribute name that cannot be
-		// an assertion type. Offering no link beats offering a broken one.
-		return ""
-	}
-	return rendered
 }
 
 // columnLabels gives a heading a reader recognises.

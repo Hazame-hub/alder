@@ -231,6 +231,43 @@ paths:
               schema: { $ref: "#/components/schemas/ObjectViewList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /references:
+    get:
+      tags: [browse]
+      operationId: listReferences
+      summary: The entries that name this one, and the attribute each names it by
+      description: |
+        Answers "which groups is this in, and what else points at it" — and,
+        unlike the filter on the entry itself, says *how* each one points.
+
+        That is the part a link cannot give you. A search returns the entries
+        matching the filter but not which term matched, and removing a
+        reference means modifying a named attribute on the referencing entry:
+        without knowing whether a group holds this DN in `member` or in `owner`,
+        there is nothing safe to offer.
+
+        It is one bounded search. The reference attributes are requested and
+        matched here rather than in the browser, so a group's five hundred
+        members are compared where they already are instead of being sent
+        across to be compared and discarded.
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          schema: { type: string }
+          description: The entry being referred to.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
+      responses:
+        "200":
+          description: What names this entry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceList" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /schema:
     get:
       tags: [schema]
@@ -1096,6 +1133,47 @@ components:
         desc:
           type: string
           description: The schema's own DESC, where the server published one.
+
+    ReferenceList:
+      type: object
+      required: [references, truncated]
+      properties:
+        references:
+          type: array
+          items: { $ref: "#/components/schemas/Reference" }
+        truncated:
+          type: boolean
+          description: |
+            True when the search stopped early, so there are references this
+            does not list. A list that quietly omits some is worse than none
+            when the question is "what would break if I deleted this".
+        searchedBase:
+          type: string
+          description: The naming context this looked in.
+
+    Reference:
+      type: object
+      required: [dn, attribute, value]
+      properties:
+        dn:
+          type: string
+          description: The entry doing the naming.
+        rdn: { type: string }
+        attribute:
+          type: string
+          description: |
+            The attribute it names this entry by, canonically spelled. Removing
+            the reference is a delete of one value of this attribute on that
+            entry — which is why it is reported rather than inferred.
+        value:
+          type: string
+          description: |
+            The value as the directory stores it, which is not always the
+            subject's own DN: `uniqueMember` may carry a `#uid` suffix, and a
+            server may return a different but equivalent spelling. A delete has
+            to name the stored value — `uniqueMemberMatch` compares the UID
+            part too, so a delete of the bare DN would match nothing and the
+            reference would survive a change that reported success.
 
     SchemaCounts:
       type: object
