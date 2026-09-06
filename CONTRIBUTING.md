@@ -156,6 +156,14 @@ same date. It was never built as a feature: it falls out of the entry editor
 being general and writes being routed by DN. Rather than take it away, it now
 warns before it lets you do something you cannot undo.
 
+Staging many changes for one review is in scope, and has been since the
+changeset shipped. A subtree's deletions, a parsed LDIF document and a table's
+selected rows all stage as one set, because reviewing forty records together is
+the review — confirming them one at a time is a different and worse one. That is
+not the excluded line below: Alder stages what the operator authored or what the
+directory already holds, and does not generate entries from an external file.
+The distinction is where the entries come from, not how many there are.
+
 Everything else is excluded on purpose, and the list is load-bearing rather than
 a backlog:
 
@@ -163,7 +171,8 @@ a backlog:
 - OIDC, SAML, or SSO
 - a persisted audit log
 - FreeIPA, Active Directory or Entra ID drivers
-- bulk or CSV provisioning
+- bulk or CSV provisioning: generating entries from a spreadsheet or a
+  feed, as opposed to staging ones you wrote or ones already in the directory
 - an end-user self-service or password reset portal
 - a database of any kind
 - telemetry
