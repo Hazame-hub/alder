@@ -1,3 +1,4 @@
+import type { ChangeRequest } from "./api";
 import { changeset } from "./changeset";
 
 /**
@@ -22,13 +23,28 @@ export type StageOutcome = {
 };
 
 export function stageDeletions(dns: string[]): StageOutcome {
-  if (dns.length === 0) {
-    return { ok: false, staged: 0, message: "Nothing was selected." };
+  return stageChanges(
+    dns.map((dn) => ({ change: { dn, type: "delete" as const }, label: `Delete ${dn}` })),
+    { noun: "deletion", nothing: "Nothing was selected." },
+  );
+}
+
+/**
+ * Stage an arbitrary set of changes, with one wording for the refusal.
+ *
+ * The two callers are a table's selection and a parsed document, and they refuse
+ * for the same reason. Wording that twice is how two callers end up explaining
+ * the same limit differently.
+ */
+export function stageChanges(
+  items: { change: ChangeRequest; label: string }[],
+  words: { noun: string; nothing: string },
+): StageOutcome {
+  if (items.length === 0) {
+    return { ok: false, staged: 0, message: words.nothing };
   }
 
-  const result = changeset.addMany(
-    dns.map((dn) => ({ change: { dn, type: "delete" as const }, label: `Delete ${dn}` })),
-  );
+  const result = changeset.addMany(items);
 
   if (result.refused > 0) {
     return {
@@ -36,16 +52,16 @@ export function stageDeletions(dns: string[]): StageOutcome {
       staged: 0,
       message:
         result.capacity === 0
-          ? `The changeset is full at ${dns.length === 1 ? "its limit" : "its limit"}. ` +
-            "Apply or discard what is staged, then select these again."
-          : `That is ${dns.length} entries and only ${result.capacity} will fit. ` +
-            "Nothing was staged. Apply or discard what is already there, or select fewer.",
+          ? "The changeset is already full. Apply or discard what is staged, then try again."
+          : `That is ${items.length} changes and only ${result.capacity} will fit. ` +
+            "Nothing was staged. Apply or discard what is already there, or take fewer.",
     };
   }
 
+  const plural = result.staged === 1 ? `${words.noun} is` : `${words.noun}s are`;
   return {
     ok: true,
     staged: result.staged,
-    message: `${result.staged} ${result.staged === 1 ? "deletion is" : "deletions are"} staged. Nothing has been sent to the directory.`,
+    message: `${result.staged} ${plural} staged. Nothing has been sent to the directory.`,
   };
 }

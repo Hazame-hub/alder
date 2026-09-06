@@ -193,7 +193,7 @@ export function App() {
             </main>
           ) : (
             <main className="min-w-0 flex-1 overflow-y-auto">
-              <ImportPanel />
+              <ImportPanel onReviewChangeset={() => go({ view: "changeset" })} />
             </main>
           )}
         </div>

@@ -750,3 +750,35 @@ to contradict the plan — add an entry.
   all three references correctly; the expectation was wrong. Worth recording
   because a reverse-lookup test that asserts the wrong group would otherwise be
   fixed by loosening it.
+
+### 2026-09-06 — a parsed document can be staged whole
+
+- **The whole-set validation had no way of being reached from a document.**
+  `changesetWarnings` reports a parent created after its child, an entry acted
+  on after it is deleted, and the same DN changed twice — findings that exist
+  only for a set — and the only routes into the basket were one confirmation
+  dialog at a time and a table's selection. An imported document is the place
+  multi-record work actually comes from, and it could reach none of it.
+- **"Stage the remaining N", not "Stage all".** A record already applied from
+  this panel, or already in the basket, is not staged again, and the button says
+  the number it will act on rather than the number on screen.
+- **A record is in exactly one of three states, and staged disables its own
+  button.** This closes a hazard that predates the feature: the panel tracks
+  applied records in local state, and a changeset applied from the changeset
+  view never writes back into it. Two live routes to the directory for one
+  record is a record you can apply twice — harmless for an add, which fails with
+  entryAlreadyExists, and silent for a delete or a replace.
+- **Staging is bounded by the same cap as everything else,** and refuses the
+  whole document rather than a prefix. A document is a set: staging the first
+  four hundred records of it and stopping produces something that looks like it
+  worked.
+- **The refusal is worded once.** `stageChanges` is shared with the table
+  selection, because both refuse for the same reason and two callers explaining
+  the same limit differently is how a bound stops reading as one rule.
+- **The confirmation is moved, not skipped.** Every record's LDIF and warnings
+  are already on screen before the button is reachable, and the changeset
+  re-renders the combined document before a single Apply. That is the shape
+  already blessed for a table's bulk selection.
+- **Nothing about applying changed.** `/changeset/apply` still walks the set one
+  record at a time through `Session.Apply`, and still halts at the first
+  failure, which the view says in as many words.
