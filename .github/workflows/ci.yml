@@ -77,6 +77,30 @@ jobs:
       - name: SPA unit tests
         run: npm --prefix web run test
 
+      # api/openapi.yaml is the source of truth and both clients are generated
+      # from it, but the generated files are committed — so nothing stopped the
+      # two drifting apart. `task generate` was found broken on main once, with
+      # the committed output predating the break, which is exactly the failure
+      # this catches: the spec says one thing, the code compiled against
+      # another, and CI was happy with both.
+      #
+      # It runs the same command a developer runs, rather than reimplementing
+      # it here, so the two cannot disagree either.
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: the generated API files match the spec
+        run: |
+          task generate
+          if ! git diff --exit-code -- internal/api/api.gen.go web/src/lib/api.gen.ts; then
+            echo
+            echo "The generated API files do not match api/openapi.yaml."
+            echo "Run 'task generate' and commit the result."
+            exit 1
+          fi
+
   seed:
     name: seed data is up to date
     runs-on: ubuntu-latest
