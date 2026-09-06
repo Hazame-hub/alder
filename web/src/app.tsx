@@ -152,6 +152,7 @@ export function App() {
                     onSearch={(filter, base) =>
                       go({ view: "search", filter, base, scope: "sub" })
                     }
+                    onReviewChangeset={() => go({ view: "changeset" })}
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">

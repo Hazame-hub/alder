@@ -782,3 +782,44 @@ to contradict the plan — add an entry.
 - **Nothing about applying changed.** `/changeset/apply` still walks the set one
   record at a time through `Session.Apply`, and still halts at the first
   failure, which the view says in as many words.
+
+### 2026-09-06 — deleting a container
+
+- **Alder told the operator what to do and gave them no way to do it.** The
+  result-code hint has said, since v0.6.1, that "the entry has children, and a
+  directory removes entries one at a time from the bottom" — and there was no
+  route to that anywhere in the product.
+- **It counts before it walks.** `GET /count` is a bounded search asking for no
+  attributes, so it is cheap, and it is the thing that makes the refusals
+  possible. The number is shown before anything is staged.
+- **Four refusals, and the default is to refuse.** No paging on the server; a
+  count that came back truncated; a subtree larger than what is left in the
+  changeset; and nothing underneath at all. Each prevents the same outcome — a
+  partial subtree delete, which removes the leaves it reached and leaves every
+  container standing, a state worse than not having started and one the
+  operator cannot see coming.
+- **That logic is a pure function with its own tests.** It was written inline in
+  the dialog first, and verifying it meant driving a browser into a state where
+  the basket was nearly full — which is the wrong way to test the safety logic
+  of the most destructive action in the application. `checkSubtree` is now
+  `lib/subtree-refusal.ts`.
+- **Ordering is by depth, deepest first, and that is sufficient.** A child
+  always has more RDNs than its parent, so descending depth puts every child
+  ahead of every ancestor without building the tree. Entries at equal depth in
+  different branches are unordered with respect to each other, which is correct:
+  neither is the other's parent.
+- **`splitDN` is no longer display-only, and its comment now says so.** Counting
+  its components is what orders the deletions, so an RDN with an escaped comma
+  counted naively would look a level deeper than it is and be staged ahead of
+  its own children. The harness holds such an entry precisely because tools get
+  this wrong, and there is now a test for it.
+- **It stages DNs and nothing else.** The walk asks for `1.1`, so a subtree of
+  three hundred entries does not pull three hundred entries' worth of values
+  into the browser to be thrown away.
+- **The copy says the run halts.** `/changeset/apply` stops at the first failure
+  and leaves the rest staged; a subtree delete is exactly where somebody would
+  otherwise assume all-or-nothing.
+- **A test that failed on a locale, not on logic.** The first refusal test
+  asserted "10,000" and got "10 000": the message is formatted with
+  `toLocaleString`, which is right — a thousands mark belongs to the reader —
+  and the assertion was wrong to hardcode one.
