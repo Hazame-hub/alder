@@ -2161,3 +2161,130 @@ func TestProvenanceIsAvailableOnBothServersByDifferentMeans(t *testing.T) {
 		}
 	})
 }
+
+// TestReverseReferenceLookupFindsEveryShape asserts the question behind the
+// "referenced by" link: given a person's DN, find every entry that names them.
+//
+// It is a conformance case rather than a unit test because the filter is only
+// as good as the vocabulary the connected server publishes, and because the
+// two DN-valued membership styles do not match the same way. member is a plain
+// DN; uniqueMember carries RFC 4517's Name and Optional UID syntax, matched by
+// uniqueMemberMatch, and a server is entitled to treat a bare DN and a
+// DN#uid differently. Asserting it against both servers is the only way to
+// know the same question gets the same answer.
+func TestReverseReferenceLookupFindsEveryShape(t *testing.T) {
+	subject := "uid=user0001,ou=people," + suffix
+
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+		base, err := dn.Parse(suffix)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// The three shapes the seed installs for user0001: a groupOfNames by
+		// member, a groupOfUniqueNames by uniqueMember, and a group that names
+		// them as its owner.
+		for _, tc := range []struct {
+			attribute string
+			wantDN    string
+		}{
+			{"member", "cn=network,ou=groups," + suffix},
+			{"uniqueMember", "cn=auditors,ou=groups," + suffix},
+			{"owner", "cn=platform-owned,ou=groups," + suffix},
+		} {
+			at := sch.AttributeType(tc.attribute)
+			if at == nil {
+				t.Errorf("%s does not define %s, so the reverse lookup cannot ask about it",
+					s.name, tc.attribute)
+				continue
+			}
+
+			res, searchErr := sess.Search(ctx(t), directory.SearchRequest{
+				BaseDN:     base,
+				Scope:      directory.ScopeSubtree,
+				Filter:     filter.Equal(at.Name(), subject),
+				Attributes: []string{"1.1"},
+				Limit:      50,
+				PageSize:   50,
+			})
+			if searchErr != nil {
+				t.Errorf("%s: searching %s=%s: %v", s.name, tc.attribute, subject, searchErr)
+				continue
+			}
+
+			found := false
+			for _, e := range res.Entries {
+				if strings.EqualFold(e.DN.String(), tc.wantDN) {
+					found = true
+				}
+			}
+			if !found {
+				var got []string
+				for _, e := range res.Entries {
+					got = append(got, e.DN.String())
+				}
+				t.Errorf("%s: %s=%s did not find %s; got %v",
+					s.name, tc.attribute, subject, tc.wantDN, got)
+			}
+		}
+	})
+}
+
+// And the same question asked as one filter, which is what the link actually
+// sends: every shape at once, and the union is what the operator sees.
+func TestReverseReferenceLookupAsOneFilter(t *testing.T) {
+	subject := "uid=user0001,ou=people," + suffix
+
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+		base, err := dn.Parse(suffix)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var subs []filter.Filter
+		for _, name := range []string{"member", "uniqueMember", "owner", "manager", "seeAlso"} {
+			if at := sch.AttributeType(name); at != nil {
+				subs = append(subs, filter.Equal(at.Name(), subject))
+			}
+		}
+		if len(subs) < 3 {
+			t.Fatalf("%s defines only %d of the reference attributes", s.name, len(subs))
+		}
+
+		res, searchErr := sess.Search(ctx(t), directory.SearchRequest{
+			BaseDN:     base,
+			Scope:      directory.ScopeSubtree,
+			Filter:     filter.Or(subs...),
+			Attributes: []string{"1.1"},
+			Limit:      50,
+			PageSize:   50,
+		})
+		if searchErr != nil {
+			t.Fatalf("%s: %v", s.name, searchErr)
+		}
+
+		got := map[string]bool{}
+		for _, e := range res.Entries {
+			got[strings.ToLower(e.DN.String())] = true
+		}
+		for _, want := range []string{
+			"cn=network,ou=groups," + suffix,
+			"cn=auditors,ou=groups," + suffix,
+			"cn=platform-owned,ou=groups," + suffix,
+		} {
+			if !got[strings.ToLower(want)] {
+				t.Errorf("%s: the combined filter missed %s (found %d entries)",
+					s.name, want, len(res.Entries))
+			}
+		}
+		t.Logf("%s: %d entries reference %s", s.name, len(res.Entries), subject)
+	})
+}

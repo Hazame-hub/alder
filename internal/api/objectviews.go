@@ -107,6 +107,63 @@ func membershipAttributes(sch *schema.Schema, req schema.AttributeRequirements) 
 	return out
 }
 
+// referenceAttrs are the attributes by which one entry names another.
+//
+// Standards-track, resolved the same way the anchor classes and the membership
+// attributes are: RFC 4519 for member, uniqueMember, owner, seeAlso and
+// roleOccupant, RFC 4524 for manager and secretary. The list is short on
+// purpose. A sweep of every DN-syntax attribute the schema defines would put
+// forty terms in one filter, most of them operational, and ask the directory a
+// far more expensive question than the one anybody meant.
+var referenceAttrs = []string{
+	"member", "uniqueMember", "owner", "manager", "seeAlso", "roleOccupant", "secretary",
+}
+
+// referencedByFilter builds the filter matching every entry naming this one.
+//
+// Three things it will not do. It will not assert an attribute the server has
+// not defined, so the question is phrased in the connected directory's own
+// vocabulary. It will not assert one the directory owns — NO-USER-MODIFICATION
+// or an operational usage — because a row offering to remove a reference the
+// server will never let you modify is a row that can only fail. And it does not
+// concatenate: the DN goes through the filter builder, which is where the
+// escaping rule lives, so a DN carrying parentheses or an asterisk becomes an
+// assertion value rather than structure.
+func referencedByFilter(sch *schema.Schema, subject string) string {
+	if sch == nil || subject == "" {
+		return ""
+	}
+
+	subs := make([]filter.Filter, 0, len(referenceAttrs))
+	for _, name := range referenceAttrs {
+		at := sch.AttributeType(name)
+		if at == nil {
+			continue
+		}
+		if sch.EffectiveNoUserModification(at) || sch.EffectiveUsage(at).Operational() {
+			continue
+		}
+		subs = append(subs, filter.Equal(at.Name(), subject))
+	}
+	if len(subs) == 0 {
+		return ""
+	}
+
+	var f filter.Filter
+	if len(subs) == 1 {
+		f = subs[0]
+	} else {
+		f = filter.Or(subs...)
+	}
+	rendered, err := f.Render()
+	if err != nil {
+		// Only reachable if a schema published an attribute name that cannot be
+		// an assertion type. Offering no link beats offering a broken one.
+		return ""
+	}
+	return rendered
+}
+
 // columnLabels gives a heading a reader recognises.
 //
 // Deliberately small, and covering only the attributes the views above ask for.

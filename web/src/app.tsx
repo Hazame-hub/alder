@@ -149,6 +149,9 @@ export function App() {
                       (t) => t.dn,
                     )}
                     onOpenSchema={() => go({ view: "schema" })}
+                    onSearch={(filter, base) =>
+                      go({ view: "search", filter, base, scope: "sub" })
+                    }
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">

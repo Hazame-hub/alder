@@ -151,6 +151,36 @@ func groupsLDIF() []byte {
 	all.add("member", "cn=release,"+groups)
 	all.writeTo(&b)
 
+	// One group in the other membership style, so a reverse lookup has more
+	// than one shape to find.
+	//
+	// Until this existed the seed held 307 member values and not one
+	// uniqueMember, owner or manager — so a test asserting "every entry that
+	// names this person" would have passed while only ever exercising a single
+	// attribute. groupOfUniqueNames is structural on both servers, which is
+	// what lets this stay in the byte-identical seed rather than becoming a
+	// vendor-specific fragment.
+	unique := newEntry("cn=auditors," + groups)
+	unique.add("objectClass", "top", "groupOfUniqueNames")
+	unique.add("cn", "auditors")
+	unique.add("description", "Membership by uniqueMember, the other DN-valued style")
+	unique.add("uniqueMember", fmt.Sprintf("uid=user%04d,%s", 1, people))
+	unique.add("uniqueMember", fmt.Sprintf("uid=user%04d,%s", 2, people))
+	unique.add("uniqueMember", "cn=platform,"+groups)
+	unique.writeTo(&b)
+
+	// And the references that are not membership at all: owner points at a
+	// person from a group, manager from one person to another. Both are DN
+	// valued and both are things a reverse lookup has to find before anybody
+	// deletes the entry they point at.
+	owned := newEntry("cn=platform-owned," + groups)
+	owned.add("objectClass", "top", "groupOfNames")
+	owned.add("cn", "platform-owned")
+	owned.add("description", "Owned by a person, so owner has something to find")
+	owned.add("owner", fmt.Sprintf("uid=user%04d,%s", 1, people))
+	owned.add("member", fmt.Sprintf("uid=user%04d,%s", 3, people))
+	owned.writeTo(&b)
+
 	return b.Bytes()
 }
 
