@@ -14,6 +14,7 @@
 package conformance
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -2287,4 +2289,121 @@ func TestReverseReferenceLookupAsOneFilter(t *testing.T) {
 		}
 		t.Logf("%s: %d entries reference %s", s.name, len(res.Entries), subject)
 	})
+}
+
+// The assumptions the import reconciler rests on, checked on both servers.
+//
+// Reconciling turns a content record whose entry exists into a modify that
+// replaces the attributes the document names — and only those. Three things
+// have to be true of a real directory for that to be safe, and none of them is
+// obvious enough to take on trust across two vendors.
+func TestReconcileAssumptionsHold(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		base := writeBase(t, sess, "conf-reconcile-"+s.name)
+		target, err := base.ChildAttr("cn", "reconcile-subject")
+		if err != nil {
+			t.Fatalf("building the target DN: %v", err)
+		}
+
+		create := directory.ChangeRecord{
+			DN:   target,
+			Type: directory.ChangeAdd,
+			Attrs: []directory.Attribute{
+				{Name: "objectClass", Values: bs("top", "person", "organizationalPerson", "inetOrgPerson")},
+				{Name: "cn", Values: bs("reconcile-subject")},
+				{Name: "sn", Values: bs("Subject")},
+				{Name: "mail", Values: bs("first@alder.test", "second@alder.test")},
+				{Name: "userPassword", Values: bs("a-password-the-document-never-carries")},
+			},
+		}
+		if err := sess.Apply(ctx(t), create); err != nil {
+			t.Fatalf("creating the subject: %v", err)
+		}
+
+		before, err := sess.Read(ctx(t), target, []string{"*"})
+		if err != nil {
+			t.Fatalf("reading the subject back: %v", err)
+		}
+
+		// 1. An export's values come back byte for byte, which is what makes an
+		//    unchanged round trip reconcile to nothing rather than to a page of
+		//    modifications nobody asked to confirm.
+		for _, name := range []string{"cn", "sn", "mail"} {
+			got := before.Get(name)
+			want := attrValues(create, name)
+			if !sameValueSet(got, want) {
+				t.Errorf("%s came back as %q, was written as %q", name, got, want)
+			}
+		}
+
+		// 2. Replacing an attribute with the values it already holds is
+		//    accepted. The reconciler skips these, but a server that refused
+		//    them would make any near-miss comparison dangerous.
+		idempotent := directory.ChangeRecord{
+			DN:   target,
+			Type: directory.ChangeModify,
+			Mods: []directory.Mod{
+				{Op: directory.ModReplace, Name: "mail", Values: before.Get("mail")},
+			},
+		}
+		if err := sess.Apply(ctx(t), idempotent); err != nil {
+			t.Errorf("replacing an attribute with its own values was refused: %v", err)
+		}
+
+		// 3. The safety claim: a modify that does not name userPassword leaves
+		//    it alone. An export omits it always, so reconciling must never be
+		//    able to read its absence from a document as a request to remove it.
+		narrow := directory.ChangeRecord{
+			DN:   target,
+			Type: directory.ChangeModify,
+			Mods: []directory.Mod{
+				{Op: directory.ModReplace, Name: "mail", Values: bs("changed@alder.test")},
+			},
+		}
+		if err := sess.Apply(ctx(t), narrow); err != nil {
+			t.Fatalf("the narrow modification was refused: %v", err)
+		}
+
+		after, err := sess.Read(ctx(t), target, []string{"*"})
+		if err != nil {
+			t.Fatalf("reading the subject after the change: %v", err)
+		}
+		if got := after.Get("mail"); len(got) != 1 || string(got[0]) != "changed@alder.test" {
+			t.Errorf("mail is %q after the reconciliation", got)
+		}
+		if len(after.Get("userPassword")) == 0 {
+			t.Error("the password was removed by a modification that never named it")
+		}
+		if got := after.Get("sn"); len(got) != 1 || string(got[0]) != "Subject" {
+			t.Errorf("an unnamed attribute changed: sn is %q", got)
+		}
+	})
+}
+
+// attrValues reads one attribute off a change record.
+func attrValues(rec directory.ChangeRecord, name string) [][]byte {
+	for _, a := range rec.Attrs {
+		if strings.EqualFold(a.Name, name) {
+			return a.Values
+		}
+	}
+	return nil
+}
+
+// sameValueSet compares two attribute values as the sets they are, which is
+// what they are: a directory returns them in whatever order it likes.
+func sameValueSet(a, b [][]byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	left := append([][]byte(nil), a...)
+	right := append([][]byte(nil), b...)
+	sort.Slice(left, func(i, j int) bool { return bytes.Compare(left[i], left[j]) < 0 })
+	sort.Slice(right, func(i, j int) bool { return bytes.Compare(right[i], right[j]) < 0 })
+	for i := range left {
+		if !bytes.Equal(left[i], right[i]) {
+			return false
+		}
+	}
+	return true
 }

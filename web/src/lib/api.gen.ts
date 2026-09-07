@@ -1253,11 +1253,46 @@ export interface components {
         };
         ImportRequest: {
             ldif: string;
+            /**
+             * @description Turn a content record whose entry already exists into a modify that
+             *     brings that entry to what the record describes.
+             *
+             *     Without it such a record is an add, and a directory refuses an add
+             *     for an entry that exists — which is correct, and makes the second
+             *     half of an export/edit/import loop fail on every record.
+             *
+             *     It replaces the attributes the record names and leaves every other
+             *     attribute exactly as it is. The document is not treated as the whole
+             *     truth about the entry: an export omits `userPassword` always and
+             *     operational attributes by default, and a file that does not mention
+             *     an attribute is not a file asking for it to be removed.
+             * @default false
+             */
+            reconcile: boolean;
         };
         ImportResult: {
             changes: components["schemas"]["ChangePreview"][];
             /** @description The parsed changes, ready to post back to /changes/apply. */
             requests?: components["schemas"]["ChangeRequest"][];
+            /**
+             * @description How many records were turned into a modify because their entry
+             *     already exists. Only set when `reconcile` was asked for.
+             */
+            reconciled?: number;
+            /**
+             * @description The DNs whose entry already matches the document, and which are
+             *     therefore absent from `changes`. Reported rather than shown as
+             *     no-op modifications: a change that does nothing still has to be
+             *     read and confirmed, and there is nothing there to confirm.
+             */
+            unchanged?: string[];
+            /**
+             * @description Attributes left out of a reconciliation because the directory owns
+             *     them — operational or `NO-USER-MODIFICATION`. Enforcing one fails
+             *     the whole record, and dropping it silently would let the file mean
+             *     something other than it says.
+             */
+            skippedAttributes?: string[];
         };
     };
     responses: {

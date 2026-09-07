@@ -1123,8 +1123,13 @@ func (s *Server) ParseLdif(c *fiber.Ctx) error {
 	defer cancel()
 	sch, _ := sess.Conn.Schema(ctx)
 
+	wantReconcile := body.Reconcile != nil && *body.Reconcile
+
 	result := ImportResult{Changes: make([]ChangePreview, 0, len(records))}
 	requests := make([]ChangeRequest, 0, len(records))
+	var unchanged, skippedAttrs []string
+	reconciled := 0
+
 	for i, rec := range records {
 		change, convErr := recordToChange(rec)
 		if convErr != nil {
@@ -1133,6 +1138,31 @@ func (s *Server) ParseLdif(c *fiber.Ctx) error {
 		if err := change.Validate(); err != nil {
 			return badRequest(c, fmt.Sprintf("Record %d (%s) is not usable.", i+1, rec.DN), err.Error())
 		}
+
+		// Only a content record can be reconciled. A changetype record already
+		// says what it wants done, and second-guessing it would be inventing an
+		// intent the document does not carry.
+		if wantReconcile && change.Type == directory.ChangeAdd {
+			live, readErr := sess.Conn.Read(ctx, change.DN, []string{"*", "+"})
+			switch {
+			case readErr != nil && !isNoSuchObject(readErr):
+				// An entry that is absent is the ordinary case — the record
+				// stays an add. Anything else is a real failure and saying so
+				// beats silently importing half a document.
+				return s.fail(c, readErr)
+			case readErr == nil && live != nil:
+				outcome := reconcile(change, live, sch)
+				skippedAttrs = appendNew(skippedAttrs, outcome.Skipped)
+				if !outcome.Changed {
+					// Nothing to confirm, so nothing is offered to confirm.
+					unchanged = append(unchanged, change.DN.String())
+					continue
+				}
+				change = outcome.Change
+				reconciled++
+			}
+		}
+
 		preview, prevErr := s.renderPreview(change, sch, sess.Conn.Capabilities())
 		if prevErr != nil {
 			return s.fail(c, prevErr)
@@ -1140,7 +1170,17 @@ func (s *Server) ParseLdif(c *fiber.Ctx) error {
 		result.Changes = append(result.Changes, preview)
 		requests = append(requests, changeRequest(change))
 	}
+
 	result.Requests = ptr(requests)
+	if wantReconcile {
+		result.Reconciled = ptr(reconciled)
+		if len(unchanged) > 0 {
+			result.Unchanged = ptr(unchanged)
+		}
+		if len(skippedAttrs) > 0 {
+			result.SkippedAttributes = ptr(skippedAttrs)
+		}
+	}
 	return c.JSON(result)
 }
 
