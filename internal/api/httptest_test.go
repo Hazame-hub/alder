@@ -1,0 +1,217 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/dn"
+	"github.com/hazame-hub/alder/internal/schema"
+	"github.com/hazame-hub/alder/internal/session"
+)
+
+// The HTTP layer, tested.
+//
+// Until this file, nothing exercised a handler. The conformance suite sits
+// below them — it drives the Driver against two real servers — and the unit
+// tests sit beside them, covering the pure functions handlers call. Between the
+// two was the layer that actually decides what a browser receives: routing,
+// parameter parsing, the guards, and the shape of the JSON.
+//
+// That gap is not theoretical. A correct back end has been invisible three
+// times in this codebase because a mapping between it and the wire was wrong or
+// missing, and each time the tests were green. These run without Docker, so
+// they run on every `go test ./...` rather than only where a harness exists.
+
+// fakeSession is a directory.Session whose answers the test decides.
+//
+// A fake rather than a mock: handlers should be judged by what they return, not
+// by which methods they happened to call.
+type fakeSession struct {
+	caps    directory.Capabilities
+	sch     *schema.Schema
+	entries []*directory.Entry
+	entry   *directory.Entry
+
+	searchErr error
+	readErr   error
+	applyErr  error
+
+	// applied records every write, so a test can assert that a handler sent
+	// what the preview promised.
+	applied []directory.ChangeRecord
+	// lastSearch is the request as the handler built it, which is where
+	// parameter parsing either worked or quietly did not.
+	lastSearch *directory.SearchRequest
+}
+
+func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
+
+func (f *fakeSession) Schema(context.Context) (*schema.Schema, error) { return f.sch, nil }
+
+func (f *fakeSession) Search(_ context.Context, req directory.SearchRequest) (*directory.SearchResult, error) {
+	f.lastSearch = &req
+	if f.searchErr != nil {
+		return nil, f.searchErr
+	}
+	return &directory.SearchResult{Entries: f.entries}, nil
+}
+
+func (f *fakeSession) Read(_ context.Context, _ dn.DN, _ []string) (*directory.Entry, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	return f.entry, nil
+}
+
+func (f *fakeSession) SchemaDefinitions(context.Context, string, directory.SchemaDefKind) ([]string, error) {
+	return nil, nil
+}
+
+func (f *fakeSession) Apply(_ context.Context, ch directory.ChangeRecord) error {
+	if f.applyErr != nil {
+		return f.applyErr
+	}
+	f.applied = append(f.applied, ch)
+	return nil
+}
+
+func (f *fakeSession) Close() error { return nil }
+
+// testRig is a server with its routes mounted and one session already open.
+type testRig struct {
+	app    *fiber.App
+	server *Server
+	fake   *fakeSession
+	cookie string
+}
+
+func newRig(t *testing.T, cfg Config, fake *fakeSession) *testRig {
+	t.Helper()
+	if fake.sch == nil {
+		fake.sch = testSchema(t)
+	}
+	if cfg.IdleTimeout == 0 {
+		cfg.IdleTimeout = time.Minute
+	}
+	if cfg.MaxLifetime == 0 {
+		cfg.MaxLifetime = time.Hour
+	}
+
+	// Built directly rather than through NewServer, which would dial a real
+	// directory. Same package, so no test-only door has to exist in production
+	// code for this.
+	s := &Server{
+		sessions: session.NewStore(slog.New(slog.DiscardHandler), cfg.IdleTimeout, cfg.MaxLifetime),
+		logger:   slog.New(slog.DiscardHandler),
+		cfg:      cfg,
+	}
+	t.Cleanup(s.sessions.Close)
+
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	s.Register(app)
+
+	sess, err := s.sessions.Add(fake, directory.ConnConfig{
+		Host: "ldap.example.test", Port: 636, TLS: directory.TLSModeLDAPS,
+		BindDN: "cn=admin,dc=alder,dc=test",
+		// A real value, so tests can assert on the secret itself rather than
+		// on field names — "passwordModify" is a capability, not a leak.
+		BindPassword: sentinelPassword,
+	}, cfg.ReadOnly)
+	if err != nil {
+		t.Fatalf("opening a session: %v", err)
+	}
+
+	return &testRig{app: app, server: s, fake: fake, cookie: sess.ID}
+}
+
+// response is a request's outcome, already read and closed.
+//
+// The helpers hand back this rather than *http.Response so that no test has to
+// remember to close a body — and so the linter can see that none is left open,
+// which it cannot when the closing happens behind a helper.
+type response struct {
+	Status int
+	Body   string
+	Header http.Header
+}
+
+func (r *testRig) send(t *testing.T, req *http.Request) response {
+	t.Helper()
+	res, err := r.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("%s %s: %v", req.Method, req.URL, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("reading the response to %s %s: %v", req.Method, req.URL, err)
+	}
+	return response{Status: res.StatusCode, Body: string(body), Header: res.Header}
+}
+
+// do sends a request carrying the session cookie.
+func (r *testRig) do(t *testing.T, method, target string, body io.Reader) response {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, target, body)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.AddCookie(&http.Cookie{Name: session.CookieNameInsecure, Value: r.cookie})
+	return r.send(t, req)
+}
+
+// anonymous sends the same request with no session at all.
+func (r *testRig) anonymous(t *testing.T, method, target string) response {
+	t.Helper()
+	return r.send(t, httptest.NewRequestWithContext(t.Context(), method, target, nil))
+}
+
+func decode[T any](t *testing.T, res response) T {
+	t.Helper()
+	var out T
+	if err := json.Unmarshal([]byte(res.Body), &out); err != nil {
+		t.Fatalf("decoding the response: %v\nbody: %s", err, res.Body)
+	}
+	return out
+}
+
+// entryFixture is an ordinary person, including a password so that tests can
+// assert it does not travel.
+func entryFixture(t *testing.T) *directory.Entry {
+	t.Helper()
+	d, err := dn.Parse("uid=alice,ou=people,dc=alder,dc=test")
+	if err != nil {
+		t.Fatalf("parsing the fixture DN: %v", err)
+	}
+	e := directory.NewEntry(d)
+	e.Set("objectClass", [][]byte{[]byte("top"), []byte("inetOrgPerson")})
+	e.Set("cn", [][]byte{[]byte("Alice Liddell")})
+	e.Set("sn", [][]byte{[]byte("Liddell")})
+	e.Set("uid", [][]byte{[]byte("alice")})
+	e.Set("mail", [][]byte{[]byte("alice@alder.test")})
+	e.Set("userPassword", [][]byte{[]byte("{SSHA}averyrealsecret")})
+	return e
+}
+
+// sentinelPassword is distinctive enough that finding it anywhere in a
+// response body is unambiguous.
+const sentinelPassword = "correct-horse-battery-staple-8f21"
+
+func defaultCaps() directory.Capabilities {
+	return directory.Capabilities{
+		NamingContexts:    []string{"dc=alder,dc=test"},
+		SubschemaSubentry: "cn=subschema",
+		Paging:            true,
+		WhoAmI:            true,
+		PasswordModify:    true,
+	}
+}

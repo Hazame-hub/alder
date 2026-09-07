@@ -167,6 +167,10 @@ export function App() {
                 viewId={view as ObjectViewId}
                 namingContexts={contexts}
                 readOnly={info.readOnly === true}
+                // The same URL parameter the search page uses, so a link to a
+                // bigger page of users is a link like any other.
+                limit={search.limit}
+                onLimitChange={(limit) => go({ limit })}
                 onOpenEntry={openEntry}
                 onReviewChangeset={() => go({ view: "changeset" })}
               />
