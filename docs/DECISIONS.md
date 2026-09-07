@@ -1104,3 +1104,38 @@ to contradict the plan — add an entry.
 - **The limit commits on blur or Enter, not on each keystroke.** It goes in the
   URL, and a half-typed number there is a history entry nobody wanted and a
   search nobody asked for.
+
+### 2026-09-07 — import reconciles an entry that already exists
+
+- **A content record is an add, and a directory refuses an add for an entry
+  that exists.** That is correct, and it made the second half of an
+  export/edit/import loop fail on every record — the loop whose first half
+  Alder had just spent two releases building.
+- **The document is not the whole truth about the entry.** Reconciling replaces
+  the attributes the record names and leaves every other attribute exactly as
+  it is. An export omits `userPassword` always and operational attributes by
+  default; treating a file's silence as "remove it" would delete a password
+  because nobody wrote it down. This is the one rule the whole feature rests on
+  and it is asserted at all three levels of the tests.
+- **An unchanged round trip produces no changes, not a page of no-op
+  modifications.** A change that does nothing still has to be read and
+  confirmed, and there is nothing there to confirm. The DNs that already match
+  are reported instead.
+- **Values are compared byte for byte, not by the attribute's matching rule.**
+  A caseIgnoreMatch rule would call "Bob" and "bob" equal, and Alder would then
+  decline to write a correction somebody deliberately made in the file. The
+  case that has to be silent is the round trip, where values come back from the
+  same server byte for byte — verified on both servers rather than assumed.
+- **Attributes the directory owns are skipped and reported.** Enforcing one
+  fails the whole record; dropping it silently would let the file mean
+  something other than it says.
+- **Only content records are reconciled.** A `changetype` record already says
+  what it wants done, and rewriting it would be inventing an intent the document
+  does not carry.
+- **Three levels of test, on purpose.** The unit tests cover the decision
+  logic; the HTTP tests cover the endpoint, using the harness added the same
+  week; and a conformance test checks the three things about a *real* directory
+  the design depends on — that written values come back byte-identical, that
+  replacing an attribute with its own values is accepted, and that a modify
+  naming only `mail` leaves `userPassword` intact. The last one is the safety
+  claim, and it now holds on OpenLDAP and 389 DS rather than in principle.

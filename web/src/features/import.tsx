@@ -6,6 +6,7 @@ import type { ChangeRequest, ImportResult } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui";
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { LdifBlock } from "@/components/ldif-block";
 import { stageChanges, type StageOutcome } from "@/lib/stage-deletes";
@@ -41,8 +42,11 @@ export function ImportPanel({
   );
   const fileInput = useRef<HTMLInputElement>(null);
 
+  const [reconcile, setReconcile] = useState(false);
+
   const parse = useMutation<ImportResult, ApiFailure>({
-    mutationFn: async () => unwrap(await api.POST("/import/ldif", { body: { ldif: text } })),
+    mutationFn: async () =>
+      unwrap(await api.POST("/import/ldif", { body: { ldif: text, reconcile } })),
     onSuccess: () => {
       setApplied(new Set());
       setStaged(new Set());
@@ -129,6 +133,28 @@ export function ImportPanel({
         </p>
       </div>
 
+      <label className="flex items-start gap-2.5 text-sm">
+        <Checkbox
+          checked={reconcile}
+          onCheckedChange={(v) => {
+            setReconcile(v === true);
+            parse.reset();
+          }}
+          className="mt-0.5"
+        />
+        <span>
+          Update entries that already exist
+          <span className="block text-xs text-muted-foreground">
+            A record for an entry that is already there becomes a modification
+            bringing it to what the record says, instead of an add the directory
+            refuses. It replaces the attributes the record names and leaves every
+            other attribute alone — a document that does not mention{" "}
+            <span className="font-dn">userPassword</span> is not a document
+            asking for it to be removed.
+          </span>
+        </span>
+      </label>
+
       {parse.isError ? <ErrorNote title="The LDIF could not be used" error={parse.error} /> : null}
 
       {parse.data ? (
@@ -143,6 +169,11 @@ export function ImportPanel({
             ) : null}
             {staged.size > 0 ? (
               <Badge variant="secondary">{staged.size} staged</Badge>
+            ) : null}
+            {parse.data.reconciled ? (
+              <Badge variant="outline">
+                {parse.data.reconciled} updated in place
+              </Badge>
             ) : null}
 
             {remaining.length > 0 ? (
@@ -187,6 +218,38 @@ export function ImportPanel({
                 Dismiss
               </Button>
             </div>
+          ) : null}
+
+          {parse.data.unchanged?.length ? (
+            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+              <span className="font-medium">
+                {parse.data.unchanged.length === 1
+                  ? "1 entry already matches the document"
+                  : `${parse.data.unchanged.length} entries already match the document`}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Nothing is offered for these: a change that does nothing still
+                has to be read and confirmed, and there is nothing to confirm.
+              </span>
+              <ul className="mt-1.5 max-h-32 space-y-0.5 overflow-y-auto">
+                {parse.data.unchanged.map((dn) => (
+                  <li key={dn} className="truncate font-dn text-xs text-muted-foreground">
+                    {dn}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {parse.data.skippedAttributes?.length ? (
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
+              Left out of the updates because the directory owns them:{" "}
+              <span className="font-dn">
+                {parse.data.skippedAttributes.join(", ")}
+              </span>
+              . Enforcing one fails the whole record, so they are not applied —
+              this document was exported with operational attributes.
+            </p>
           ) : null}
 
           {parse.data.changes.map((change, i) => {
