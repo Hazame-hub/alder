@@ -57,6 +57,7 @@ import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
 import { ReferencedByButton } from "@/features/referenced-by";
+import { ExpandMembersButton } from "@/features/members";
 import { DeleteSubtreeButton } from "@/features/delete-subtree";
 import { AddAttribute, AttributeEditor } from "@/components/attribute-editor";
 import { computeMods, snapshot, type Draft } from "@/lib/mods";
@@ -294,6 +295,16 @@ function EntryHeader({
             argument — a filter in the URL is shareable and editable — still
             holds, so the panel keeps it as "Open as a search".
           */}
+          {/*
+            A group's member list answers "who is in this" only while no member
+            is itself a group. Offered where the entry's classes permit a
+            membership attribute, not where it currently holds one: an empty
+            group is still a group.
+          */}
+          {(entry.membershipAttributes ?? []).length > 0 ? (
+            <ExpandMembersButton dn={entry.dn} onNavigate={onNavigate} />
+          ) : null}
+
           {entry.referencedByFilter ? (
             <ReferencedByButton
               dn={entry.dn}
