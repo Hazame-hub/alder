@@ -160,6 +160,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who is in this group, following nested groups
+         * @description The entry view lists a group's `member` values, which is the whole
+         *     answer for a flat group and no answer at all for a nested one:
+         *     `cn=everyone` in the test harness lists five members and contains no
+         *     people, because all five are themselves groups.
+         *
+         *     This walks that structure and says, for each person reached, which
+         *     chain of groups brought them in.
+         *
+         *     What it finds on the way is reported rather than dropped: a group that
+         *     contains itself, a member DN whose entry cannot be read — the dangling
+         *     reference the referenced-by panel exists to prevent, seen from the
+         *     other side — and membership values that are not DNs at all, since
+         *     `memberUid` holds a login name and `memberURL` a search.
+         */
+        get: operations["expandMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/references": {
         parameters: {
             query?: never;
@@ -904,6 +936,48 @@ export interface components {
             /** @description The schema's own DESC, where the server published one. */
             desc?: string;
         };
+        MemberList: {
+            members: components["schemas"]["ExpandedMember"][];
+            /**
+             * @description True when the walk stopped at its bound. A membership list that
+             *     quietly omits people is worse than none, since the question being
+             *     asked is usually "who can get in".
+             */
+            truncated: boolean;
+            /**
+             * @description Groups that contain themselves, directly or through others. A
+             *     configuration error somebody should hear about, not a condition to
+             *     survive silently.
+             */
+            cycles?: string[];
+            /**
+             * @description Member values whose entry could not be read — usually an entry that
+             *     was deleted while a group went on naming it.
+             */
+            dangling?: string[];
+            /**
+             * @description Membership values that are not DNs, and so cannot be followed to an
+             *     entry: `memberUid` holds a login name, `memberURL` a search.
+             */
+            unresolvable?: string[];
+        };
+        ExpandedMember: {
+            dn: string;
+            rdn?: string;
+            /** @description Whether this member is itself a group that was expanded. */
+            group: boolean;
+            /** @description Whether the group names this member itself. */
+            direct: boolean;
+            /**
+             * @description The chain of groups that brought this member in, outermost first.
+             *     Empty for a direct member. This is the part a flat list cannot say,
+             *     and the part somebody needs in order to remove an unwanted member
+             *     from the right group.
+             */
+            via?: string[];
+            /** @description The membership attribute that names this member. */
+            through?: string;
+        };
         ReferenceList: {
             references: components["schemas"]["Reference"][];
             /**
@@ -1541,6 +1615,33 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    expandMembers: {
+        parameters: {
+            query: {
+                /** @description The group to expand. */
+                dn: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The membership. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     listReferences: {

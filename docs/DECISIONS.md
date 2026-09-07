@@ -1139,3 +1139,30 @@ to contradict the plan — add an entry.
   replacing an attribute with its own values is accepted, and that a modify
   naming only `mail` leaves `userPassword` intact. The last one is the safety
   claim, and it now holds on OpenLDAP and 389 DS rather than in principle.
+
+### 2026-09-07 — expanding a group's membership
+
+- **A member list answers the question only while no member is a group.**
+  `cn=everyone` in the harness lists five members and contains no people —
+  every one of the five is itself a group, and three hundred people are in it.
+  The entry view was showing the five and calling it the membership.
+- **Each member carries the chain of groups that reached it.** That is the part
+  a flat list cannot give, and the part somebody needs in order to remove an
+  unwanted member from the *right* group rather than the outermost one.
+- **A cycle is a property of the path, not of everything seen.** The first
+  version compared against every DN already recorded, which meant the root
+  group — never in the result list — could not be recognised when a descendant
+  named it, and a two-group loop went unreported. Reaching a group that is on
+  the branch you came down is a cycle; reaching one already visited on a
+  different branch is somebody in two teams, which is ordinary.
+- **Everything unresolvable is reported rather than dropped:** a member DN whose
+  entry cannot be read is the dangling reference the referenced-by panel exists
+  to prevent, seen from the other side; `memberUid` holds a login name and
+  `memberURL` a search, so neither can be followed to an entry, and saying so
+  beats reporting the group as empty.
+- **A member has to be read with the membership attributes.** Reading only
+  `objectClass`, `cn` and `uid` made every nested group look empty and the walk
+  stop one level short *while reporting success* — five groups found and nobody
+  inside them. The live harness caught it; the unit tests could not, because the
+  fake returned whole entries regardless of what was asked for. The fake now
+  honours the attribute list, and reintroducing the bug fails two tests.
