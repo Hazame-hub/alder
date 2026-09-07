@@ -217,6 +217,19 @@ confirmation, or stage the whole parsed document into the changeset and review i
 as one thing. A file of forty records is a decision about forty records, and
 confirming them one by one is not the same review.
 
+That closes the loop the export half opens: export a subtree, correct what is
+wrong in the file, import it back. An exported record has no `changetype`, so it
+is an add, and a directory refuses an add for an entry that exists — so import
+can be told to update entries that are already there, turning such a record into
+a modification instead.
+
+It replaces the attributes the record names and leaves every other attribute
+exactly as it is. An export omits `userPassword` always and operational
+attributes by default, and a file that does not mention an attribute is not a
+file asking for it to be removed. A document that has not been edited produces
+no changes at all rather than a page of modifications that do nothing, and the
+entries that already match are listed so you can see the import understood them.
+
 **Delete a container** by staging what is under it. LDAP deletes one leaf at a
 time, so removing an organisational unit means removing everything below it
 first, deepest first, in order. Alder walks the subtree, stages the deletions in
