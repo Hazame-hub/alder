@@ -1070,3 +1070,37 @@ to contradict the plan — add an entry.
   users view stops at 200; a playbook of those 200 says in its header that the
   result was truncated and does not describe the whole subtree. Without that,
   enforcing a partial export would silently describe a directory nobody has.
+
+### 2026-09-07 — the HTTP layer gets tested, and the object views get a limit
+
+- **Nothing had ever exercised a handler.** The conformance suite sits *below*
+  them, driving the Driver against two real servers; the unit tests sit *beside*
+  them, covering the pure functions they call. Between the two was the layer
+  that decides what a browser actually receives — routing, parameter parsing,
+  the guards, and the shape of the JSON. Of 37 functions on `*Server`, two were
+  named by any test. That is the layer where a correct back end has been
+  invisible three times.
+- **A fake `directory.Session`, not a mock.** Handlers are judged by what they
+  return, not by which methods they happened to call. The tests build a `Server`
+  directly — same package — so no test-only door has to exist in production
+  code, and they need no Docker, so they run on every `go test ./...` rather
+  than only where a harness exists.
+- **The guards were verified by breaking them.** Disabling the read-only check
+  makes the test fail *and* print the write that reached the directory;
+  disabling the sensitive-attribute branch makes the entry test fail with the
+  hash in the browser. A guard that has never failed is a guard nobody has
+  checked.
+- **The password test asserts on the secret, not on field names.** An earlier
+  draft matched `"password"` in the body and failed on `passwordModify`, which
+  is a capability the browser needs. The session now carries a sentinel value
+  and the test asserts that value never appears in any response.
+- **The object views take the limit from the URL, like the search page.**
+  `pageLimit = 200` was hardcoded with no control anywhere. Once the export and
+  the playbook started taking the view's own limit, that silent 200 stopped
+  being a cap on what you could see and became a cap on what you could take
+  away: the Users view showed 200 of 305 accounts and exported 200. It is the
+  same `limit` parameter the search page has always used, so a link to a bigger
+  page is a link like any other.
+- **The limit commits on blur or Enter, not on each keystroke.** It goes in the
+  URL, and a half-typed number there is a history entry nobody wanted and a
+  search nobody asked for.

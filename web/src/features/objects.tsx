@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -40,22 +41,43 @@ import { ColumnPicker } from "@/components/column-picker";
 /** What a table asks for beyond its columns, so a row can be acted on. */
 const alwaysFetch = ["objectClass"];
 
-/** The page a view loads. Bounded like every other search in the application. */
-const pageLimit = 200;
+/**
+ * The page a view loads when the URL does not say.
+ *
+ * It used to be the only answer, with no control anywhere — and once the export
+ * and the playbook started taking the view's own limit, that silent 200 became
+ * a cap on what you could take away, not just on what you could see. The search
+ * page has had an editable Limit since it shipped; this is the same box, over
+ * the same URL parameter, so a link reproduces the page either way.
+ */
+const defaultPageLimit = 200;
 
 export function ObjectListPanel({
   viewId,
   namingContexts,
   readOnly,
+  limit,
+  onLimitChange,
   onOpenEntry,
   onReviewChangeset,
 }: {
   viewId: ObjectViewId;
   namingContexts: string[];
   readOnly: boolean;
+  /** From the URL, so a link to a bigger page is a link. */
+  limit?: number;
+  onLimitChange: (limit: number) => void;
   onOpenEntry: (dn: string, forEdit?: boolean) => void;
   onReviewChangeset: () => void;
 }) {
+  const pageLimit = limit ?? defaultPageLimit;
+
+  const commitLimit = (raw: string) => {
+    const next = Number(raw);
+    if (Number.isFinite(next) && next > 0 && Math.trunc(next) !== pageLimit) {
+      onLimitChange(Math.min(Math.trunc(next), 10000));
+    }
+  };
   const [base, setBase] = useState(namingContexts[0] ?? "");
   const [showDefinition, setShowDefinition] = useState(false);
   /*
@@ -88,7 +110,7 @@ export function ObjectListPanel({
   const results = useQuery({
     // The chosen columns are part of the key: changing them changes what is
     // asked for, so the previous result is not the answer to the new question.
-    queryKey: ["objects", viewId, base, view?.filter, attributeNames.join(",")],
+    queryKey: ["objects", viewId, base, view?.filter, pageLimit, attributeNames.join(",")],
     enabled: view !== undefined && base !== "",
     queryFn: async () =>
       unwrap(
@@ -177,6 +199,26 @@ export function ObjectListPanel({
             ) : (
               <span className="font-dn text-xs text-muted-foreground">{base}</span>
             )}
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="objects-limit" className="text-xs text-muted-foreground">
+                Limit
+              </Label>
+              <Input
+                id="objects-limit"
+                type="number"
+                min={1}
+                max={10000}
+                className="h-8 w-24"
+                defaultValue={pageLimit}
+                // Committed on blur or Enter rather than on every keystroke:
+                // this one goes in the URL, and a half-typed number there is a
+                // history entry nobody wanted and a search nobody asked for.
+                onBlur={(e) => commitLimit(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitLimit(e.currentTarget.value);
+                }}
+              />
+            </div>
             <ColumnPicker
               available={view.permittedColumns ?? view.columns}
               chosen={columns}
