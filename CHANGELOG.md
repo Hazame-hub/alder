@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/Hazame-hub/alder/compare/v0.10.0...v0.11.0) (2026-09-07)
+
+
+### Features
+
+* import can update entries that already exist ([#57](https://github.com/Hazame-hub/alder/issues/57)) ([cdc9540](https://github.com/Hazame-hub/alder/commit/cdc9540711257b509df296521eb360dc4cff2d87))
+
+
+### Documentation
+
+* describe importing over entries that already exist ([#59](https://github.com/Hazame-hub/alder/issues/59)) ([c94d3bc](https://github.com/Hazame-hub/alder/commit/c94d3bce6ec3eef0bde8f99a1bc5fcdf02f33e1a))
+
 ## [0.10.0](https://github.com/Hazame-hub/alder/compare/v0.9.0...v0.10.0) (2026-09-06)
 
 
