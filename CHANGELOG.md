@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2](https://github.com/Hazame-hub/alder/compare/v0.12.1...v0.12.2) (2026-09-09)
+
+
+### Fixes
+
+* **ansible:** keep the bind password out of the rename command line ([#69](https://github.com/Hazame-hub/alder/issues/69)) ([4c065cb](https://github.com/Hazame-hub/alder/commit/4c065cb9341d6a6e389a1f618889a61825099c7b))
+
 ## [0.12.1](https://github.com/Hazame-hub/alder/compare/v0.12.0...v0.12.1) (2026-09-09)
 
 
