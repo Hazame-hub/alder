@@ -3126,3 +3126,71 @@ func TestAnAttributeCanBeDeniedOnOneEntryAndReadableOnAnother(t *testing.T) {
 		}
 	})
 }
+
+// A member the bind cannot read is indistinguishable from one that was deleted.
+//
+// The group expansion reports both in the same list, and this is why it must
+// not call that list broken references: cn=svc-alder is a member of cn=auditors
+// and exists, and a delegated bind is told exactly what it would be told about
+// an entry somebody had removed. Someone auditing who can reach a system would
+// otherwise read "deleted" about a member who is still in the group.
+func TestAnUnreadableMemberLooksExactlyLikeADeletedOne(t *testing.T) {
+	group, err := dn.Parse("cn=auditors,ou=groups," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := dn.Parse("cn=svc-alder,ou=services," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing, err := dn.Parse("cn=never-existed,ou=services," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, s := range servers {
+		t.Run(s.name, func(t *testing.T) {
+			// The member is named by the group, whoever is asking.
+			asAdmin := connect(t, s, false)
+			g, readErr := asAdmin.Read(ctx(t), group, []string{"uniqueMember"})
+			if readErr != nil {
+				t.Fatalf("reading the group: %v", readErr)
+			}
+			var named bool
+			for _, v := range g.Get("uniqueMember") {
+				if strings.EqualFold(string(v), member.String()) {
+					named = true
+				}
+			}
+			if !named {
+				t.Fatalf("%s does not name %s, so this case is not set up", group, member)
+			}
+			// And it exists.
+			if _, readErr = asAdmin.Read(ctx(t), member, nil); readErr != nil {
+				t.Fatalf("the member does not exist: %v", readErr)
+			}
+
+			// To the delegated bind, reading it fails the same way as reading
+			// an entry that was never there. Same error, same code, nothing to
+			// tell a walk which it is looking at.
+			asDelegate := connectRestricted(t, s)
+			_, hiddenErr := asDelegate.Read(ctx(t), member, nil)
+			_, missingErr := asDelegate.Read(ctx(t), missing, nil)
+			if hiddenErr == nil {
+				t.Fatal("the delegated bind can read the member after all")
+			}
+			if missingErr == nil {
+				t.Fatal("an entry that does not exist was read")
+			}
+
+			var hidden, gone *ldapdriver.Error
+			if !errors.As(hiddenErr, &hidden) || !errors.As(missingErr, &gone) {
+				t.Fatalf("errors are %v and %v", hiddenErr, missingErr)
+			}
+			if hidden.Code != gone.Code {
+				t.Errorf("a hidden member answers %d and a deleted one %d; if these differ, "+
+					"the expansion could tell them apart and should", hidden.Code, gone.Code)
+			}
+		})
+	}
+}

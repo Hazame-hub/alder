@@ -54,9 +54,15 @@ type expansion struct {
 	// A cycle is a configuration error somebody should hear about rather than
 	// a condition to silently survive.
 	Cycles []string
-	// Dangling names member values whose entry could not be read. Usually the
-	// entry was deleted and the reference outlived it — the same broken link
-	// the referenced-by panel exists to prevent.
+	// Dangling names member values whose entry could not be read.
+	//
+	// Either the entry was deleted and the reference outlived it, or it is
+	// there and this bind may not see it. Nothing tells those apart: a server
+	// answers "no such object" for both, on purpose, so that refusing access
+	// does not disclose what exists. So this is "status unknown", and anything
+	// built on it must not say "deleted" -- an operator asking who can reach
+	// something would be told a member is gone while they are still in the
+	// group.
 	Dangling []string
 	// Unresolvable names membership values that are not DNs at all, and so
 	// cannot be followed: memberUid holds a login name, memberURL a search.

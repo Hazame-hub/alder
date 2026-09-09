@@ -1349,3 +1349,32 @@ to contradict the plan — add an entry.
   has the same shape and no equivalent fix: a search that returns fewer entries
   looks exactly like a directory with fewer entries, and "nothing points at this
   entry" is what somebody reads before deleting it. Neither is addressed here.
+
+### 2026-09-10 — what a hidden entry is allowed to be called
+
+- **"An entry deleted while a group went on naming it" was a verdict the
+  product could not reach.** The membership walk lists members whose entry it
+  could not read, and the panel rendered that list in red as deletions. A member
+  the bind may not see answers a read exactly as a deleted one does — servers
+  refuse access by saying "no such object", on purpose, so that refusing does
+  not disclose what is there. Somebody auditing who can reach a system was being
+  told a member was gone while they were still in the group.
+- **Unlike the comparison, this one cannot be detected.** A Compare recovers the
+  difference for an *attribute*; there is no equivalent for an *entry*, and the
+  conformance suite now pins that both cases return the same result code. So the
+  fix is to stop claiming: the panel names both causes, asserts neither, and is
+  a warning rather than an error, because one of the two is benign.
+- **The field keeps the name `dangling`.** Renaming a response field is a major
+  bump under docs/COMPATIBILITY.md, and the name is defensible once the
+  description says what it means — the reference dangles from this session's
+  view, which is all the server told us.
+- **The tally says whose directory it is counting.** An entry hidden from the
+  bind is never examined and an attribute hidden from it lands under "do not
+  hold", both indistinguishable from a smaller directory. That is lower stakes
+  than the membership case — somebody hunting a typo finds fewer typos — so it
+  is a sentence under the numbers rather than machinery.
+- **The harness gained a member inside the hidden subtree.** cn=auditors names
+  cn=svc-alder, which is in ou=services, so a delegated bind meets a member it
+  cannot read without any test having to invent one. It was added to auditors
+  rather than to a new group because the seeded entry count and the cn=everyone
+  expansion are asserted elsewhere and should keep their numbers.
