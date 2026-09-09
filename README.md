@@ -125,6 +125,42 @@ a reference spelled differently from the entry's own DN, and `uniqueMember`
 carries an optional UID suffix that is not part of the DN at all; a reference
 missed for either reason is a reference nobody is warned about.
 
+**See who is in a group,** which is the same question from the other side and a
+harder one than it looks. A member list answers it only while no member is
+itself a group: `cn=everyone` in the test harness lists five members and
+contains no people at all, because every one of the five is a group — and three
+hundred people are in it. Expanding walks that structure and says, for each
+person, the chain of groups that reached them, which is what you need in order
+to remove somebody from the right group rather than the outermost one. A group
+that contains itself, a member DN whose entry was deleted, and a `memberUid`
+that holds a login name rather than a DN are each reported rather than dropped.
+
+**Compare two entries** when one account works and another does not. Attribute
+by attribute: what they share, what differs, what only one has. Each side is
+annotated from its *own* object classes, which the two entries need not share —
+so an attribute one entry's classes require and it does not hold shows up, and
+that absence is often the whole answer while being invisible to any diff of
+what is present. DNs are compared as DNs. Sensitive attributes are compared on
+presence alone: that a password is set is not a secret, but whether two entries
+hold the same one is not a question this answers.
+
+**Tally what an attribute actually holds** across a subtree — the query that
+finds a team name spelled wrong with four people on it, a cost centre nobody
+has used since a reorganisation, or the accounts still pointing at a
+decommissioned site. It is a tally over a bounded search, so every number is
+scoped to the entries examined and says so; a tally that quietly summarises a
+truncated result set is not a weaker answer than the truth, it is a confident
+wrong one. Values held by exactly one entry are called out, because that is
+usually where the typo is. Sensitive attributes are refused before the search
+runs rather than filtered out of the result.
+
+**Jump to anything from the keyboard.** Ctrl+K takes a DN and opens it, an RFC
+4515 filter and runs it, or a name and looks for it. The server does the
+parsing, because `internal/dn` and `internal/filter` are the authorities on what
+those strings are and a pattern in the browser would drift from them. It never
+guesses: `cn=platform` is a valid one-component DN *and* almost certainly a
+request to find something called platform, so both are offered and you pick.
+
 **Browse the schema** — object classes, attribute types, syntaxes and matching
 rules, fully cross-linked. A class shows what it requires and permits, split
 between its own and its inherited attributes, and every one is a link. An
