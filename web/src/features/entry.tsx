@@ -58,6 +58,7 @@ import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
 import { ReferencedByButton } from "@/features/referenced-by";
 import { ExpandMembersButton } from "@/features/members";
+import { CompareButton } from "@/features/compare";
 import { DeleteSubtreeButton } from "@/features/delete-subtree";
 import { AddAttribute, AttributeEditor } from "@/components/attribute-editor";
 import { computeMods, snapshot, type Draft } from "@/lib/mods";
@@ -301,6 +302,8 @@ function EntryHeader({
             membership attribute, not where it currently holds one: an empty
             group is still a group.
           */}
+          <CompareButton dn={entry.dn} />
+
           {(entry.membershipAttributes ?? []).length > 0 ? (
             <ExpandMembersButton dn={entry.dn} onNavigate={onNavigate} />
           ) : null}

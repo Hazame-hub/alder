@@ -82,6 +82,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What differs between two entries
+         * @description Answers "why does this account work and that one not".
+         *
+         *     A naive diff answers it badly in three ways, and avoiding those is most
+         *     of what this endpoint is. It compares what is *present*, so an attribute
+         *     one entry's classes require and it does not hold is invisible — and that
+         *     absence is frequently the whole answer. It compares bytes, so two DNs
+         *     naming the same entry in different case read as a difference the
+         *     directory does not agree with. And its instinct is to show both sides of
+         *     everything, which for `userPassword` is what rule 6 forbids.
+         *
+         *     So each side is annotated from its *own* object classes, which the two
+         *     entries need not share; DN-valued attributes are compared as DNs; and a
+         *     sensitive attribute is compared on presence alone.
+         */
+        get: operations["compareEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/entry": {
         parameters: {
             query?: never;
@@ -936,6 +968,76 @@ export interface components {
             /** @description The schema's own DESC, where the server published one. */
             desc?: string;
         };
+        EntryComparison: {
+            left: components["schemas"]["ComparedEntry"];
+            right: components["schemas"]["ComparedEntry"];
+            attributes: components["schemas"]["AttributeComparison"][];
+            counts: components["schemas"]["ComparisonCounts"];
+            /** @description Some attribute held more values than the limit reports. */
+            truncated: boolean;
+        };
+        ComparedEntry: {
+            dn: string;
+            rdn?: string;
+            objectClasses?: string[];
+            /**
+             * @description The single structural class. A difference here explains most of the
+             *     rows below it and should be read first.
+             */
+            structural?: string;
+        };
+        ComparisonCounts: {
+            same: number;
+            differs: number;
+            leftOnly: number;
+            rightOnly: number;
+        };
+        AttributeComparison: {
+            /**
+             * @description The attribute description, options included. `userCertificate;binary`
+             *     and `userCertificate` are two rows, not one.
+             */
+            name: string;
+            /** @enum {string} */
+            status: "same" | "differs" | "leftOnly" | "rightOnly";
+            left: components["schemas"]["ComparedSide"];
+            right: components["schemas"]["ComparedSide"];
+            /** @description Absent for a withheld attribute. */
+            values?: components["schemas"]["ValueComparison"][];
+            /** @description Sensitive, so no value crosses the wire from either side. */
+            withheld?: boolean;
+            /**
+             * @description False when both sides hold the attribute but it was not compared.
+             *     Reporting whether two entries hold the *same* password hash would be
+             *     an oracle about password material the product offers nowhere else,
+             *     so presence is reported and equality is not.
+             */
+            comparable?: boolean;
+            truncated?: boolean;
+        };
+        ComparedSide: {
+            present: boolean;
+            valueCount: number;
+            /**
+             * @description Required by *this* entry's own classes. Required and absent is
+             *     sometimes the whole answer, and is invisible to a diff of what is
+             *     present.
+             */
+            required: boolean;
+            /**
+             * @description Permitted by this entry's own classes. Present but not permitted is
+             *     reachable through an extensibleObject or a DIT content rule, and is
+             *     a finding rather than a curiosity.
+             */
+            permitted: boolean;
+            /** @description The storage scheme of each withheld value, never the value. */
+            valueSchemes?: string[];
+        };
+        ValueComparison: {
+            /** @enum {string} */
+            side: "both" | "left" | "right";
+            value: components["schemas"]["AttributeValue"];
+        };
         MemberList: {
             members: components["schemas"]["ExpandedMember"][];
             /**
@@ -1540,6 +1642,41 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    compareEntries: {
+        parameters: {
+            query: {
+                /** @description Usually the entry that works. */
+                left: string;
+                right: string;
+                /**
+                 * @description On by default, unlike the LDIF export. `nsAccountLock` and
+                 *     `pwdAccountLockedTime` are operational on the target servers and are
+                 *     frequently the entire answer.
+                 */
+                includeOperational?: boolean;
+                /** @description Values reported per attribute. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comparison. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryComparison"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
         };
     };
