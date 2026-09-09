@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/Hazame-hub/alder/compare/v0.12.2...v1.0.0) (2026-09-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* AttributeComparison.comparable is removed and the status enum gains "withheld". A client that switched on status and treated an unknown value as "same" now sees "withheld" for a sensitive attribute held by both entries -- which is the point: it never meant "same".
+
+### Features
+
+* state what 1.0 promises, and fix the compare shape before freezing it ([#71](https://github.com/Hazame-hub/alder/issues/71)) ([9a32a75](https://github.com/Hazame-hub/alder/commit/9a32a757dac1222f8ac2d6c350b684513a8f7ab1))
+
 ## [0.12.2](https://github.com/Hazame-hub/alder/compare/v0.12.1...v0.12.2) (2026-09-09)
 
 
