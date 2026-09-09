@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"sort"
 	"strings"
 
@@ -383,12 +384,20 @@ func (s *Server) CompareEntries(c *fiber.Ctx, params CompareEntriesParams) error
 
 	got := compareEntries(left, right, sch, clamp(deref(params.Limit), 100, 1, maxCompareValues))
 
+	// One-sided rows are the ones a read cannot be trusted about: an attribute
+	// the access rules hide is missing from the result exactly as one the entry
+	// does not hold is. Ask the server which, for those rows only.
+	resolved, probesTruncated := resolveOneSided(ctx, sess.Conn.VisibilityOf, leftDN, rightDN, got.Attributes)
+	if resolved > 0 {
+		got.Counts = recount(got.Attributes)
+	}
+
 	return c.JSON(EntryComparison{
 		Left:       comparedEntry(left, sch),
 		Right:      comparedEntry(right, sch),
 		Attributes: got.Attributes,
 		Counts:     got.Counts,
-		Truncated:  got.Truncated,
+		Truncated:  got.Truncated || probesTruncated,
 	})
 }
 
@@ -411,4 +420,97 @@ func comparedEntry(e *directory.Entry, sch *schema.Schema) ComparedEntry {
 		ObjectClasses: ptr(classes),
 		Structural:    ptrIfSet(structuralName(sch, classes)),
 	}
+}
+
+// maxVisibilityProbes bounds the round trips one comparison spends resolving
+// one-sided rows.
+//
+// Each probe is a Compare against the side that lacked the attribute, so the
+// cost is one per one-sided row and nothing at all for two entries that differ
+// only in their values. Two entries of different structural classes can differ
+// in dozens of attributes, and at that point the operator is looking at a
+// difference of kind rather than of detail; the rows past this stay as they
+// were and the comparison says it stopped.
+const maxVisibilityProbes = 50
+
+// visibilityProbe asks the directory whether an attribute is absent from an
+// entry or merely hidden from this bind.
+//
+// A function rather than a Session so the resolution below can be tested
+// without one, the same reason expandGroup takes an entryReader.
+type visibilityProbe func(ctx context.Context, target dn.DN, attribute string) (directory.AttributeVisibility, error)
+
+// resolveOneSided turns "only on the left" into "cannot tell" where the reason
+// the other side lacked the attribute was access control.
+//
+// A read cannot distinguish those: a forbidden attribute is missing from the
+// result exactly as one the entry does not hold is. Reporting the first as a
+// difference between two entries is a claim about the directory that the
+// session has no basis for -- and it is the claim somebody acts on, because
+// "only on the left" is what a person reads before copying a value across.
+//
+// Only one-sided rows are probed. A row that is the same, differs, or is
+// withheld was answered by values that both sides returned, and needs nothing.
+func resolveOneSided(
+	ctx context.Context,
+	probe visibilityProbe,
+	leftDN, rightDN dn.DN,
+	rows []AttributeComparison,
+) (resolved int, truncated bool) {
+	spent := 0
+	for i := range rows {
+		var missing dn.DN
+		var side *ComparedSide
+		switch rows[i].Status {
+		case LeftOnly:
+			missing, side = rightDN, &rows[i].Right
+		case RightOnly:
+			missing, side = leftDN, &rows[i].Left
+		default:
+			continue
+		}
+
+		if spent >= maxVisibilityProbes {
+			truncated = true
+			return resolved, truncated
+		}
+		spent++
+
+		visibility, err := probe(ctx, missing, rows[i].Name)
+		if err != nil {
+			// The probe is an improvement on the answer, not a precondition
+			// for it. A comparison that fails because one extra question could
+			// not be asked would be worse than one that answers as it always
+			// did.
+			continue
+		}
+		if visibility == directory.VisibilityDenied {
+			rows[i].Status = Undetermined
+			side.Denied = ptr(true)
+			resolved++
+		}
+	}
+	return resolved, truncated
+}
+
+// recount tallies the buckets again after rows have been reclassified.
+func recount(rows []AttributeComparison) ComparisonCounts {
+	var c ComparisonCounts
+	for _, row := range rows {
+		switch row.Status {
+		case Same:
+			c.Same++
+		case Differs:
+			c.Differs++
+		case LeftOnly:
+			c.LeftOnly++
+		case RightOnly:
+			c.RightOnly++
+		case Withheld:
+			c.Withheld++
+		case Undetermined:
+			c.Undetermined++
+		}
+	}
+	return c
 }

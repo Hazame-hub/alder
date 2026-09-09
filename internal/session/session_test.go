@@ -32,6 +32,9 @@ func (f *fakeSession) Search(context.Context, directory.SearchRequest) (*directo
 func (f *fakeSession) Read(context.Context, dn.DN, []string) (*directory.Entry, error) {
 	return nil, errors.New("not used")
 }
+func (f *fakeSession) VisibilityOf(context.Context, dn.DN, string) (directory.AttributeVisibility, error) {
+	return directory.VisibilityUnknown, errors.New("not used")
+}
 func (f *fakeSession) Apply(context.Context, directory.ChangeRecord) error {
 	return errors.New("not used")
 }

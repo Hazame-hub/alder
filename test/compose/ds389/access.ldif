@@ -25,3 +25,11 @@ dn: ou=services,dc=alder,dc=test
 changetype: modify
 add: aci
 aci: (targetattr="*")(version 3.0; acl "the service accounts are invisible to svc-alder"; deny (read,search,compare) userdn = "ldap:///cn=svc-alder,ou=services,dc=alder,dc=test";)
+
+# The same fixture as the attribute rule in openldap/slapd.conf: one attribute,
+# on one entry, hidden from the delegated account -- so that a comparison of two
+# seeded users has a row the reading side cannot report honestly.
+dn: uid=user0002,ou=people,dc=alder,dc=test
+changetype: modify
+add: aci
+aci: (targetattr="alderTeam")(version 3.0; acl "alderTeam on this entry is not for svc-alder"; deny (read,search,compare) userdn = "ldap:///cn=svc-alder,ou=services,dc=alder,dc=test";)

@@ -181,6 +181,11 @@ function CompareDialog({ left, onClose }: { left: string; onClose: () => void })
                     {query.data.counts.withheld} withheld
                   </Badge>
                 ) : null}
+                {query.data.counts.undetermined > 0 ? (
+                  <Badge variant="warning" className="tabular-nums">
+                    {query.data.counts.undetermined} not comparable
+                  </Badge>
+                ) : null}
               </div>
 
               <p className="text-xs text-muted-foreground">
@@ -235,7 +240,16 @@ function CompareRow({ row }: { row: AttributeComparison }) {
         ) : null}
       </div>
 
-      {row.withheld ? (
+      {row.status === "undetermined" ? (
+        // Which side could not be read is the whole of the answer here: it is
+        // what tells an operator this is a limit on their own access rather
+        // than something about the two entries.
+        <p className="mt-1 text-xs text-warning-tint-foreground">
+          Not comparable. This session may not read {row.name} on the{" "}
+          {row.left.denied ? "left" : "right"}, so its absence there says
+          nothing about the entry.
+        </p>
+      ) : row.withheld ? (
         <p className="mt-1 text-xs text-muted-foreground">
           Withheld. {row.left.present ? "Set" : "Not set"} on the left,{" "}
           {row.right.present ? "set" : "not set"} on the right
@@ -269,6 +283,8 @@ function CompareRow({ row }: { row: AttributeComparison }) {
 
 function StatusBadge({ row }: { row: AttributeComparison }) {
   switch (row.status) {
+    case "same":
+      return <Badge variant="outline">same</Badge>;
     case "differs":
       return <Badge variant="warning">differs</Badge>;
     case "leftOnly":
@@ -279,7 +295,13 @@ function StatusBadge({ row }: { row: AttributeComparison }) {
     // nothing here may suggest they match.
     case "withheld":
       return <Badge variant="outline">withheld</Badge>;
+    case "undetermined":
+      return <Badge variant="warning">cannot tell</Badge>;
+    // "same" used to live here, so any status this build did not know about
+    // was rendered as agreement. The API may add a status within 1.x and a
+    // client is expected to fall through -- falling through to the one claim
+    // that is never safe to invent is not what that means.
     default:
-      return <Badge variant="outline">same</Badge>;
+      return <Badge variant="outline">{row.status}</Badge>;
   }
 }

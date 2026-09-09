@@ -1083,13 +1083,20 @@ export interface components {
         };
         /**
          * @description One bucket per status, and every attribute lands in exactly one, so the
-         *     five sum to the length of `attributes`.
+         *     six sum to the length of `attributes`.
          */
         ComparisonCounts: {
             same: number;
             differs: number;
             leftOnly: number;
             rightOnly: number;
+            /**
+             * @description One-sided, and the missing side could not be read. Counted apart
+             *     from `leftOnly` and `rightOnly` because those name a difference
+             *     between two entries and this names a limit on what the session may
+             *     see.
+             */
+            undetermined: number;
             /**
              * @description Held by both and not compared. Counted separately rather than folded
              *     into `same`, which would be a claim about password material.
@@ -1107,9 +1114,16 @@ export interface components {
              *     compared, because it is sensitive. It is a status of its own rather
              *     than `same` with a flag beside it: a client reading only this field
              *     must not be able to conclude that two passwords match.
+             *
+             *     `undetermined` means the access rules stopped the comparison. The
+             *     attribute is on one side and was not returned for the other, and
+             *     asking the server directly said the bind may not look rather than
+             *     that the entry lacks it. Reporting that as `leftOnly` would be a
+             *     statement about the directory that this session has no basis for.
+             *     The side that could not be read carries `denied`.
              * @enum {string}
              */
-            status: "same" | "differs" | "leftOnly" | "rightOnly" | "withheld";
+            status: "same" | "differs" | "leftOnly" | "rightOnly" | "withheld" | "undetermined";
             left: components["schemas"]["ComparedSide"];
             right: components["schemas"]["ComparedSide"];
             /** @description Absent for a withheld attribute. */
@@ -1139,6 +1153,13 @@ export interface components {
              *     a finding rather than a curiosity.
              */
             permitted: boolean;
+            /**
+             * @description The access rules forbid this bind from reading the attribute on this
+             *     side, so its absence here says nothing about the entry. Set only
+             *     after the server was asked directly; a plain read cannot tell this
+             *     from an attribute the entry does not hold.
+             */
+            denied?: boolean;
             /** @description The storage scheme of each withheld value, never the value. */
             valueSchemes?: string[];
         };
