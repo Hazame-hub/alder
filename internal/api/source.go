@@ -6,22 +6,22 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// SourceOffer is what AGPL-3.0 section 13 requires a networked service to give
-// the people using it: a way to get the Corresponding Source of the version
-// they are actually talking to.
+// The AGPL-3.0 section 13 offer: a way for the people using this running
+// instance to get the Corresponding Source of the version they are actually
+// talking to.
 //
-// It is served rather than written in a README because the obligation is to the
-// user of the running instance, and the user of a modified instance has no
+// It is served rather than written in a README because the obligation runs to
+// the user of the running instance, and the user of a modified instance has no
 // reason to know where its source went. An operator who deploys a fork points
 // --source-url at their fork and the offer is satisfied.
-type SourceOffer struct {
-	License   string `json:"license"`
-	SourceURL string `json:"sourceUrl"`
-	Version   string `json:"version"`
-	Revision  string `json:"revision,omitempty"`
-	Modified  bool   `json:"modified,omitempty"`
-	Notice    string `json:"notice"`
-}
+//
+// It answers without a session. That used to be the reason it was registered by
+// hand, outside the generated surface -- but a session in this package is
+// required per handler by require(), never by middleware, so being in the
+// contract never implied being behind one. Describing it in openapi.yaml costs
+// nothing and closes the gap that did matter: docs/COMPATIBILITY.md calls that
+// document the contract, and until 1.0 it was silent about the one endpoint a
+// licence obliges Alder to serve.
 
 // DefaultSourceURL is where the unmodified project lives. An operator running a
 // modified build is required to change it.
@@ -33,13 +33,12 @@ const sourceNotice = "Alder is free software under the GNU Affero General Public
 	"lead to the source of the version you are talking to, the operator of this " +
 	"instance is not complying with the licence."
 
-// registerSourceOffer mounts the AGPL section 13 offer. It is deliberately
-// outside the generated API surface and needs no session: the whole point is
-// that anyone who can reach the service can reach the offer.
-func (s *Server) registerSourceOffer(router fiber.Router) {
-	router.Get("/source", func(c *fiber.Ctx) error {
-		return c.JSON(s.sourceOffer())
-	})
+// GetSourceOffer serves the offer.
+//
+// No require() call, deliberately: an offer only the already-connected can read
+// would not discharge the obligation.
+func (s *Server) GetSourceOffer(c *fiber.Ctx) error {
+	return c.JSON(s.sourceOffer())
 }
 
 func (s *Server) sourceOffer() SourceOffer {
@@ -49,7 +48,7 @@ func (s *Server) sourceOffer() SourceOffer {
 	}
 	offer := SourceOffer{
 		License:   "AGPL-3.0-only",
-		SourceURL: url,
+		SourceUrl: url,
 		Version:   s.cfg.Version,
 		Notice:    sourceNotice,
 	}
@@ -57,9 +56,13 @@ func (s *Server) sourceOffer() SourceOffer {
 		for _, setting := range info.Settings {
 			switch setting.Key {
 			case "vcs.revision":
-				offer.Revision = setting.Value
+				offer.Revision = ptr(setting.Value)
 			case "vcs.modified":
-				offer.Modified = setting.Value == "true"
+				// Reported only when true. False and absent mean the same
+				// thing here, and the schema says so.
+				if setting.Value == "true" {
+					offer.Modified = ptr(true)
+				}
 			}
 		}
 	}

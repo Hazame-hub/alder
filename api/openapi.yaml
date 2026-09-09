@@ -46,6 +46,10 @@ tags:
     description: Previewing and applying modifications.
   - name: transfer
     description: LDIF import and export, and Ansible generation.
+  - name: licence
+    description: |
+      The AGPL section 13 offer. The only endpoint here that answers without a
+      session, because the obligation runs to anyone who can reach the service.
 
 paths:
   /session:
@@ -804,6 +808,31 @@ paths:
               schema: { $ref: "#/components/schemas/ImportResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /source:
+    get:
+      tags: [licence]
+      operationId: getSourceOffer
+      summary: Where to get the source of this running instance
+      description: |
+        AGPL-3.0 section 13: someone using a modified Alder over a network is
+        entitled to its Corresponding Source. The offer is served rather than
+        written in a README because the obligation runs to the person using the
+        running instance, and the user of a modified instance has no reason to
+        know where its source went.
+
+        **This is the one endpoint that answers without a session,** and it has
+        no 401 for that reason: an offer only the already-connected can read
+        would not discharge the obligation. It is described here so that the
+        contract in this document is the whole contract -- it was served outside
+        it until 1.0, which made `openapi.yaml` quietly incomplete about the one
+        endpoint a licence requires.
+      responses:
+        "200":
+          description: The offer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourceOffer" }
 
 components:
   responses:
@@ -2176,3 +2205,29 @@ components:
             them — operational or `NO-USER-MODIFICATION`. Enforcing one fails
             the whole record, and dropping it silently would let the file mean
             something other than it says.
+
+    SourceOffer:
+      type: object
+      required: [license, sourceUrl, version, notice]
+      properties:
+        license:
+          type: string
+          description: The SPDX identifier Alder is licensed under.
+        sourceUrl:
+          type: string
+          description: |
+            Where the Corresponding Source of *this* build lives. An operator
+            running a fork sets `--source-url` to their own; leaving it at the
+            default while running a modified build does not comply.
+        version: { type: string }
+        revision:
+          type: string
+          description: The commit this binary was built from, when the build recorded one.
+        modified:
+          type: boolean
+          description: |
+            True when the build came from a tree with uncommitted changes, so
+            `revision` alone does not identify the source. Absent means false.
+        notice:
+          type: string
+          description: The offer in prose, for a person rather than a client.

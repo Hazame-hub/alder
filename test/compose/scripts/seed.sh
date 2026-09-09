@@ -107,6 +107,18 @@ for f in "$SEED_DIR"/*.ldif; do
 	add_ldif "$DS389_URI" "$DM_DN" "$DM_PW" "$f"
 done
 
+# 389 DS access control, after the entries an aci attaches to exist. OpenLDAP's
+# equivalent is in slapd.conf and is already in place at image build time.
+log "applying 389 DS access control for the delegated account"
+if ! ldapmodify -x -H "$DS389_URI" -D "$DM_DN" -w "$DM_PW" -f "$SCHEMA_DIR/access.ldif" >/tmp/access.log 2>&1; then
+	if grep -qi 'Type or value exists' /tmp/access.log; then
+		log "  (already applied)"
+	else
+		cat /tmp/access.log >&2
+		exit 1
+	fi
+fi
+
 ol_count=$(count_entries "$OPENLDAP_URI" "$ADMIN_DN" "$ADMIN_PW")
 ds_count=$(count_entries "$DS389_URI" "$DM_DN" "$DM_PW")
 log "OpenLDAP holds $ol_count entries below $SUFFIX"
