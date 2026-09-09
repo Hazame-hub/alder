@@ -2407,3 +2407,331 @@ func sameValueSet(a, b [][]byte) bool {
 	}
 	return true
 }
+
+// --- the 0.12.0 features ----------------------------------------------------
+//
+// Group expansion, entry comparison and the value tally all live in
+// internal/api, where their own logic is unit tested against a fake. What a
+// fake cannot tell us is whether the directory-level facts they rest on are
+// true of a real server, and true of *both* -- which is the only reason this
+// suite exists. Each test below names the assumptions one feature depends on
+// and checks them from one table against every server.
+
+// classPermitsAttr reports whether an object class allows an attribute,
+// mirroring how the expansion walk decides an entry is a group.
+func classPermitsAttr(sch *schema.Schema, class, attr string) bool {
+	if sch.ObjectClass(class) == nil {
+		return false
+	}
+	req := sch.Requirements([]string{class})
+	for _, name := range append(append([]string{}, req.Must...), req.May...) {
+		if strings.EqualFold(schema.BaseName(name), attr) {
+			return true
+		}
+	}
+	return false
+}
+
+// The assumptions the group expansion walk rests on, checked on both servers.
+//
+// Expanding a group means reading each member to decide whether it is itself a
+// group and, if so, walking into it. Two of the three facts that rests on have
+// already been wrong once, and both failed the same way: the walk stopped a
+// level short while reporting success, which is the hardest kind of wrong to
+// notice.
+func TestGroupExpansionAssumptionsHold(t *testing.T) {
+	// The two DN-valued membership styles the harness installs, each with a
+	// group that nests another group through it.
+	styles := []struct {
+		class     string
+		attribute string
+		group     string
+		nested    string
+	}{
+		{
+			class: "groupOfNames", attribute: "member",
+			group:  "cn=everyone,ou=groups," + suffix,
+			nested: "cn=infrastructure,ou=groups," + suffix,
+		},
+		{
+			class: "groupOfUniqueNames", attribute: "uniqueMember",
+			group:  "cn=auditors,ou=groups," + suffix,
+			nested: "cn=platform,ou=groups," + suffix,
+		},
+	}
+
+	// What a member has to be read with. The membership attributes are the
+	// load-bearing half: a nested group read without them looks like an empty
+	// group, which is exactly what happened the first time this ran live.
+	readWith := []string{"objectClass", "cn", "uid", "member", "uniqueMember", "memberUid", "memberURL"}
+	membership := []string{"member", "uniqueMember", "memberUid", "memberURL"}
+
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+
+		for _, tc := range styles {
+			// 1. The class permits the membership attribute. This is how an
+			//    entry is recognised as a group at all, so a server whose
+			//    schema describes the class differently turns every nested
+			//    group into a leaf member and the walk never descends.
+			if !classPermitsAttr(sch, tc.class, tc.attribute) {
+				t.Errorf("%s: %s does not permit %s, so a nested group held that way is walked past as an ordinary member",
+					s.name, tc.class, tc.attribute)
+				continue
+			}
+
+			groupDN, parseErr := dn.Parse(tc.group)
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+
+			// 2. Reading the group with the membership attributes named
+			//    returns them. The walk asks for an explicit attribute list
+			//    rather than "*", and a server that withheld them here would
+			//    report every group as empty.
+			entry, readErr := sess.Read(ctx(t), groupDN, readWith)
+			if readErr != nil {
+				t.Errorf("%s: reading %s: %v", s.name, tc.group, readErr)
+				continue
+			}
+			members := entry.Get(tc.attribute)
+			if len(members) == 0 {
+				t.Errorf("%s: %s came back with no %s when it was named in the attribute list",
+					s.name, tc.group, tc.attribute)
+				continue
+			}
+
+			// 3. The nested member is reachable and is itself recognised as a
+			//    group, which is what makes the walk descend a second level.
+			var nestedFound bool
+			for _, raw := range members {
+				if strings.EqualFold(string(raw), tc.nested) {
+					nestedFound = true
+				}
+			}
+			if !nestedFound {
+				t.Errorf("%s: %s does not hold %s among its %d %s values",
+					s.name, tc.group, tc.nested, len(members), tc.attribute)
+				continue
+			}
+
+			nestedDN, parseErr := dn.Parse(tc.nested)
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			nested, readErr := sess.Read(ctx(t), nestedDN, readWith)
+			if readErr != nil {
+				t.Errorf("%s: reading the nested group %s: %v", s.name, tc.nested, readErr)
+				continue
+			}
+
+			var isNestedGroup bool
+			for _, raw := range nested.Get("objectClass") {
+				for _, attr := range membership {
+					if classPermitsAttr(sch, string(raw), attr) {
+						isNestedGroup = true
+					}
+				}
+			}
+			if !isNestedGroup {
+				t.Errorf("%s: %s is not recognised as a group from its object classes %q, so the walk stops there",
+					s.name, tc.nested, nested.Get("objectClass"))
+			}
+			if len(nested.Get("member")) == 0 && len(nested.Get("uniqueMember")) == 0 {
+				t.Errorf("%s: the nested group %s came back with no members at all", s.name, tc.nested)
+			}
+		}
+	})
+}
+
+// The assumptions entry comparison rests on, checked on both servers.
+//
+// Comparing two entries is mostly byte comparison, with one deliberate
+// exception and one deliberate refusal. Both are decided from the schema, so
+// both are worth checking against a server rather than against a fixture.
+func TestCompareAssumptionsHold(t *testing.T) {
+	left := "uid=user0001,ou=people," + suffix
+	right := "uid=user0002,ou=people," + suffix
+
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+
+		// 1. The DN-valued syntaxes. A DN-valued attribute is compared as DNs
+		//    rather than as bytes, so that two spellings of one DN are not
+		//    reported as a difference. That branch is chosen from the syntax
+		//    OID alone, and a server publishing a different one degrades the
+		//    comparison to bytes without saying so.
+		for _, tc := range []struct{ attribute, syntax, label string }{
+			{"member", "1.3.6.1.4.1.1466.115.121.1.12", "DN"},
+			{"uniqueMember", "1.3.6.1.4.1.1466.115.121.1.34", "Name and Optional UID"},
+		} {
+			at := sch.AttributeType(tc.attribute)
+			if at == nil {
+				t.Errorf("%s does not define %s", s.name, tc.attribute)
+				continue
+			}
+			if got := sch.EffectiveSyntax(at); got != tc.syntax {
+				t.Errorf("%s: %s has syntax %s, want %s (%s) -- DN-aware comparison silently becomes byte comparison",
+					s.name, tc.attribute, got, tc.syntax, tc.label)
+			}
+		}
+
+		// 2. userPassword is sensitive on both. That is what makes the
+		//    comparison withhold it rather than report whether two entries
+		//    hold the same hash, which would be an oracle about password
+		//    material the product offers nowhere else.
+		if !sch.KindOf("userPassword").Sensitive {
+			t.Errorf("%s: userPassword is not marked sensitive, so a comparison would print it", s.name)
+		}
+
+		// 3. Both entries read with the same attribute list, and both hold a
+		//    password, which is the case the withholding has to cover.
+		for _, target := range []string{left, right} {
+			parsed, parseErr := dn.Parse(target)
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			entry, readErr := sess.Read(ctx(t), parsed, []string{"*", "userPassword"})
+			if readErr != nil {
+				t.Errorf("%s: reading %s: %v", s.name, target, readErr)
+				continue
+			}
+			if len(entry.Get("userPassword")) == 0 {
+				t.Errorf("%s: %s holds no userPassword, so the withholding case is not exercised here",
+					s.name, target)
+			}
+		}
+
+		// 4. Operational attributes are readable, and the suite records which
+		//    ones each server actually publishes. This is the documented
+		//    divergence rather than an assertion of sameness: the comparison
+		//    reads whatever the server names, and the two vendors genuinely
+		//    disagree here -- entryUUID and entryCSN against nsUniqueId.
+		parsed, parseErr := dn.Parse(left)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		operational, readErr := sess.Read(ctx(t), parsed, []string{"+"})
+		if readErr != nil {
+			t.Fatalf("%s: reading operational attributes: %v", s.name, readErr)
+		}
+		var names []string
+		for name := range operational.Attributes {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		if len(names) == 0 {
+			t.Errorf("%s: no operational attributes came back for %s", s.name, left)
+		}
+		t.Logf("%s publishes %d operational attributes: %s", s.name, len(names), strings.Join(names, ", "))
+	})
+}
+
+// The assumptions the value tally rests on, checked on both servers.
+//
+// The tally answers "what values does this attribute hold, and how many entries
+// carry each" over a paged subtree search. Both servers are seeded from
+// byte-identical LDIF, so both must produce identical counts -- which is what
+// makes the feature's answer a fact about the directory rather than about the
+// vendor.
+func TestInventoryAssumptionsHold(t *testing.T) {
+	const (
+		attribute        = "alderTeam"
+		wantExamined     = 320
+		wantWithValue    = 302
+		wantDistinct     = 6
+		wantLargestValue = "platform"
+		wantLargestCount = 52
+	)
+
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+
+		// 1. The attribute is inventoriable on both: known, not sensitive, not
+		//    binary. Each of those refusals is decided from the schema.
+		kind := sch.KindOf(attribute)
+		if !kind.Known {
+			t.Errorf("%s does not define %s, so the tally has nothing to canonicalise", s.name, attribute)
+		}
+		if kind.Sensitive {
+			t.Errorf("%s: %s is marked sensitive and would be refused", s.name, attribute)
+		}
+		switch kind.Kind {
+		case schema.KindBinary, schema.KindImage, schema.KindCertificate:
+			t.Errorf("%s: %s is %v and would be refused as binary", s.name, attribute, kind.Kind)
+		}
+
+		// 2. userPassword is refused before the search runs. That refusal is
+		//    the difference between never reading a password and reading every
+		//    password and choosing not to print it.
+		if !sch.KindOf("userPassword").Sensitive {
+			t.Errorf("%s: userPassword is not sensitive, so an inventory of it would be a list of secrets", s.name)
+		}
+
+		// 3. The counts themselves agree across vendors.
+		base, parseErr := dn.Parse(suffix)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		res, searchErr := sess.Search(ctx(t), directory.SearchRequest{
+			BaseDN:     base,
+			Scope:      directory.ScopeSubtree,
+			Filter:     filter.Present("objectClass"),
+			Attributes: []string{attribute},
+			Limit:      1000,
+			PageSize:   100,
+		})
+		if searchErr != nil {
+			t.Fatalf("%s: searching the subtree: %v", s.name, searchErr)
+		}
+		if res.Truncated {
+			t.Fatalf("%s: the subtree search truncated, so these counts are not the whole answer", s.name)
+		}
+
+		// The tally, as the feature computes it: an entry counts once per
+		// distinct value it holds, and holding one value twice is still one
+		// entry.
+		perValue := map[string]int{}
+		withValue := 0
+		for _, e := range res.Entries {
+			values := e.Get(attribute)
+			if len(values) == 0 {
+				continue
+			}
+			withValue++
+			distinct := map[string]bool{}
+			for _, raw := range values {
+				distinct[string(raw)] = true
+			}
+			for v := range distinct {
+				perValue[v]++
+			}
+		}
+
+		if len(res.Entries) != wantExamined {
+			t.Errorf("%s examined %d entries, want %d", s.name, len(res.Entries), wantExamined)
+		}
+		if withValue != wantWithValue {
+			t.Errorf("%s: %d entries hold %s, want %d", s.name, withValue, attribute, wantWithValue)
+		}
+		if len(perValue) != wantDistinct {
+			t.Errorf("%s: %d distinct values of %s, want %d (got %v)",
+				s.name, len(perValue), attribute, wantDistinct, perValue)
+		}
+		if got := perValue[wantLargestValue]; got != wantLargestCount {
+			t.Errorf("%s: %q is held by %d entries, want %d",
+				s.name, wantLargestValue, got, wantLargestCount)
+		}
+		t.Logf("%s: %d/%d entries hold %s across %d distinct values",
+			s.name, withValue, len(res.Entries), attribute, len(perValue))
+	})
+}
