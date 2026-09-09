@@ -364,7 +364,8 @@ dn: cn=auditors,ou=groups,dc=alder,dc=test
 objectClass: top
 objectClass: groupOfUniqueNames
 cn: auditors
-description: Membership by uniqueMember, the other DN-valued style, and a member inside ou=services so a delegated bind meets a member it cannot read
+description: Membership by uniqueMember, the other DN-valued style, and a me
+ mber inside ou=services so a delegated bind meets one it cannot read
 uniqueMember: uid=user0001,ou=people,dc=alder,dc=test
 uniqueMember: uid=user0002,ou=people,dc=alder,dc=test
 uniqueMember: cn=platform,ou=groups,dc=alder,dc=test
