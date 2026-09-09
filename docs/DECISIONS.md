@@ -1204,3 +1204,33 @@ to contradict the plan — add an entry.
   every DN, so a handler that read one entry twice — and confidently reported no
   differences — would have passed every test. Breaking the handler that way now
   fails, naming the DN it read twice.
+
+### 2026-09-09 — the value inventory, and what it refuses to claim
+
+- **It is a tally over a bounded search, so it never claims to describe the
+  directory.** Rule 4 admits no unbounded search, so every number is scoped to
+  the entries *examined* and `truncated` says the bound was reached. A tally
+  that quietly summarises a truncated result set is not a weaker answer than
+  the truth; it is a confident wrong one, and this feature is worth having only
+  if it is trusted. The response deliberately has no field describing the
+  directory, because a bounded search cannot produce one.
+- **Sensitive attributes are refused before the search runs, not filtered out
+  of the result.** That is the difference between never reading a password and
+  reading every password and choosing not to say. `KindOf` marks an attribute
+  sensitive even where the schema does not define it, so an unknown
+  `sambaNTPassword` is refused too.
+- **The attribute name goes through the filter builder's own RFC 4512 check**
+  rather than a second validator written here, so `alderTeam)(uid=*` dies
+  before anything is searched.
+- **Singletons are the headline number.** A value one entry holds among three
+  hundred is usually a misspelling of one that ninety hold, and that is the
+  question this feature exists to answer.
+- **Values are compared as bytes, and two spellings are two rows.** Folding
+  them would invent an equality the directory never agreed to — and the whole
+  point is to show that `Platform` and `platform` are both in there.
+- **The tail is counted, not dropped.** Beyond the row cap, the remaining
+  distinct values and the entries holding them are reported as a remainder;
+  `distinctValues` stays exact regardless of how many rows are rendered.
+- **A refused attribute is a 400, not a new error code.** The `Error.error`
+  enum has no member for this and adding one would touch every client for a
+  case the existing `bad_request` already describes correctly.

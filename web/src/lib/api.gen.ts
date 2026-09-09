@@ -192,6 +192,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/inventory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What values one attribute holds, and how many entries carry each
+         * @description The question that finds a team name spelled "platfrm" with four people
+         *     on it, a cost centre nobody has used since a reorganisation, or the
+         *     accounts still pointing at a decommissioned site.
+         *
+         *     It is a tally over a **bounded** search, so it never claims to describe
+         *     the directory — only the entries it examined. Every number is scoped
+         *     that way and `truncated` says the bound was reached. A tally that
+         *     quietly summarises a truncated result set is not a weaker answer than
+         *     the truth; it is a confident wrong one.
+         *
+         *     Sensitive attributes are refused before the search runs rather than
+         *     filtered out of the result, which is the difference between never
+         *     reading a password and reading every password and choosing not to say.
+         */
+        post: operations["inventoryValues"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/members": {
         parameters: {
             query?: never;
@@ -1038,6 +1070,63 @@ export interface components {
             side: "both" | "left" | "right";
             value: components["schemas"]["AttributeValue"];
         };
+        InventoryRequest: {
+            baseDn: string;
+            /** @enum {string} */
+            scope: "base" | "one" | "sub";
+            /** @description An RFC 4515 filter narrowing what is examined. Parsed, never pasted. */
+            filter?: string;
+            /**
+             * @description The attribute to tally. Attribute options are folded together:
+             *     `alderTeam` and `alderTeam;lang-fr` are one attribute.
+             */
+            attribute: string;
+            /**
+             * @description Entries examined.
+             * @default 1000
+             */
+            limit: number;
+            /**
+             * @description Rows returned. The counts behind them stay exact — the tail is
+             *     reported as a remainder rather than dropped.
+             * @default 200
+             */
+            maxValues: number;
+        };
+        InventoryResponse: {
+            attribute: string;
+            /**
+             * @description Entries the search returned. Every other number here is about these
+             *     entries, not about the directory.
+             */
+            examined: number;
+            limit: number;
+            /**
+             * @description The search reached its limit, so entries exist that were not
+             *     examined and the tally is partial.
+             */
+            truncated: boolean;
+            withValue: number;
+            withoutValue: number;
+            /** @description Exact across the examined entries, even when fewer rows are returned. */
+            distinctValues: number;
+            /**
+             * @description Distinct values held by exactly one entry. The typo signal: a value
+             *     one entry holds among three hundred is usually a misspelling of one
+             *     that ninety hold.
+             */
+            singletonValues: number;
+            /** @description Distinct values beyond `maxValues`, counted but not listed. */
+            otherValues: number;
+            /** @description Entries carrying one of those values. */
+            otherEntries: number;
+            values: components["schemas"]["InventoryRow"][];
+        };
+        InventoryRow: {
+            value: components["schemas"]["AttributeValue"];
+            /** @description Entries carrying this value, not occurrences of it. */
+            entries: number;
+        };
         MemberList: {
             members: components["schemas"]["ExpandedMember"][];
             /**
@@ -1751,6 +1840,32 @@ export interface operations {
                     "application/json": components["schemas"]["ObjectViewList"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    inventoryValues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryRequest"];
+            };
+        };
+        responses: {
+            /** @description The tally. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };

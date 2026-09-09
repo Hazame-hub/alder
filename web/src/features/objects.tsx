@@ -25,6 +25,7 @@ import {
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
 import { ExportMenu } from "@/components/export-menu";
+import { InventoryButton } from "@/features/inventory";
 import { ColumnPicker } from "@/components/column-picker";
 
 /**
@@ -234,6 +235,7 @@ export function ObjectListPanel({
                   : undefined
               }
             />
+            <InventoryButton base={base} />
             <ExportMenu
               dn={base}
               scope="sub"

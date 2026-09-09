@@ -281,6 +281,39 @@ paths:
               schema: { $ref: "#/components/schemas/ObjectViewList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /inventory:
+    post:
+      tags: [browse]
+      operationId: inventoryValues
+      summary: What values one attribute holds, and how many entries carry each
+      description: |
+        The question that finds a team name spelled "platfrm" with four people
+        on it, a cost centre nobody has used since a reorganisation, or the
+        accounts still pointing at a decommissioned site.
+
+        It is a tally over a **bounded** search, so it never claims to describe
+        the directory — only the entries it examined. Every number is scoped
+        that way and `truncated` says the bound was reached. A tally that
+        quietly summarises a truncated result set is not a weaker answer than
+        the truth; it is a confident wrong one.
+
+        Sensitive attributes are refused before the search runs rather than
+        filtered out of the result, which is the difference between never
+        reading a password and reading every password and choosing not to say.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InventoryRequest" }
+      responses:
+        "200":
+          description: The tally.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InventoryResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /members:
     get:
       tags: [browse]
@@ -1392,6 +1425,83 @@ components:
           type: string
           enum: [both, left, right]
         value: { $ref: "#/components/schemas/AttributeValue" }
+
+    InventoryRequest:
+      type: object
+      required: [baseDn, scope, attribute]
+      properties:
+        baseDn: { type: string }
+        scope:
+          type: string
+          enum: [base, one, sub]
+        filter:
+          type: string
+          description: An RFC 4515 filter narrowing what is examined. Parsed, never pasted.
+        attribute:
+          type: string
+          description: |
+            The attribute to tally. Attribute options are folded together:
+            `alderTeam` and `alderTeam;lang-fr` are one attribute.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 1000
+          description: Entries examined.
+        maxValues:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 200
+          description: |
+            Rows returned. The counts behind them stay exact — the tail is
+            reported as a remainder rather than dropped.
+
+    InventoryResponse:
+      type: object
+      required: [attribute, examined, limit, truncated, withValue, withoutValue, distinctValues, singletonValues, otherValues, otherEntries, values]
+      properties:
+        attribute: { type: string }
+        examined:
+          type: integer
+          description: |
+            Entries the search returned. Every other number here is about these
+            entries, not about the directory.
+        limit: { type: integer }
+        truncated:
+          type: boolean
+          description: |
+            The search reached its limit, so entries exist that were not
+            examined and the tally is partial.
+        withValue: { type: integer }
+        withoutValue: { type: integer }
+        distinctValues:
+          type: integer
+          description: Exact across the examined entries, even when fewer rows are returned.
+        singletonValues:
+          type: integer
+          description: |
+            Distinct values held by exactly one entry. The typo signal: a value
+            one entry holds among three hundred is usually a misspelling of one
+            that ninety hold.
+        otherValues:
+          type: integer
+          description: Distinct values beyond `maxValues`, counted but not listed.
+        otherEntries:
+          type: integer
+          description: Entries carrying one of those values.
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/InventoryRow" }
+
+    InventoryRow:
+      type: object
+      required: [value, entries]
+      properties:
+        value: { $ref: "#/components/schemas/AttributeValue" }
+        entries:
+          type: integer
+          description: Entries carrying this value, not occurrences of it.
 
     MemberList:
       type: object
