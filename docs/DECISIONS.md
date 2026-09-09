@@ -1265,3 +1265,46 @@ to contradict the plan — add an entry.
   selection state into the URL, which changes the application's single
   navigation primitive — a change worth making on its own terms, not as a side
   effect of a palette.
+
+### 2026-09-09 — 1.0, and what it promises
+
+- **1.0 is a promise about the output, not a claim that the work is finished.**
+  The ten items in section 2 of `CLAUDE.md` all ship, and the tool writes to
+  directories other systems authenticate against. `0.x` told an operator "this
+  may break you", which had stopped being true of the write path around M3 and
+  was actively discouraging the adoption the project wants. `docs/COMPATIBILITY.md`
+  states what is covered and, as importantly, what is not.
+- **The LDIF and the Ansible are the first surface named, ahead of the HTTP
+  API.** The API is what the SPA talks to; the generated files are what somebody
+  commits to their infrastructure repository and reviews as a diff six months
+  later. A rendering change that reorders attributes breaks every one of those
+  diffs at once without being wrong about anything, and nothing in the project
+  guarded that until the golden files landed.
+- **`bump-minor-pre-major` came out of the release-please configuration,** and
+  that is a substantive part of what 1.0 means here rather than a tidy-up. Under
+  it a breaking change and a new feature produced the same minor bump, so the
+  version number could not say the thing a version number is for. It could not
+  have carried the promise above while that setting stood.
+- **`info.version` in `api/openapi.yaml` is the contract's version, not the
+  binary's,** and the document now says so. It read `1.0.0` while the product
+  shipped `0.12.x`, which was not a lie so much as an unanswered question; two
+  fields called "version" in one repository need to say which is which.
+- **A withheld comparison is its own status, not `same` with a flag beside it.**
+  `/compare` reported `status: same` and `comparable: false` for an attribute it
+  had deliberately not compared. Every client that read only the status — ours
+  included — concluded the two passwords matched: the "only what differs" filter
+  dropped the row entirely, so an operator asking what was different was told
+  nothing about the one attribute the server could not answer for. `withheld` is
+  now a status of its own, `comparable` is gone as redundant, and the counts
+  gained a fifth bucket so they still account for every attribute. Done before
+  1.0 precisely because an enum value and a removed field are free now and a
+  major bump afterwards.
+- **`/api/v1/source` is covered by the promise despite sitting outside
+  `openapi.yaml`.** It carries the AGPL section 13 offer and must answer without
+  a session, which is why it is registered directly. The compatibility document
+  names it rather than letting the generated file's boundary silently decide
+  what is binding.
+- **Still out of scope, and still not built:** ACL or `cn=config` editing beyond
+  the schema subtree, any multi-user concept, SSO, a persisted audit log, other
+  drivers, bulk provisioning, self-service, a database. 1.0 does not widen
+  section 2; it fixes the meaning of the number in front of it.

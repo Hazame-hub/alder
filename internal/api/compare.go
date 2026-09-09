@@ -60,6 +60,8 @@ func compareEntries(left, right *directory.Entry, sch *schema.Schema, limit int)
 			out.Counts.LeftOnly++
 		case RightOnly:
 			out.Counts.RightOnly++
+		case Withheld:
+			out.Counts.Withheld++
 		}
 		out.Attributes = append(out.Attributes, row)
 	}
@@ -102,8 +104,12 @@ func compareOne(name string, left, right *directory.Entry, sch *schema.Schema, l
 		// not becoming one.
 		row.Withheld = ptr(true)
 		if len(lv) > 0 && len(rv) > 0 {
-			row.Status = Same
-			row.Comparable = ptr(false)
+			// Withheld, not Same. This used to say Same with a flag beside it,
+			// and a status of "same" about two passwords is a claim the server
+			// has no basis for: it never compared them. A client reading only
+			// the status must not be able to reach that conclusion, and ours
+			// did -- the "only what differs" filter dropped the row entirely.
+			row.Status = Withheld
 		}
 		if schemes := valueSchemes(lv); len(schemes) > 0 {
 			row.Left.ValueSchemes = &schemes

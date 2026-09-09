@@ -6,11 +6,8 @@
       "package-name": "alder",
       "changelog-path": "CHANGELOG.md",
       "include-component-in-tag": false,
-      "bump-minor-pre-major": true,
-      "bump-patch-for-minor-pre-major": false,
       "draft": false,
-      "prerelease": false,
-      "initial-version": "0.1.0"
+      "prerelease": false
     }
   },
   "changelog-sections": [

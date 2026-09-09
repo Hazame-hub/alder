@@ -28,9 +28,13 @@ all work, against both target servers.
 | M3 | Write path: `ChangeRecord`, LDIF preview with a mandatory confirm, schema-driven editor. **Done.** |
 | M4 | LDIF import and export, Ansible export. **Done.** |
 | M5 | Release: screenshots, GoReleaser, GHCR, security policy, automated versioning. **Done.** |
+| 1.0 | Every item above shipping, with a stated compatibility promise. **Done.** |
 
-[`docs/DECISIONS.md`](docs/DECISIONS.md) records the decisions behind the design
-and why the alternatives were rejected. [`CONTRIBUTING.md`](CONTRIBUTING.md) has
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) says what 1.x will and will not
+change under you: the LDIF and Ansible an export produces are byte-stable, the
+HTTP API only grows, and the web interface is deliberately not part of the
+promise. [`docs/DECISIONS.md`](docs/DECISIONS.md) records the decisions behind
+the design and why the alternatives were rejected. [`CONTRIBUTING.md`](CONTRIBUTING.md) has
 the scope boundaries and the rules that are not style preferences.
 
 ![The entry viewer](docs/screenshots/entry-viewer.jpg)

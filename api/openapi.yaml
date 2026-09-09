@@ -10,6 +10,16 @@ info:
     This document is the source of truth. The Go server interface and the
     TypeScript client are both generated from it, so the two cannot drift.
 
+    **`info.version` above is the version of this contract, not of the binary
+    serving it.** They are both 1.x and are meant to stay that way: Alder 1.x
+    serves contract 1.x, and the contract only changes within a major by adding
+    -- a new endpoint, a new optional field, a new enum value a client may
+    ignore. Anything a client could break on waits for the next major of both.
+    `docs/COMPATIBILITY.md` says what that covers and what it does not. The
+    running binary reports its own version in `GET /api/v1/source`, which is
+    served outside this document because the AGPL section 13 offer it carries
+    must not require a session.
+
     Two conventions run through the whole API.
 
     A **distinguished name is always a query or body parameter, never a path
@@ -1388,12 +1398,20 @@ components:
 
     ComparisonCounts:
       type: object
-      required: [same, differs, leftOnly, rightOnly]
+      required: [same, differs, leftOnly, rightOnly, withheld]
+      description: |
+        One bucket per status, and every attribute lands in exactly one, so the
+        five sum to the length of `attributes`.
       properties:
         same: { type: integer }
         differs: { type: integer }
         leftOnly: { type: integer }
         rightOnly: { type: integer }
+        withheld:
+          type: integer
+          description: |
+            Held by both and not compared. Counted separately rather than folded
+            into `same`, which would be a claim about password material.
 
     AttributeComparison:
       type: object
@@ -1406,7 +1424,12 @@ components:
             and `userCertificate` are two rows, not one.
         status:
           type: string
-          enum: [same, differs, leftOnly, rightOnly]
+          enum: [same, differs, leftOnly, rightOnly, withheld]
+          description: |
+            `withheld` means both entries hold the attribute and it was not
+            compared, because it is sensitive. It is a status of its own rather
+            than `same` with a flag beside it: a client reading only this field
+            must not be able to conclude that two passwords match.
         left: { $ref: "#/components/schemas/ComparedSide" }
         right: { $ref: "#/components/schemas/ComparedSide" }
         values:
@@ -1416,14 +1439,11 @@ components:
         withheld:
           type: boolean
           description: |
-            Sensitive, so no value crosses the wire from either side.
-        comparable:
-          type: boolean
-          description: |
-            False when both sides hold the attribute but it was not compared.
-            Reporting whether two entries hold the *same* password hash would be
-            an oracle about password material the product offers nowhere else,
-            so presence is reported and equality is not.
+            Sensitive, so no value crosses the wire from either side. Presence
+            is still reported on each side, because `/entry` already says whether
+            a password is set. Equality is not: reporting whether two entries
+            hold the same password hash would be an oracle about password
+            material the product offers nowhere else.
         truncated: { type: boolean }
 
     ComparedSide:

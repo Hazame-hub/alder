@@ -124,8 +124,15 @@ func TestCompareNeverReportsWhetherTwoHashesMatch(t *testing.T) {
 			"comparison an oracle about password material",
 			identical.Status, different.Status)
 	}
-	if identical.Comparable == nil || *identical.Comparable {
-		t.Error("a withheld attribute held by both sides should be marked not comparable")
+	// And the status is Withheld rather than Same. Same would be a claim the
+	// server has no basis for -- it never compared the two values -- and a
+	// client reading only this field must not be able to reach it.
+	if identical.Status != Withheld {
+		t.Errorf("the status is %q; a password held by both sides is withheld, not same",
+			identical.Status)
+	}
+	if identical.Status == Same {
+		t.Error("a withheld attribute reported as same is an equality claim about a password")
 	}
 }
 
@@ -318,5 +325,36 @@ func TestCompareCapsValuesPerAttribute(t *testing.T) {
 	}
 	if !got.Truncated {
 		t.Error("the comparison was capped and did not say so")
+	}
+}
+
+// Every attribute lands in exactly one bucket, so the counts sum to the rows.
+//
+// The buckets are what an operator reads first, and a status that belongs to no
+// bucket makes them quietly under-report. Adding "withheld" as a status without
+// adding it as a count would have done precisely that.
+func TestCompareCountsAccountForEveryAttribute(t *testing.T) {
+	sch := testSchema(t)
+	left := cmpEntry(t, leftDN,
+		[]string{"objectClass", "top", "person", "inetOrgPerson"},
+		[]string{"sn", "Liddell"}, []string{"cn", "Alice"},
+		[]string{"description", "on the left only"},
+		[]string{"userPassword", "{SSHA}onehash"})
+	right := cmpEntry(t, rightDN,
+		[]string{"objectClass", "top", "person", "inetOrgPerson"},
+		[]string{"sn", "Adler"}, []string{"cn", "Alice"},
+		[]string{"telephoneNumber", "on the right only"},
+		[]string{"userPassword", "{SSHA}anotherhash"})
+
+	got := compareEntries(left, right, sch, 100)
+	c := got.Counts
+	sum := c.Same + c.Differs + c.LeftOnly + c.RightOnly + c.Withheld
+
+	if sum != len(got.Attributes) {
+		t.Errorf("the counts sum to %d but there are %d attributes: %+v",
+			sum, len(got.Attributes), c)
+	}
+	if c.Withheld != 1 {
+		t.Errorf("withheld is %d, want 1 for the password held by both", c.Withheld)
 	}
 }
