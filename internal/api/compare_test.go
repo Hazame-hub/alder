@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/schema"
 )
 
@@ -356,5 +359,138 @@ func TestCompareCountsAccountForEveryAttribute(t *testing.T) {
 	}
 	if c.Withheld != 1 {
 		t.Errorf("withheld is %d, want 1 for the password held by both", c.Withheld)
+	}
+}
+
+// --- one-sided rows and access control --------------------------------------
+
+// probeFor builds a visibilityProbe from a map keyed "dn|attribute".
+func probeFor(answers map[string]directory.AttributeVisibility, asked *[]string) visibilityProbe {
+	return func(_ context.Context, target dn.DN, attribute string) (directory.AttributeVisibility, error) {
+		key := strings.ToLower(target.String() + "|" + attribute)
+		if asked != nil {
+			*asked = append(*asked, key)
+		}
+		if v, ok := answers[key]; ok {
+			return v, nil
+		}
+		return directory.VisibilityAbsent, nil
+	}
+}
+
+func oneSidedRows(t *testing.T) []AttributeComparison {
+	t.Helper()
+	sch := testSchema(t)
+	left := cmpEntry(t, leftDN,
+		[]string{"objectClass", "top", "person", "inetOrgPerson"},
+		[]string{"sn", "Liddell"},
+		[]string{"description", "on the left only"},
+		[]string{"telephoneNumber", "also on the left only"})
+	right := cmpEntry(t, rightDN,
+		[]string{"objectClass", "top", "person", "inetOrgPerson"},
+		[]string{"sn", "Liddell"})
+	return compareEntries(left, right, sch, 100).Attributes
+}
+
+// The whole point: an attribute the bind may not read on one side is not a
+// difference between two entries, and must not be reported as one.
+func TestAOneSidedRowTheBindCannotSeeBecomesUndetermined(t *testing.T) {
+	rows := oneSidedRows(t)
+	answers := map[string]directory.AttributeVisibility{
+		strings.ToLower(rightDN + "|description"): directory.VisibilityDenied,
+	}
+
+	resolved, truncated := resolveOneSided(context.Background(), probeFor(answers, nil),
+		mustParse(t, leftDN), mustParse(t, rightDN), rows)
+
+	if resolved != 1 || truncated {
+		t.Fatalf("resolved=%d truncated=%v, want 1 and false", resolved, truncated)
+	}
+	row := rowFor(comparison{Attributes: rows}, "description")
+	if row.Status != Undetermined {
+		t.Errorf("description is %q; the right side was denied, so leftOnly is a claim "+
+			"about the directory this session cannot make", row.Status)
+	}
+	if row.Right.Denied == nil || !*row.Right.Denied {
+		t.Error("the row does not say which side could not be read")
+	}
+}
+
+// The attribute the entry genuinely lacks stays a difference, which is the
+// half that has to keep working.
+func TestAOneSidedRowTheEntryTrulyLacksStaysOneSided(t *testing.T) {
+	rows := oneSidedRows(t)
+	answers := map[string]directory.AttributeVisibility{
+		strings.ToLower(rightDN + "|description"): directory.VisibilityDenied,
+		// telephoneNumber is simply not on the right.
+		strings.ToLower(rightDN + "|telephoneNumber"): directory.VisibilityAbsent,
+	}
+
+	resolveOneSided(context.Background(), probeFor(answers, nil),
+		mustParse(t, leftDN), mustParse(t, rightDN), rows)
+
+	row := rowFor(comparison{Attributes: rows}, "telephoneNumber")
+	if row.Status != LeftOnly {
+		t.Errorf("telephoneNumber is %q, want leftOnly: the entry really does not have it",
+			row.Status)
+	}
+	if row.Right.Denied != nil {
+		t.Error("an absent attribute was marked denied")
+	}
+}
+
+// Only one-sided rows cost a round trip. A row answered by values both sides
+// returned needs nothing from the server.
+func TestOnlyOneSidedRowsAreProbed(t *testing.T) {
+	rows := oneSidedRows(t)
+	var asked []string
+	resolveOneSided(context.Background(), probeFor(nil, &asked),
+		mustParse(t, leftDN), mustParse(t, rightDN), rows)
+
+	for _, key := range asked {
+		if strings.Contains(key, "|sn") || strings.Contains(key, "|objectclass") {
+			t.Errorf("%s was probed, but both sides returned it", key)
+		}
+	}
+	if len(asked) != 2 {
+		t.Errorf("%d probes for 2 one-sided rows: %v", len(asked), asked)
+	}
+}
+
+// A probe that fails leaves the comparison as it was. The extra question is an
+// improvement on the answer, not a precondition for it.
+func TestAFailedProbeLeavesTheRowAlone(t *testing.T) {
+	rows := oneSidedRows(t)
+	failing := func(context.Context, dn.DN, string) (directory.AttributeVisibility, error) {
+		return directory.VisibilityUnknown, errors.New("the server hung up")
+	}
+
+	resolved, _ := resolveOneSided(context.Background(), failing,
+		mustParse(t, leftDN), mustParse(t, rightDN), rows)
+
+	if resolved != 0 {
+		t.Errorf("resolved=%d, want 0", resolved)
+	}
+	if row := rowFor(comparison{Attributes: rows}, "description"); row.Status != LeftOnly {
+		t.Errorf("description is %q, want the unprobed leftOnly", row.Status)
+	}
+}
+
+// The counts follow the reclassification, and still account for every row.
+func TestRecountFollowsTheReclassification(t *testing.T) {
+	rows := oneSidedRows(t)
+	answers := map[string]directory.AttributeVisibility{
+		strings.ToLower(rightDN + "|description"): directory.VisibilityDenied,
+	}
+	resolveOneSided(context.Background(), probeFor(answers, nil),
+		mustParse(t, leftDN), mustParse(t, rightDN), rows)
+
+	c := recount(rows)
+	sum := c.Same + c.Differs + c.LeftOnly + c.RightOnly + c.Withheld + c.Undetermined
+	if sum != len(rows) {
+		t.Errorf("the counts sum to %d but there are %d rows: %+v", sum, len(rows), c)
+	}
+	if c.Undetermined != 1 {
+		t.Errorf("undetermined is %d, want 1", c.Undetermined)
 	}
 }

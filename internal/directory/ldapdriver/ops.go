@@ -395,3 +395,59 @@ func (s *session) SchemaDefinitions(ctx context.Context, targetDN string, kind d
 	}
 	return res.Entries[0].GetAttributeValues(attr), nil
 }
+
+// visibilityProbeValue is the value the visibility probe compares against.
+//
+// A Compare needs one, and which one does not matter: the result code is the
+// answer, not whether it matched. A value nothing could plausibly hold keeps
+// the comparison itself uninteresting, and keeps the probe from being a way to
+// guess at a value it is not allowed to read -- one bit per call about a
+// constant is no oracle.
+const visibilityProbeValue = "alder-visibility-probe"
+
+// VisibilityOf asks the server whether an attribute is absent or merely hidden.
+//
+// Compare is the only operation that distinguishes them. A search omits a
+// forbidden attribute exactly as it omits one the entry does not hold, so a
+// feature that reports "only on the left" from a read alone is stating
+// something it cannot know.
+//
+// Both target servers answer this the same way, which the conformance suite
+// pins: no such attribute for absent, insufficient access for denied.
+func (s *session) VisibilityOf(ctx context.Context, target dn.DN, attribute string) (directory.AttributeVisibility, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return directory.VisibilityUnknown, errors.New("directory: the session is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return directory.VisibilityUnknown, err
+	}
+
+	// Compare answers true, false, or a result code. True and false both mean
+	// the bind was allowed to look, which is the whole question here.
+	_, err := s.connFor(target.String()).Compare(target.String(), attribute, visibilityProbeValue)
+	if err == nil {
+		return directory.VisibilityPresent, nil
+	}
+
+	cleaned := cleanLDAPError(err)
+	var le *Error
+	if !errors.As(cleaned, &le) {
+		return directory.VisibilityUnknown, cleaned
+	}
+	switch le.Code {
+	case ldap.LDAPResultCompareFalse, ldap.LDAPResultCompareTrue:
+		return directory.VisibilityPresent, nil
+	case ldap.LDAPResultNoSuchAttribute:
+		return directory.VisibilityAbsent, nil
+	case ldap.LDAPResultInsufficientAccessRights:
+		return directory.VisibilityDenied, nil
+	case ldap.LDAPResultNoSuchObject:
+		// The entry itself is not visible, which a caller comparing two entries
+		// it has already read should never see -- but "unknown" is the honest
+		// answer rather than "absent".
+		return directory.VisibilityUnknown, nil
+	}
+	return directory.VisibilityUnknown, cleaned
+}

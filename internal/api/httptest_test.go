@@ -60,6 +60,14 @@ type fakeSession struct {
 	// lastSearch is the request as the handler built it, which is where
 	// parameter parsing either worked or quietly did not.
 	lastSearch *directory.SearchRequest
+
+	// visibility answers the access probe, keyed "dn|attribute" in lower case.
+	// Anything not named answers Absent, which is what a directory with no
+	// access rules in the way would say.
+	visibility map[string]directory.AttributeVisibility
+	// visibilityAsked records every probe, so a test can assert that a handler
+	// did not spend a round trip it did not need.
+	visibilityAsked []string
 }
 
 func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
@@ -86,6 +94,15 @@ func (f *fakeSession) Read(_ context.Context, target dn.DN, _ []string) (*direct
 		return nil, &ldapdriver.Error{Code: 32, Message: "No Such Object"}
 	}
 	return f.entry, nil
+}
+
+func (f *fakeSession) VisibilityOf(_ context.Context, target dn.DN, attribute string) (directory.AttributeVisibility, error) {
+	key := strings.ToLower(target.String() + "|" + attribute)
+	f.visibilityAsked = append(f.visibilityAsked, key)
+	if v, ok := f.visibility[key]; ok {
+		return v, nil
+	}
+	return directory.VisibilityAbsent, nil
 }
 
 func (f *fakeSession) SchemaDefinitions(context.Context, string, directory.SchemaDefKind) ([]string, error) {

@@ -46,10 +46,49 @@ type Session interface {
 	// and all. A change that removes or replaces a definition has to send back
 	// the value the server matched on, and this is where that value comes from.
 	SchemaDefinitions(ctx context.Context, targetDN string, kind SchemaDefKind) ([]string, error)
+	// VisibilityOf reports whether an entry lacks an attribute or merely hides
+	// it from this bind.
+	//
+	// A read cannot tell those apart: an attribute the access rules forbid is
+	// simply not in the result, exactly like one the entry does not hold. Only
+	// the server knows which, and a Compare is how it can be asked -- it
+	// answers "no such attribute" for the first and "insufficient access" for
+	// the second, on both target servers, which the conformance suite pins.
+	VisibilityOf(ctx context.Context, target dn.DN, attribute string) (AttributeVisibility, error)
 	// Apply performs a change. It is the only method that writes.
 	Apply(ctx context.Context, ch ChangeRecord) error
 	// Close releases the connection.
 	Close() error
+}
+
+// AttributeVisibility says why an attribute was not among those read back.
+type AttributeVisibility int
+
+const (
+	// VisibilityUnknown means the server did not answer in terms this can
+	// interpret. Treated as "no claim can be made", never as absent.
+	VisibilityUnknown AttributeVisibility = iota
+	// VisibilityPresent means the entry holds the attribute and this bind may
+	// read it.
+	VisibilityPresent
+	// VisibilityAbsent means the entry does not hold the attribute.
+	VisibilityAbsent
+	// VisibilityDenied means the entry may or may not hold it; the access
+	// rules forbid this bind from finding out.
+	VisibilityDenied
+)
+
+func (v AttributeVisibility) String() string {
+	switch v {
+	case VisibilityPresent:
+		return "present"
+	case VisibilityAbsent:
+		return "absent"
+	case VisibilityDenied:
+		return "denied"
+	default:
+		return "unknown"
+	}
 }
 
 // TLSMode selects how the connection is secured.

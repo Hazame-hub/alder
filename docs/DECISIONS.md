@@ -1308,3 +1308,44 @@ to contradict the plan — add an entry.
   the schema subtree, any multi-user concept, SSO, a persisted audit log, other
   drivers, bulk provisioning, self-service, a database. 1.0 does not widen
   section 2; it fixes the meaning of the number in front of it.
+
+### 2026-09-10 — telling "denied" from "absent"
+
+- **A read cannot report a one-sided attribute honestly, so the server is asked
+  directly.** An attribute the access rules forbid is missing from a search
+  result exactly as one the entry does not hold is; nothing on the wire marks
+  the difference. `/compare` therefore reported an attribute it had been denied
+  on one side as `leftOnly` — a statement about the directory, and the one an
+  operator acts on, since "only on the left" is what somebody reads before
+  copying a value across.
+- **Compare is the operation that distinguishes them, and both target servers
+  agree.** `no such attribute` for absent, `insufficient access` for denied,
+  measured on OpenLDAP and 389 DS before any code was written and pinned in the
+  suite. Had they disagreed, the fix would have been to weaken what `/compare`
+  claims rather than to detect anything.
+- **`Session.VisibilityOf` is a new method on the core abstraction.** Adding to
+  section 6's interface is not free, and the alternative — a Compare reachable
+  only through the LDAP driver — would have put a protocol detail in the
+  handler and made the question unanswerable for any future driver. The
+  question itself ("may this identity see this attribute here") is not
+  LDAP-specific.
+- **Only one-sided rows are probed, and at most fifty.** A row answered by
+  values both sides returned needs nothing from the server, so two entries that
+  differ only in their values cost no round trips at all. Two entries of
+  different structural classes can differ in dozens of attributes, and past the
+  cap the comparison says it stopped rather than spending unbounded time.
+- **A failed probe leaves the row as it was.** The extra question is an
+  improvement on the answer, not a precondition for it; a comparison that failed
+  because one probe could not be sent would be worse than one that answers as it
+  always did.
+- **`undetermined` is a status, and the SPA's default case stopped saying
+  "same".** The old default rendered any unrecognised status as agreement, so
+  the enum value this change adds would have been displayed as "these match" by
+  an older client. `docs/COMPATIBILITY.md` promises that new enum values are
+  safe to fall through; falling through to the one claim that is never safe to
+  invent is not what that means.
+- **What this still cannot see.** An attribute denied on *both* sides is in
+  neither read, so no row exists and nothing prompts a probe. `referenced-by`
+  has the same shape and no equivalent fix: a search that returns fewer entries
+  looks exactly like a directory with fewer entries, and "nothing points at this
+  entry" is what somebody reads before deleting it. Neither is addressed here.

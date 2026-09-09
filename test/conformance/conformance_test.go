@@ -3022,3 +3022,107 @@ func TestAWithheldAttributeIsIndistinguishableFromAnAbsentOne(t *testing.T) {
 		})
 	}
 }
+
+// The server can tell absent from denied, and both target servers do it the
+// same way.
+//
+// This is what makes the difference recoverable at all. A search omits a
+// forbidden attribute exactly as it omits one the entry does not hold, so
+// without this any feature reporting "only on the left" would be stating
+// something it cannot know. Compare answers "no such attribute" for the first
+// and "insufficient access" for the second, and Session.VisibilityOf is that
+// question.
+func TestVisibilityDistinguishesAbsentFromDenied(t *testing.T) {
+	target, err := dn.Parse("uid=user0001,ou=people," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	eachServerRestricted(t, func(t *testing.T, s server, sess directory.Session) {
+		for _, tc := range []struct {
+			attribute string
+			want      directory.AttributeVisibility
+			why       string
+		}{
+			{"sn", directory.VisibilityPresent, "held by the entry and readable by this bind"},
+			{"telephoneNumber", directory.VisibilityAbsent, "the entry does not hold it"},
+			{"userPassword", directory.VisibilityDenied, "the access rules forbid this bind from looking"},
+		} {
+			t.Run(tc.attribute, func(t *testing.T) {
+				got, visErr := sess.VisibilityOf(ctx(t), target, tc.attribute)
+				if visErr != nil {
+					t.Fatalf("VisibilityOf(%s): %v", tc.attribute, visErr)
+				}
+				if got != tc.want {
+					t.Errorf("%s is %v, want %v -- %s", tc.attribute, got, tc.want, tc.why)
+				}
+			})
+		}
+	})
+}
+
+// The privileged bind sees the password, so the same probe answers Present.
+// Without this the case above would pass on a server that answered Denied to
+// everybody.
+func TestVisibilityFollowsTheBindNotTheAttribute(t *testing.T) {
+	target, err := dn.Parse("uid=user0001,ou=people," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		got, visErr := sess.VisibilityOf(ctx(t), target, "userPassword")
+		if visErr != nil {
+			t.Fatalf("VisibilityOf: %v", visErr)
+		}
+		if got != directory.VisibilityPresent {
+			t.Errorf("userPassword is %v to the administrator, want present", got)
+		}
+	})
+}
+
+// The fixture the comparison's one-sided resolution rests on: one attribute,
+// readable on one entry and forbidden on its neighbour.
+//
+// Without a case shaped like this the resolution could only be tested against a
+// fake, which would prove the code branches and nothing about a directory.
+func TestAnAttributeCanBeDeniedOnOneEntryAndReadableOnAnother(t *testing.T) {
+	readable, err := dn.Parse("uid=user0001,ou=people," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, err := dn.Parse("uid=user0002,ou=people," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	eachServerRestricted(t, func(t *testing.T, s server, sess directory.Session) {
+		got, visErr := sess.VisibilityOf(ctx(t), readable, "alderTeam")
+		if visErr != nil {
+			t.Fatalf("VisibilityOf on the readable entry: %v", visErr)
+		}
+		if got != directory.VisibilityPresent {
+			t.Errorf("alderTeam on %s is %v, want present", readable, got)
+		}
+
+		got, visErr = sess.VisibilityOf(ctx(t), denied, "alderTeam")
+		if visErr != nil {
+			t.Fatalf("VisibilityOf on the restricted entry: %v", visErr)
+		}
+		if got != directory.VisibilityDenied {
+			t.Errorf("alderTeam on %s is %v, want denied", denied, got)
+		}
+
+		// And a plain read shows nothing of the difference, which is the whole
+		// reason the probe exists.
+		e, readErr := sess.Read(ctx(t), denied, []string{"*"})
+		if readErr != nil {
+			t.Fatalf("reading the restricted entry: %v", readErr)
+		}
+		if len(e.Get("alderTeam")) != 0 {
+			t.Error("the read returned alderTeam, so the rule is not in force")
+		}
+		if len(e.Get("cn")) == 0 {
+			t.Error("the read returned nothing at all, so this says nothing about one attribute")
+		}
+	})
+}
