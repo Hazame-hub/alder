@@ -203,7 +203,7 @@ export interface paths {
         put?: never;
         /**
          * What values one attribute holds, and how many entries carry each
-         * @description The question that finds a team name spelled "platfrom" with four people
+         * @description The question that finds a team name spelled "platfrm" with four people
          *     on it, a cost centre nobody has used since a reorganisation, or the
          *     accounts still pointing at a decommissioned site.
          *
