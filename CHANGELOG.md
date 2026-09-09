@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/Hazame-hub/alder/compare/v0.12.0...v0.12.1) (2026-09-09)
+
+
+### Fixes
+
+* **ansible:** a delete naming no values emptied nothing ([#67](https://github.com/Hazame-hub/alder/issues/67)) ([df93bc4](https://github.com/Hazame-hub/alder/commit/df93bc4a439822ae3d7ced235342a781c67f726c))
+
 ## [0.12.0](https://github.com/Hazame-hub/alder/compare/v0.11.0...v0.12.0) (2026-09-09)
 
 
