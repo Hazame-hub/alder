@@ -389,6 +389,38 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /resolve:
+    get:
+      tags: [browse]
+      operationId: resolve
+      summary: What could this input be — an entry, or a search
+      description: |
+        Backs one box that takes a DN, an RFC 4515 filter, or a name.
+
+        It parses and never searches. `internal/dn` and `internal/filter` are
+        the authorities on what these strings are, and a regex in the browser
+        would drift from them the first time either grew a case — but probing
+        the directory to see whether an entry exists would turn every keystroke
+        into a read, to answer a question the operator is about to answer by
+        pressing enter.
+
+        The three kinds overlap. `cn=platform` is a valid one-component DN
+        *and* almost certainly a request to find something called platform, so
+        an ambiguous input returns both destinations and the operator picks.
+        Guessing would be wrong about half the time.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Where this input could go.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResolveResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /schema:
     get:
       tags: [schema]
@@ -1502,6 +1534,36 @@ components:
         entries:
           type: integer
           description: Entries carrying this value, not occurrences of it.
+
+    ResolveResult:
+      type: object
+      required: [query, destinations]
+      properties:
+        query: { type: string }
+        destinations:
+          type: array
+          items: { $ref: "#/components/schemas/Destination" }
+          description: |
+            Empty when the input is not usable — a half-typed filter, say.
+            More than one when the input is genuinely ambiguous.
+
+    Destination:
+      type: object
+      required: [kind, label]
+      properties:
+        kind:
+          type: string
+          enum: [entry, search]
+        label: { type: string }
+        dn:
+          type: string
+          description: Set for an entry destination; the DN, canonically rendered.
+        filter:
+          type: string
+          description: |
+            Set for a search destination, built by the filter package and
+            escaped — the text came from a box somebody typed in.
+        base: { type: string }
 
     MemberList:
       type: object

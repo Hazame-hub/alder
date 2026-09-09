@@ -30,6 +30,7 @@ import { EntryPanel } from "@/features/entry";
 import { SchemaBrowser } from "@/features/schema";
 import { SearchPanel } from "@/features/search";
 import { ImportPanel } from "@/features/import";
+import { JumpPalette } from "@/features/palette";
 import { ChangesetView } from "@/features/changeset";
 import { ObjectListPanel } from "@/features/objects";
 import { OverviewPanel } from "@/features/overview";
@@ -114,6 +115,13 @@ export function App() {
         {isDirectoryView(view) ? (
           <DirectoryNav view={view} onView={(v) => go({ view: v })} />
         ) : null}
+
+        <JumpPalette
+          onEntry={openEntry}
+          onSearch={(filter, base) =>
+            go({ view: "search", filter, base, scope: "sub" })
+          }
+        />
 
         <div className="flex min-h-0 flex-1">
           {view === "overview" ? (
