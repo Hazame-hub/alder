@@ -1,0 +1,13 @@
+version: 1
+
+dn: uid=alice,ou=people,dc=alder,dc=test
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: alice
+cn: Alice Liddell
+sn: Liddell
+mail: alice@alder.test
+mail: a.liddell@alder.test
+uidNumber: 10001

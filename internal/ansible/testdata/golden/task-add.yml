@@ -1,0 +1,17 @@
+- name: Create "uid=carol,ou=people,dc=alder,dc=test"
+  community.general.ldap_entry:
+    server_uri: "{{ ldap_server_uri }}"
+    bind_dn: "{{ ldap_bind_dn }}"
+    bind_pw: "{{ ldap_bind_pw }}"
+    dn: "uid=carol,ou=people,dc=alder,dc=test"
+    objectClass:
+      - "top"
+      - "inetOrgPerson"
+    attributes:
+      "uid": "carol"
+      "cn": "Carol Adler"
+      "sn": "Adler"
+      "mail":
+        - "carol@alder.test"
+        - "c.adler@alder.test"
+    state: present

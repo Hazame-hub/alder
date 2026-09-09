@@ -1,0 +1,18 @@
+version: 1
+
+dn: uid=alice,ou=people,dc=alder,dc=test
+changetype: modify
+add: mail
+mail: alice@example.test
+-
+delete: telephoneNumber
+-
+delete: mail
+mail: old@alder.test
+-
+replace: description
+description: Replaced wholesale
+-
+increment: uidNumber
+uidNumber: 1
+-

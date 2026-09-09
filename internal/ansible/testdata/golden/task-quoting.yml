@@ -1,0 +1,10 @@
+- name: "Set description, title on cn=Liddell\\, Alice,ou=people,dc=alder,dc=test"
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_server_uri }}"
+    bind_dn: "{{ ldap_bind_dn }}"
+    bind_pw: "{{ ldap_bind_pw }}"
+    dn: "cn=Liddell\\, Alice,ou=people,dc=alder,dc=test"
+    attributes:
+      "description": "He said \"hello\": then left"
+      "title": "Directrice général"
+    state: exact  # replace: the attribute ends up with exactly these values

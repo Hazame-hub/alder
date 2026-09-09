@@ -1,0 +1,12 @@
+# community.general has no module that renames a directory entry.
+# Deleting and recreating the entry would lose every attribute on it,
+# so this task applies the same modrdn LDIF that Alder previewed.
+- name: Rename "uid=alice,ou=people,dc=alder,dc=test"
+  ansible.builtin.command:
+    cmd: ldapmodify -H {{ ldap_server_uri }} -D {{ ldap_bind_dn }} -w {{ ldap_bind_pw }} -c
+    stdin: |
+      dn: uid=alice,ou=people,dc=alder,dc=test
+      changetype: modrdn
+      newrdn: uid=alice.liddell
+      deleteoldrdn: 1
+  changed_when: true

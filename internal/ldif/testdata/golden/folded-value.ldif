@@ -1,0 +1,6 @@
+version: 1
+
+dn: cn=long,dc=alder,dc=test
+cn: long
+description: This is a deliberately long description that runs past the seve
+ nty-six column fold and keeps going for a while yet.

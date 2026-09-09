@@ -122,7 +122,7 @@ func writeModify(b *strings.Builder, c directory.ChangeRecord) {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		state, comment := stateFor(run.op)
+		state, comment := stateFor(run.op, run.whole)
 		names := make([]string, len(run.mods))
 		for j, m := range run.mods {
 			names[j] = m.Name
@@ -135,9 +135,9 @@ func writeModify(b *strings.Builder, c directory.ChangeRecord) {
 		b.WriteString("    attributes:\n")
 		for _, m := range run.mods {
 			if len(m.Values) == 0 {
-				// state: exact with no values is how the module expresses
-				// "remove every value of this attribute"; a delete with no
-				// values in LDAP means exactly that.
+				// An empty list under state: exact is how the module expresses
+				// "this attribute ends up holding nothing", which is what a
+				// delete naming no values, and a replace naming none, mean.
 				fmt.Fprintf(b, "      %s: []\n", yamlKey(m.Name))
 				continue
 			}
@@ -188,29 +188,51 @@ func writeConnection(b *strings.Builder) {
 }
 
 type modRun struct {
-	op   directory.ModOp
-	mods []directory.Mod
+	op directory.ModOp
+	// whole marks a run of deletes that name no values. In LDAP that is
+	// "remove the attribute entirely", which the module expresses as
+	// state: exact with an empty list -- a different state from deleting named
+	// values, so the two cannot share a task however adjacent they are.
+	whole bool
+	mods  []directory.Mod
+}
+
+// removesWholeAttribute reports whether a modification drops an attribute
+// rather than particular values of it.
+//
+// RFC 2849 makes this distinction with the presence of values under a delete,
+// and it is the difference between "drop the mail attribute" and "drop this one
+// address".
+func removesWholeAttribute(m directory.Mod) bool {
+	return m.Op == directory.ModDelete && len(m.Values) == 0
 }
 
 func groupByOp(mods []directory.Mod) []modRun {
 	var runs []modRun
 	for _, m := range mods {
-		if len(runs) > 0 && runs[len(runs)-1].op == m.Op {
-			runs[len(runs)-1].mods = append(runs[len(runs)-1].mods, m)
+		whole := removesWholeAttribute(m)
+		if n := len(runs); n > 0 && runs[n-1].op == m.Op && runs[n-1].whole == whole {
+			runs[n-1].mods = append(runs[n-1].mods, m)
 			continue
 		}
-		runs = append(runs, modRun{op: m.Op, mods: []directory.Mod{m}})
+		runs = append(runs, modRun{op: m.Op, whole: whole, mods: []directory.Mod{m}})
 	}
 	return runs
 }
 
 // stateFor maps an LDAP modification onto an ldap_attrs state, with a trailing
 // comment where the mapping is not obvious.
-func stateFor(op directory.ModOp) (state, comment string) {
-	switch op {
-	case directory.ModAdd:
+func stateFor(op directory.ModOp, whole bool) (state, comment string) {
+	switch {
+	case op == directory.ModAdd:
 		return "present", "  # add these values, leaving any others"
-	case directory.ModDelete:
+	case op == directory.ModDelete && whole:
+		// Not "absent". state: absent removes the values it is given, and this
+		// modification names none, so absent here removes nothing at all and
+		// the playbook reports success having done nothing. state: exact with
+		// an empty list is what leaves the attribute holding nothing.
+		return "exact", "  # remove the attribute and every value it holds"
+	case op == directory.ModDelete:
 		return "absent", "  # remove these values, leaving any others"
 	default:
 		return "exact", "  # replace: the attribute ends up with exactly these values"

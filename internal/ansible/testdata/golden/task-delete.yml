@@ -1,0 +1,7 @@
+- name: Remove "uid=departed,ou=people,dc=alder,dc=test"
+  community.general.ldap_entry:
+    server_uri: "{{ ldap_server_uri }}"
+    bind_dn: "{{ ldap_bind_dn }}"
+    bind_pw: "{{ ldap_bind_pw }}"
+    dn: "uid=departed,ou=people,dc=alder,dc=test"
+    state: absent

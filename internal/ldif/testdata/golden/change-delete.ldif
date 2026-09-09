@@ -1,0 +1,4 @@
+version: 1
+
+dn: uid=departed,ou=people,dc=alder,dc=test
+changetype: delete

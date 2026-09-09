@@ -1,0 +1,12 @@
+version: 1
+
+dn: ou=people,dc=alder,dc=test
+objectClass: top
+objectClass: organizationalUnit
+ou: people
+
+dn: uid=bob,ou=people,dc=alder,dc=test
+objectClass: top
+objectClass: inetOrgPerson
+uid: bob
+sn: Adler
