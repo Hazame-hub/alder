@@ -67,7 +67,6 @@ func (s *Server) Close() { s.sessions.Close() }
 // Register mounts the API on a Fiber router under /api/v1.
 func (s *Server) Register(app *fiber.App) {
 	RegisterHandlersWithOptions(app, s, FiberServerOptions{BaseURL: "/api/v1"})
-	s.registerSourceOffer(app.Group("/api/v1"))
 }
 
 // cookieName is the session cookie for this deployment.

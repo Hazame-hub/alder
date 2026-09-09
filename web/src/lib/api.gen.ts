@@ -619,6 +619,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where to get the source of this running instance
+         * @description AGPL-3.0 section 13: someone using a modified Alder over a network is
+         *     entitled to its Corresponding Source. The offer is served rather than
+         *     written in a README because the obligation runs to the person using the
+         *     running instance, and the user of a modified instance has no reason to
+         *     know where its source went.
+         *
+         *     **This is the one endpoint that answers without a session,** and it has
+         *     no 401 for that reason: an offer only the already-connected can read
+         *     would not discharge the obligation. It is described here so that the
+         *     contract in this document is the whole contract -- it was served outside
+         *     it until 1.0, which made `openapi.yaml` quietly incomplete about the one
+         *     endpoint a licence requires.
+         */
+        get: operations["getSourceOffer"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1626,6 +1657,26 @@ export interface components {
              */
             skippedAttributes?: string[];
         };
+        SourceOffer: {
+            /** @description The SPDX identifier Alder is licensed under. */
+            license: string;
+            /**
+             * @description Where the Corresponding Source of *this* build lives. An operator
+             *     running a fork sets `--source-url` to their own; leaving it at the
+             *     default while running a modified build does not comply.
+             */
+            sourceUrl: string;
+            version: string;
+            /** @description The commit this binary was built from, when the build recorded one. */
+            revision?: string;
+            /**
+             * @description True when the build came from a tree with uncommitted changes, so
+             *     `revision` alone does not identify the source. Absent means false.
+             */
+            modified?: boolean;
+            /** @description The offer in prose, for a person rather than a client. */
+            notice: string;
+        };
     };
     responses: {
         /** @description The request was malformed. */
@@ -2356,6 +2407,26 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getSourceOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The offer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOffer"];
+                };
+            };
         };
     };
 }

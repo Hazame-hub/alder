@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -44,12 +45,30 @@ func TestEveryEndpointRequiresASession(t *testing.T) {
 
 // The source offer is the one endpoint that must answer without a session:
 // AGPL section 13 runs to whoever is looking at the running instance.
+//
+// It moved into openapi.yaml at 1.0 and is now routed by the generated handler
+// rather than by hand, so this checks the offer itself and not merely a 200: a
+// route wired to the wrong thing answers 200 with nothing useful in it.
 func TestTheSourceOfferNeedsNoSession(t *testing.T) {
 	rig := newRig(t, Config{}, &fakeSession{caps: defaultCaps()})
 	res := rig.anonymous(t, http.MethodGet, "/api/v1/source")
 	if res.Status != fiber.StatusOK {
-		t.Errorf("got %d, want 200; the offer has to reach a user who is not "+
+		t.Fatalf("got %d, want 200; the offer has to reach a user who is not "+
 			"connected to a directory", res.Status)
+	}
+
+	var offer SourceOffer
+	if err := json.Unmarshal([]byte(res.Body), &offer); err != nil {
+		t.Fatalf("the offer is not JSON: %v -- %s", err, res.Body)
+	}
+	if offer.License != "AGPL-3.0-only" {
+		t.Errorf("license is %q", offer.License)
+	}
+	if offer.SourceUrl == "" {
+		t.Error("the offer names nowhere to get the source, which is the whole obligation")
+	}
+	if offer.Notice == "" {
+		t.Error("the offer carries no notice for a person to read")
 	}
 }
 

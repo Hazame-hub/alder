@@ -1,0 +1,27 @@
+# Access control for the delegated service account, on 389 Directory Server.
+#
+# The equivalent of the ou=services rule in openldap/slapd.conf, and it has to
+# live in a separate file for the same reason the schema does: this is the one
+# thing the two servers genuinely express differently. OpenLDAP keeps access
+# rules in its configuration, 389 DS keeps them in an `aci` attribute on the
+# entry they protect.
+#
+# Applied after the seed, because an aci is an attribute of an entry and the
+# entries have to exist first.
+#
+# The defaults differ too, which is why this file grants and OpenLDAP's only
+# denies: 389 DS gives an ordinary bound user nothing below a suffix until an
+# aci says otherwise, where OpenLDAP's `by users read` had already given it
+# everything.
+
+dn: dc=alder,dc=test
+changetype: modify
+add: aci
+aci: (targetattr!="userPassword")(version 3.0; acl "svc-alder administers people and groups"; allow (read,search,compare) userdn = "ldap:///cn=svc-alder,ou=services,dc=alder,dc=test";)
+
+# Deny wins over allow in 389 DS regardless of order, so this subtracts
+# ou=services from the grant above rather than racing it.
+dn: ou=services,dc=alder,dc=test
+changetype: modify
+add: aci
+aci: (targetattr="*")(version 3.0; acl "the service accounts are invisible to svc-alder"; deny (read,search,compare) userdn = "ldap:///cn=svc-alder,ou=services,dc=alder,dc=test";)

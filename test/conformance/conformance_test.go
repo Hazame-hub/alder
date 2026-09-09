@@ -57,6 +57,23 @@ type server struct {
 	schemaBindDN string
 	schemaBindPW string
 
+	// restrictedDN and restrictedPW are a delegated account: it administers
+	// people and groups and cannot see ou=services at all.
+	//
+	// Every other case in this file binds as the directory's own administrator,
+	// which on OpenLDAP is the rootdn and bypasses access control entirely.
+	// That makes the whole suite a test of what Alder does when it is allowed
+	// to do everything -- which is not how anybody runs it. Where the rules
+	// live differs by vendor (slapd.conf against an aci attribute); that the
+	// account sees the same directory does not.
+	restrictedDN string
+	restrictedPW string
+
+	// hiddenDN is a subtree the restricted account cannot read. It exists, and
+	// asking about it is not an error -- the server simply behaves as though it
+	// were not there, which is the case a tool has to get right.
+	hiddenDN string
+
 	// configWriteDN, configWriteAttr and configWriteValue name a harmless,
 	// restorable setting in this server's configuration.
 	//
@@ -79,6 +96,10 @@ var servers = []server{
 		schemaBindDN: "cn=admin,cn=config",
 		schemaBindPW: "alder-config",
 
+		restrictedDN: "cn=svc-alder,ou=services,dc=alder,dc=test",
+		restrictedPW: "alder-service",
+		hiddenDN:     "ou=services,dc=alder,dc=test",
+
 		configWriteDN:    "cn=config",
 		configWriteAttr:  "olcIdleTimeout",
 		configWriteValue: "1800",
@@ -89,6 +110,10 @@ var servers = []server{
 		port:   11636,
 		bindDN: "cn=Directory Manager",
 		bindPW: "alder-directory-manager",
+
+		restrictedDN: "cn=svc-alder,ou=services,dc=alder,dc=test",
+		restrictedPW: "alder-service",
+		hiddenDN:     "ou=services,dc=alder,dc=test",
 
 		configWriteDN:    "cn=config",
 		configWriteAttr:  "nsslapd-idletimeout",
@@ -166,6 +191,26 @@ func eachServerForSchema(t *testing.T, fn func(t *testing.T, s server, sess dire
 	for _, s := range servers {
 		t.Run(s.name, func(t *testing.T) {
 			fn(t, s, connectForSchema(t, s))
+		})
+	}
+}
+
+// connectRestricted connects as the delegated account rather than the
+// directory's administrator.
+func connectRestricted(t *testing.T, s server) directory.Session {
+	t.Helper()
+	restricted := s
+	restricted.bindDN, restricted.bindPW = s.restrictedDN, s.restrictedPW
+	return connect(t, restricted, false)
+}
+
+// eachServerRestricted runs fn against every server, bound as the delegated
+// account. The assertions inside are the same for both, as everywhere else.
+func eachServerRestricted(t *testing.T, fn func(t *testing.T, s server, sess directory.Session)) {
+	t.Helper()
+	for _, s := range servers {
+		t.Run(s.name, func(t *testing.T) {
+			fn(t, s, connectRestricted(t, s))
 		})
 	}
 }
@@ -2734,4 +2779,246 @@ func TestInventoryAssumptionsHold(t *testing.T) {
 		t.Logf("%s: %d/%d entries hold %s across %d distinct values",
 			s.name, withValue, len(res.Entries), attribute, len(perValue))
 	})
+}
+
+// --- the delegated bind -----------------------------------------------------
+//
+// Everything above this point binds as the directory's own administrator, which
+// on OpenLDAP is the rootdn and bypasses access control entirely. That made the
+// whole suite a test of what Alder does when it is allowed to do everything --
+// which is not how anybody runs it, and it meant the harness's own userPassword
+// rule had never been applied to anything.
+//
+// These bind as cn=svc-alder instead: an account that administers people and
+// groups and cannot see ou=services at all. The rules live in
+// openldap/slapd.conf and ds389/access.ldif because that is the one thing the
+// two servers genuinely express differently; that the account sees the same
+// directory through them does not differ, and these assert it.
+
+// hiddenEntries are the DNs the delegated account cannot see. The subtree holds
+// three entries, one of which is there because its DN is not ASCII -- and which
+// a grep for "^dn:.*ou=services" misses, because LDIF base64-encodes a
+// non-ASCII DN. It is in the hidden subtree by luck rather than design, and it
+// is a better test for it.
+func hiddenEntries() []string {
+	return []string{
+		"ou=services," + suffix,
+		"cn=svc-alder,ou=services," + suffix,
+		"ou=Zweigstelle München,ou=services," + suffix,
+	}
+}
+
+// dnSetUnder returns every DN the session can see below the suffix.
+func dnSetUnder(t *testing.T, sess directory.Session) map[string]bool {
+	t.Helper()
+	base, err := dn.Parse(suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := sess.Search(ctx(t), directory.SearchRequest{
+		BaseDN:     base,
+		Scope:      directory.ScopeSubtree,
+		Filter:     filter.Present("objectClass"),
+		Attributes: []string{"1.1"},
+		Limit:      1000,
+		PageSize:   100,
+	})
+	if err != nil {
+		t.Fatalf("searching the suffix: %v", err)
+	}
+	if res.Truncated {
+		t.Fatal("the search truncated, so this is not the whole picture")
+	}
+	out := map[string]bool{}
+	for _, e := range res.Entries {
+		out[strings.ToLower(e.DN.String())] = true
+	}
+	return out
+}
+
+// A search under a delegated bind returns less, and returns it without
+// complaining. Both servers hide exactly the same entries.
+//
+// This is the shape of the risk the rest of the product has to survive: nothing
+// errors, nothing is flagged, the directory simply appears smaller. A feature
+// that reports what it found without knowing this reports a smaller directory
+// as a fact.
+func TestADelegatedBindSeesLessAndSaysNothing(t *testing.T) {
+	for _, s := range servers {
+		t.Run(s.name, func(t *testing.T) {
+			asAdmin := dnSetUnder(t, connect(t, s, false))
+			asDelegate := dnSetUnder(t, connectRestricted(t, s))
+
+			if len(asDelegate) >= len(asAdmin) {
+				t.Fatalf("the delegated account sees %d entries and the administrator %d; "+
+					"the access rules are not in force", len(asDelegate), len(asAdmin))
+			}
+
+			for _, want := range hiddenEntries() {
+				if asDelegate[strings.ToLower(want)] {
+					t.Errorf("%s is visible to the delegated account", want)
+				}
+				if !asAdmin[strings.ToLower(want)] {
+					t.Errorf("%s is not visible to the administrator either, so this "+
+						"test proves nothing about access control", want)
+				}
+			}
+
+			// And nothing else went missing: the difference is exactly the
+			// hidden subtree, on both servers.
+			if diff := len(asAdmin) - len(asDelegate); diff != len(hiddenEntries()) {
+				t.Errorf("%d entries are hidden, want exactly the %d in the subtree",
+					diff, len(hiddenEntries()))
+			}
+		})
+	}
+}
+
+// An entry the bind cannot read is reported as absent, not as forbidden.
+//
+// This is the LDAP convention and both servers follow it: answering "you may
+// not see this" would disclose that it exists. It is worth pinning because it
+// means a 404 from Alder has two causes that cannot be told apart, and any
+// message that says "no such entry" is asserting something the server did not.
+func TestAnUnreadableEntryIsReportedAsAbsent(t *testing.T) {
+	eachServerRestricted(t, func(t *testing.T, s server, sess directory.Session) {
+		target, err := dn.Parse(s.hiddenDN)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = sess.Read(ctx(t), target, nil)
+		if err == nil {
+			t.Fatal("reading a subtree the account cannot see succeeded")
+		}
+		var le *ldapdriver.Error
+		if !errors.As(err, &le) {
+			t.Fatalf("error = %v (%T), want an *ldapdriver.Error", err, err)
+		}
+		if le.IsInsufficientAccess() {
+			t.Errorf("the server disclosed that %s exists by refusing access to it", s.hiddenDN)
+		}
+		if !le.IsNoSuchObject() {
+			t.Errorf("error = %v, want no such object", le)
+		}
+	})
+}
+
+// The rule the harness has carried since M0, applied for the first time.
+//
+// cn=admin is the rootdn and bypasses it, so until there was a bind subject to
+// access control this asserted nothing. A password must not reach a client that
+// has no right to it, whatever Alder would otherwise do with the value.
+func TestADelegatedBindCannotReadPasswords(t *testing.T) {
+	target, err := dn.Parse("uid=user0001,ou=people," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eachServerRestricted(t, func(t *testing.T, s server, sess directory.Session) {
+		e, readErr := sess.Read(ctx(t), target, []string{"*", "userPassword"})
+		if readErr != nil {
+			t.Fatalf("reading an entry the account may read: %v", readErr)
+		}
+		if got := e.Get("userPassword"); len(got) != 0 {
+			t.Errorf("userPassword came back with %d values under a bind with no right to it",
+				len(got))
+		}
+		// The entry itself is readable, which is the point: the attribute is
+		// missing rather than the entry.
+		if len(e.Get("cn")) == 0 {
+			t.Error("the entry came back empty, so this says nothing about the password")
+		}
+	})
+}
+
+// A write the directory refuses comes back as insufficient access, so the API
+// can answer 403 rather than reporting a mysterious failure.
+func TestADelegatedBindIsRefusedAWrite(t *testing.T) {
+	target, err := dn.Parse("uid=user0001,ou=people," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eachServerRestricted(t, func(t *testing.T, s server, sess directory.Session) {
+		change := directory.ChangeRecord{
+			DN:   target,
+			Type: directory.ChangeModify,
+			Mods: []directory.Mod{
+				{Op: directory.ModReplace, Name: "description", Values: bs("written by an account with no right to")},
+			},
+		}
+		applyErr := sess.Apply(ctx(t), change)
+		if applyErr == nil {
+			t.Fatal("the delegated account wrote to an entry it may only read")
+		}
+		var le *ldapdriver.Error
+		if !errors.As(applyErr, &le) {
+			t.Fatalf("error = %v (%T), want an *ldapdriver.Error", applyErr, applyErr)
+		}
+		if !le.IsInsufficientAccess() {
+			t.Errorf("error = %v, want insufficient access so the API can answer 403", le)
+		}
+	})
+}
+
+// The schema is readable without privilege, which everything else depends on.
+//
+// The editor, the comparison and the tally are all schema-driven, so a session
+// that cannot read the schema is not a degraded Alder but a broken one. Both
+// servers publish it to an ordinary bound account.
+func TestTheSchemaIsReadableByADelegatedBind(t *testing.T) {
+	eachServerRestricted(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("the delegated account cannot read the schema: %v", err)
+		}
+		if len(sch.AttributeTypes) == 0 || len(sch.ObjectClasses) == 0 {
+			t.Fatalf("the schema came back empty: %d attribute types, %d classes",
+				len(sch.AttributeTypes), len(sch.ObjectClasses))
+		}
+		// And the harness's own class is there, so it is the real schema and
+		// not some minimal subset offered to the unprivileged.
+		if sch.ObjectClass("alderEmployee") == nil {
+			t.Error("alderEmployee is missing, so this is not the schema the administrator sees")
+		}
+	})
+}
+
+// An attribute withheld by access control is indistinguishable, on the wire,
+// from one the entry does not have.
+//
+// Nothing in the protocol marks the difference: the entry simply comes back
+// with fewer attributes. Every feature that compares two entries, or reports
+// what an entry holds, is therefore making a claim it cannot support -- and
+// this is the fact that makes that true, pinned on both servers so it cannot be
+// forgotten while the features above it are written.
+func TestAWithheldAttributeIsIndistinguishableFromAnAbsentOne(t *testing.T) {
+	target, err := dn.Parse("uid=user0001,ou=people," + suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range servers {
+		t.Run(s.name, func(t *testing.T) {
+			asAdmin, err := connect(t, s, false).Read(ctx(t), target, []string{"*", "userPassword"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			asDelegate, err := connectRestricted(t, s).Read(ctx(t), target, []string{"*", "userPassword"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(asAdmin.Get("userPassword")) == 0 {
+				t.Fatal("the administrator cannot see the password either")
+			}
+			if len(asDelegate.Get("userPassword")) != 0 {
+				t.Fatal("the delegated account can see the password")
+			}
+
+			// The same read, the same entry, a different set of attributes,
+			// and no error, no control and no flag to say why.
+			if len(asDelegate.Order) >= len(asAdmin.Order) {
+				t.Errorf("the delegated read returned %d attributes and the privileged one %d",
+					len(asDelegate.Order), len(asAdmin.Order))
+			}
+		})
+	}
 }
