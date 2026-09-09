@@ -1166,3 +1166,41 @@ to contradict the plan — add an entry.
   inside them. The live harness caught it; the unit tests could not, because the
   fake returned whole entries regardless of what was asked for. The fake now
   honours the attribute list, and reintroducing the bug fails two tests.
+
+### 2026-09-09 — comparing two entries
+
+- **A naive diff answers "why does this account work and that one not" badly in
+  three specific ways,** and avoiding those is most of the feature. It compares
+  what is *present*, so an attribute one entry's classes require and it does not
+  hold is invisible — and that absence is frequently the whole answer. It
+  compares bytes, so two DNs naming one entry in different case read as a
+  difference the directory does not agree with. And its instinct is to show both
+  sides of everything, which for `userPassword` is what rule 6 forbids.
+- **Each side is annotated from its own object classes,** which the two entries
+  need not share. `sn` is required on an inetOrgPerson and not permitted at all
+  on an organizationalUnit, and reporting that as a plain "only on the left"
+  hides the reason.
+- **Presence is reported for a sensitive attribute; equality is not.** `/entry`
+  already says a password is set, so saying so here reveals nothing new — but
+  reporting whether two entries hold the *same* hash would make the product an
+  oracle about password material it offers nowhere else. The row is marked
+  `comparable: false`, and a test asserts the verdict does not change with hash
+  equality. This was the one call the design flagged for a human; it is
+  deliberately the conservative side and is additive to reverse.
+- **DN-valued attributes are compared as DNs; everything else byte for byte.**
+  The narrow exception `references.go` already justified twice. Checked by
+  syntax OID rather than by `KindOf`, because Name-and-Optional-UID — which is
+  what `uniqueMember` carries — maps to `KindString`, so a `Kind == KindDN` test
+  misses exactly the attribute most likely to differ only in spelling.
+- **The union is keyed on the attribute description, options included.**
+  `foldName` folds `schema.BaseName` and drops options, so keying on it would
+  merge `userCertificate;binary` with `userCertificate` into one row and call
+  two distinct attributes "same". `foldDescription` sits beside it and keeps
+  them.
+- **Operational attributes are ordered last, not dropped.** `entryUUID` and
+  `modifyTimestamp` always differ and are almost always noise, but
+  `pwdAccountLockedTime` is operational and is sometimes the entire answer.
+- **The fake session now answers Read per DN.** It returned the same entry for
+  every DN, so a handler that read one entry twice — and confidently reported no
+  differences — would have passed every test. Breaking the handler that way now
+  fails, naming the DN it read twice.

@@ -183,6 +183,28 @@ func attributeRank(a EntryAttribute, required map[string]bool) int {
 	}
 }
 
+// foldDescription folds an attribute description while KEEPING its options.
+//
+// foldName below folds schema.BaseName, so "userCertificate;binary" and
+// "userCertificate" fold to the same key — which is right when the question is
+// "which attribute type is this" and wrong when the question is "are these the
+// same attribute". Merging them in a comparison would report two distinct
+// attributes as one row, and call it "same".
+func foldDescription(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '	' {
+			continue
+		}
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		out = append(out, c)
+	}
+	return string(out)
+}
+
 func foldName(s string) string {
 	base := schema.BaseName(s)
 	out := make([]byte, len(base))

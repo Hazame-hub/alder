@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/schema"
 	"github.com/hazame-hub/alder/internal/session"
@@ -40,9 +42,17 @@ type fakeSession struct {
 	entries []*directory.Entry
 	entry   *directory.Entry
 
+	// byDN answers Read per DN. Without it Read returns the same entry for
+	// every DN, and a handler that read one entry twice instead of two
+	// different ones would pass every test.
+	byDN map[string]*directory.Entry
+
 	searchErr error
 	readErr   error
 	applyErr  error
+
+	// readDNs records what was asked for, in order.
+	readDNs []string
 
 	// applied records every write, so a test can assert that a handler sent
 	// what the preview promised.
@@ -64,9 +74,16 @@ func (f *fakeSession) Search(_ context.Context, req directory.SearchRequest) (*d
 	return &directory.SearchResult{Entries: f.entries}, nil
 }
 
-func (f *fakeSession) Read(_ context.Context, _ dn.DN, _ []string) (*directory.Entry, error) {
+func (f *fakeSession) Read(_ context.Context, target dn.DN, _ []string) (*directory.Entry, error) {
+	f.readDNs = append(f.readDNs, target.String())
 	if f.readErr != nil {
 		return nil, f.readErr
+	}
+	if f.byDN != nil {
+		if e, ok := f.byDN[strings.ToLower(target.String())]; ok {
+			return e, nil
+		}
+		return nil, &ldapdriver.Error{Code: 32, Message: "No Such Object"}
 	}
 	return f.entry, nil
 }

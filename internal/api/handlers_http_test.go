@@ -25,6 +25,8 @@ func TestEveryEndpointRequiresASession(t *testing.T) {
 		"/api/v1/entry?dn=uid%3Dalice%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest",
 		"/api/v1/views",
 		"/api/v1/references?dn=uid%3Dalice%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest",
+		"/api/v1/members?dn=cn%3Dteam%2Cou%3Dgroups%2Cdc%3Dalder%2Cdc%3Dtest",
+		"/api/v1/compare?left=uid%3Da%2Cdc%3Dtest&right=uid%3Db%2Cdc%3Dtest",
 		"/api/v1/schema",
 		"/api/v1/schema/requirements?class=person",
 		"/api/v1/export/ldif?dn=dc%3Dalder%2Cdc%3Dtest",
@@ -342,5 +344,83 @@ func TestTheBindPasswordNeverReachesAResponse(t *testing.T) {
 				t.Errorf("the bind password reached the response:\n%s", body)
 			}
 		})
+	}
+}
+
+// comparePair is two different entries the fake can tell apart.
+func comparePair(t *testing.T) map[string]*directory.Entry {
+	t.Helper()
+	left := entryFixture(t)
+	right := directory.NewEntry(mustParse(t, "uid=bob,ou=people,dc=alder,dc=test"))
+	right.Set("objectClass", [][]byte{[]byte("top"), []byte("inetOrgPerson")})
+	right.Set("cn", [][]byte{[]byte("Bob Adler")})
+	right.Set("sn", [][]byte{[]byte("Adler")})
+	right.Set("uid", [][]byte{[]byte("bob")})
+	right.Set("mail", [][]byte{[]byte("bob@alder.test")})
+	return map[string]*directory.Entry{
+		strings.ToLower(left.DN.String()):  left,
+		strings.ToLower(right.DN.String()): right,
+	}
+}
+
+const compareTarget = "/api/v1/compare" +
+	"?left=uid%3Dalice%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest" +
+	"&right=uid%3Dbob%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest"
+
+// A handler that read one entry twice would compare it with itself and report
+// no differences, which is a confident wrong answer rather than an error.
+func TestCompareReadsBothDNs(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{caps: defaultCaps(), byDN: comparePair(t)})
+
+	res := rig.do(t, http.MethodGet, compareTarget, nil)
+	if res.Status != fiber.StatusOK {
+		t.Fatalf("got %d, want 200: %s", res.Status, res.Body)
+	}
+	if len(rig.fake.readDNs) < 2 {
+		t.Fatalf("the handler read %v", rig.fake.readDNs)
+	}
+	if strings.EqualFold(rig.fake.readDNs[0], rig.fake.readDNs[1]) {
+		t.Errorf("both reads were for %q; the handler compared an entry with itself",
+			rig.fake.readDNs[0])
+	}
+
+	out := decode[EntryComparison](t, res)
+	if out.Counts.Differs == 0 {
+		t.Error("two different entries reported no differences at all")
+	}
+}
+
+// Two DNs means twice the usual exposure to rule 2, and the refusal has to say
+// which side was wrong or the caller cannot fix it.
+func TestCompareRejectsAnUnparseableDN(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{caps: defaultCaps(), byDN: comparePair(t)})
+
+	res := rig.do(t, http.MethodGet,
+		"/api/v1/compare?left=uid%3Dalice%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest"+
+			"&right=not%3Da%3Bdn%3D", nil)
+	if res.Status != fiber.StatusBadRequest {
+		t.Errorf("got %d, want 400 for a malformed right-hand DN", res.Status)
+	}
+}
+
+// The standing rule, on the newest surface — and this one compares two entries,
+// so it has two chances to leak.
+func TestCompareNeverShipsAPasswordHash(t *testing.T) {
+	pair := comparePair(t)
+	for _, e := range pair {
+		e.Set("userPassword", [][]byte{[]byte("{SSHA}averyrealsecret")})
+	}
+	rig := newRig(t, Config{}, &fakeSession{caps: defaultCaps(), byDN: pair})
+
+	body := rig.do(t, http.MethodGet, compareTarget, nil).Body
+	if strings.Contains(body, "averyrealsecret") {
+		t.Errorf("a password hash reached the comparison:\n%s", body)
+	}
+	if strings.Contains(body, sentinelPassword) {
+		t.Error("the bind password reached the comparison")
+	}
+	// Presence is still reported: that a password is set is not the secret.
+	if !strings.Contains(body, "userPassword") {
+		t.Error("userPassword vanished entirely rather than being withheld")
 	}
 }

@@ -151,6 +151,56 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /compare:
+    get:
+      tags: [browse]
+      operationId: compareEntries
+      summary: What differs between two entries
+      description: |
+        Answers "why does this account work and that one not".
+
+        A naive diff answers it badly in three ways, and avoiding those is most
+        of what this endpoint is. It compares what is *present*, so an attribute
+        one entry's classes require and it does not hold is invisible — and that
+        absence is frequently the whole answer. It compares bytes, so two DNs
+        naming the same entry in different case read as a difference the
+        directory does not agree with. And its instinct is to show both sides of
+        everything, which for `userPassword` is what rule 6 forbids.
+
+        So each side is annotated from its *own* object classes, which the two
+        entries need not share; DN-valued attributes are compared as DNs; and a
+        sensitive attribute is compared on presence alone.
+      parameters:
+        - name: left
+          in: query
+          required: true
+          schema: { type: string }
+          description: Usually the entry that works.
+        - name: right
+          in: query
+          required: true
+          schema: { type: string }
+        - name: includeOperational
+          in: query
+          schema: { type: boolean, default: true }
+          description: |
+            On by default, unlike the LDIF export. `nsAccountLock` and
+            `pwdAccountLockedTime` are operational on the target servers and are
+            frequently the entire answer.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+          description: Values reported per attribute.
+      responses:
+        "200":
+          description: The comparison.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EntryComparison" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /entry:
     get:
       tags: [browse]
@@ -1243,6 +1293,105 @@ components:
         desc:
           type: string
           description: The schema's own DESC, where the server published one.
+
+    EntryComparison:
+      type: object
+      required: [left, right, attributes, counts, truncated]
+      properties:
+        left: { $ref: "#/components/schemas/ComparedEntry" }
+        right: { $ref: "#/components/schemas/ComparedEntry" }
+        attributes:
+          type: array
+          items: { $ref: "#/components/schemas/AttributeComparison" }
+        counts: { $ref: "#/components/schemas/ComparisonCounts" }
+        truncated:
+          type: boolean
+          description: Some attribute held more values than the limit reports.
+
+    ComparedEntry:
+      type: object
+      required: [dn]
+      properties:
+        dn: { type: string }
+        rdn: { type: string }
+        objectClasses: { type: array, items: { type: string } }
+        structural:
+          type: string
+          description: |
+            The single structural class. A difference here explains most of the
+            rows below it and should be read first.
+
+    ComparisonCounts:
+      type: object
+      required: [same, differs, leftOnly, rightOnly]
+      properties:
+        same: { type: integer }
+        differs: { type: integer }
+        leftOnly: { type: integer }
+        rightOnly: { type: integer }
+
+    AttributeComparison:
+      type: object
+      required: [name, status, left, right]
+      properties:
+        name:
+          type: string
+          description: |
+            The attribute description, options included. `userCertificate;binary`
+            and `userCertificate` are two rows, not one.
+        status:
+          type: string
+          enum: [same, differs, leftOnly, rightOnly]
+        left: { $ref: "#/components/schemas/ComparedSide" }
+        right: { $ref: "#/components/schemas/ComparedSide" }
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/ValueComparison" }
+          description: Absent for a withheld attribute.
+        withheld:
+          type: boolean
+          description: |
+            Sensitive, so no value crosses the wire from either side.
+        comparable:
+          type: boolean
+          description: |
+            False when both sides hold the attribute but it was not compared.
+            Reporting whether two entries hold the *same* password hash would be
+            an oracle about password material the product offers nowhere else,
+            so presence is reported and equality is not.
+        truncated: { type: boolean }
+
+    ComparedSide:
+      type: object
+      required: [present, valueCount, required, permitted]
+      properties:
+        present: { type: boolean }
+        valueCount: { type: integer }
+        required:
+          type: boolean
+          description: |
+            Required by *this* entry's own classes. Required and absent is
+            sometimes the whole answer, and is invisible to a diff of what is
+            present.
+        permitted:
+          type: boolean
+          description: |
+            Permitted by this entry's own classes. Present but not permitted is
+            reachable through an extensibleObject or a DIT content rule, and is
+            a finding rather than a curiosity.
+        valueSchemes:
+          type: array
+          items: { type: string }
+          description: The storage scheme of each withheld value, never the value.
+
+    ValueComparison:
+      type: object
+      required: [side, value]
+      properties:
+        side:
+          type: string
+          enum: [both, left, right]
+        value: { $ref: "#/components/schemas/AttributeValue" }
 
     MemberList:
       type: object
