@@ -167,17 +167,45 @@ func writeSetPassword(b *strings.Builder, c directory.ChangeRecord) {
 // pair that deletes and recreates would silently drop every attribute of the
 // entry, so the task shells out to ldapmodify with the same LDIF the user
 // confirmed, and says why.
+//
+// Shelling out is what makes the bind password awkward. "-w" would put it in
+// the process arguments, and /proc/<pid>/cmdline is readable by every user on
+// the host -- so the one change that cannot use a module would also be the one
+// that publishes the credential. It goes through the environment to a file
+// instead: /proc/<pid>/environ is readable only by the owner, and the file is
+// created by mktemp at 0600 and removed however the task ends.
 func writeRename(b *strings.Builder, c directory.ChangeRecord) {
 	b.WriteString("# community.general has no module that renames a directory entry.\n")
 	b.WriteString("# Deleting and recreating the entry would lose every attribute on it,\n")
 	b.WriteString("# so this task applies the same modrdn LDIF that Alder previewed.\n")
+	b.WriteString("#\n")
+	b.WriteString("# The bind password reaches ldapmodify in a file rather than through\n")
+	b.WriteString("# -w, because a process's arguments are readable by every user on the\n")
+	b.WriteString("# host for as long as it runs.\n")
 	fmt.Fprintf(b, "- name: Rename %s\n", yamlScalar(c.DN.String()))
-	b.WriteString("  ansible.builtin.command:\n")
-	fmt.Fprintf(b, "    cmd: ldapmodify -H %s -D %s -w %s -c\n", varURI, varBindDN, varBindPW)
+	b.WriteString("  ansible.builtin.shell:\n")
+	b.WriteString("    cmd: |\n")
+	b.WriteString("      set -eu\n")
+	b.WriteString("      umask 077\n")
+	b.WriteString("      pwfile=$(mktemp)\n")
+	b.WriteString("      trap 'rm -f \"$pwfile\"' EXIT\n")
+	// printf rather than echo: ldapmodify -y takes the complete contents of the
+	// file as the password, so a trailing newline would become part of it and
+	// the bind would fail with a message about credentials rather than about a
+	// newline.
+	b.WriteString("      printf '%s' \"$LDAP_BIND_PW\" >\"$pwfile\"\n")
+	b.WriteString("      ldapmodify -H \"$LDAP_SERVER_URI\" -D \"$LDAP_BIND_DN\" -y \"$pwfile\" -c\n")
 	b.WriteString("    stdin: |\n")
 	for _, line := range strings.Split(strings.TrimRight(c.LDIFFolded(), "\n"), "\n") {
 		fmt.Fprintf(b, "      %s\n", line)
 	}
+	// The environment is not part of the module arguments, so it stays out of
+	// the task result that Ansible prints on failure. That is also why this
+	// task does not need no_log, which would hide the reason a rename failed.
+	b.WriteString("  environment:\n")
+	fmt.Fprintf(b, "    LDAP_SERVER_URI: %s\n", yamlScalar(varURI))
+	fmt.Fprintf(b, "    LDAP_BIND_DN: %s\n", yamlScalar(varBindDN))
+	fmt.Fprintf(b, "    LDAP_BIND_PW: %s\n", yamlScalar(varBindPW))
 	b.WriteString("  changed_when: true\n")
 }
 

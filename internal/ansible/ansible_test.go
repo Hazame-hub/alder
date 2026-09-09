@@ -132,3 +132,83 @@ func TestRunsKeepTheOrderOfTheRecord(t *testing.T) {
 		t.Errorf("the add and the replace came out in the wrong order:\n%s", out)
 	}
 }
+
+// rename renders the one change that has no native module.
+func rename(t *testing.T) string {
+	t.Helper()
+	return tasksFor(t, directory.ChangeRecord{
+		DN:           mustDN(t, "uid=alice,ou=people,dc=alder,dc=test"),
+		Type:         directory.ChangeModRDN,
+		NewRDN:       "uid=alice.liddell",
+		DeleteOldRDN: true,
+	})
+}
+
+// A rename is the one change that shells out, and so the one that could put the
+// bind password where every user on the host can read it.
+//
+// It used to: the command was "ldapmodify ... -w {{ ldap_bind_pw }}", and
+// /proc/<pid>/cmdline is world-readable for as long as a process runs. This
+// repository already refuses -w in the ldapsearch command it shows operators.
+func TestRenameKeepsThePasswordOutOfTheArguments(t *testing.T) {
+	out := rename(t)
+
+	if strings.Contains(out, "-w ") {
+		t.Errorf("the rename passes the password as an argument:\n%s", out)
+	}
+
+	// The password may appear once, under environment. Anything earlier is in
+	// the command the shell will run.
+	env := strings.Index(out, "  environment:")
+	if env < 0 {
+		t.Fatalf("no environment block:\n%s", out)
+	}
+	if command := out[:env]; strings.Contains(command, "ldap_bind_pw") {
+		t.Errorf("the password is interpolated into the command itself:\n%s", command)
+	}
+	if !strings.Contains(out[env:], "LDAP_BIND_PW:") {
+		t.Errorf("the password does not reach the task at all:\n%s", out)
+	}
+}
+
+// ldapmodify -y takes the complete contents of the file as the password, so a
+// trailing newline becomes part of it and the bind fails for a reason that
+// looks nothing like the cause.
+func TestRenameWritesThePasswordFileWithoutATrailingNewline(t *testing.T) {
+	out := rename(t)
+
+	if !strings.Contains(out, `printf '%s' "$LDAP_BIND_PW"`) {
+		t.Errorf("the password file is not written with printf:\n%s", out)
+	}
+	if strings.Contains(out, `echo "$LDAP_BIND_PW"`) {
+		t.Errorf("echo appends a newline that becomes part of the password:\n%s", out)
+	}
+}
+
+// However the task ends, the file holding the password goes with it.
+func TestRenameRemovesThePasswordFile(t *testing.T) {
+	out := rename(t)
+
+	if !strings.Contains(out, "trap 'rm -f") {
+		t.Errorf("nothing removes the password file when the task fails:\n%s", out)
+	}
+	if !strings.Contains(out, "set -eu") {
+		t.Errorf("the script continues past a failure:\n%s", out)
+	}
+}
+
+// The rename still carries the LDIF the user confirmed, which is the reason
+// this task shells out rather than deleting and recreating the entry.
+func TestRenameCarriesTheConfirmedLDIF(t *testing.T) {
+	out := rename(t)
+
+	for _, want := range []string{
+		"changetype: modrdn",
+		"newrdn: uid=alice.liddell",
+		"deleteoldrdn: 1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the task does not carry %q:\n%s", want, out)
+		}
+	}
+}

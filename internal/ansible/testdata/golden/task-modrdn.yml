@@ -1,12 +1,26 @@
 # community.general has no module that renames a directory entry.
 # Deleting and recreating the entry would lose every attribute on it,
 # so this task applies the same modrdn LDIF that Alder previewed.
+#
+# The bind password reaches ldapmodify in a file rather than through
+# -w, because a process's arguments are readable by every user on the
+# host for as long as it runs.
 - name: Rename "uid=alice,ou=people,dc=alder,dc=test"
-  ansible.builtin.command:
-    cmd: ldapmodify -H {{ ldap_server_uri }} -D {{ ldap_bind_dn }} -w {{ ldap_bind_pw }} -c
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      umask 077
+      pwfile=$(mktemp)
+      trap 'rm -f "$pwfile"' EXIT
+      printf '%s' "$LDAP_BIND_PW" >"$pwfile"
+      ldapmodify -H "$LDAP_SERVER_URI" -D "$LDAP_BIND_DN" -y "$pwfile" -c
     stdin: |
       dn: uid=alice,ou=people,dc=alder,dc=test
       changetype: modrdn
       newrdn: uid=alice.liddell
       deleteoldrdn: 1
+  environment:
+    LDAP_SERVER_URI: "{{ ldap_server_uri }}"
+    LDAP_BIND_DN: "{{ ldap_bind_dn }}"
+    LDAP_BIND_PW: "{{ ldap_bind_pw }}"
   changed_when: true
