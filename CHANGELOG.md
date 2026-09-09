@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.0](https://github.com/Hazame-hub/alder/compare/v0.11.0...v0.12.0) (2026-09-09)
+
+
+### Features
+
+* compare two entries, attribute by attribute ([#62](https://github.com/Hazame-hub/alder/issues/62)) ([2494fc3](https://github.com/Hazame-hub/alder/commit/2494fc39a41ecd3c2874ffbfd3b24cd860655a91))
+* jump to a DN, a filter, or a name from one box ([#64](https://github.com/Hazame-hub/alder/issues/64)) ([aef624d](https://github.com/Hazame-hub/alder/commit/aef624dc8b00c0575d7031792ea59dc8d4792fa9))
+* resolve a group's membership through nested groups ([#60](https://github.com/Hazame-hub/alder/issues/60)) ([80b0d50](https://github.com/Hazame-hub/alder/commit/80b0d50fff51758f83cea78939e6f9f1b729219a))
+* tally what values an attribute holds across a subtree ([#63](https://github.com/Hazame-hub/alder/issues/63)) ([36f3d25](https://github.com/Hazame-hub/alder/commit/36f3d25f025d3220764656187650dd6a9fc660bf))
+
+
+### Documentation
+
+* describe the four features 0.12.0 adds ([#65](https://github.com/Hazame-hub/alder/issues/65)) ([8aee51d](https://github.com/Hazame-hub/alder/commit/8aee51dc3ee26d0ff7f4f2042758283402299ca2))
+
 ## [0.11.0](https://github.com/Hazame-hub/alder/compare/v0.10.0...v0.11.0) (2026-09-07)
 
 
