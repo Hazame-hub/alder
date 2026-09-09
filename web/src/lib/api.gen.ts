@@ -288,6 +288,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What could this input be — an entry, or a search
+         * @description Backs one box that takes a DN, an RFC 4515 filter, or a name.
+         *
+         *     It parses and never searches. `internal/dn` and `internal/filter` are
+         *     the authorities on what these strings are, and a regex in the browser
+         *     would drift from them the first time either grew a case — but probing
+         *     the directory to see whether an entry exists would turn every keystroke
+         *     into a read, to answer a question the operator is about to answer by
+         *     pressing enter.
+         *
+         *     The three kinds overlap. `cn=platform` is a valid one-component DN
+         *     *and* almost certainly a request to find something called platform, so
+         *     an ambiguous input returns both destinations and the operator picks.
+         *     Guessing would be wrong about half the time.
+         */
+        get: operations["resolve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/schema": {
         parameters: {
             query?: never;
@@ -1127,6 +1159,27 @@ export interface components {
             /** @description Entries carrying this value, not occurrences of it. */
             entries: number;
         };
+        ResolveResult: {
+            query: string;
+            /**
+             * @description Empty when the input is not usable — a half-typed filter, say.
+             *     More than one when the input is genuinely ambiguous.
+             */
+            destinations: components["schemas"]["Destination"][];
+        };
+        Destination: {
+            /** @enum {string} */
+            kind: "entry" | "search";
+            label: string;
+            /** @description Set for an entry destination; the DN, canonically rendered. */
+            dn?: string;
+            /**
+             * @description Set for a search destination, built by the filter package and
+             *     escaped — the text came from a box somebody typed in.
+             */
+            filter?: string;
+            base?: string;
+        };
         MemberList: {
             members: components["schemas"]["ExpandedMember"][];
             /**
@@ -1919,6 +1972,29 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    resolve: {
+        parameters: {
+            query: {
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where this input could go. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolveResult"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
         };
     };

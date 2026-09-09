@@ -1234,3 +1234,34 @@ to contradict the plan — add an entry.
 - **A refused attribute is a 400, not a new error code.** The `Error.error`
   enum has no member for this and adding one would touch every client for a
   case the existing `bad_request` already describes correctly.
+
+### 2026-09-09 — the jump palette parses, and never guesses
+
+- **It parses and never searches.** `internal/dn` and `internal/filter` are the
+  authorities on what these strings are, and a regex in the browser would drift
+  from them the first time either grew a case — the same argument that keeps the
+  LDIF preview server-side. But probing the directory to see whether an entry
+  exists would turn every keystroke into a read, to answer a question the
+  operator is about to answer by pressing enter. So `/resolve` touches no
+  directory at all.
+- **An ambiguous input returns both destinations rather than a guess.**
+  `cn=platform` is a valid one-component DN *and* almost certainly a request to
+  find something called platform. Choosing between those would be wrong about
+  half the time, and offering both is also the only version of this that can be
+  explained to somebody.
+- **The search for a one-component DN is for what it names, not for its text.**
+  The first version built `(cn=*cn=platform*)` — entries whose `cn` contains the
+  literal string "cn=platform", which nobody has ever wanted. It now emits
+  `(cn=platform)`, honouring the attribute the operator named as well as the
+  value. The live harness caught this; the test did not, because it asserted
+  only that both destination kinds came back. It asserts the filter now.
+- **A multi-valued RDN is a DN and nothing else.** There is no single name in
+  `cn=alice+ou=people` to search for, so only the entry destination is offered.
+- **A half-typed filter offers nothing.** An input that opens a parenthesis and
+  does not parse is a filter somebody is still typing; offering to search for
+  the literal text "(objectClass=" would be nonsense.
+- **The schema browser was deliberately left out of this feature.** Deep-linking
+  to a definition means lifting the schema browser's internal section and
+  selection state into the URL, which changes the application's single
+  navigation primitive — a change worth making on its own terms, not as a side
+  effect of a palette.
