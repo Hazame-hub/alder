@@ -8,7 +8,7 @@
       "mail": "alice@example.test"
     state: present  # add these values, leaving any others
 
-- name: "Remove telephoneNumber, mail on uid=alice,ou=people,dc=alder,dc=test"
+- name: "Remove telephoneNumber on uid=alice,ou=people,dc=alder,dc=test"
   community.general.ldap_attrs:
     server_uri: "{{ ldap_server_uri }}"
     bind_dn: "{{ ldap_bind_dn }}"
@@ -16,6 +16,15 @@
     dn: "uid=alice,ou=people,dc=alder,dc=test"
     attributes:
       "telephoneNumber": []
+    state: exact  # remove the attribute and every value it holds
+
+- name: "Remove mail on uid=alice,ou=people,dc=alder,dc=test"
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_server_uri }}"
+    bind_dn: "{{ ldap_bind_dn }}"
+    bind_pw: "{{ ldap_bind_pw }}"
+    dn: "uid=alice,ou=people,dc=alder,dc=test"
+    attributes:
       "mail": "old@alder.test"
     state: absent  # remove these values, leaving any others
 
