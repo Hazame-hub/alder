@@ -1,0 +1,9 @@
+version: 1
+
+dn: uid=carol,ou=people,dc=alder,dc=test
+changetype: add
+objectClass: top
+objectClass: inetOrgPerson
+uid: carol
+cn: Carol
+sn: Adler

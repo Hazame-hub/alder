@@ -1,0 +1,30 @@
+- name: "Add mail on uid=alice,ou=people,dc=alder,dc=test"
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_server_uri }}"
+    bind_dn: "{{ ldap_bind_dn }}"
+    bind_pw: "{{ ldap_bind_pw }}"
+    dn: "uid=alice,ou=people,dc=alder,dc=test"
+    attributes:
+      "mail": "alice@example.test"
+    state: present  # add these values, leaving any others
+
+- name: "Remove telephoneNumber, mail on uid=alice,ou=people,dc=alder,dc=test"
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_server_uri }}"
+    bind_dn: "{{ ldap_bind_dn }}"
+    bind_pw: "{{ ldap_bind_pw }}"
+    dn: "uid=alice,ou=people,dc=alder,dc=test"
+    attributes:
+      "telephoneNumber": []
+      "mail": "old@alder.test"
+    state: absent  # remove these values, leaving any others
+
+- name: "Set description on uid=alice,ou=people,dc=alder,dc=test"
+  community.general.ldap_attrs:
+    server_uri: "{{ ldap_server_uri }}"
+    bind_dn: "{{ ldap_bind_dn }}"
+    bind_pw: "{{ ldap_bind_pw }}"
+    dn: "uid=alice,ou=people,dc=alder,dc=test"
+    attributes:
+      "description": "Replaced wholesale"
+    state: exact  # replace: the attribute ends up with exactly these values

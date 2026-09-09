@@ -1,0 +1,11 @@
+version: 1
+
+dn: cn=awkward,dc=alder,dc=test
+cn: awkward
+description:: Y2Fmw6k=
+leadingSpace:: IGluZGVudGVk
+trailingSpace:: cGFkZGVkIA==
+leadingColon:: OmNvbG9u
+leadingLess:: PGxlc3M=
+binary:: AAH//g==
+empty: 

@@ -1,0 +1,6 @@
+version: 1
+
+dn: cn=optioned,dc=alder,dc=test
+cn: optioned
+cn;lang-fr:: b3B0aW9ubsOp
+userCertificate;binary:: MIIBCg==

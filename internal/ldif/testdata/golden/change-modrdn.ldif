@@ -1,0 +1,12 @@
+version: 1
+
+dn: uid=alice,ou=people,dc=alder,dc=test
+changetype: modrdn
+newrdn: uid=alice.liddell
+deleteoldrdn: 1
+
+dn: uid=bob,ou=people,dc=alder,dc=test
+changetype: modrdn
+newrdn: uid=bob
+deleteoldrdn: 0
+newsuperior: ou=alumni,dc=alder,dc=test
