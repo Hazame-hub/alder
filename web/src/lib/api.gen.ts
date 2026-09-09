@@ -1050,11 +1050,20 @@ export interface components {
              */
             structural?: string;
         };
+        /**
+         * @description One bucket per status, and every attribute lands in exactly one, so the
+         *     five sum to the length of `attributes`.
+         */
         ComparisonCounts: {
             same: number;
             differs: number;
             leftOnly: number;
             rightOnly: number;
+            /**
+             * @description Held by both and not compared. Counted separately rather than folded
+             *     into `same`, which would be a claim about password material.
+             */
+            withheld: number;
         };
         AttributeComparison: {
             /**
@@ -1062,21 +1071,26 @@ export interface components {
              *     and `userCertificate` are two rows, not one.
              */
             name: string;
-            /** @enum {string} */
-            status: "same" | "differs" | "leftOnly" | "rightOnly";
+            /**
+             * @description `withheld` means both entries hold the attribute and it was not
+             *     compared, because it is sensitive. It is a status of its own rather
+             *     than `same` with a flag beside it: a client reading only this field
+             *     must not be able to conclude that two passwords match.
+             * @enum {string}
+             */
+            status: "same" | "differs" | "leftOnly" | "rightOnly" | "withheld";
             left: components["schemas"]["ComparedSide"];
             right: components["schemas"]["ComparedSide"];
             /** @description Absent for a withheld attribute. */
             values?: components["schemas"]["ValueComparison"][];
-            /** @description Sensitive, so no value crosses the wire from either side. */
-            withheld?: boolean;
             /**
-             * @description False when both sides hold the attribute but it was not compared.
-             *     Reporting whether two entries hold the *same* password hash would be
-             *     an oracle about password material the product offers nowhere else,
-             *     so presence is reported and equality is not.
+             * @description Sensitive, so no value crosses the wire from either side. Presence
+             *     is still reported on each side, because `/entry` already says whether
+             *     a password is set. Equality is not: reporting whether two entries
+             *     hold the same password hash would be an oracle about password
+             *     material the product offers nowhere else.
              */
-            comparable?: boolean;
+            withheld?: boolean;
             truncated?: boolean;
         };
         ComparedSide: {

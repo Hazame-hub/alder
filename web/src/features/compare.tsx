@@ -174,6 +174,13 @@ function CompareDialog({ left, onClose }: { left: string; onClose: () => void })
                 <Badge variant="secondary" className="tabular-nums">
                   {query.data.counts.rightOnly} only on the right
                 </Badge>
+                {/* Only when there are any: an operator comparing two entries
+                    that hold no secrets should not be shown a zero. */}
+                {query.data.counts.withheld > 0 ? (
+                  <Badge variant="outline" className="tabular-nums">
+                    {query.data.counts.withheld} withheld
+                  </Badge>
+                ) : null}
               </div>
 
               <p className="text-xs text-muted-foreground">
@@ -232,7 +239,7 @@ function CompareRow({ row }: { row: AttributeComparison }) {
         <p className="mt-1 text-xs text-muted-foreground">
           Withheld. {row.left.present ? "Set" : "Not set"} on the left,{" "}
           {row.right.present ? "set" : "not set"} on the right
-          {row.comparable === false
+          {row.status === "withheld"
             ? " — whether they hold the same value is not reported."
             : "."}
         </p>
@@ -268,6 +275,10 @@ function StatusBadge({ row }: { row: AttributeComparison }) {
       return <Badge variant="secondary">only on the left</Badge>;
     case "rightOnly":
       return <Badge variant="secondary">only on the right</Badge>;
+    // Its own badge, never "same". The server did not compare these values, so
+    // nothing here may suggest they match.
+    case "withheld":
+      return <Badge variant="outline">withheld</Badge>;
     default:
       return <Badge variant="outline">same</Badge>;
   }
