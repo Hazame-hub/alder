@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/Hazame-hub/alder/compare/v1.0.0...v1.0.1) (2026-09-10)
+
+
+### Fixes
+
+* **compare:** stop reporting a denied attribute as a difference ([#74](https://github.com/Hazame-hub/alder/issues/74)) ([83896d7](https://github.com/Hazame-hub/alder/commit/83896d750a8547d9bc023494dbb821049b02b5d0))
+* **members:** stop reporting an unreadable member as a deleted one ([#76](https://github.com/Hazame-hub/alder/issues/76)) ([2092f3d](https://github.com/Hazame-hub/alder/commit/2092f3db97e9f61fd25ae99018ce6bed7cf1132e))
+
 ## [1.0.0](https://github.com/Hazame-hub/alder/compare/v0.12.2...v1.0.0) (2026-09-09)
 
 
