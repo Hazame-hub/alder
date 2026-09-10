@@ -1474,3 +1474,32 @@ to contradict the plan — add an entry.
   at its first page. The unit tests passed anyway because the fake ignored the
   context it was given; it honours it now, and reintroducing the deferred cancel
   fails two of them. A real directory found this and a fake should have.
+
+### 2026-09-11 — the schema answers the same question once
+
+- **`Requirements` was recomputed for every entry in a search response**, with
+  the same input each time. It walks the superclass chain, canonicalises every
+  attribute name into two maps and sorts both — about two fifths of the
+  allocation in building a response, measured, and a third of the time.
+  A thousand people in one directory have the same object classes; they were
+  paying a thousand times for one answer.
+- **It is memoised on the schema rather than in the handler.** The editor, the
+  object tables and the comparison all ask the same question, so caching where
+  the answer lives fixes it once. A parsed schema is read-only and shared by
+  every request on a session, so the cache is guarded by a mutex and the
+  concurrency is a test rather than an assumption.
+- **The key is folded and sorted**, because the answer depends on the set of
+  classes and not on the order an entry happened to list them in or on how the
+  server spelled them. Two entries differing only that way share one
+  computation. The key space is the distinct class combinations in a directory,
+  which is dozens.
+- **Measured end to end**, same harness and same query, a search returning ten
+  thousand entries: 2.46 s and 388 MB before, 1.22 s and 328 MB after. Twice as
+  fast for sixty megabytes less.
+- **What remains is the materialisation itself**, and it is left alone. The
+  response holds every entry, converts each into the wire types and marshals the
+  lot, so ten thousand entries still cost something like 265 MB. Streaming that
+  would mean a JSON array written incrementally and a client that reads it that
+  way — a change to the contract, for a ceiling the interface defaults to a
+  hundredth of. The benchmark that found this is committed, so the next person
+  starts from a number rather than a guess.

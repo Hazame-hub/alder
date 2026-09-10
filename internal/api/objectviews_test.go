@@ -14,7 +14,7 @@ import (
 // mail, and person does not. A derivation that only looks at the anchors gets
 // the filter right and the columns wrong, and the columns are the half a user
 // notices.
-func testSchema(t *testing.T, extraClasses ...string) *schema.Schema {
+func testSchema(t testing.TB, extraClasses ...string) *schema.Schema {
 	t.Helper()
 	classes := []string{
 		"( 2.5.6.0 NAME 'top' ABSTRACT MUST objectClass )",
