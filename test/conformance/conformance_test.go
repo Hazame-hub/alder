@@ -3265,3 +3265,64 @@ func TestNumSubordinatesCountsWhatABindCannotSee(t *testing.T) {
 		})
 	}
 }
+
+// A subtree search returns parents before their children, on both servers.
+//
+// The LDIF export streams entries in the order the server gave them, so this is
+// the assumption that makes an export re-importable: applied in order, an entry
+// whose parent has not been created yet is refused. The export has always
+// relied on it -- it never sorted -- and until now nothing said so.
+//
+// If a server ever stopped doing this the export would have to sort, which
+// would mean holding the whole subtree again. This is where that would be found
+// out.
+func TestASubtreeSearchReturnsParentsFirst(t *testing.T) {
+	base, err := dn.Parse(suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		res, searchErr := sess.Search(ctx(t), directory.SearchRequest{
+			BaseDN:     base,
+			Scope:      directory.ScopeSubtree,
+			Filter:     filter.Present("objectClass"),
+			Attributes: []string{"1.1"},
+			Limit:      1000,
+			PageSize:   100,
+		})
+		if searchErr != nil {
+			t.Fatalf("searching the suffix: %v", searchErr)
+		}
+		if res.Truncated {
+			t.Fatal("the search truncated, so the order of the rest is unknown")
+		}
+
+		seen := map[string]bool{}
+		for _, e := range res.Entries {
+			// Parent(): the DN package splits at the first unescaped comma, so
+			// cn=Liddell\, Alice is one component rather than two. Doing this
+			// by hand is how the harness's own edge cases get missed.
+			parent := e.DN.Parent()
+			p := foldDNString(parent.String())
+			// A parent above the search base is not in this result set and
+			// never could be -- the base entry's own parent, for one -- so it
+			// says nothing about ordering. Marking the entry seen happens
+			// either way: skipping that is how the base entry went missing
+			// from the map and every one of its children looked out of order.
+			inSubtree := len(parent) > 0 && strings.HasSuffix(p, foldDNString(suffix))
+			if inSubtree && !seen[p] {
+				// The parent is inside the subtree and has not been seen, so a
+				// document applied in this order would try to create a child
+				// under an entry that does not exist yet.
+				t.Errorf("%s comes before its parent %s", e.DN, parent)
+			}
+			seen[foldDNString(e.DN.String())] = true
+		}
+		t.Logf("%s returned %d entries, every parent before its children", s.name, len(res.Entries))
+	})
+}
+
+// foldDNString lowercases a DN for comparison. The suite compares DNs as
+// strings only here, where the question is ordering rather than equality.
+func foldDNString(s string) string { return strings.ToLower(s) }

@@ -1438,3 +1438,39 @@ to contradict the plan — add an entry.
   against, and discarded; the seeded 320 entries other tests assert are
   untouched. A permanent large fixture would slow every conformance run for a
   measurement taken rarely.
+
+### 2026-09-11 — streaming the LDIF export
+
+- **The export is rendered a page at a time and sent as it goes.** Building the
+  document first meant holding every entry, every record and the rendered bytes
+  at once, which is why it stopped at ten thousand entries — and "the output is
+  code" is a promise about a directory, not about the first tenth of one.
+  Measured: 39,338 entries render to a 14 MB document in 4.2 seconds using 18 MB
+  of working set, where the old code spent 43 MB on ten thousand.
+- **The entry count and the truncation warning moved to the end.** Neither is
+  known until the search finishes, so a streamed export cannot put them at the
+  top. This is a better answer than the one it replaces rather than a concession:
+  a file that ends with its own summary is one you can tell arrived whole, and a
+  count in the header of a download that died halfway is a lie the reader has no
+  way to detect. docs/COMPATIBILITY.md now says the comment preamble may move
+  while the records may not.
+- **The Ansible export stays bounded, because its ordering is global.** It sorts
+  parent first across the whole result, so it cannot emit anything until it has
+  everything — `ldap_entry` will not create a child under a parent that does not
+  exist yet. That is a real difference between the two exports and not an
+  oversight; the limit stays at ten thousand and the reason is here.
+- **The LDIF export never sorted, and now the suite says why that is safe.**
+  Both target servers return a subtree parent first, which is what makes an
+  unsorted export re-importable. It was an unstated assumption; it is now a
+  conformance case, and the day a server stops honouring it the export will have
+  to sort and give up streaming.
+- **A streamed response cannot fail with a status code.** Once the first byte is
+  out the status is fixed, so an error partway through is written into the
+  document as a comment saying the file is incomplete and must not be restored
+  from. The first page is fetched before anything is sent, so "no such entry"
+  and "nothing matched" are still proper HTTP answers.
+- **The context outlives the handler, and the fake now knows it.** A stream
+  writer runs after its handler returns, so `defer cancel()` cut the export off
+  at its first page. The unit tests passed anyway because the fake ignored the
+  context it was given; it honours it now, and reintroducing the deferred cancel
+  fails two of them. A real directory found this and a fake should have.

@@ -27,6 +27,16 @@ being different. So within 1.x:
 - The **Ansible** an export produces is byte-stable in the same way: the same
   modules, the same task names, the same key order, the same comments.
 
+What is promised is the **records**. Alder's own comment preamble around them —
+the lines beginning `#` that name the base, the scope and the filter — carries
+information about the export rather than content from the directory, and may
+gain or move lines within 1.x. It moved once already, in 1.2.0: a streamed
+export does not know its entry count or whether it truncated until it has
+finished, so both are written at the end. That is worth more than the stability
+it cost, because a file ending in its own summary is one you can tell arrived
+whole, and a count at the top of a download that died halfway cannot be told
+from an honest one.
+
 Both are pinned by golden files in `internal/ldif/testdata/golden` and
 `internal/ansible/testdata/golden`. A change to either fails a test on purpose.
 Regenerating them with `-update` is not a routine step; it is how you notice you
