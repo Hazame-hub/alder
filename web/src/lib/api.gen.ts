@@ -1261,8 +1261,16 @@ export interface components {
              */
             cycles?: string[];
             /**
-             * @description Member values whose entry could not be read — usually an entry that
-             *     was deleted while a group went on naming it.
+             * @description Member values whose entry could not be read. Two things produce
+             *     this and nothing distinguishes them: the entry was deleted while the
+             *     group went on naming it, or it exists and this bind may not see it.
+             *     A server answers "no such object" either way, deliberately, so that
+             *     refusing access does not disclose what is there.
+             *
+             *     So this is a list of members whose status is unknown, not a list of
+             *     broken references. Reporting it as the latter tells an operator
+             *     auditing who can reach something that a member is gone when they may
+             *     still be in the group.
              */
             dangling?: string[];
             /**

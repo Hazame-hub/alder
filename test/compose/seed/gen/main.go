@@ -163,10 +163,17 @@ func groupsLDIF() []byte {
 	unique := newEntry("cn=auditors," + groups)
 	unique.add("objectClass", "top", "groupOfUniqueNames")
 	unique.add("cn", "auditors")
-	unique.add("description", "Membership by uniqueMember, the other DN-valued style")
+	unique.add("description", "Membership by uniqueMember, the other DN-valued style, "+
+		"and a member inside ou=services so a delegated bind meets one it cannot read")
 	unique.add("uniqueMember", fmt.Sprintf("uid=user%04d,%s", 1, people))
 	unique.add("uniqueMember", fmt.Sprintf("uid=user%04d,%s", 2, people))
 	unique.add("uniqueMember", "cn=platform,"+groups)
+	// A member in the subtree the delegated account cannot see. Reading it
+	// fails exactly as reading a deleted entry does, which is the case the
+	// membership panel must not describe as a deletion. It goes on an existing
+	// group rather than a new one so the seeded entry count and the cn=everyone
+	// expansion keep the numbers other tests assert.
+	unique.add("uniqueMember", "cn=svc-alder,ou=services,"+suffix)
 	unique.writeTo(&b)
 
 	// And the references that are not membership at all: owner points at a

@@ -131,10 +131,20 @@ function MembersDialog({ dn, onClose, onNavigate }: {
                 </p>
               ) : null}
 
+              {/* Warning rather than destructive, and no verdict in the text.
+                  This used to read "an entry deleted while a group went on
+                  naming it", in red. Half the time that is wrong: a member this
+                  session may not read answers exactly the same way as one that
+                  was deleted, because a server refuses access by saying "no
+                  such object". Somebody auditing who can reach a system was
+                  being told a member was gone while they were still in the
+                  group. */}
               {query.data.dangling?.length ? (
-                <p className="rounded-md border border-destructive/40 bg-destructive/8 px-3 py-2 text-sm">
-                  Named as members but not readable — an entry deleted while a
-                  group went on naming it:{" "}
+                <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
+                  Named as members, but their entries could not be read — either
+                  they were deleted while this group went on naming them, or they
+                  exist and this session may not see them. The directory answers
+                  the same way to both:{" "}
                   <span className="font-dn">{query.data.dangling.join(", ")}</span>
                 </p>
               ) : null}

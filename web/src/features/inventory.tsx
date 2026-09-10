@@ -159,6 +159,11 @@ function InventoryDialog({ base, initial, onClose }: {
                 <Badge variant="secondary" className="tabular-nums">
                   {data.withValue} hold it
                 </Badge>
+                {/* "do not" is the bucket access control lands in. An entry
+                    holding the attribute behind a rule this session may not
+                    read is counted here, indistinguishably from one that
+                    genuinely lacks it, so the caveat below says so rather than
+                    the badge claiming more than it knows. */}
                 <Badge variant="outline" className="tabular-nums">
                   {data.withoutValue} do not
                 </Badge>
@@ -179,6 +184,13 @@ function InventoryDialog({ base, initial, onClose }: {
                   is a list, not an answer.
                 </p>
               ) : null}
+
+              <p className="text-xs text-muted-foreground">
+                These are counts of what this session can read. An entry the
+                directory hides from your bind is not examined, and an attribute
+                it hides is counted under “do not” — both look exactly like a
+                smaller directory from here.
+              </p>
 
               <ul className="divide-y divide-border rounded-md border border-border">
                 {data.values.map((row, i) => (
