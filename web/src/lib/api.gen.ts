@@ -1192,7 +1192,9 @@ export interface components {
              */
             attribute: string;
             /**
-             * @description Entries examined.
+             * @description Entries examined. The tally is folded a page at a time, so this
+             *     bounds how long it takes rather than how much it holds — which is
+             *     why it can be far larger than the other limits here.
              * @default 1000
              */
             limit: number;

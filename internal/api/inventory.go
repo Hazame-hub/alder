@@ -31,7 +31,17 @@ const (
 	// exact: the tail is reported as a remainder rather than dropped.
 	maxInventoryValues = 200
 	// maxInventoryEntries bounds the entries examined.
-	maxInventoryEntries = 10000
+	//
+	// Raised from 10,000 once the tally streamed: the old ceiling was there
+	// because every entry was held at once, and a hundred-thousand-entry
+	// directory -- the size at which an attribute has actually drifted -- could
+	// not be tallied at all. What bounds it now is time and the map of distinct
+	// values, not the entries.
+	maxInventoryEntries = 250000
+	// maxInventoryRounds guards the paging loop against a server that returns a
+	// continuation cookie for ever. At one page per round the cap above is
+	// reached long before this is.
+	maxInventoryRounds = 10000
 )
 
 var (
@@ -83,25 +93,49 @@ type inventoryResult struct {
 // tally counts one attribute across the entries a search returned.
 //
 // Pure, so it is tested from fixtures rather than against a directory.
-func tally(entries []*directory.Entry, attribute string, kind schema.AttributeKind, maxValues int) inventoryResult {
-	if maxValues <= 0 || maxValues > maxInventoryValues {
-		maxValues = maxInventoryValues
-	}
-	// Keyed by the exact bytes. A Go string is a byte container here, not text:
-	// values are bytes, and folding them into one row would be inventing an
-	// equality the directory did not agree to.
-	counts := map[string]int{}
-	order := []string{}
-	out := inventoryResult{Values: []InventoryRow{}}
+// tallier folds entries into counts without holding on to them.
+//
+// Counting incrementally is what lets the search behind it be consumed a page
+// at a time. A tally of a hundred thousand entries then costs one page of
+// entries plus one map entry per *distinct value* — and for the attributes
+// anybody tallies, distinct values are few. The pathological case is an
+// attribute that identifies entries rather than grouping them, where the map
+// grows with the directory; that is bounded by the examined cap, and the
+// interface says such a tally is a list rather than an answer.
+type tallier struct {
+	want   string
+	kind   schema.AttributeKind
+	counts map[string]int
+	// order preserves first appearance, so the sort below is stable across
+	// runs rather than following Go's map iteration.
+	order        []string
+	withValue    int
+	withoutValue int
+}
 
-	want := foldName(attribute)
+func newTallier(attribute string, kind schema.AttributeKind) *tallier {
+	return &tallier{
+		want: foldName(attribute),
+		kind: kind,
+		// Keyed by the exact bytes. A Go string is a byte container here, not
+		// text: values are bytes, and folding two spellings into one row would
+		// be inventing an equality the directory did not agree to.
+		counts: map[string]int{},
+	}
+}
+
+// examined is how many entries have been folded in so far.
+func (t *tallier) examined() int { return t.withValue + t.withoutValue }
+
+// add folds one page of entries into the running counts.
+func (t *tallier) add(entries []*directory.Entry) {
 	for _, e := range entries {
-		// An entry counts once per distinct value it holds, however many
-		// times it holds it and across whichever attribute options it uses:
+		// An entry counts once per distinct value it holds, however many times
+		// it holds it and across whichever attribute options it uses:
 		// alderTeam and alderTeam;lang-fr are the same attribute.
 		seen := map[string]bool{}
 		for _, name := range e.Order {
-			if foldName(name) != want {
+			if foldName(name) != t.want {
 				continue
 			}
 			for _, raw := range e.Attributes[name] {
@@ -110,21 +144,33 @@ func tally(entries []*directory.Entry, attribute string, kind schema.AttributeKi
 					continue
 				}
 				seen[key] = true
-				if _, known := counts[key]; !known {
-					order = append(order, key)
+				if _, known := t.counts[key]; !known {
+					t.order = append(t.order, key)
 				}
-				counts[key]++
+				t.counts[key]++
 			}
 		}
 		if len(seen) > 0 {
-			out.WithValue++
+			t.withValue++
 		} else {
-			out.WithoutValue++
+			t.withoutValue++
 		}
 	}
+}
 
-	out.DistinctValues = len(counts)
-	for _, n := range counts {
+// result renders the counts, listing at most maxValues rows and reporting the
+// rest as a remainder rather than dropping it.
+func (t *tallier) result(maxValues int) inventoryResult {
+	if maxValues <= 0 || maxValues > maxInventoryValues {
+		maxValues = maxInventoryValues
+	}
+	out := inventoryResult{
+		Values:         []InventoryRow{},
+		WithValue:      t.withValue,
+		WithoutValue:   t.withoutValue,
+		DistinctValues: len(t.counts),
+	}
+	for _, n := range t.counts {
 		if n == 1 {
 			// The typo signal. A value one entry holds among three hundred is
 			// usually a misspelling of one that ninety hold.
@@ -134,9 +180,10 @@ func tally(entries []*directory.Entry, attribute string, kind schema.AttributeKi
 
 	// Commonest first, then by value, so the answer is stable and the rare
 	// ones — the interesting ones — are found at the end or by sorting.
+	order := append([]string(nil), t.order...)
 	sort.SliceStable(order, func(i, j int) bool {
-		if counts[order[i]] != counts[order[j]] {
-			return counts[order[i]] > counts[order[j]]
+		if t.counts[order[i]] != t.counts[order[j]] {
+			return t.counts[order[i]] > t.counts[order[j]]
 		}
 		return order[i] < order[j]
 	})
@@ -144,15 +191,25 @@ func tally(entries []*directory.Entry, attribute string, kind schema.AttributeKi
 	for i, key := range order {
 		if i >= maxValues {
 			out.OtherValues++
-			out.OtherEntries += counts[key]
+			out.OtherEntries += t.counts[key]
 			continue
 		}
 		out.Values = append(out.Values, InventoryRow{
-			Value:   encodeValue([]byte(key), kind.Kind),
-			Entries: counts[key],
+			Value:   encodeValue([]byte(key), t.kind.Kind),
+			Entries: t.counts[key],
 		})
 	}
 	return out
+}
+
+// tally counts one attribute across entries already in hand.
+//
+// The handler streams instead; this is the same fold in one call, and is what
+// the unit tests exercise.
+func tally(entries []*directory.Entry, attribute string, kind schema.AttributeKind, maxValues int) inventoryResult {
+	t := newTallier(attribute, kind)
+	t.add(entries)
+	return t.result(maxValues)
 }
 
 // InventoryValues tallies one attribute across a bounded search.
@@ -198,30 +255,59 @@ func (s *Server) InventoryValues(c *fiber.Ctx) error {
 	}
 
 	limit := clamp(deref(body.Limit), 1000, 1, maxInventoryEntries)
-	res, err := sess.Conn.Search(ctx, directory.SearchRequest{
-		BaseDN: base,
-		Scope:  scope,
-		Filter: scan,
-		// Only the attribute being tallied, so the cost is the search rather
-		// than every value of every entry.
-		Attributes: []string{name},
-		Limit:      limit,
-		PageSize:   directory.MaxPageSize,
-	})
-	if err != nil {
-		return s.fail(c, err)
-	}
 
-	got := tally(res.Entries, name, kind, clamp(deref(body.MaxValues), maxInventoryValues, 1, maxInventoryValues))
+	// Consumed a page at a time and folded as it arrives, so that examining a
+	// hundred thousand entries costs one page of them rather than all of them.
+	// The whole point of this feature is a question about a directory, and a
+	// directory large enough to have drifted is exactly the one too large to
+	// hold in memory.
+	counter := newTallier(name, kind)
+	var cookie []byte
+	for rounds := 0; counter.examined() < limit && rounds < maxInventoryRounds; rounds++ {
+		want := limit - counter.examined()
+		if want > directory.MaxPageSize {
+			want = directory.MaxPageSize
+		}
+		res, err := sess.Conn.Search(ctx, directory.SearchRequest{
+			BaseDN: base,
+			Scope:  scope,
+			Filter: scan,
+			// Only the attribute being tallied, so the cost is the search
+			// rather than every value of every entry.
+			Attributes: []string{name},
+			Limit:      want,
+			PageSize:   want,
+			Cookie:     cookie,
+		})
+		if err != nil {
+			return s.fail(c, err)
+		}
+		counter.add(res.Entries)
+		cookie = res.Cookie
+		if len(cookie) == 0 {
+			// The server has nothing further to give.
+			break
+		}
+		if len(res.Entries) == 0 {
+			// A page with no entries and a cookie should not happen; treating
+			// it as the end is better than looping on it.
+			break
+		}
+	}
+	// A cookie still in hand means the search stopped at the cap rather than
+	// at the end of the directory.
+	truncated := len(cookie) > 0
+
+	got := counter.result(clamp(deref(body.MaxValues), maxInventoryValues, 1, maxInventoryValues))
 
 	return c.JSON(InventoryResponse{
 		Attribute: name,
 		// Every number below is about these entries, and says so. The response
 		// has no field that describes the directory, because a bounded search
 		// cannot produce one.
-		Examined:        len(res.Entries),
+		Examined:        counter.examined(),
 		Limit:           limit,
-		Truncated:       res.Truncated,
+		Truncated:       truncated,
 		WithValue:       got.WithValue,
 		WithoutValue:    got.WithoutValue,
 		DistinctValues:  got.DistinctValues,
