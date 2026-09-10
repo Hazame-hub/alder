@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -190,6 +191,11 @@ func (s *Server) ListChildren(c *fiber.Ctx, params ListChildrenParams) error {
 		page.Cookie = ptr(string(res.Cookie))
 	}
 	page.Truncated = ptr(res.Truncated)
+	// Where the server counts children for us, say how many of them this
+	// session did not get to see.
+	if hidden, ok := hiddenChildCount(ctx, sess.Conn, parent, len(page.Nodes), res.Truncated); ok {
+		page.HiddenChildren = ptr(hidden)
+	}
 	return c.JSON(page)
 }
 
@@ -1253,4 +1259,44 @@ func clamp(v, fallback, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+// hiddenChildCount reports how many children a parent has that this session
+// could not see.
+//
+// Some servers publish numSubordinates and some do not. That is a capability,
+// read from the entry, and never inferred from which server is answering --
+// 389 DS publishes it and OpenLDAP does not, but the code has no business
+// knowing that. Where it is published the server computes it and the access
+// rules do not filter it, so the gap between it and the children that came back
+// is exactly what this bind may not see.
+//
+// This is the only place in Alder where a hidden entry is directly countable.
+// Everywhere else a directory the session may not fully read simply looks like
+// a smaller directory.
+func hiddenChildCount(
+	ctx context.Context,
+	sess directory.Session,
+	parent dn.DN,
+	shown int,
+	truncated bool,
+) (int, bool) {
+	if truncated {
+		// The listing stopped at its limit, so the difference is paging and
+		// says nothing about access.
+		return 0, false
+	}
+	e, err := sess.Read(ctx, parent, []string{"numSubordinates"})
+	if err != nil {
+		return 0, false
+	}
+	raw := e.GetOne("numSubordinates")
+	if raw == "" {
+		return 0, false
+	}
+	total, convErr := strconv.Atoi(raw)
+	if convErr != nil || total <= shown {
+		return 0, false
+	}
+	return total - shown, true
 }

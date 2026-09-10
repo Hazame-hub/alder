@@ -35,3 +35,8 @@ cn: svc-alder
 sn: Service Account
 description: The account Alder itself binds as in the conformance suite
 userPassword: alder-service
+# A reference *out* of the hidden subtree, so that a delegated bind asking what
+# points at uid=user0001 gets a shorter answer than the administrator does and
+# nothing in the protocol says so. An attribute rather than a new entry, so the
+# seeded entry count other tests assert stays at 320.
+manager: uid=user0001,ou=people,dc=alder,dc=test

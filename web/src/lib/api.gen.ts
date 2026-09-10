@@ -957,6 +957,18 @@ export interface components {
             nodes: components["schemas"]["TreeNode"][];
             cookie?: string;
             truncated?: boolean;
+            /**
+             * @description Children this parent has that the session could not see.
+             *
+             *     Some servers publish `numSubordinates`, computed by the server and
+             *     not filtered by the access rules, and where they do the gap between
+             *     it and the children returned is exactly what this bind may not see.
+             *     Absent where the server does not publish it, which is a capability
+             *     and not a vendor trait — it is read from the entry, never inferred
+             *     from who the server is. Absent too when the listing was truncated,
+             *     since then the gap is paging rather than access.
+             */
+            hiddenChildren?: number;
         };
         CountResult: {
             count: number;
@@ -1302,6 +1314,13 @@ export interface components {
              * @description True when the search stopped early, so there are references this
              *     does not list. A list that quietly omits some is worse than none
              *     when the question is "what would break if I deleted this".
+             *
+             *     Note that `false` does not make the list complete. It is the result
+             *     of a search, so it holds the referring entries *this session can
+             *     see*; one hidden by the access rules is absent exactly as one that
+             *     does not exist is, and nothing in the protocol distinguishes them.
+             *     The answer is "nothing I can see points at this", which is not the
+             *     same claim as "nothing points at this".
              */
             truncated: boolean;
             /** @description The naming context this looked in. */

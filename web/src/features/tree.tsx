@@ -187,6 +187,21 @@ function TreeItem({
               more children than were listed
             </p>
           ) : null}
+          {/* The one place in Alder where a hidden entry can be counted rather
+              than merely suspected. Where a server publishes numSubordinates it
+              computes the number itself and the access rules do not filter it,
+              so this gap is exactly what the bind may not see. Everywhere else,
+              a directory you cannot fully read just looks like a smaller one. */}
+          {children.data?.hiddenChildren ? (
+            <p
+              className="py-1 text-xs italic text-warning-tint-foreground"
+              style={{ paddingLeft: `${(depth + 1) * 12 + 26}px` }}
+            >
+              {children.data.hiddenChildren}{" "}
+              {children.data.hiddenChildren === 1 ? "child is" : "children are"}{" "}
+              here that this session may not see
+            </p>
+          ) : null}
           {children.isError ? (
             <p
               className="py-1 text-xs text-destructive"
