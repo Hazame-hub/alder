@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"crypto/x509"
 	"errors"
@@ -1004,6 +1005,34 @@ func (s *Server) ApplyChange(c *fiber.Ctx) error {
 // --- transfer ---------------------------------------------------------------
 
 // ExportLdif exports an entry or a subtree.
+// maxExportEntries bounds a streamed export.
+//
+// It is a bound on how long an export runs, not on how much it holds: entries
+// are rendered a page at a time and never accumulate. The old ceiling was
+// directory.MaxResults, which exists because a *search* result is a JSON array
+// held in memory -- a reason that stopped applying the moment the export stopped
+// building its document before sending it.
+const maxExportEntries = 250000
+
+// ExportLdif streams an entry or a subtree as LDIF.
+//
+// Streamed rather than assembled because "the output is code" is a promise
+// about a whole directory, and the interesting directories are the large ones.
+// Building the document first meant holding every entry, every record and the
+// rendered bytes at once, which is why the export could not go past ten
+// thousand entries -- on a hundred-thousand-entry directory, the one Alder most
+// needs to be able to hand you, it simply refused.
+//
+// Entries go out in the order the server returned them, which is what the
+// non-streaming version did too. Both target servers return a subtree parent
+// first, and the conformance suite pins that, because an export whose children
+// precede their parents cannot be applied back.
+//
+// What streaming costs is the header: the entry count and whether the search
+// truncated are only known once it has finished, so they are written at the end
+// instead. That is worth having rather than merely tolerable -- a file that
+// ends with its own summary proves it arrived whole, where a count at the top
+// of a download that died halfway is a lie the reader cannot detect.
 func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 	sess := s.require(c)
 	if sess == nil {
@@ -1017,62 +1046,169 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 	if params.Scope != nil {
 		scopeName = string(*params.Scope)
 	}
+	scope, err := directory.ParseScope(scopeName)
+	if err != nil {
+		return badRequest(c, "Unknown export scope.", err.Error())
+	}
+
+	// Parsed into a tree, never pasted into one: this value comes from a URL.
+	exportFilter := filter.Present("objectClass")
+	if raw := strings.TrimSpace(deref(params.Filter)); raw != "" {
+		parsed, parseErr := filter.Parse(raw)
+		if parseErr != nil {
+			return badRequest(c, "The export filter is not a valid RFC 4515 filter.", parseErr.Error())
+		}
+		exportFilter = parsed
+	}
 
 	attrs := []string{"*"}
 	if params.IncludeOperational != nil && *params.IncludeOperational {
 		attrs = append(attrs, "+")
 	}
-
-	found, ok := s.searchForExport(c, sess, exportQuery{
-		Base:       base,
-		Scope:      scopeName,
-		RawFilter:  deref(params.Filter),
-		Attributes: attrs,
-		Limit:      clamp(deref(params.Limit), 1000, 1, directory.MaxResults),
-	})
-	if !ok {
-		return nil
-	}
-	scope, res, exportFilter := found.Scope, found.Result, found.Filter
-
 	withSecrets := params.IncludeSensitive != nil && *params.IncludeSensitive
-	records := make([]*ldif.Record, 0, len(res.Entries))
-	for _, e := range res.Entries {
-		if withSecrets {
-			records = append(records, directory.EntryLDIFWithSecrets(e))
-			continue
+	limit := clamp(deref(params.Limit), 1000, 1, maxExportEntries)
+
+	// Deliberately not deferred. The body stream writer below runs after this
+	// function has returned, so a deferred cancel would cut the export off at
+	// its first page -- which is exactly what it did, and the file said so:
+	// "this export stopped after 1000 entries: context canceled". Every path
+	// out of here cancels exactly once instead.
+	ctx, cancel := reqCtx(c)
+
+	page := func(cookie []byte, want int) (*directory.SearchResult, error) {
+		if want > directory.MaxPageSize {
+			want = directory.MaxPageSize
 		}
-		records = append(records, directory.EntryLDIF(e))
+		return sess.Conn.Search(ctx, directory.SearchRequest{
+			BaseDN:     base,
+			Scope:      scope,
+			Filter:     exportFilter,
+			Attributes: attrs,
+			Limit:      want,
+			PageSize:   want,
+			Cookie:     cookie,
+		})
 	}
 
-	doc, err := ldif.Marshal(records)
+	// The first page is fetched before anything is sent, so that "nothing
+	// matched" is still an HTTP status rather than a comment inside a file. Once
+	// the first byte is out the status is fixed, and every later failure has to
+	// be reported in the document itself.
+	first, err := page(nil, limit)
 	if err != nil {
+		cancel()
 		return s.fail(c, err)
 	}
-
-	var header strings.Builder
-	header.WriteString("# Exported by Alder\n")
-	fmt.Fprintf(&header, "# base:  %s\n", base)
-	fmt.Fprintf(&header, "# scope: %s\n", scope)
-	if rendered, rErr := exportFilter.Render(); rErr == nil {
-		fmt.Fprintf(&header, "# filter: %s\n", rendered)
+	if len(first.Entries) == 0 {
+		cancel()
+		// Without a filter this means the base is not there. With one it means
+		// the base holds nothing matching, which is a different thing to be
+		// told -- and not a 404, because the entry the caller named does exist.
+		if strings.TrimSpace(deref(params.Filter)) == "" {
+			return writeError(c, fiber.StatusNotFound, ErrorErrorNotFound, "No such entry.", "")
+		}
+		return badRequest(c, "Nothing matched, so there is nothing to export.",
+			"The filter is valid and the base exists; no entry under it satisfies the filter.")
 	}
-	fmt.Fprintf(&header, "# %d entries\n", len(res.Entries))
-	if res.Truncated {
-		// A truncated export that does not say so is a file someone will
-		// restore from and discover the gap much later.
-		header.WriteString("#\n# WARNING: the result was truncated at the export limit.\n")
-		header.WriteString("# This file does not contain the whole subtree.\n")
-	}
-	if !withSecrets {
-		header.WriteString("#\n# Sensitive attributes such as userPassword were omitted.\n")
-	}
-	header.WriteString("\n")
 
 	c.Set(fiber.HeaderContentType, "text/plain; charset=utf-8")
 	c.Set(fiber.HeaderContentDisposition,
 		fmt.Sprintf("attachment; filename=%q", exportFilename(base, scope)))
-	return c.SendString(header.String() + string(doc))
+
+	c.Context().SetBodyStreamWriter(func(bw *bufio.Writer) {
+		// The search that feeds this runs here, so the context lives until the
+		// last record is written.
+		defer cancel()
+
+		// Everything goes through the LDIF writer, including the comments: it
+		// folds them at the same column as the records and it remembers the
+		// first write error, so a client that hangs up halfway stops the export
+		// rather than being written at for another ninety thousand entries.
+		w := ldif.NewWriter(bw)
+		written := 0
+
+		blank := func() bool {
+			if w.Err() != nil {
+				return false
+			}
+			_, err := bw.WriteString("\n")
+			return err == nil
+		}
+
+		w.WriteComment("Exported by Alder")
+		w.WriteComment("base:  " + base.String())
+		w.WriteComment("scope: " + scope.String())
+		if rendered, rErr := exportFilter.Render(); rErr == nil {
+			w.WriteComment("filter: " + rendered)
+		}
+		if !withSecrets {
+			w.WriteComment("Sensitive attributes such as userPassword were omitted.")
+		}
+		w.WriteComment("The entry count and any truncation warning are at the end of this")
+		w.WriteComment("file: they are not known until the export finishes, and a file that")
+		w.WriteComment("ends with them is one you can tell arrived whole.")
+		if !blank() {
+			return
+		}
+		w.WriteVersion()
+
+		// stop writes why the file is not to be trusted, into the file. Once
+		// the first byte is out the status code is settled, so this is the only
+		// place left to say it.
+		stop := func(reason string) {
+			_ = blank()
+			w.WriteComment("ERROR: " + reason)
+			w.WriteComment("This export is incomplete. Do not restore from it.")
+		}
+
+		emit := func(entries []*directory.Entry) bool {
+			for _, e := range entries {
+				rec := directory.EntryLDIF(e)
+				if withSecrets {
+					rec = directory.EntryLDIFWithSecrets(e)
+				}
+				if wErr := w.WriteRecord(rec); wErr != nil {
+					stop(fmt.Sprintf("this export stopped while writing %s: %v", e.DN, wErr))
+					return false
+				}
+				written++
+			}
+			return true
+		}
+
+		res, cookie := first, first.Cookie
+		for {
+			if !emit(res.Entries) {
+				return
+			}
+			if len(cookie) == 0 || written >= limit {
+				break
+			}
+			next, pErr := page(cookie, limit-written)
+			if pErr != nil {
+				stop(fmt.Sprintf("this export stopped after %d entries: %v", written, pErr))
+				return
+			}
+			if len(next.Entries) == 0 {
+				break
+			}
+			res, cookie = next, next.Cookie
+		}
+
+		if !blank() {
+			return
+		}
+		w.WriteComment(fmt.Sprintf("%d entries", written))
+		if len(cookie) > 0 && written >= limit {
+			// A truncated export that does not say so is a file someone will
+			// restore from and discover the gap much later.
+			w.WriteComment(fmt.Sprintf("WARNING: the result was truncated at the export limit of %d.", limit))
+			w.WriteComment("This file does not contain the whole subtree.")
+		} else {
+			w.WriteComment("This export is complete.")
+		}
+	})
+	return nil
 }
 
 // exportFilename builds a filename from the RDN, keeping only characters that

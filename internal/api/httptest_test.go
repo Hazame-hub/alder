@@ -83,9 +83,17 @@ func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
 
 func (f *fakeSession) Schema(context.Context) (*schema.Schema, error) { return f.sch, nil }
 
-func (f *fakeSession) Search(_ context.Context, req directory.SearchRequest) (*directory.SearchResult, error) {
+func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (*directory.SearchResult, error) {
 	f.lastSearch = &req
 	f.searches++
+	// Honoured rather than ignored, because a handler that streams its response
+	// runs after its own handler function has returned -- and one that cancels
+	// its context on the way out cuts the stream off at the first page. A fake
+	// that never looks at the context cannot catch that, and did not: the
+	// export shipped it, and only a real directory showed it.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}

@@ -2380,6 +2380,10 @@ export interface operations {
                  *     assembled by hand.
                  */
                 filter?: string;
+                /**
+                 * @description The document is streamed and rendered a page at a time, so this
+                 *     bounds how long the export runs rather than how much it holds.
+                 */
                 limit?: number;
             };
             header?: never;
