@@ -1378,3 +1378,31 @@ to contradict the plan — add an entry.
   cannot read without any test having to invent one. It was added to auditors
   rather than to a new group because the seeded entry count and the cn=everyone
   expansion are asserted elsewhere and should keep their numbers.
+
+### 2026-09-10 — counting what cannot be seen
+
+- **`numSubordinates` is the one hidden thing in the product that is directly
+  countable.** Some servers publish it, they compute it themselves, and the
+  access rules do not filter it — so the gap between it and the children a bind
+  can enumerate is exactly what that bind may not see. Measured before it was
+  built: 389 DS tells a delegated account there are three children while it can
+  enumerate two, and OpenLDAP does not publish the attribute at all.
+- **That difference is read from the entry, never from the server's name.** Rule
+  8. Where the count is absent the tree says nothing rather than guessing, and
+  the conformance case skips with the reason rather than asserting a vendor.
+- **A truncated listing reports nothing.** The gap there is paging, and calling
+  it access would turn "there is more here" into "somebody is hiding this" —
+  which is a worse error than the one being fixed, because it invents a
+  restriction that does not exist.
+- **"Nothing names this entry, so deleting it would leave no reference
+  dangling" was a conclusion the search could not support.** referenced-by
+  returns the referring entries this session can see; one hidden by the access
+  rules is missing from it exactly as one that does not exist is. It now says
+  "nothing this session can see names this entry", which is the claim the search
+  actually makes. There is no equivalent of the numSubordinates trick here — a
+  search that returns fewer entries looks exactly like a directory with fewer
+  entries.
+- **The harness gained a reference out of the hidden subtree** rather than a new
+  entry: cn=svc-alder names uid=user0001 as its manager, so a delegated bind is
+  told three referrers where the administrator sees four, and the seeded entry
+  count other tests assert stays at 320.

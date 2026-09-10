@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -3191,6 +3192,76 @@ func TestAnUnreadableMemberLooksExactlyLikeADeletedOne(t *testing.T) {
 				t.Errorf("a hidden member answers %d and a deleted one %d; if these differ, "+
 					"the expansion could tell them apart and should", hidden.Code, gone.Code)
 			}
+		})
+	}
+}
+
+// Where a server counts a container's children, that count is not filtered by
+// the access rules — so the gap between it and what a bind can enumerate is
+// exactly what the bind may not see.
+//
+// This is the one hidden thing in the whole product that is directly countable.
+// Whether a server publishes numSubordinates is a capability and not a vendor
+// trait: it is read from the entry here, as the code does, rather than decided
+// from which server answered.
+func TestNumSubordinatesCountsWhatABindCannotSee(t *testing.T) {
+	base, err := dn.Parse(suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, s := range servers {
+		t.Run(s.name, func(t *testing.T) {
+			admin := connect(t, s, false)
+			asAdmin, readErr := admin.Read(ctx(t), base, []string{"numSubordinates"})
+			if readErr != nil {
+				t.Fatalf("reading the suffix: %v", readErr)
+			}
+			published := asAdmin.GetOne("numSubordinates")
+			if published == "" {
+				t.Skipf("%s does not publish numSubordinates, so a hidden child "+
+					"cannot be counted here and the tree says nothing rather than guessing", s.name)
+			}
+
+			delegate := connectRestricted(t, s)
+			asDelegate, readErr := delegate.Read(ctx(t), base, []string{"numSubordinates"})
+			if readErr != nil {
+				t.Fatalf("reading the suffix as the delegated account: %v", readErr)
+			}
+
+			// The number is the same for both, which is what makes it useful:
+			// a count the access rules filtered would just be the visible one
+			// again and could reveal nothing.
+			if got := asDelegate.GetOne("numSubordinates"); got != published {
+				t.Errorf("the delegated bind is told %q children and the administrator %q; "+
+					"a filtered count cannot reveal a hidden child", got, published)
+			}
+
+			total, convErr := strconv.Atoi(published)
+			if convErr != nil {
+				t.Fatalf("numSubordinates is %q, which is not a number", published)
+			}
+
+			res, searchErr := delegate.Search(ctx(t), directory.SearchRequest{
+				BaseDN:     base,
+				Scope:      directory.ScopeOneLevel,
+				Filter:     filter.Present("objectClass"),
+				Attributes: []string{"1.1"},
+				Limit:      100,
+				PageSize:   100,
+			})
+			if searchErr != nil {
+				t.Fatalf("enumerating children: %v", searchErr)
+			}
+			if res.Truncated {
+				t.Fatal("the enumeration truncated, so any gap would be paging rather than access")
+			}
+			if len(res.Entries) >= total {
+				t.Errorf("the delegated bind enumerated %d of %d children, so the "+
+					"ou=services rule is not in force", len(res.Entries), total)
+			}
+			t.Logf("%s: the server counts %d children, this bind can see %d",
+				s.name, total, len(res.Entries))
 		})
 	}
 }
