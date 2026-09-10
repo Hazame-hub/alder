@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,14 @@ type fakeSession struct {
 	// visibilityAsked records every probe, so a test can assert that a handler
 	// did not spend a round trip it did not need.
 	visibilityAsked []string
+
+	// pageSize makes Search page rather than return everything at once, so a
+	// handler that consumes a search incrementally can be tested. Zero keeps
+	// the old all-at-once behaviour that every other test relies on.
+	pageSize int
+	// searches counts the calls, which is how a test tells one round trip from
+	// several.
+	searches int
 }
 
 func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
@@ -76,9 +85,41 @@ func (f *fakeSession) Schema(context.Context) (*schema.Schema, error) { return f
 
 func (f *fakeSession) Search(_ context.Context, req directory.SearchRequest) (*directory.SearchResult, error) {
 	f.lastSearch = &req
+	f.searches++
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
+
+	// With pageSize set the fake pages the way a server does: the cookie is an
+	// offset, and a caller that ignores it sees only the first page. Nothing
+	// could test the streaming tally without that, because a fake that returns
+	// everything at once makes a loop that runs exactly once look correct.
+	if f.pageSize > 0 {
+		size := f.pageSize
+		if req.Limit > 0 && req.Limit < size {
+			size = req.Limit
+		}
+		start := 0
+		if len(req.Cookie) > 0 {
+			if n, err := strconv.Atoi(string(req.Cookie)); err == nil {
+				start = n
+			}
+		}
+		if start > len(f.entries) {
+			start = len(f.entries)
+		}
+		end := start + size
+		if end > len(f.entries) {
+			end = len(f.entries)
+		}
+		out := &directory.SearchResult{Entries: f.entries[start:end]}
+		if end < len(f.entries) {
+			out.Cookie = []byte(strconv.Itoa(end))
+			out.Truncated = true
+		}
+		return out, nil
+	}
+
 	return &directory.SearchResult{Entries: f.entries}, nil
 }
 

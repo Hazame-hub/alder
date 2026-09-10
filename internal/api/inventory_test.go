@@ -1,8 +1,13 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/gofiber/fiber/v2"
 
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/schema"
@@ -190,5 +195,108 @@ func TestAnOrdinaryAttributeIsAcceptedAndCanonicalised(t *testing.T) {
 	}
 	if !strings.EqualFold(name, "cn") {
 		t.Errorf("canonical name is %q", name)
+	}
+}
+
+// --- the streaming tally ----------------------------------------------------
+
+// bulkTeamEntries makes n entries, each holding one of four teams, so a tally
+// of them has a known shape whatever the paging does.
+func bulkTeamEntries(t *testing.T, n int) []*directory.Entry {
+	t.Helper()
+	teams := []string{"platform", "network", "data", "release"}
+	out := make([]*directory.Entry, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, teamEntry(t, fmt.Sprintf("bulk%05d", i), teams[i%len(teams)]))
+	}
+	return out
+}
+
+func inventoryOf(t *testing.T, rig *testRig, limit int) InventoryResponse {
+	t.Helper()
+	body := fmt.Sprintf(
+		`{"baseDn":"dc=alder,dc=test","scope":"sub","attribute":"alderTeam","limit":%d,"maxValues":200}`,
+		limit)
+	res := rig.do(t, http.MethodPost, "/api/v1/inventory", strings.NewReader(body))
+	if res.Status != fiber.StatusOK {
+		t.Fatalf("got %d: %s", res.Status, res.Body)
+	}
+	var out InventoryResponse
+	if err := json.Unmarshal([]byte(res.Body), &out); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	return out
+}
+
+// The point of the change: a tally follows the server's pages to the end,
+// rather than stopping at whatever one search returned.
+//
+// The old code issued a single Search and counted what came back, which looked
+// correct against a fake that returned everything at once and silently examined
+// one page against a real one.
+func TestTheTallyFollowsEveryPage(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t),
+		entries:  bulkTeamEntries(t, 2500),
+		pageSize: 100,
+	})
+
+	got := inventoryOf(t, rig, 250000)
+
+	if got.Examined != 2500 {
+		t.Errorf("examined %d of 2500; the tally stopped at a page boundary", got.Examined)
+	}
+	if got.WithValue != 2500 {
+		t.Errorf("withValue is %d, want 2500", got.WithValue)
+	}
+	if got.DistinctValues != 4 {
+		t.Errorf("distinct is %d, want 4", got.DistinctValues)
+	}
+	if got.Truncated {
+		t.Error("truncated, though every page was read to the end")
+	}
+	if rig.fake.searches < 2 {
+		t.Errorf("%d searches for 25 pages: the loop is not paging", rig.fake.searches)
+	}
+}
+
+// And it stops where it was told to, saying so, rather than reading a directory
+// to the end because it was asked a question about part of it.
+func TestTheTallyStopsAtTheLimitAndSaysSo(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t),
+		entries:  bulkTeamEntries(t, 2500),
+		pageSize: 100,
+	})
+
+	got := inventoryOf(t, rig, 250)
+
+	if got.Examined != 250 {
+		t.Errorf("examined %d, want exactly the 250 asked for", got.Examined)
+	}
+	if !got.Truncated {
+		t.Error("not truncated, though 2250 entries were never looked at")
+	}
+	if got.Limit != 250 {
+		t.Errorf("limit reported as %d", got.Limit)
+	}
+}
+
+// A tally of everything reports truncated false, which is the whole difference
+// between an answer about a directory and an answer about a page of it.
+func TestATallyThatReachedTheEndIsNotTruncated(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t),
+		entries:  bulkTeamEntries(t, 300),
+		pageSize: 100,
+	})
+
+	got := inventoryOf(t, rig, 250000)
+
+	if got.Truncated {
+		t.Error("truncated after reading every entry there is")
+	}
+	if got.Examined != 300 {
+		t.Errorf("examined %d, want 300", got.Examined)
 	}
 }

@@ -1406,3 +1406,35 @@ to contradict the plan — add an entry.
   entry: cn=svc-alder names uid=user0001 as its manager, so a delegated bind is
   told three referrers where the administrator sees four, and the seeded entry
   count other tests assert stays at 320.
+
+### 2026-09-10 — designing for a hundred thousand entries
+
+- **The target is "works to 100,000 entries, and degrades honestly beyond".**
+  Not "streams anything": bounded work with the bound stated is the instinct the
+  rest of the product already runs on, and it covers the overwhelming majority
+  of real directories.
+- **The tally was the one feature the old caps made useless at that size.** It
+  stopped at 10,000 entries because every entry was held at once, and a
+  directory large enough for an attribute to have drifted is exactly the one too
+  large to hold. Measured against 100,321 real entries: the whole directory
+  tallies in 5.4 seconds and 5.8 MB, reporting truncated false. At the old cap
+  the same question could only be answered about a tenth of it.
+- **Counting incrementally is what made that possible, not a bigger number.**
+  The fold keeps a map of distinct values rather than entries, so memory follows
+  how many different values there are and not how many entries hold them. The
+  pathological case is an attribute that identifies entries rather than grouping
+  them: tallying `uid` across 85,000 entries cost 14 MB and the interface
+  already says such a tally is a list rather than an answer.
+- **The cap became a time bound and moved to 250,000.** Raising a maximum is
+  additive under docs/COMPATIBILITY.md — a client that sends the old 10,000
+  still works.
+- **What a search costs was measured and left alone.** One search at the
+  documented maximum of 10,000 entries takes a working set of roughly 300 MB,
+  and repeating it plateaus around 330-380 MB rather than climbing, so it is the
+  allocator holding freed spans and not a leak. It is disproportionate and worth
+  fixing, but the default is 100, the maximum is a deliberate ceiling, and
+  nobody reads ten thousand rows — so it is recorded here rather than rushed.
+- **The bulk data is not in the harness.** It was generated, loaded, measured
+  against, and discarded; the seeded 320 entries other tests assert are
+  untouched. A permanent large fixture would slow every conformance run for a
+  measurement taken rarely.
