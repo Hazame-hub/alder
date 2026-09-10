@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0](https://github.com/Hazame-hub/alder/compare/v1.0.1...v1.1.0) (2026-09-10)
+
+
+### Features
+
+* **tree:** count the children a session may not see, and stop overclaiming ([#77](https://github.com/Hazame-hub/alder/issues/77)) ([4654f62](https://github.com/Hazame-hub/alder/commit/4654f62c3a512168633190494c2aef7652d588c9))
+
+
+### Performance
+
+* **inventory:** tally a hundred thousand entries instead of ten thousand ([#79](https://github.com/Hazame-hub/alder/issues/79)) ([20fff2c](https://github.com/Hazame-hub/alder/commit/20fff2c35e2a1490b84f2c51e1727177149e3037))
+
 ## [1.0.1](https://github.com/Hazame-hub/alder/compare/v1.0.0...v1.0.1) (2026-09-10)
 
 
