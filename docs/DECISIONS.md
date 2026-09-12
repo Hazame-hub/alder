@@ -1895,3 +1895,39 @@ to contradict the plan — add an entry.
   a test has no directory. The cost was that every field `NewServer` set and the
   rig did not was invisible to tests: the concurrency gate and the planner were
   both nil in every test written to exercise them, and both suites passed.
+
+### 2026-09-12 — the disconnect fix that does not exist, and the plan over HTTP
+
+- **The mechanism named in the previous entry does not work, and now there is a
+  test saying so.** That entry said a real fix for "an abandoned request keeps
+  working" needed fasthttp's `ConnState`, a map from connection to cancel
+  function, and the keep-alive distinction between idle and closed. All of that
+  was built. It cancels nothing.
+- **fasthttp serves a connection from one goroutine, so while a handler runs
+  nothing is reading the socket.** `ConnState` does fire on close and the
+  connection identity is stable -- both checked -- but the notice arrives after
+  the handler has returned. Measured: the close was reported 537 ms after the
+  hangup, by which time the abandoned tally had served 97 more pages and
+  finished on its own. The two candidate signals are now both eliminated by
+  measurement rather than by reading: `RequestCtx` implements `context.Context`
+  and its `Done` is not closed on disconnect either.
+- **What remains is a watchdog reading the socket underneath fasthttp,** which
+  would take the bytes of a pipelined request from the server that needs them.
+  For a signal whose absence is already covered by a thirty-second timeout and a
+  concurrency ceiling, that is the wrong trade, so Alder does not do it and the
+  code says why.
+- **The finding is pinned as a test rather than only as prose.**
+  `TestFasthttpReportsNoDisconnectWhileAHandlerRuns` asserts that the close
+  notice arrives too late to be useful. If fasthttp ever changes, that test
+  fails, and the failure message says the cancellation has become worth
+  building. A limitation nobody re-checks is a limitation forever.
+- **The plan is now driven over HTTP against both servers, not only through the
+  planner.** The endpoint, the JSON, the record coming back and the apply
+  reading a baseline out of it were covered by a fake, and a fake agrees with
+  whatever it was written beside. The new cases start the real API server with
+  the real driver, connect over LDAPS with the harness CA the way every other
+  case does, plan, hand the plan's own record back to `/changeset/apply`, and
+  check the directory. The drift case lets the suite's own session play the
+  other administrator in between. Verified by dropping the baseline from what is
+  handed back: the refusal test fails, which is what says it is testing the
+  mechanism rather than something incidental.
