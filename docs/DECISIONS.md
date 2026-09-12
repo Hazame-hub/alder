@@ -1755,3 +1755,52 @@ to contradict the plan — add an entry.
   This bug predates bulk mode and could have hit `task compose:up` and CI at any
   time; what made it worth catching is that the window is short enough for the
   next run to pass and for nobody to look again.
+
+### 2026-09-12 — what the tree exports were costing
+
+- **Found by running the two previous changes against each other.** The bulk
+  harness exists to measure at scale and the streamed search had just landed, so
+  Alder was pointed at a real 100,321-entry directory. The streaming held up --
+  a 44 MB search response at 82 MB of resident memory, the whole directory
+  exported as 40 MB of LDIF for 23 MB -- which left the two bounded exports as
+  the only materialising paths, and the YAML one holding 113 MB of live heap for
+  an 8 MB document.
+- **The bound stays. What went was everything held twice.** A tree cannot be
+  nested until its last entry has arrived, so neither tree export can stream the
+  way the LDIF export does; that is not the part that was expensive. Ten
+  thousand entries were being indexed twice -- once into a map from folded DN to
+  entry, again into a map from folded DN to node -- and every DN was parsed
+  twice more while rendering, once to find the parent and once to find the RDN
+  to print, when the caller had handed over a parsed DN to begin with. The RDN
+  and the parent key are now taken from that parsed DN when the node is made,
+  and the attributes ride on the node rather than in a second index.
+- **The document is written as it is drawn.** `outline.WriteTo` and
+  `outline.WriteYAML` take an `io.Writer`, and the handlers hand them the
+  connection. `Render` and `RenderYAML` remain as the string forms, so the
+  golden tests still compare exactly what a caller gets. Unlike the search and
+  the LDIF export there is no window where a failure arrives after the status
+  code: the tree is complete before the first byte goes out, and everything that
+  can fail has already happened.
+- **Measured, at ten thousand entries, with the LDIF export as the control.**
+  YAML: 83.4 MB allocated and 1.79 M allocations became 17.3 MB and 380 k, and
+  peak live heap above the fixture fell from 43.9 MB to 14.6 MB. The outline:
+  25.3 MB and 890 k became 11.4 MB and 370 k. The streamed LDIF export, which
+  this change does not touch, reads the same before and after, which is what
+  says the numbers are the exports and not the bench.
+- **`io.WriteString` to a wrapper without a `WriteString` method is a copy.**
+  Writing in small fragments to avoid `Fprintf` made it *worse* at first --
+  1.17 M allocations became 1.51 M -- because `io.WriteString` found only
+  `Write` on the error-latching wrapper and converted every fragment with
+  `[]byte(s)`. Giving the wrapper a `WriteString` method took it to 470 k. The
+  same trap caught the values: `WriteScalar(w, string(v))` escapes to the heap
+  once per value, which is why `yamlenc` grew `WriteScalarBytes`.
+- **`yamlenc` has tests now.** Its package comment claimed "one implementation
+  with one set of tests" while having none -- the escaping was only ever
+  exercised through the Ansible and outline goldens. It now has three entry
+  points sharing one `escapeOf`, which is a drift risk that did not exist
+  before, and a test that pins all three against each other. Verified by
+  breaking the bytes path alone: thirteen subtests fail.
+- **Timing is not claimed.** The exports got faster in every run, by a third or
+  so, but this machine put a 30% spread on the same benchmark across sittings
+  while the allocation figures stayed put. The allocation and heap numbers are
+  the ones worth quoting.

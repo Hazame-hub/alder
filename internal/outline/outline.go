@@ -15,6 +15,7 @@ package outline
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -47,10 +48,118 @@ type Options struct {
 type node struct {
 	label      string
 	structural string
-	children   []*node
+	// rdn and parentKey come from the parsed DN when the node is made, rather
+	// than from parsing the label again while rendering. A DN arrives already
+	// parsed, and reparsing every one of them twice -- once to find the parent,
+	// once to find the RDN to print -- was most of the work at ten thousand
+	// entries.
+	rdn       string
+	parentKey string
+	children  []*node
 	// descendants counts everything below, which is what makes a container
 	// worth looking at in a shape view.
 	descendants int
+	// attrs is what the YAML rendering writes under this node. The outline
+	// leaves it nil: it draws where entries sit, not what they hold. It lives
+	// here rather than in a second map keyed by DN because indexing ten
+	// thousand entries twice is the cost this field exists to avoid.
+	attrs []YAMLAttribute
+}
+
+// errWriter latches the first write error.
+//
+// Both renderings are tree walks, and a walk that checked the error of every
+// Fprintf would be mostly error handling. Once a write has failed the rest of
+// the document is dropped on the floor and the error surfaces at the end, which
+// is all a caller writing to a socket can act on anyway.
+type errWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (e *errWriter) Write(p []byte) (int, error) {
+	if e.err != nil {
+		return 0, e.err
+	}
+	n, err := e.w.Write(p)
+	if err != nil {
+		e.err = err
+	}
+	return n, err
+}
+
+// WriteString passes strings through as strings.
+//
+// Without it io.WriteString finds only Write, converts to []byte on the way in,
+// and that conversion copies -- once per fragment, and the renderers write in
+// small fragments on purpose. Measured at ten thousand entries, its absence
+// cost more allocations than writing fragments saved.
+func (e *errWriter) WriteString(s string) (int, error) {
+	if e.err != nil {
+		return 0, e.err
+	}
+	n, err := io.WriteString(e.w, s)
+	if err != nil {
+		e.err = err
+	}
+	return n, err
+}
+
+// treeBuilder assembles entries into roots. Both renderings go through it, so
+// they cannot disagree about the shape they are drawing.
+type treeBuilder struct {
+	byKey map[string]*node
+	order []string
+}
+
+func newTreeBuilder(n int) *treeBuilder {
+	return &treeBuilder{
+		byKey: make(map[string]*node, n),
+		order: make([]string, 0, n),
+	}
+}
+
+// add records one entry. A DN already seen is ignored, which is what makes a
+// duplicate count once.
+//
+// The parent comes from the parsed DN rather than from cutting the string at
+// its first comma: a comma inside an RDN is escaped, and cn=Liddell\, Alice is
+// one component. The harness holds such an entry precisely so that shortcuts
+// like that are found.
+func (b *treeBuilder) add(d dn.DN, structural string, attrs []YAMLAttribute) {
+	label := d.String()
+	// ToLower hands back the string it was given when there is nothing to fold,
+	// so the ordinary all-lowercase DN costs nothing here.
+	key := strings.ToLower(label)
+	if _, seen := b.byKey[key]; seen {
+		return
+	}
+	n := &node{label: label, structural: structural, attrs: attrs, rdn: label}
+	if len(d) > 0 {
+		n.rdn = d.RDN().String()
+		n.parentKey = strings.ToLower(d.Parent().String())
+	}
+	b.byKey[key] = n
+	b.order = append(b.order, key)
+}
+
+// finish links each node under its parent and returns the roots, counted and
+// sorted.
+func (b *treeBuilder) finish() []*node {
+	var roots []*node
+	for _, key := range b.order {
+		n := b.byKey[key]
+		if p, ok := b.byKey[n.parentKey]; ok && n.parentKey != key {
+			p.children = append(p.children, n)
+			continue
+		}
+		roots = append(roots, n)
+	}
+	for _, r := range roots {
+		count(r)
+	}
+	sortNodes(roots)
+	return roots
 }
 
 // Render draws the entries as a tree.
@@ -61,32 +170,36 @@ type node struct {
 // than dropped, because an entry that is in the file has to appear in the
 // picture of the file.
 func Render(entries []Entry, opts Options) string {
-	roots := build(entries)
-
 	var b strings.Builder
-	writeHeader(&b, opts, countNodes(roots))
-	for i, r := range roots {
-		if i > 0 {
-			b.WriteString("\n")
-		}
-		// A root is drawn in full; everything below it is relative to it.
-		fmt.Fprintf(&b, "%s%s\n", r.label, annotation(r))
-		writeChildren(&b, r, "")
-	}
+	_ = WriteTo(&b, entries, opts)
 	return b.String()
 }
 
-// parentKeyOf is the folded DN of the parent, or "" at the top.
+// WriteTo draws the entries as a tree, straight into w.
 //
-// It goes through the dn package rather than cutting at the first comma: a
-// comma inside an RDN is escaped, and cn=Liddell\, Alice is one component. The
-// harness has such an entry precisely so that shortcuts like that are found.
-func parentKeyOf(s string) string {
-	parsed, err := dn.Parse(s)
-	if err != nil || len(parsed) == 0 {
-		return ""
+// The tree still has to be complete before the first line goes out -- the entry
+// that settles whether a node is a leaf may be the last one to arrive -- so this
+// does not stream the way the LDIF export does. What it drops is the second
+// copy: the document is written as it is drawn, rather than assembled in a
+// buffer the size of the whole of it and handed over afterwards.
+func WriteTo(w io.Writer, entries []Entry, opts Options) error {
+	b := newTreeBuilder(len(entries))
+	for _, e := range entries {
+		b.add(e.DN, e.Structural, nil)
 	}
-	return strings.ToLower(parsed.Parent().String())
+	roots := b.finish()
+
+	ew := &errWriter{w: w}
+	writeHeader(ew, opts, countNodes(roots))
+	for i, r := range roots {
+		if i > 0 {
+			_, _ = io.WriteString(ew, "\n")
+		}
+		// A root is drawn in full; everything below it is relative to it.
+		_, _ = fmt.Fprintf(ew, "%s%s\n", r.label, annotation(r))
+		writeChildren(ew, r, "")
+	}
+	return ew.err
 }
 
 func count(n *node) int {
@@ -125,7 +238,7 @@ func annotation(n *node) string {
 	return "  [" + strings.Join(parts, ", ") + "]"
 }
 
-func writeChildren(b *strings.Builder, parent *node, prefix string) {
+func writeChildren(b io.Writer, parent *node, prefix string) {
 	for i, c := range parent.children {
 		last := i == len(parent.children)-1
 		branch, carry := "├── ", "│   "
@@ -134,42 +247,34 @@ func writeChildren(b *strings.Builder, parent *node, prefix string) {
 		}
 		// Only the RDN: the rest of the DN is the path already drawn above it,
 		// and repeating it is what made the flat list hard to read.
-		fmt.Fprintf(b, "%s%s%s%s\n", prefix, branch, rdnOf(c.label), annotation(c))
+		_, _ = fmt.Fprintf(b, "%s%s%s%s\n", prefix, branch, c.rdn, annotation(c))
 		writeChildren(b, c, prefix+carry)
 	}
 }
 
-func rdnOf(s string) string {
-	parsed, err := dn.Parse(s)
-	if err != nil || len(parsed) == 0 {
-		return s
-	}
-	return parsed.RDN().String()
-}
-
-func writeHeader(b *strings.Builder, opts Options, entries int) {
-	b.WriteString("# The shape of what was exported, as Alder read it.\n")
-	b.WriteString("#\n")
-	b.WriteString("# This is not LDIF and cannot be applied. LDIF gives a leading space its own\n")
-	b.WriteString("# meaning -- it continues the line above -- so a tree drawn with indentation\n")
-	b.WriteString("# could never also be a document you import. Export LDIF for that; this is\n")
-	b.WriteString("# for reading, and for pasting into a ticket.\n")
-	b.WriteString("#\n")
+func writeHeader(b io.Writer, opts Options, entries int) {
+	_, _ = io.WriteString(b, "# The shape of what was exported, as Alder read it.\n")
+	_, _ = io.WriteString(b, "#\n")
+	_, _ = io.WriteString(b, "# This is not LDIF and cannot be applied. LDIF gives a leading space its own\n")
+	_, _ = io.WriteString(b, "# meaning -- it continues the line above -- so a tree drawn with indentation\n")
+	_, _ = io.WriteString(b, "# could never also be a document you import. Export LDIF for that; this is\n")
+	_, _ = io.WriteString(b, "# for reading, and for pasting into a ticket.\n")
+	_, _ = io.WriteString(b, "#\n")
 	if opts.Base != "" {
-		fmt.Fprintf(b, "# base:  %s\n", opts.Base)
+		_, _ = fmt.Fprintf(b, "# base:  %s\n", opts.Base)
 	}
 	if opts.Scope != "" {
-		fmt.Fprintf(b, "# scope: %s\n", opts.Scope)
+		_, _ = fmt.Fprintf(b, "# scope: %s\n", opts.Scope)
 	}
 	if opts.Filter != "" {
-		fmt.Fprintf(b, "# filter: %s\n", opts.Filter)
+		_, _ = fmt.Fprintf(b, "# filter: %s\n", opts.Filter)
 	}
-	fmt.Fprintf(b, "# %d entries\n", entries)
+	_, _ = fmt.Fprintf(b, "# %d entries\n", entries)
 	if opts.Truncated {
-		fmt.Fprintf(b, "#\n# WARNING: the search stopped at %d entries, so this is part of the\n", opts.Limit)
-		b.WriteString("# subtree and not the whole of it.\n")
+		_, _ = fmt.Fprintf(b, "#\n# WARNING: the search stopped at %d entries, so this is part of the\n", opts.Limit)
+		_, _ = io.WriteString(b, "# subtree and not the whole of it.\n")
 	}
-	b.WriteString("\n")
+	_, _ = io.WriteString(b, "\n")
 }
 
 // countNodes is how many entries the tree holds, which is what the header
