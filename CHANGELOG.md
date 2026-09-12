@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/Hazame-hub/alder/compare/v1.3.0...v1.3.1) (2026-09-12)
+
+
+### Performance
+
+* **api:** stream the search response instead of building it ([#88](https://github.com/Hazame-hub/alder/issues/88)) ([148749f](https://github.com/Hazame-hub/alder/commit/148749f822e0a3b3f7630557336dc2de6fdda171))
+
 ## [1.3.0](https://github.com/Hazame-hub/alder/compare/v1.2.0...v1.3.0) (2026-09-12)
 
 
