@@ -1,0 +1,68 @@
+# Says out loud when a pull request has a merge conflict.
+#
+# GitHub runs `pull_request` workflows against the merge commit it builds from
+# the head and the base. When those two conflict there is no merge commit to
+# build, so it runs none of them -- ci included. The pull request is then left
+# with a checks list containing only whatever ran on `pull_request_target`, no
+# failure, and nothing anywhere saying why the tests are missing. Branch
+# protection does block the merge, so this is not a hole; it is a silence, and
+# it cost two pull requests a round trip each before anyone noticed.
+#
+# This runs on `pull_request_target`, which GitHub schedules from the base
+# branch and therefore runs whether or not the branches conflict. It checks out
+# nothing and runs no code from the pull request: the head of a `_target`
+# workflow is untrusted, and this one only asks the API a question.
+name: mergeable
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conflicts:
+    name: no merge conflicts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask GitHub whether the branches merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # mergeable is computed in the background, so the first read after a
+          # push is usually null. Poll rather than treat "not yet known" as an
+          # answer either way.
+          state=""
+          for _ in $(seq 1 20); do
+            state=$(gh api "repos/$REPO/pulls/$PR" --jq '.mergeable_state')
+            if [ "$state" != "unknown" ] && [ -n "$state" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          echo "mergeable_state: $state"
+
+          if [ "$state" = "dirty" ]; then
+            echo
+            echo "This branch conflicts with the base, so GitHub cannot build a"
+            echo "merge commit -- which means the ci workflow did not run and"
+            echo "will not run until the conflict is resolved. Rebase onto the"
+            echo "base branch and push again."
+            echo
+            echo "docs/DECISIONS.md is append-only, so two branches open at once"
+            echo "will nearly always conflict at the end of it. Keeping both"
+            echo "entries, in merge order, is the resolution."
+            exit 1
+          fi
+
+          if [ "$state" = "unknown" ] || [ -z "$state" ]; then
+            echo "GitHub did not settle on a mergeability answer in time."
+            echo "Re-run this job; it is a question about the branches, not a test."
+            exit 1
+          fi

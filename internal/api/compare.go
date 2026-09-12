@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
-	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/schema"
 )
 
@@ -81,6 +81,14 @@ func compareOne(name string, left, right *directory.Entry, sch *schema.Schema, l
 		Right: sideFacts(right, name, len(rv), sch),
 	}
 
+	// Each side is keyed once, here, because both questions below need the
+	// same keys: whether the two sets are equal, and which side each value
+	// falls on. Keying a DN means parsing it, and on two groups of a hundred
+	// thousand members doing that twice was most of what a comparison cost.
+	isDN := dnValued(name, sch)
+	leftKeys := comparisonKeys(lv, isDN)
+	rightKeys := comparisonKeys(rv, isDN)
+
 	switch {
 	case len(lv) > 0 && len(rv) == 0:
 		row.Status = LeftOnly
@@ -91,7 +99,7 @@ func compareOne(name string, left, right *directory.Entry, sch *schema.Schema, l
 		// which is the case a diff of present values cannot see at all.
 		row.Status = Same
 	default:
-		if sameAttributeValues(lv, rv, name, sch) {
+		if sameKeySets(leftKeys, rightKeys) {
 			row.Status = Same
 		} else {
 			row.Status = Differs
@@ -122,7 +130,7 @@ func compareOne(name string, left, right *directory.Entry, sch *schema.Schema, l
 		return row
 	}
 
-	values, truncated := valueRows(lv, rv, name, sch, limit)
+	values, truncated := valueRows(lv, rv, leftKeys, rightKeys, kind, limit)
 	row.Values = &values
 	if truncated {
 		row.Truncated = ptr(true)
@@ -218,17 +226,6 @@ func compareRank(name string, sch *schema.Schema) int {
 	return 1
 }
 
-// sameAttributeValues compares two attributes as the sets they are.
-func sameAttributeValues(a, b [][]byte, name string, sch *schema.Schema) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	if dnValued(name, sch) {
-		return sameDNSet(a, b)
-	}
-	return plan.SameValues(a, b)
-}
-
 // dnValued reports whether this attribute's values name entries.
 //
 // Checked by syntax OID rather than by KindOf: Name-and-Optional-UID — which is
@@ -247,28 +244,24 @@ func dnValued(name string, sch *schema.Schema) bool {
 	return false
 }
 
-func sameDNSet(a, b [][]byte) bool {
-	left := normalisedDNs(a)
-	right := normalisedDNs(b)
-	sort.Strings(left)
-	sort.Strings(right)
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
+// normalisedDN renders a value through the DN parser so two spellings of one
+// entry compare equal — the same allowance references.go makes, for the same
+// reason. A value that is not a DN keeps its bytes.
+func normalisedDN(v []byte) string {
+	s := trimUIDSuffix(string(v))
+	if parsed, err := dn.Parse(s); err == nil {
+		return strings.ToLower(parsed.String())
 	}
-	return true
+	return string(v)
 }
 
-// normalisedDNs renders each value through the DN parser so two spellings of
-// one entry compare equal — the same allowance references.go makes, for the
-// same reason. A value that is not a DN keeps its bytes.
-func normalisedDNs(values [][]byte) []string {
+// comparisonKeys is what two values are compared by: the normalised DN where
+// the attribute names entries, the bytes themselves otherwise.
+func comparisonKeys(values [][]byte, isDN bool) []string {
 	out := make([]string, 0, len(values))
 	for _, v := range values {
-		s := trimUIDSuffix(string(v))
-		if parsed, err := dn.Parse(s); err == nil {
-			out = append(out, strings.ToLower(parsed.String()))
+		if isDN {
+			out = append(out, normalisedDN(v))
 			continue
 		}
 		out = append(out, string(v))
@@ -276,26 +269,35 @@ func normalisedDNs(values [][]byte) []string {
 	return out
 }
 
+// sameKeySets reports whether the two sides hold the same values.
+//
+// It copies before sorting: the caller's slices are positional -- keys[i] is
+// the key of values[i] -- and sorting them in place would leave the listing
+// below reporting the wrong value on the wrong side.
+func sameKeySets(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	left := slices.Clone(a)
+	right := slices.Clone(b)
+	slices.Sort(left)
+	slices.Sort(right)
+	return slices.Equal(left, right)
+}
+
 // valueRows lines the two sides up value by value.
-func valueRows(lv, rv [][]byte, name string, sch *schema.Schema, limit int) ([]ValueComparison, bool) {
-	isDN := dnValued(name, sch)
-	key := func(v []byte) string {
-		if isDN {
-			return normalisedDNs([][]byte{v})[0]
-		}
-		return string(v)
+//
+// The keys arrive already computed, positionally: keys[i] belongs to values[i].
+// The right-hand membership set is built first because the left-hand pass needs
+// it; the left-hand set is built only if that pass has not already filled the
+// limit; and both passes stop the moment it is full, because nothing further
+// can be emitted and the rest would be looked up for nothing.
+func valueRows(lv, rv [][]byte, leftKeys, rightKeys []string, kind schema.AttributeKind, limit int) ([]ValueComparison, bool) {
+	inRight := make(map[string]bool, len(rightKeys))
+	for _, k := range rightKeys {
+		inRight[k] = true
 	}
 
-	inRight := map[string]bool{}
-	for _, v := range rv {
-		inRight[key(v)] = true
-	}
-	inLeft := map[string]bool{}
-	for _, v := range lv {
-		inLeft[key(v)] = true
-	}
-
-	kind := sch.KindOf(name)
 	out := []ValueComparison{}
 	truncated := false
 
@@ -310,16 +312,29 @@ func valueRows(lv, rv [][]byte, name string, sch *schema.Schema, limit int) ([]V
 		})
 	}
 
-	for _, v := range lv {
-		if inRight[key(v)] {
+	for i, v := range lv {
+		if inRight[leftKeys[i]] {
 			emit(v, Both)
+		} else {
+			emit(v, Left)
+		}
+		if truncated {
+			return out, true
+		}
+	}
+
+	// Only now, and only if there is room left for a row that needs it.
+	inLeft := make(map[string]bool, len(leftKeys))
+	for _, k := range leftKeys {
+		inLeft[k] = true
+	}
+	for i, v := range rv {
+		if inLeft[rightKeys[i]] {
 			continue
 		}
-		emit(v, Left)
-	}
-	for _, v := range rv {
-		if !inLeft[key(v)] {
-			emit(v, Right)
+		emit(v, Right)
+		if truncated {
+			return out, true
 		}
 	}
 	return out, truncated
