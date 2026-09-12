@@ -30,6 +30,12 @@ all work, against both target servers.
 | M5 | Release: screenshots, GoReleaser, GHCR, security policy, automated versioning. **Done.** |
 | 1.0 | Every item above shipping, with a stated compatibility promise. **Done.** |
 
+An export can also be drawn as an **outline** — the same entries as the tree they
+form, with what each one is and how much sits below it. It is deliberately not
+LDIF and says so on its first line: LDIF reads a leading space as a continuation
+of the line above, so a tree drawn with indentation could never also be a
+document you import. It is for reading, and for pasting into a ticket.
+
 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) says what 1.x will and will not
 change under you: the LDIF and Ansible an export produces are byte-stable, the
 HTTP API only grows, and the web interface is deliberately not part of the

@@ -128,3 +128,74 @@ func lastLines(s string, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// --- the outline ------------------------------------------------------------
+
+// Asked for by an operator: an LDIF export is flat, and a flat list of three
+// hundred records does not tell you the shape of what you exported.
+func TestTheOutlineDrawsTheTree(t *testing.T) {
+	entries := []*directory.Entry{}
+	for _, d := range []string{
+		"dc=alder,dc=test",
+		"ou=people,dc=alder,dc=test",
+		"uid=alice,ou=people,dc=alder,dc=test",
+		"uid=bob,ou=people,dc=alder,dc=test",
+	} {
+		e := directory.NewEntry(mustParse(t, d))
+		e.Set("objectClass", [][]byte{[]byte("top"), []byte("organizationalUnit")})
+		entries = append(entries, e)
+	}
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t), entries: entries,
+	})
+
+	res := rig.do(t, http.MethodGet,
+		"/api/v1/export/outline?dn=dc%3Dalder%2Cdc%3Dtest&scope=sub", nil)
+	if res.Status != fiber.StatusOK {
+		t.Fatalf("got %d: %s", res.Status, res.Body)
+	}
+
+	if !strings.Contains(res.Body, "├── ") && !strings.Contains(res.Body, "└── ") {
+		t.Errorf("nothing is drawn as a tree:\n%s", res.Body)
+	}
+	if !strings.Contains(res.Body, "uid=alice") {
+		t.Errorf("an entry is missing from the outline:\n%s", res.Body)
+	}
+}
+
+// It must not be mistakeable for an export you can apply. LDIF reads a leading
+// space as a continuation, so an indented tree could never also be LDIF, and a
+// file that looks like one and is not is worse than no file.
+func TestTheOutlineSaysItIsNotSomethingYouApply(t *testing.T) {
+	e := directory.NewEntry(mustParse(t, "dc=alder,dc=test"))
+	e.Set("objectClass", [][]byte{[]byte("top")})
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t), entries: []*directory.Entry{e},
+	})
+
+	res := rig.do(t, http.MethodGet, "/api/v1/export/outline?dn=dc%3Dalder%2Cdc%3Dtest", nil)
+	if !strings.Contains(res.Body, "not LDIF") {
+		t.Errorf("the outline does not say what it is not:\n%s", res.Body)
+	}
+	if !strings.Contains(res.Header.Get("Content-Disposition"), "-outline.txt") {
+		t.Errorf("the download is not named as an outline: %s",
+			res.Header.Get("Content-Disposition"))
+	}
+}
+
+// An outline carries no attribute values, so there is nothing in it to leak.
+func TestTheOutlineCarriesNoAttributeValues(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t),
+		entries: []*directory.Entry{entryFixture(t)},
+	})
+
+	res := rig.do(t, http.MethodGet,
+		"/api/v1/export/outline?dn=dc%3Dalder%2Cdc%3Dtest&scope=sub", nil)
+
+	for _, secret := range []string{"averyrealsecret", "alice@alder.test", "Liddell"} {
+		if strings.Contains(res.Body, secret) {
+			t.Errorf("the outline carries the value %q:\n%s", secret, res.Body)
+		}
+	}
+}

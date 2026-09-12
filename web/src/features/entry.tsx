@@ -433,7 +433,7 @@ function EntryHeader({
 
 function ExportButton({ dn }: { dn: string }) {
   const [open, setOpen] = useState(false);
-  const [format, setFormat] = useState<"ldif" | "ansible">("ldif");
+  const [format, setFormat] = useState<"ldif" | "ansible" | "outline">("ldif");
   const [scope, setScope] = useState<"base" | "one" | "sub">("base");
   const [operational, setOperational] = useState(false);
   const [sensitive, setSensitive] = useState(false);
@@ -441,6 +441,8 @@ function ExportButton({ dn }: { dn: string }) {
   const download = () => {
     const params = new URLSearchParams({ dn, scope });
     if (format === "ldif") {
+      // Neither belongs on an outline either: it carries no attribute values,
+      // so there is nothing in it to withhold or to include.
       // Neither option exists for a playbook: it never enforces an attribute
       // the directory owns, and it never carries a secret into a repository.
       params.set("includeOperational", String(operational));
@@ -476,6 +478,9 @@ function ExportButton({ dn }: { dn: string }) {
                   <SelectItem value="ansible">
                     Ansible playbook — tasks that enforce them
                   </SelectItem>
+                  <SelectItem value="outline">
+                    Outline — the shape of the subtree
+                  </SelectItem>
                 </SelectContent>
               </Select>
               {format === "ansible" ? (
@@ -484,6 +489,16 @@ function ExportButton({ dn }: { dn: string }) {
                   its attributes to exactly these values, ordered parent first.
                   Running it against a directory whose entries differ will change
                   them.
+                </p>
+              ) : null}
+              {format === "outline" ? (
+                <p className="text-xs text-muted-foreground">
+                  The same entries drawn as the tree they form, with what each
+                  one is and how much sits below it. For reading and for pasting
+                  into a ticket — it is not LDIF and cannot be applied, because
+                  LDIF reads a leading space as a continuation of the line above
+                  and an indented tree would stop being a document you can
+                  import.
                 </p>
               ) : null}
             </div>
@@ -500,7 +515,12 @@ function ExportButton({ dn }: { dn: string }) {
                 </SelectContent>
               </Select>
             </div>
-            {format === "ansible" ? (
+            {format === "outline" ? (
+              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                An outline shows where entries sit, never what they hold, so no
+                attribute of any kind reaches the file.
+              </p>
+            ) : format === "ansible" ? (
               <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 Operational attributes and attributes the directory owns are
                 left out, because a task enforcing one fails on every run.
