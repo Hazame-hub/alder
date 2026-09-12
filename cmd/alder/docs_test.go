@@ -101,7 +101,7 @@ func TestCompatibilityDoesNotNameAnUnreleasedVersion(t *testing.T) {
 	// Deliberately narrow: only versions in a sentence about what a release
 	// did, not every number that looks like one. "1.0.x" as an illustration of
 	// a patch series is not a claim.
-	claim := regexp.MustCompile(`(?i)\b(?:before|since|in|as of)\s+(\d+)\.(\d+)\.(\d+)\b`)
+	claim := regexp.MustCompile(`(?i)\b(?:before|since|until|in|as of)\s+(\d+)\.(\d+)\.(\d+)\b`)
 	for _, m := range claim.FindAllStringSubmatch(doc, -1) {
 		gotMajor, _ := strconv.Atoi(m[1])
 		gotMinor, _ := strconv.Atoi(m[2])
@@ -113,15 +113,21 @@ func TestCompatibilityDoesNotNameAnUnreleasedVersion(t *testing.T) {
 }
 
 // The compatibility document promises that flags and their environment
-// equivalents keep their meanings. That promise had no implementation for four
-// releases. This is the check that it has one.
+// equivalents keep their meanings, and went several releases with nothing
+// behind that. This is the check that something is.
+//
+// Anchored on the prefix rather than on a phrase. The first version of this
+// looked for the words the promise happened to use, and the next edit to the
+// sentence -- this one -- reworded them and turned the test into a skip that
+// reported PASS. A guard that a rewording can switch off is not a guard.
 func TestTheCompatibilityPromiseAboutEnvironmentVariablesIsImplemented(t *testing.T) {
 	doc := readRepoFile(t, "docs/COMPATIBILITY.md")
-	if !strings.Contains(doc, "environment-variable") {
-		t.Skip("the compatibility document no longer promises environment equivalents")
+	if !strings.Contains(doc, envPrefix) {
+		t.Fatalf("docs/COMPATIBILITY.md does not mention %s, so its promise about "+
+			"environment equivalents names nothing a reader can use", envPrefix)
 	}
-	// One flag is enough to prove the mechanism exists; TestEveryServeFlagReadsAVariable
-	// proves it covers all of them.
+	// One flag is enough to show the mechanism exists; TestEveryServeFlagReadsAVariable
+	// shows it covers all of them.
 	if got := envName("addr"); got != "ALDER_ADDR" {
 		t.Fatalf("the environment mechanism is not wired up: envName(\"addr\") = %q", got)
 	}

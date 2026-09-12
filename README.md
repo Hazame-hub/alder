@@ -282,6 +282,28 @@ file asking for it to be removed. A document that has not been edited produces
 no changes at all rather than a page of modifications that do nothing, and the
 entries that already match are listed so you can see the import understood them.
 
+**Check a changeset against the directory before applying it.** Staging twenty
+changes and applying them is a different act from staging twenty changes,
+walking away, and applying them an hour later — by which time somebody else has
+edited two of the entries. `POST /api/v1/plan` reads every entry the set names
+and reports what each change would actually do: an addition, a modification, a
+rename, a deletion, nothing at all because the entry already holds what you are
+setting, or a conflict the directory would refuse. Nothing is written.
+
+The classification is a stable identifier a script can switch on, and the plan
+hands back the records themselves rather than a description of them — so what
+you were shown is the value that runs, not an equivalent one reconstructed
+later. A reconciled change is where that matters: what you sent was an add and
+what runs is a modification of the one attribute that differs, and the plan
+shows the second.
+
+Each planned change carries a fingerprint of the state it was planned against.
+Send it back when applying and the server re-reads the entry and refuses the
+whole set if anything it depended on has moved. It is a keyed hash rather than
+a snapshot, it holds no attribute values, and a password contributes only
+whether it is set — the same rule as everywhere else. Applying without one
+behaves exactly as it did before.
+
 **Delete a container** by staging what is under it. LDAP deletes one leaf at a
 time, so removing an organisational unit means removing everything below it
 first, deepest first, in order. Alder walks the subtree, stages the deletions in
@@ -317,6 +339,12 @@ same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
 - Filters are parsed and re-escaped; DNs are parsed and re-rendered. Neither is
   ever built by string concatenation.
 - TLS is on by default in both directions.
+- `--allowed-targets` restricts which directories this instance may connect to,
+  enforced on the server before anything is dialled. Unset, any target is
+  permitted, which is right for a laptop beside the directory and wrong for
+  anything other people can reach.
+- `--max-in-flight` caps how many API requests are answered at once.
+- Every flag also reads `ALDER_<FLAG_NAME>`.
 
 ## Working on it
 

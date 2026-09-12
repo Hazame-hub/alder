@@ -20,6 +20,7 @@ import (
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/filter"
 	"github.com/hazame-hub/alder/internal/ldif"
+	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/schema"
 	"github.com/hazame-hub/alder/internal/session"
 )
@@ -1156,6 +1157,16 @@ func (s *Server) ApplyChange(c *fiber.Ctx) error {
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 
+	// A single change carries a baseline for the same reason a set does: the
+	// gap between deciding and applying is where somebody else edits the entry.
+	if stale, verifyErr := s.verifyBaselines(ctx, sess,
+		[]ChangeRequest{body}, []directory.ChangeRecord{record}); verifyErr != nil {
+		return s.fail(c, verifyErr)
+	} else if stale != nil {
+		s.logger.Info("change refused: the entry moved since it was planned", "dn", stale.String())
+		return refuseStale(c, *stale)
+	}
+
 	caps := sess.Conn.Capabilities()
 	if err := sess.Conn.Apply(ctx, record); err != nil {
 		return s.failChange(c, err, record, caps)
@@ -1471,8 +1482,8 @@ func (s *Server) ParseLdif(c *fiber.Ctx) error {
 				// beats silently importing half a document.
 				return s.fail(c, readErr)
 			case readErr == nil && live != nil:
-				outcome := reconcile(change, live, sch)
-				skippedAttrs = appendNew(skippedAttrs, outcome.Skipped)
+				outcome := plan.Reconcile(change, live, sch)
+				skippedAttrs = plan.AppendNew(skippedAttrs, outcome.Skipped)
 				if !outcome.Changed {
 					// Nothing to confirm, so nothing is offered to confirm.
 					unchanged = append(unchanged, change.DN.String())

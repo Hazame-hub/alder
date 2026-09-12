@@ -90,6 +90,20 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 
+	// Every baseline first, before the first change runs. Discovering at change
+	// twelve that the directory has moved would leave eleven applied against
+	// assumptions nobody rechecked -- and this is knowable in advance, which is
+	// the same reason changeRecords validates the whole set up front.
+	stale, verifyErr := s.verifyBaselines(ctx, sess, body.Changes, records)
+	if verifyErr != nil {
+		return s.fail(c, verifyErr)
+	}
+	if stale != nil {
+		s.logger.Info("changeset refused: the directory moved since it was planned",
+			"dn", stale.String(), "changes", len(records))
+		return refuseStale(c, *stale)
+	}
+
 	result := ChangesetResult{Outcomes: make([]ChangesetOutcome, 0, len(records))}
 	failed := -1
 

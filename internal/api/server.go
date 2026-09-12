@@ -12,6 +12,7 @@ import (
 	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/ldif"
+	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/session"
 )
 
@@ -59,6 +60,9 @@ type Server struct {
 	logger   *slog.Logger
 	cfg      Config
 	gate     *gate
+	// planner holds the fingerprint key that makes a plan's baseline mean
+	// something, so it lives as long as the process and no longer.
+	planner *plan.Planner
 }
 
 // NewServer returns a Server. The caller owns the session store's lifetime and
@@ -68,12 +72,27 @@ func NewServer(logger *slog.Logger, cfg Config) *Server {
 		logger = slog.Default()
 	}
 	return &Server{
+		planner:  newPlanner(logger),
 		driver:   ldapdriver.New(logger, cfg.AllowPlaintextLDAP),
 		sessions: session.NewStore(logger, cfg.IdleTimeout, cfg.MaxLifetime),
 		logger:   logger,
 		cfg:      cfg,
 		gate:     gateFor(cfg),
 	}
+}
+
+// newPlanner builds the planner, or dies trying.
+//
+// The only way this fails is crypto/rand refusing to produce a key, which is
+// not a condition to carry on from: without one, every baseline would be the
+// same value and a stale plan would verify. Better to refuse to start.
+func newPlanner(logger *slog.Logger) *plan.Planner {
+	p, err := plan.NewPlanner(isNoSuchObject)
+	if err != nil {
+		logger.Error("cannot generate a plan fingerprint key", "error", err)
+		panic("alder: " + err.Error())
+	}
+	return p
 }
 
 // Close releases every directory connection.

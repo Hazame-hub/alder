@@ -247,19 +247,18 @@ func newRig(t testing.TB, cfg Config, fake *fakeSession) *testRig {
 		cfg.MaxLifetime = time.Hour
 	}
 
-	// Built directly rather than through NewServer, which would dial a real
-	// directory. Same package, so no test-only door has to exist in production
-	// code for this.
-	s := &Server{
-		sessions: session.NewStore(slog.New(slog.DiscardHandler), cfg.IdleTimeout, cfg.MaxLifetime),
-		logger:   slog.New(slog.DiscardHandler),
-		cfg:      cfg,
-		// Through the same helper NewServer uses. This rig builds a Server by
-		// hand, so anything NewServer does that is not repeated here is a thing
-		// no test can see -- which is how the gate came to be nil in every test
-		// that was meant to exercise it.
-		gate: gateFor(cfg),
-	}
+	// Through NewServer, not a struct literal.
+	//
+	// It used to be a literal, on the grounds that NewServer builds an LDAP
+	// driver and a test has no directory to dial. That is true and it does not
+	// matter -- constructing a driver dials nothing -- and the cost of the
+	// shortcut was that every field NewServer set and the rig did not was a
+	// field no test could see. Twice now: the concurrency gate and the planner
+	// were both nil in every test written to exercise them, and both suites
+	// passed.
+	//
+	// The session it opens is this rig's own, seeded below with the fake.
+	s := NewServer(slog.New(slog.DiscardHandler), cfg)
 	t.Cleanup(s.sessions.Close)
 
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})

@@ -90,9 +90,17 @@ it does not make the endpoint less binding.
 
 ### 3. The command line and the configuration
 
-`alder serve` keeps its flags, their meanings and their defaults. Configuration
-file keys and their environment-variable equivalents keep theirs. New flags and
-keys may appear; existing ones do not change under you.
+`alder serve` keeps its flags, their meanings and their defaults. Every flag
+also reads an environment variable — the flag name upper-cased with dashes as
+underscores, behind `ALDER_` — and those keep their meanings too. New flags and
+variables may appear; existing ones do not change under you.
+
+That promise was made at 1.0 and went several releases with no implementation
+behind it: the binary was flags-only, and the sentence describing environment
+equivalents described nothing. It is true now, rather than deleted, because the
+promise was the useful half. The changelog entry that adds this says which
+release it became true in — this document deliberately does not guess, having
+guessed wrong once already.
 
 The one thing that may tighten is a **security default**, and only with a way
 back. `--i-know-this-is-insecure` exists because refusing plaintext LDAP by
