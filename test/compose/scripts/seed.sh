@@ -45,6 +45,35 @@ wait_for() {
 	return 1
 }
 
+# wait_for_bind waits until the server accepts the credentials the seed uses.
+#
+# Reachable is not ready. 389 DS's container entrypoint starts ns-slapd, then
+# connects to it over ldapi and replaces nsslapd-rootpw with DS_DM_PASSWORD --
+# so between those two moments the server answers searches, passes its own
+# healthcheck, and rejects cn=Directory Manager with "Invalid credentials".
+# Anything binding in that window fails against a server that is working.
+#
+# The window is short, which is worse rather than better: it is wide enough to
+# lose a CI run and narrow enough that the next run passes and nobody looks
+# again. Waiting for the credential is the only check that closes it.
+wait_for_bind() {
+	uri=$1
+	binddn=$2
+	pw=$3
+	name=$4
+	i=0
+	while [ "$i" -lt 60 ]; do
+		if ldapwhoami -x -H "$uri" -D "$binddn" -w "$pw" >/dev/null 2>&1; then
+			log "$name accepts $binddn"
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 2
+	done
+	log "$name never accepted $binddn"
+	return 1
+}
+
 # add_ldif applies a content LDIF, tolerating entries that already exist.
 add_ldif() {
 	uri=$1
@@ -77,6 +106,11 @@ count_entries() {
 
 wait_for "$OPENLDAP_URI" OpenLDAP
 wait_for "$DS389_URI" "389 DS"
+# The OpenLDAP rootdn binds against the password in slapd.conf, so it works
+# before the entry it names exists -- which it does not yet, this run being
+# what creates it.
+wait_for_bind "$OPENLDAP_URI" "$ADMIN_DN" "$ADMIN_PW" OpenLDAP
+wait_for_bind "$DS389_URI" "$DM_DN" "$DM_PW" "389 DS"
 
 # --- the only vendor-specific step -------------------------------------------
 # OpenLDAP already carries the custom schema: it was compiled into cn=config

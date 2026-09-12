@@ -13,6 +13,10 @@
 #   task compose:down   tear it down
 #   task compose:logs   follow the logs
 #
+# There is also an opt-in bulk mode, "task compose:bulk -- <count>", which adds
+# generated filler under ou=bulk for scale work. It rebuilds the harness from
+# scratch and is not what the conformance suite runs against; see README.md.
+#
 # Ports on the host:
 #   OpenLDAP  ldap://localhost:10389   ldaps://localhost:10636
 #   389 DS    ldap://localhost:11389   ldaps://localhost:11636
@@ -36,8 +40,18 @@ services:
     depends_on:
       certs:
         condition: service_completed_successfully
+    environment:
+      # Empty unless "task compose:bulk" put a path here. When it is empty the
+      # container behaves exactly as it did before bulk mode existed; when it
+      # is set, entrypoint.sh slapadds that file before slapd starts.
+      ALDER_BULK_LDIF: ${ALDER_BULK_LDIF:-}
     volumes:
       - ./certs:/certs:ro
+      # Both read-only, and both read only in bulk mode. ./seed is here because
+      # slapadd needs the suffix entry to exist before ou=bulk can have a
+      # parent, and 00-base.ldif is where that entry is defined.
+      - ./seed:/seed:ro
+      - ./bulk:/bulk:ro
     ports:
       - "10389:389"
       - "10636:636"
@@ -58,6 +72,10 @@ services:
     volumes:
       # The container looks for server.crt, server.key and ca/ca.crt here.
       - ./certs/ds389:/data/tls
+      # Read only in bulk mode. 389 DS's import runs inside ns-slapd, so the
+      # LDIF has to be a path that process can open -- handing the file to a
+      # client would put it back on the LDAP path this exists to avoid.
+      - ./bulk:/bulk:ro
     ports:
       - "11389:3389"
       - "11636:3636"
@@ -81,5 +99,25 @@ services:
         condition: service_healthy
     volumes:
       - ./seed:/seed:ro
+      - ./ds389:/ds389:ro
+      - ./scripts:/scripts:ro
+
+  # The 389 DS half of the opt-in bulk load, plus the count check for both
+  # servers. Behind a profile so that a plain "docker compose up" cannot start
+  # it by accident; "task compose:bulk" is the only thing that runs it.
+  bulk:
+    build: ./openldap
+    image: alder/harness-openldap
+    profiles: ["bulk"]
+    entrypoint: ["/bin/sh", "/scripts/bulk.sh"]
+    environment:
+      ALDER_BULK_LDIF: /bulk/bulk.ldif
+    depends_on:
+      openldap:
+        condition: service_healthy
+      ds389:
+        condition: service_healthy
+    volumes:
+      - ./bulk:/bulk:ro
       - ./ds389:/ds389:ro
       - ./scripts:/scripts:ro

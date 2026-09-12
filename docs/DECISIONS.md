@@ -1682,3 +1682,76 @@ to contradict the plan — add an entry.
   the driver's own page loop back on top, a handler asking for ten thousand
   entries at once is handed one page of a thousand and measures as frugal as one
   that asks page by page. Two of the guards are worthless without it.
+
+### 2026-09-12 — loading a hundred thousand entries offline
+
+- **Bulk mode is a second harness state, not a bigger seed.** `task compose:up`
+  still produces exactly the 320 entries the conformance suite counts;
+  `task compose:bulk -- N` tears that down and builds a harness that also holds
+  N generated filler entries under `ou=bulk,dc=alder,dc=test`. Keeping them in
+  one harness was the obvious shape and the wrong one: the fixtures are
+  deliberate and asserted on, the filler is volume, and a suite that could not
+  tell them apart would start failing for reasons nobody chose.
+- **The measurement it exists for.** 100,000 entries over LDAP took 863 s into
+  OpenLDAP and 790 s into 389 DS. Offline, the same generated file takes 45 s
+  and 58 s, and the whole of `task compose:bulk -- 100000` -- generate the file,
+  rebuild both containers, load them, seed the 320 fixtures over LDAP as usual,
+  count what arrived on each -- is 299 s. At 15,000 entries it is 125 s and 61 s
+  against 3 s and 5 s. Scale work had been spending most of its wall clock
+  waiting for `ldapadd`, which is a bad reason not to measure something.
+- **OpenLDAP's load happens in the container entrypoint, because that is the
+  only moment slapd is stopped.** `slapadd` writes into the mdb files directly
+  and refuses to run against a live server; slapd is PID 1, so stopping it at
+  any later point stops the container. That is also why `compose:bulk` recreates
+  the containers rather than adding to a running harness — and it is honest
+  about it, since a directory that has been bulk loaded is not the directory the
+  suite runs against.
+- **389 DS needed a backend of its own, because its import replaces rather than
+  appends.** Both `dsctl ldif2db` and the online import task overwrite the whole
+  contents of the backend they are pointed at, so importing filler into
+  `userRoot` would have deleted the 320 fixtures — the one thing bulk mode must
+  not do. The filler therefore lands in a second backend chained under the
+  seeded suffix by `nsslapd-parent-suffix`, so a client still sees one tree and
+  only the throwaway half is ever replaced. This is a genuine vendor divergence
+  and it is now written down in the harness README's table with the others.
+- **The 389 DS import is started by adding a task entry over LDAP, not by
+  `dsconf`.** `dsconf` lives in the 389 DS container and the script driving the
+  load does not; the entry under `cn=import,cn=tasks,cn=config` is what `dsconf`
+  creates anyway. It also keeps the harness's existing habit of configuring 389
+  DS over LDAP as `cn=Directory Manager`, which is how an operator without
+  `dsconf` to hand would do it.
+- **The mdb map size is raised for the load and only for the load.** Measured,
+  `slapd.conf`'s 256 MB does hold 100,000 filler entries -- in 230 MB of it, so
+  the next size anyone asks for fails partway with `MDB_MAP_FULL` and leaves a
+  half-loaded directory that nothing announces. The entrypoint raises it offline
+  in bulk mode to a sparse 8 GB, so the default harness keeps the map size its
+  configuration actually states rather than inheriting a number chosen for a
+  measurement.
+- **The filler is generated on demand and never committed.** A hundred thousand
+  entries is about 40 MB. `test/compose/seed/gen` grew a `-bulk` flag rather
+  than gaining a second binary, and it writes fixtures or filler in one run,
+  never both: `task seed` is the committed, CI-checked output, `-bulk` writes a
+  gitignored file whose first line says it is not seed data.
+- **The load is checked by counting both servers, not by trusting exit codes.**
+  This earned itself immediately: the first working version rebuilt the harness
+  image between the seed step and the bulk step, which left the running OpenLDAP
+  container out of date against its own image, so the next `docker compose run`
+  recreated it and silently discarded the database that had just been loaded.
+  Every command had exited 0. What said otherwise was OpenLDAP reporting 100,006
+  entries where 389 DS reported 100,321.
+- **The fixtures are still loaded over LDAP in bulk mode.** Loading them offline
+  too would have been faster and would have quietly changed what they are, since
+  `slapadd` runs neither the overlays nor the access rules an LDAP write goes
+  through. Bulk mode adds volume beside the fixtures; it does not produce a
+  different set of them.
+- **Seeding now waits for the credential, not for the port.** Dropping `--build`
+  from the bulk task's seed step made a latent harness race reproducible: 389
+  DS's container entrypoint starts `ns-slapd` and *then* connects to it over
+  `ldapi` to replace `nsslapd-rootpw` with `DS_DM_PASSWORD`, so between those
+  two moments the server answers searches, passes its own healthcheck, and
+  rejects `cn=Directory Manager` with "Invalid credentials". `seed.sh` waited on
+  an anonymous base search, which goes green inside that window. It now also
+  waits for `ldapwhoami` to succeed with the credentials it is about to use.
+  This bug predates bulk mode and could have hit `task compose:up` and CI at any
+  time; what made it worth catching is that the window is short enough for the
+  next run to pass and for nobody to look again.

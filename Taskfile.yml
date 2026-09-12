@@ -158,6 +158,37 @@ tasks:
       - "{{.COMPOSE}} up --build --detach --wait certs openldap ds389"
       - "{{.COMPOSE}} run --rm --build seed"
 
+  compose:bulk:
+    desc: 'Rebuild the harness with N generated filler entries under ou=bulk, loaded offline. Usage: task compose:bulk -- 100000'
+    # Opt-in, for scale work only. The filler is generated here and never
+    # committed, it lives under its own OU, and nothing in the conformance
+    # suite may depend on it. `compose:down` then `compose:up` gets back to the
+    # plain 320-entry harness the suite does run against.
+    #
+    # It rebuilds from scratch rather than adding to a running harness, because
+    # slapadd needs slapd stopped and the only moment a container's slapd is
+    # stopped is before it starts. That is also the honest shape: bulk mode is
+    # a different harness, not the usual one with more in it.
+    vars:
+      COUNT: '{{.CLI_ARGS | default "100000"}}'
+    env:
+      # Read by docker-compose.yml, passed into the openldap container, acted
+      # on by its entrypoint. Scoped to this task, so a later `task compose:up`
+      # creates a container that has never heard of bulk mode.
+      ALDER_BULK_LDIF: /bulk/bulk.ldif
+    cmds:
+      - go run ./test/compose/seed/gen -bulk {{.COUNT}} -out test/compose/bulk
+      - "{{.COMPOSE}} down --remove-orphans"
+      - "{{.COMPOSE}} up --build --detach --wait certs openldap ds389"
+      # No --build on these two, unlike compose:up. The image is already built
+      # by the line above, and a rebuild here leaves the running openldap
+      # container out of date against its image -- so the *next* `compose run`
+      # recreates it, which throws away the mdb database the entrypoint just
+      # slapadded into. The count check at the end of bulk.sh is what caught
+      # that: OpenLDAP held the filler and none of the fixtures.
+      - "{{.COMPOSE}} run --rm seed"
+      - "{{.COMPOSE}} run --rm bulk"
+
   compose:down:
     desc: Tear the harness down, keeping the test CA
     cmds:

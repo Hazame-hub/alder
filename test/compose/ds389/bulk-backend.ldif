@@ -1,0 +1,38 @@
+# A separate backend for ou=bulk,dc=alder,dc=test on 389 Directory Server.
+#
+# Only used in bulk mode. The default harness never applies this file.
+#
+# The reason it exists is that 389 DS has no offline *append*: both `dsctl
+# ldif2db` and the online import task replace the whole contents of the backend
+# they are pointed at. Importing the filler into userRoot would therefore
+# delete the 320 seeded fixtures, which is the one thing bulk mode must not do.
+#
+# So the filler gets a backend of its own, chained under the seeded suffix by
+# nsslapd-parent-suffix. A subtree search at dc=alder,dc=test descends into it
+# through the mapping tree, so from a client's point of view there is one tree;
+# from the import's point of view there are two databases, and only the
+# throwaway one is ever replaced.
+#
+# The two entries must be added in this order: the mapping tree points at the
+# backend, and 389 DS validates that reference. Same as ds389/backend.ldif.
+
+dn: cn=bulkRoot,cn=ldbm database,cn=plugins,cn=config
+changetype: add
+objectClass: top
+objectClass: extensibleObject
+objectClass: nsBackendInstance
+cn: bulkRoot
+nsslapd-suffix: ou=bulk,dc=alder,dc=test
+
+# RFC 4514 escapes in the RDN value, not the RFC 1779 quoted form most 389 DS
+# documentation shows, for the reason given in backend.ldif: the quoted form is
+# not a legal RFC 4514 DN and Alder's dn package rejects it.
+dn: cn=ou\=bulk\,dc\=alder\,dc\=test,cn=mapping tree,cn=config
+changetype: add
+objectClass: top
+objectClass: extensibleObject
+objectClass: nsMappingTree
+cn: ou=bulk,dc=alder,dc=test
+nsslapd-state: backend
+nsslapd-backend: bulkRoot
+nsslapd-parent-suffix: dc=alder,dc=test
