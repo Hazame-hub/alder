@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/hazame-hub/alder/internal/session"
+	"github.com/valyala/fasthttp"
 )
 
 // What happens to the directory work when the browser goes away.
@@ -114,11 +116,10 @@ func TestAStreamedSearchStopsWhenTheClientGoesAway(t *testing.T) {
 // what keeps a caller from turning that into real cost is the ceiling on how
 // many requests run at once, not per-request cancellation.
 //
-// Fixing it properly means tracking connection state outside the handler --
-// fasthttp's ConnState, a map from connection to cancel function, and the
-// keep-alive distinction between idle and closed. That is a real mechanism and
-// it is not here; this test exists so the gap is written down rather than
-// assumed away.
+// The obvious fix -- fasthttp's ConnState, a map from connection to cancel
+// function, and the keep-alive distinction between idle and closed -- was
+// built, and cancels nothing. Why is measured and pinned by
+// TestFasthttpReportsNoDisconnectWhileAHandlerRuns below.
 func TestAnAbandonedTallyIsBoundedEvenThoughItIsNotCancelled(t *testing.T) {
 	const body = `{"baseDn":"dc=alder,dc=test","scope":"sub","attribute":"sn","limit":20000}`
 	atHangup, after := hangUpDuring(t, "/api/v1/inventory", body, false)
@@ -131,5 +132,93 @@ func TestAnAbandonedTallyIsBoundedEvenThoughItIsNotCancelled(t *testing.T) {
 	if after > pagesInTheWholeSearch+2 {
 		t.Errorf("an abandoned tally served %d pages for a search of %d: "+
 			"the loop is not bounded by the limit it was given", after, pagesInTheWholeSearch)
+	}
+}
+
+// Why the obvious fix does not work, pinned so that the day it starts working
+// is a test failure rather than a thing nobody thinks to retry.
+//
+// The mechanism a bounded handler would need is a signal that the peer has
+// gone. fasthttp offers two candidates and neither delivers one:
+//
+//   - RequestCtx implements context.Context, but its Done channel is not closed
+//     when the connection drops. Deriving the request context from it changes
+//     nothing; measured, not assumed.
+//   - Server.ConnState is the same hook net/http has, and it does fire on
+//     close -- but not until after the handler has returned. fasthttp serves a
+//     connection from one goroutine, so while a handler runs nothing is reading
+//     the socket and there is nothing to notice the close.
+//
+// The only remaining option is a watchdog reading the socket underneath
+// fasthttp, which would steal the bytes of a pipelined request from the server
+// that needs them. That is a real hazard for a signal that buys a bound already
+// enforced twice over, so Alder does not do it.
+func TestFasthttpReportsNoDisconnectWhileAHandlerRuns(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t),
+		entries:     benchTree(t, 20000),
+		pageSize:    200,
+		searchDelay: 5 * time.Millisecond,
+	})
+
+	var mu sync.Mutex
+	var closedAt time.Time
+	server := rig.app.Server()
+	server.ConnState = func(_ net.Conn, state fasthttp.ConnState) {
+		if state == fasthttp.StateClosed {
+			mu.Lock()
+			closedAt = time.Now()
+			mu.Unlock()
+		}
+	}
+
+	addr := listening(t, rig)
+	var d net.Dialer
+	conn, err := d.DialContext(t.Context(), "tcp", addr.String())
+	if err != nil {
+		t.Fatalf("dialling: %v", err)
+	}
+	const body = `{"baseDn":"dc=alder,dc=test","scope":"sub","attribute":"sn","limit":20000}`
+	const crlf = "\r\n"
+	request := fmt.Sprintf("POST /api/v1/inventory HTTP/1.1"+crlf+"Host: x"+crlf+
+		"Content-Type: application/json"+crlf+"Cookie: %s=%s"+crlf+
+		"Content-Length: %d"+crlf+crlf+"%s",
+		session.CookieNameInsecure, rig.cookie, len(body), body)
+	if _, err := io.WriteString(conn, request); err != nil {
+		t.Fatalf("writing the request: %v", err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for rig.fake.searchCount() < 3 && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	pagesAtHangup := rig.fake.searchCount()
+	if err := conn.Close(); err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+	hungUpAt := time.Now()
+
+	// Long enough for the handler to finish on its own.
+	time.Sleep(2 * time.Second)
+
+	mu.Lock()
+	fired := closedAt
+	mu.Unlock()
+
+	if fired.IsZero() {
+		t.Fatal("ConnState never reported the close at all")
+	}
+	served := rig.fake.searchCount() - pagesAtHangup
+	t.Logf("close reported %v after the hangup, by which time %d more pages had been served",
+		fired.Sub(hungUpAt).Round(time.Millisecond), served)
+
+	// The finding. If this ever fails because the notice arrived while there
+	// was still work to stop, fasthttp has changed and the cancellation is
+	// worth building.
+	if served < 10 {
+		t.Errorf("ConnState reported the close in time to stop the work: only %d more "+
+			"pages were served. fasthttp may now notice a disconnect during a handler, "+
+			"which would make per-request cancellation possible -- see the comment above",
+			served)
 	}
 }

@@ -103,12 +103,24 @@ Being explicit about the boundary is more useful than implying a wider one.
   releases its slot when the handler returns rather than when the last byte is
   written, so the cap bounds directory work rather than transfer.
 
-- **A disconnected client does not stop the work it asked for.** fasthttp does
-  not cancel a request's context when the peer goes away, so a bounded handler —
-  a tally, a comparison — runs to its limit for a caller who has gone. A
-  streamed one stops sooner, because the write fails. Measured and pinned in
-  `internal/api/disconnect_test.go`. What contains it is the per-operation
-  timeout and the concurrency cap above, not cancellation.
+- **A disconnected client does not stop the work it asked for.** A bounded
+  handler — a tally, a comparison — runs to its limit for a caller who has gone;
+  a streamed one stops sooner, because the write fails.
+
+  This is a property of fasthttp rather than an oversight, and both ways out
+  were tried and measured. Its `RequestCtx` implements `context.Context` but
+  does not close `Done` on disconnect. Its `ConnState` hook does fire on close,
+  but a connection is served from one goroutine, so nothing reads the socket
+  while a handler runs and the notice arrives after the handler has already
+  finished — 537 ms late in the measurement, by which time the abandoned work
+  had served ninety-seven more pages and stopped on its own. The remaining
+  option is a watchdog reading the socket underneath the server, which would
+  steal the bytes of a pipelined request. Alder does not do that.
+
+  What contains it is the per-operation timeout and the concurrency cap above.
+  All of this is pinned in `internal/api/disconnect_test.go`, including a test
+  that fails if fasthttp ever starts reporting the disconnect in time to act
+  on.
 
 ## Supported versions
 
