@@ -1570,3 +1570,33 @@ to contradict the plan — add an entry.
 - **Parents are found through the dn package, never by cutting at the first
   comma.** `cn=Liddell\, Alice` is one component, and the harness has that entry
   so shortcuts get caught. It is in the golden files.
+
+### 2026-09-12 — YAML, and no YAML library
+
+- **Asked for so a subtree can be opened in an editor and read.** LDIF is flat;
+  YAML nests, folds and colours, which is most of what "view it in VS Code"
+  means. It sits between the two exports that already existed: the outline has
+  the shape and no values, LDIF has the values and no shape.
+- **No dependency was added.** Section 10 says ask before adding one, and this
+  did not need asking because it did not need a library: the Ansible renderer
+  has emitted YAML by hand since M4. Its scalar encoder moved to
+  `internal/yamlenc` so there is one implementation rather than two that agree
+  today, and the twenty Ansible golden files are the proof the move changed
+  nothing.
+- **Every scalar is double-quoted, values and keys alike.** It is the only YAML
+  style with a complete escape mechanism, and it is what stops `no` becoming
+  false, `0755` becoming an octal number and a bare `y` becoming true. A test
+  pins those three, and a real YAML parser reads the golden files back to check
+  the values survive.
+- **Every attribute is a list, even single-valued ones.** An LDAP attribute
+  holds a set. A renderer that collapsed the common case would give the document
+  a shape that depended on its data, so a reader would need both paths and a
+  diff would show a type change the day a second value appeared.
+- **A value that is not printable UTF-8 gets YAML's `!!binary` tag** rather than
+  being passed off as a string, so an editor does not pretend it is readable.
+- **Nothing reads it back, and the file says so.** A YAML document full of
+  directory content looks like something you could apply. Alder imports LDIF,
+  which has a specification and a changetype; adding a second import format
+  would mean a second reconciler and a second set of ways to be subtly wrong.
+- **It is bounded, not streamed.** Same reason as the outline: a tree cannot be
+  nested until the last entry has arrived.

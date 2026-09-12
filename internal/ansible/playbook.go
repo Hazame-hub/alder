@@ -7,6 +7,7 @@ import (
 
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/schema"
+	"github.com/hazame-hub/alder/internal/yamlenc"
 )
 
 // Rendering entries that already exist, as tasks that make them so.
@@ -58,10 +59,10 @@ func EnforceTasks(entries []*directory.Entry, sch *schema.Schema, opts EnforceOp
 	for _, e := range ordered {
 		classes, attrs := writableAttributes(e, sch)
 
-		fmt.Fprintf(&b, "\n- name: Ensure %s exists\n", yamlScalar(e.DN.String()))
+		fmt.Fprintf(&b, "\n- name: Ensure %s exists\n", yamlenc.Scalar(e.DN.String()))
 		fmt.Fprintf(&b, "  %s:\n", moduleEnt)
 		writeConnection(&b)
-		fmt.Fprintf(&b, "    dn: %s\n", yamlScalar(e.DN.String()))
+		fmt.Fprintf(&b, "    dn: %s\n", yamlenc.Scalar(e.DN.String()))
 		if len(classes) > 0 {
 			b.WriteString("    objectClass:\n")
 			for _, v := range classes {
@@ -73,10 +74,10 @@ func EnforceTasks(entries []*directory.Entry, sch *schema.Schema, opts EnforceOp
 		if len(attrs) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "\n- name: Enforce the attributes of %s\n", yamlScalar(e.DN.String()))
+		fmt.Fprintf(&b, "\n- name: Enforce the attributes of %s\n", yamlenc.Scalar(e.DN.String()))
 		fmt.Fprintf(&b, "  %s:\n", moduleAttr)
 		writeConnection(&b)
-		fmt.Fprintf(&b, "    dn: %s\n", yamlScalar(e.DN.String()))
+		fmt.Fprintf(&b, "    dn: %s\n", yamlenc.Scalar(e.DN.String()))
 		// exact, not present: present would add these values and leave anything
 		// else in place, which is the same silent divergence ldap_entry has.
 		b.WriteString("    state: exact\n")

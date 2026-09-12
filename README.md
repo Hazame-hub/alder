@@ -36,6 +36,12 @@ LDIF and says so on its first line: LDIF reads a leading space as a continuation
 of the line above, so a tree drawn with indentation could never also be a
 document you import. It is for reading, and for pasting into a ticket.
 
+Or as **YAML**: the same tree with the values in it, nested so an editor folds a
+subtree to one line and colours what is inside. Every attribute is a list even
+where the schema says one value, so a second value never appears in a diff as a
+change of type. Nothing reads it back — LDIF is the format with a specification
+and a changetype — so it is for looking at, and it says so at the top.
+
 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) says what 1.x will and will not
 change under you: the LDIF and Ansible an export produces are byte-stable, the
 HTTP API only grows, and the web interface is deliberately not part of the

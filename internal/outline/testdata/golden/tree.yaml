@@ -1,0 +1,54 @@
+# The directory as Alder read it, nested so an editor can fold it.
+#
+# Every attribute is a list, even where the schema says one value: an LDAP
+# attribute holds a set, and a shape that changed with the data would make
+# a second value look like a type change in the diff.
+#
+# This is for reading. Alder imports LDIF, which is the format with a
+# specification and a changetype; nothing reads this back.
+#
+# base:  dc=alder,dc=test
+# scope: sub
+# filter: (objectClass=*)
+---
+base: "dc=alder,dc=test"
+scope: "sub"
+entries: 3
+truncated: false
+tree:
+  - dn: "dc=alder,dc=test"
+    rdn: "dc=alder"
+    class: "domain"
+    below: 2
+    attributes:
+      "objectClass":
+        - "top"
+        - "domain"
+      "dc":
+        - "alder"
+    children:
+      - dn: "ou=people,dc=alder,dc=test"
+        rdn: "ou=people"
+        class: "organizationalUnit"
+        below: 1
+        attributes:
+          "objectClass":
+            - "top"
+            - "organizationalUnit"
+          "ou":
+            - "people"
+        children:
+          - dn: "uid=alice,ou=people,dc=alder,dc=test"
+            rdn: "uid=alice"
+            class: "inetOrgPerson"
+            attributes:
+              "objectClass":
+                - "top"
+                - "inetOrgPerson"
+              "uid":
+                - "alice"
+              "cn":
+                - "Alice Liddell"
+              "mail":
+                - "alice@alder.test"
+                - "a.liddell@alder.test"

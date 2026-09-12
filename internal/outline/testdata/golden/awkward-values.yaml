@@ -1,0 +1,37 @@
+# The directory as Alder read it, nested so an editor can fold it.
+#
+# Every attribute is a list, even where the schema says one value: an LDAP
+# attribute holds a set, and a shape that changed with the data would make
+# a second value look like a type change in the diff.
+#
+# This is for reading. Alder imports LDIF, which is the format with a
+# specification and a changetype; nothing reads this back.
+#
+# base:  dc=alder,dc=test
+# scope: base
+---
+base: "dc=alder,dc=test"
+scope: "base"
+entries: 1
+truncated: false
+tree:
+  - dn: "cn=awkward,dc=alder,dc=test"
+    rdn: "cn=awkward"
+    class: "device"
+    attributes:
+      "colon":
+        - "host: value"
+      "quote":
+        - "he said \"no\""
+      "leading":
+        - " indented"
+      "boolean":
+        - "no"
+      "numeric":
+        - "0755"
+      "empty":
+        - ""
+      "newline":
+        - "one\ntwo"
+      "photo":
+        - !!binary "/9j/AAE="

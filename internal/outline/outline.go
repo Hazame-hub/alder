@@ -61,35 +61,10 @@ type node struct {
 // than dropped, because an entry that is in the file has to appear in the
 // picture of the file.
 func Render(entries []Entry, opts Options) string {
-	byKey := make(map[string]*node, len(entries))
-	order := make([]string, 0, len(entries))
-	for _, e := range entries {
-		key := strings.ToLower(e.DN.String())
-		if _, seen := byKey[key]; seen {
-			continue
-		}
-		byKey[key] = &node{label: e.DN.String(), structural: e.Structural}
-		order = append(order, key)
-	}
-
-	var roots []*node
-	for _, key := range order {
-		n := byKey[key]
-		parent := parentKeyOf(byKey[key].label)
-		if p, ok := byKey[parent]; ok && parent != key {
-			p.children = append(p.children, n)
-			continue
-		}
-		roots = append(roots, n)
-	}
-
-	for _, r := range roots {
-		count(r)
-	}
-	sortNodes(roots)
+	roots := build(entries)
 
 	var b strings.Builder
-	writeHeader(&b, opts, len(byKey))
+	writeHeader(&b, opts, countNodes(roots))
 	for i, r := range roots {
 		if i > 0 {
 			b.WriteString("\n")
@@ -195,4 +170,15 @@ func writeHeader(b *strings.Builder, opts Options, entries int) {
 		b.WriteString("# subtree and not the whole of it.\n")
 	}
 	b.WriteString("\n")
+}
+
+// countNodes is how many entries the tree holds, which is what the header
+// reports. Counting the built tree rather than the input is what makes a
+// duplicate DN count once.
+func countNodes(roots []*node) int {
+	total := 0
+	for _, r := range roots {
+		total += r.descendants + 1
+	}
+	return total
 }
