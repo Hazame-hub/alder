@@ -38,6 +38,7 @@ type serveOptions struct {
 	maxLifetime time.Duration
 
 	allowedTargets string
+	maxInFlight    int
 }
 
 func serveCmd() *cobra.Command {
@@ -90,6 +91,9 @@ func serveCmd() *cobra.Command {
 		"comma-separated directories this instance may connect to, written as host, "+
 			"host:port, or an ldap:// or ldaps:// URL. Empty permits any. A host "+
 			"given without a port permits that host on any port")
+	f.IntVar(&o.maxInFlight, "max-in-flight", api.DefaultMaxInFlight,
+		"how many API requests to answer at once. A request that waits longer than "+
+			"five seconds for a slot is refused with 503. Negative turns the bound off")
 
 	return cmd
 }
@@ -155,6 +159,7 @@ func runServe(ctx context.Context, o serveOptions) error {
 		IdleTimeout:        o.idleTimeout,
 		MaxLifetime:        o.maxLifetime,
 		AllowedTargets:     allowed,
+		MaxInFlight:        o.maxInFlight,
 		SourceURL:          o.sourceURL,
 		Version:            buildVersion(),
 	})

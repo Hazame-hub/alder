@@ -137,6 +137,8 @@ func TestEveryServeFlagReadsAVariable(t *testing.T) {
 		switch f.Value.Type() {
 		case "bool":
 			env[envName(f.Name)] = "true"
+		case "int":
+			env[envName(f.Name)] = "8"
 		case "duration":
 			env[envName(f.Name)] = "7m"
 		default:

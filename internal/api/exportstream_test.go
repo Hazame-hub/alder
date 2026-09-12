@@ -77,8 +77,8 @@ func TestTheExportStreamsEveryPage(t *testing.T) {
 	if !strings.Contains(doc, "# 250 entries") {
 		t.Error("the footer count does not match what was streamed")
 	}
-	if rig.fake.searches < 2 {
-		t.Errorf("%d searches for 10 pages: the export is not paging", rig.fake.searches)
+	if rig.fake.searchCount() < 2 {
+		t.Errorf("%d searches for 10 pages: the export is not paging", rig.fake.searchCount())
 	}
 }
 

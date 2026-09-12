@@ -94,12 +94,21 @@ Being explicit about the boundary is more useful than implying a wider one.
   from whatever server you point it at. The parsers are fuzzed and bounded
   against hangs and unbounded allocation, but a server you do not control is a
   server whose data you are rendering.
-- **Nothing is rate-limited.** A caller with a valid session can issue searches
-  as fast as the directory will answer them. Individual operations are bounded —
-  page sizes, result counts, export and import sizes, changeset length, a
-  per-operation timeout, and a cap on how many directory operations one Alder
-  will have in flight at once — but there is no per-caller quota and no
-  throttle, and adding one would be a different kind of product.
+- **Nothing is rate-limited.** There is no per-caller quota and no throttle;
+  Alder has no users of its own to account to, so a quota would be keyed on
+  nothing. What bounds it is size and concurrency: page sizes, result counts,
+  export and import sizes, changeset length, a thirty-second timeout on each
+  directory operation, and `--max-in-flight`, which caps how many API requests
+  are answered at once and refuses the rest with `503`. A streamed response
+  releases its slot when the handler returns rather than when the last byte is
+  written, so the cap bounds directory work rather than transfer.
+
+- **A disconnected client does not stop the work it asked for.** fasthttp does
+  not cancel a request's context when the peer goes away, so a bounded handler —
+  a tally, a comparison — runs to its limit for a caller who has gone. A
+  streamed one stops sooner, because the write fails. Measured and pinned in
+  `internal/api/disconnect_test.go`. What contains it is the per-operation
+  timeout and the concurrency cap above, not cancellation.
 
 ## Supported versions
 

@@ -31,6 +31,11 @@ type Config struct {
 	IdleTimeout time.Duration
 	MaxLifetime time.Duration
 
+	// MaxInFlight bounds how many API requests are answered at once. Zero uses
+	// DefaultMaxInFlight; a negative number turns the bound off, which is for
+	// somebody who has measured their own directory and decided.
+	MaxInFlight int
+
 	// AllowedTargets restricts which directories a caller may ask Alder to
 	// connect to. Nil or empty permits any, which is the default: Alder is
 	// normally run beside the directory by the person who owns both, and a
@@ -53,6 +58,7 @@ type Server struct {
 	sessions *session.Store
 	logger   *slog.Logger
 	cfg      Config
+	gate     *gate
 }
 
 // NewServer returns a Server. The caller owns the session store's lifetime and
@@ -66,6 +72,7 @@ func NewServer(logger *slog.Logger, cfg Config) *Server {
 		sessions: session.NewStore(logger, cfg.IdleTimeout, cfg.MaxLifetime),
 		logger:   logger,
 		cfg:      cfg,
+		gate:     gateFor(cfg),
 	}
 }
 
@@ -74,6 +81,12 @@ func (s *Server) Close() { s.sessions.Close() }
 
 // Register mounts the API on a Fiber router under /api/v1.
 func (s *Server) Register(app *fiber.App) {
+	// Mounted here rather than through FiberServerOptions.Middlewares, which the
+	// generator turns into a bare router.Use and so applies to the whole app,
+	// the SPA's own assets included. Those are served from memory, and queueing
+	// them behind directory work would make a busy Alder look broken rather
+	// than busy.
+	app.Use("/api/v1", s.gate.limit())
 	RegisterHandlersWithOptions(app, s, FiberServerOptions{BaseURL: "/api/v1"})
 }
 

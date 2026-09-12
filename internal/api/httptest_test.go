@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,6 +63,11 @@ type fakeSession struct {
 	applied []directory.ChangeRecord
 	// lastSearch is the request as the handler built it, which is where
 	// parameter parsing either worked or quietly did not.
+	//
+	// Guarded, because the concurrency tests run two requests against one fake
+	// and the race detector is right that this is shared. Read it through
+	// last().
+	searchMu   sync.Mutex
 	lastSearch *directory.SearchRequest
 
 	// visibility answers the access probe, keyed "dn|attribute" in lower case.
@@ -84,7 +91,11 @@ type fakeSession struct {
 	driverPaging bool
 	// searches counts the calls, which is how a test tells one round trip from
 	// several.
-	searches int
+	//
+	// Atomic because the disconnect tests read it from the test goroutine while
+	// a handler is still in its page loop, which is the whole question those
+	// tests ask.
+	searches atomic.Int64
 	// failAfterSearches makes Search fail once that many have succeeded, which
 	// is the only way to reach the failure a streamed response cannot report as
 	// a status code.
@@ -92,6 +103,21 @@ type fakeSession struct {
 	// referrals rides on every page, so a handler that keeps only the last
 	// page's is caught rather than looking right on a single-page result.
 	referrals []string
+	// searchDelay makes each page take long enough for a test to interfere
+	// partway through -- to close the connection, or to fill the concurrency
+	// limit -- rather than racing a response that is already finished.
+	searchDelay time.Duration
+}
+
+// searchCount is how many pages have been asked for, readable while a handler
+// is still running.
+func (f *fakeSession) searchCount() int { return int(f.searches.Load()) }
+
+// last is the most recent search request the handler built.
+func (f *fakeSession) last() *directory.SearchRequest {
+	f.searchMu.Lock()
+	defer f.searchMu.Unlock()
+	return f.lastSearch
 }
 
 func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
@@ -99,8 +125,17 @@ func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
 func (f *fakeSession) Schema(context.Context) (*schema.Schema, error) { return f.sch, nil }
 
 func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (*directory.SearchResult, error) {
+	f.searchMu.Lock()
 	f.lastSearch = &req
-	f.searches++
+	f.searchMu.Unlock()
+	n := f.searches.Add(1)
+	if f.searchDelay > 0 {
+		select {
+		case <-time.After(f.searchDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	// Honoured rather than ignored, because a handler that streams its response
 	// runs after its own handler function has returned -- and one that cancels
 	// its context on the way out cuts the stream off at the first page. A fake
@@ -112,7 +147,7 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
-	if f.failAfterSearches > 0 && f.searches > f.failAfterSearches {
+	if f.failAfterSearches > 0 && int(n) > f.failAfterSearches {
 		return nil, errors.New("the directory hung up partway through")
 	}
 
@@ -219,6 +254,11 @@ func newRig(t testing.TB, cfg Config, fake *fakeSession) *testRig {
 		sessions: session.NewStore(slog.New(slog.DiscardHandler), cfg.IdleTimeout, cfg.MaxLifetime),
 		logger:   slog.New(slog.DiscardHandler),
 		cfg:      cfg,
+		// Through the same helper NewServer uses. This rig builds a Server by
+		// hand, so anything NewServer does that is not repeated here is a thing
+		// no test can see -- which is how the gate came to be nil in every test
+		// that was meant to exercise it.
+		gate: gateFor(cfg),
 	}
 	t.Cleanup(s.sessions.Close)
 
