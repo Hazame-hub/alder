@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -74,9 +75,23 @@ type fakeSession struct {
 	// handler that consumes a search incrementally can be tested. Zero keeps
 	// the old all-at-once behaviour that every other test relies on.
 	pageSize int
+	// driverPaging makes one Search call fill req.Limit by looping its own
+	// pages, which is what the real driver does and what pageSize alone does
+	// not: pageSize models a server, and a server is below the Session the
+	// handlers talk to. Only a measurement needs the difference -- a handler
+	// that asks for ten thousand at once has to be given ten thousand at once,
+	// or it looks as frugal as one that asks a page at a time.
+	driverPaging bool
 	// searches counts the calls, which is how a test tells one round trip from
 	// several.
 	searches int
+	// failAfterSearches makes Search fail once that many have succeeded, which
+	// is the only way to reach the failure a streamed response cannot report as
+	// a status code.
+	failAfterSearches int
+	// referrals rides on every page, so a handler that keeps only the last
+	// page's is caught rather than looking right on a single-page result.
+	referrals []string
 }
 
 func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
@@ -97,6 +112,9 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
+	if f.failAfterSearches > 0 && f.searches > f.failAfterSearches {
+		return nil, errors.New("the directory hung up partway through")
+	}
 
 	// With pageSize set the fake pages the way a server does: the cookie is an
 	// offset, and a caller that ignores it sees only the first page. Nothing
@@ -116,11 +134,14 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 		if start > len(f.entries) {
 			start = len(f.entries)
 		}
+		if f.driverPaging && req.Limit > size {
+			size = req.Limit
+		}
 		end := start + size
 		if end > len(f.entries) {
 			end = len(f.entries)
 		}
-		out := &directory.SearchResult{Entries: f.entries[start:end]}
+		out := &directory.SearchResult{Entries: f.entries[start:end], Referrals: f.referrals}
 		if end < len(f.entries) {
 			out.Cookie = []byte(strconv.Itoa(end))
 			out.Truncated = true
@@ -128,7 +149,7 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 		return out, nil
 	}
 
-	return &directory.SearchResult{Entries: f.entries}, nil
+	return &directory.SearchResult{Entries: f.entries, Referrals: f.referrals}, nil
 }
 
 func (f *fakeSession) Read(_ context.Context, target dn.DN, _ []string) (*directory.Entry, error) {
@@ -176,7 +197,10 @@ type testRig struct {
 	cookie string
 }
 
-func newRig(t *testing.T, cfg Config, fake *fakeSession) *testRig {
+// testing.TB rather than *testing.T so a benchmark can drive the real handler
+// through the real router. A benchmark that reimplements the handler measures
+// the reimplementation.
+func newRig(t testing.TB, cfg Config, fake *fakeSession) *testRig {
 	t.Helper()
 	if fake.sch == nil {
 		fake.sch = testSchema(t)
@@ -226,7 +250,7 @@ type response struct {
 	Header http.Header
 }
 
-func (r *testRig) send(t *testing.T, req *http.Request) response {
+func (r *testRig) send(t testing.TB, req *http.Request) response {
 	t.Helper()
 	res, err := r.app.Test(req, -1)
 	if err != nil {
@@ -242,7 +266,7 @@ func (r *testRig) send(t *testing.T, req *http.Request) response {
 }
 
 // do sends a request carrying the session cookie.
-func (r *testRig) do(t *testing.T, method, target string, body io.Reader) response {
+func (r *testRig) do(t testing.TB, method, target string, body io.Reader) response {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), method, target, body)
 	if body != nil {

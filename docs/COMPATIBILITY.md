@@ -68,6 +68,21 @@ It will not, within 1.x:
 Tightening a promise is allowed: a field that was optional in a response may
 become required, because a client that already handles it absent still works.
 
+A response may be **streamed**, and a streamed one carries the same fields in a
+different order. `POST /api/v1/search` writes its entries first and the fields
+it cannot know until the search has finished — `truncated`, `cookie`, `took` —
+last. JSON gives an object's members no order, so this is not a change to the
+contract: a client that decodes the body sees exactly what it saw before.
+
+What it does change is how a failure *after the first byte* reads. The status
+code is settled by then, and the response has no field for "this went wrong", so
+such a response is deliberately left unterminated — it fails to parse, with a
+trailing comment saying why. Before 1.4.0 the same failure was a `502`. A short
+document that parsed cleanly would be indistinguishable from a complete answer,
+which is the one outcome worth ruling out. Every failure a search normally has
+is still a proper status code: the first page and the schema are both fetched
+before anything is sent.
+
 `GET /api/v1/source` is covered too, even though it is served outside the
 generated document — it carries the AGPL section 13 offer and must work without
 a session. That it lives outside `openapi.yaml` is an untidiness worth fixing;
