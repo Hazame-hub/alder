@@ -2,6 +2,7 @@ package schema
 
 import (
 	"slices"
+	"sync"
 	"testing"
 )
 
@@ -393,4 +394,81 @@ func attrNames(list []*AttributeType) []string {
 		out[i] = a.Name()
 	}
 	return out
+}
+
+// --- the requirements cache -------------------------------------------------
+
+// The cache must not change the answer, only how often it is worked out.
+func TestCachedRequirementsMatchTheComputedOnes(t *testing.T) {
+	sch := testSchema(t)
+	classes := []string{"top", "person", "organizationalPerson", "inetOrgPerson"}
+
+	direct := sch.computeRequirements(classes)
+	first := sch.Requirements(classes)
+	second := sch.Requirements(classes)
+
+	if !slices.Equal(first.Must, direct.Must) || !slices.Equal(first.May, direct.May) {
+		t.Errorf("the cached answer differs from the computed one:\nmust %v\nvs   %v",
+			first.Must, direct.Must)
+	}
+	if !slices.Equal(second.Must, first.Must) || !slices.Equal(second.May, first.May) {
+		t.Error("two calls with the same classes gave different answers")
+	}
+	if first.Structural != direct.Structural {
+		t.Error("the structural class differs between cached and computed")
+	}
+}
+
+// The key is folded and sorted, so entries that list the same classes in a
+// different order or spelling share one computation rather than each paying.
+func TestRequirementsIgnoreOrderAndCaseOfClasses(t *testing.T) {
+	sch := testSchema(t)
+
+	a := sch.Requirements([]string{"top", "person", "inetOrgPerson"})
+	b := sch.Requirements([]string{"inetOrgPerson", "TOP", "Person"})
+
+	if !slices.Equal(a.Must, b.Must) || !slices.Equal(a.May, b.May) {
+		t.Errorf("the same classes in another order or case gave a different answer:\n%v\nvs\n%v",
+			a.Must, b.Must)
+	}
+}
+
+// A different set of classes must not be served the previous answer.
+func TestRequirementsDistinguishDifferentClassSets(t *testing.T) {
+	sch := testSchema(t)
+
+	person := sch.Requirements([]string{"top", "person"})
+	unit := sch.Requirements([]string{"top", "organizationalUnit"})
+
+	if slices.Equal(person.Must, unit.Must) {
+		t.Errorf("person and organizationalUnit share a requirements answer: %v", person.Must)
+	}
+}
+
+// A Schema is shared by every request on a session, so the cache is used from
+// several goroutines at once. Run under -race this is the test that matters.
+func TestRequirementsAreSafeToShare(t *testing.T) {
+	sch := testSchema(t)
+	sets := [][]string{
+		{"top", "person"},
+		{"top", "person", "organizationalPerson", "inetOrgPerson"},
+		{"top", "organizationalUnit"},
+		{"top", "groupOfNames"},
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				got := sch.Requirements(sets[(n+j)%len(sets)])
+				if len(got.Must) == 0 && len(got.May) == 0 {
+					t.Errorf("empty requirements for %v", sets[(n+j)%len(sets)])
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }

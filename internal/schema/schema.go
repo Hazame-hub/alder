@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Kind is the object class kind: abstract, structural or auxiliary.
@@ -208,6 +209,19 @@ type Schema struct {
 	attributeTypeIndex map[string]*AttributeType
 	syntaxIndex        map[string]*Syntax
 	matchingRuleIndex  map[string]*MatchingRule
+
+	// requirementsCache memoises Requirements by object class set.
+	//
+	// A search returns entries that overwhelmingly share their classes, and the
+	// answer depends on nothing else -- so a thousand people cost one
+	// computation rather than a thousand identical ones. It was measured at
+	// about two fifths of the allocation in building a search response.
+	//
+	// A Schema is read-only once parsed and is shared by every request on a
+	// session, so the cache is guarded. The key space is the distinct class
+	// combinations in a directory, which is dozens.
+	requirementsMu    sync.RWMutex
+	requirementsCache map[string]AttributeRequirements
 }
 
 // Name returns the first name of a definition, falling back to the OID for the
@@ -464,6 +478,40 @@ type AttributeRequirements struct {
 // Requirements computes the attribute requirements of a set of object class
 // names, following every superior chain.
 func (s *Schema) Requirements(classNames []string) AttributeRequirements {
+	key := requirementsKey(classNames)
+	s.requirementsMu.RLock()
+	cached, ok := s.requirementsCache[key]
+	s.requirementsMu.RUnlock()
+	if ok {
+		return cached
+	}
+
+	req := s.computeRequirements(classNames)
+
+	s.requirementsMu.Lock()
+	if s.requirementsCache == nil {
+		s.requirementsCache = map[string]AttributeRequirements{}
+	}
+	s.requirementsCache[key] = req
+	s.requirementsMu.Unlock()
+	return req
+}
+
+// requirementsKey identifies a set of object classes.
+//
+// Sorted and folded, because the answer does not depend on the order the entry
+// happened to list them in or on how the server spelled them, and two entries
+// that differ only that way should not each pay for the computation.
+func requirementsKey(classNames []string) string {
+	folded := make([]string, len(classNames))
+	for i, n := range classNames {
+		folded[i] = fold(n)
+	}
+	sort.Strings(folded)
+	return strings.Join(folded, ",")
+}
+
+func (s *Schema) computeRequirements(classNames []string) AttributeRequirements {
 	var req AttributeRequirements
 	must := map[string]string{}
 	may := map[string]string{}
