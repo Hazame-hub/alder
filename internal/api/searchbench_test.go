@@ -2,16 +2,20 @@ package api
 
 import (
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
+	"github.com/hazame-hub/alder/internal/session"
 )
 
 // benchEntries makes n entries that share their object classes, which is what a
@@ -69,8 +73,16 @@ func BenchmarkRequirementsPerEntry(b *testing.B) {
 }
 
 // searchRig is the whole request path -- router, handler, schema, session --
-// with a directory of n entries behind it that pages the way a real one does.
-func searchRig(tb testing.TB, n int) (*testRig, string) {
+// with a directory of n entries behind it that pages the way a real one does,
+// served over a real socket.
+//
+// A real socket rather than the in-memory transport the tests use, because that
+// transport collects the whole response before it hands back any of it. A
+// streamed body read through it is indistinguishable from a materialised one,
+// and the client's copy of a fifteen-megabyte document lands in the very heap
+// being measured. Here the client reads and discards as the server writes, so
+// what is left on the heap is the server's doing.
+func searchRig(tb testing.TB, n int) (*http.Request, int) {
 	tb.Helper()
 	rig := newRig(tb, Config{}, &fakeSession{
 		caps: defaultCaps(), sch: testSchema(tb),
@@ -81,17 +93,52 @@ func searchRig(tb testing.TB, n int) (*testRig, string) {
 		// handed one page and look as frugal as one that asks page by page.
 		pageSize: directory.MaxPageSize, driverPaging: true,
 	})
+
+	var lc net.ListenConfig
+	ln, err := lc.Listen(tb.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		tb.Fatalf("listening: %v", err)
+	}
+	go func() { _ = rig.app.Listener(ln) }()
+	tb.Cleanup(func() { _ = rig.app.Shutdown() })
+
 	body := fmt.Sprintf(
 		`{"baseDn":"dc=alder,dc=test","scope":"sub","filter":"(objectClass=*)","limit":%d,"pageSize":%d}`,
 		n, directory.MaxPageSize)
-	return rig, body
+	req, err := http.NewRequestWithContext(tb.Context(), http.MethodPost,
+		"http://"+ln.Addr().String()+"/api/v1/search", nil)
+	if err != nil {
+		tb.Fatalf("building the request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: session.CookieNameInsecure, Value: rig.cookie})
+	// A fresh reader per attempt, so the request can be sent more than once.
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(body)), nil
+	}
+	return req, n
 }
 
-func runSearch(tb testing.TB, rig *testRig, body string, n int) {
+func runSearch(tb testing.TB, req *http.Request, n int) {
 	tb.Helper()
-	status, size := rig.drain(tb, http.MethodPost, "/api/v1/search", strings.NewReader(body))
-	if status != fiber.StatusOK {
-		tb.Fatalf("got %d", status)
+	send := req.Clone(req.Context())
+	rc, err := req.GetBody()
+	if err != nil {
+		tb.Fatalf("rewinding the body: %v", err)
+	}
+	send.Body = rc
+
+	res, err := http.DefaultClient.Do(send)
+	if err != nil {
+		tb.Fatalf("searching: %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != fiber.StatusOK {
+		tb.Fatalf("got %d", res.StatusCode)
+	}
+	size, err := io.Copy(io.Discard, res.Body)
+	if err != nil {
+		tb.Fatalf("reading the response: %v", err)
 	}
 	// A response that came back short would make every figure below a
 	// measurement of something else.
@@ -105,11 +152,11 @@ func runSearch(tb testing.TB, rig *testRig, body string, n int) {
 func BenchmarkSearchResponse(b *testing.B) {
 	for _, n := range []int{1000, 10000} {
 		b.Run(fmt.Sprintf("entries=%d", n), func(b *testing.B) {
-			rig, body := searchRig(b, n)
+			req, want := searchRig(b, n)
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				runSearch(b, rig, body, n)
+				runSearch(b, req, want)
 			}
 		})
 	}
@@ -128,11 +175,11 @@ func BenchmarkSearchResponse(b *testing.B) {
 func BenchmarkSearchResponsePeakHeap(b *testing.B) {
 	for _, n := range []int{1000, 10000} {
 		b.Run(fmt.Sprintf("entries=%d", n), func(b *testing.B) {
-			rig, body := searchRig(b, n)
+			req, want := searchRig(b, n)
 			var worst float64
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				if over := watchHeap(func() { runSearch(b, rig, body, n) }); over > worst {
+				if over := watchHeap(func() { runSearch(b, req, want) }); over > worst {
 					worst = over
 				}
 			}
@@ -169,7 +216,12 @@ func watchHeap(fn func()) float64 {
 			select {
 			case <-stop:
 				return
-			default:
+			// Throttled, because ReadMemStats stops the world: sampled flat out
+			// it costs sixty times the work it is watching, and a server whose
+			// every write is interrupted is not the server being measured. A
+			// tenth of a millisecond still takes thousands of samples across one
+			// search.
+			case <-time.After(100 * time.Microsecond):
 			}
 			runtime.ReadMemStats(&sample)
 			for {

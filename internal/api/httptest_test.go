@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -84,6 +85,13 @@ type fakeSession struct {
 	// searches counts the calls, which is how a test tells one round trip from
 	// several.
 	searches int
+	// failAfterSearches makes Search fail once that many have succeeded, which
+	// is the only way to reach the failure a streamed response cannot report as
+	// a status code.
+	failAfterSearches int
+	// referrals rides on every page, so a handler that keeps only the last
+	// page's is caught rather than looking right on a single-page result.
+	referrals []string
 }
 
 func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
@@ -103,6 +111,9 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 	}
 	if f.searchErr != nil {
 		return nil, f.searchErr
+	}
+	if f.failAfterSearches > 0 && f.searches > f.failAfterSearches {
+		return nil, errors.New("the directory hung up partway through")
 	}
 
 	// With pageSize set the fake pages the way a server does: the cookie is an
@@ -130,7 +141,7 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 		if end > len(f.entries) {
 			end = len(f.entries)
 		}
-		out := &directory.SearchResult{Entries: f.entries[start:end]}
+		out := &directory.SearchResult{Entries: f.entries[start:end], Referrals: f.referrals}
 		if end < len(f.entries) {
 			out.Cookie = []byte(strconv.Itoa(end))
 			out.Truncated = true
@@ -138,7 +149,7 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 		return out, nil
 	}
 
-	return &directory.SearchResult{Entries: f.entries}, nil
+	return &directory.SearchResult{Entries: f.entries, Referrals: f.referrals}, nil
 }
 
 func (f *fakeSession) Read(_ context.Context, target dn.DN, _ []string) (*directory.Entry, error) {
@@ -263,31 +274,6 @@ func (r *testRig) do(t testing.TB, method, target string, body io.Reader) respon
 	}
 	req.AddCookie(&http.Cookie{Name: session.CookieNameInsecure, Value: r.cookie})
 	return r.send(t, req)
-}
-
-// drain sends a request and throws the body away as it arrives, reporting its
-// length. It exists for the benchmarks: holding the whole response as a string
-// is what `send` does, and a measurement of the server's memory should not
-// include the test client's copy of the answer.
-func (r *testRig) drain(t testing.TB, method, target string, body io.Reader) (int, int64) {
-	t.Helper()
-	req := httptest.NewRequestWithContext(t.Context(), method, target, body)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	req.AddCookie(&http.Cookie{Name: session.CookieNameInsecure, Value: r.cookie})
-
-	res, err := r.app.Test(req, -1)
-	if err != nil {
-		t.Fatalf("%s %s: %v", method, target, err)
-	}
-	defer func() { _ = res.Body.Close() }()
-
-	n, err := io.Copy(io.Discard, res.Body)
-	if err != nil {
-		t.Fatalf("reading the response to %s %s: %v", method, target, err)
-	}
-	return res.StatusCode, n
 }
 
 // anonymous sends the same request with no session at all.

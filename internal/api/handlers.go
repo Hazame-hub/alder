@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -402,7 +403,35 @@ func (s *Server) CountEntries(c *fiber.Ctx, params CountEntriesParams) error {
 
 // --- search -----------------------------------------------------------------
 
-// Search runs a bounded, paged search.
+// searchTail is everything in a search response except the entries: the fields
+// that are only known once the search has finished.
+//
+// It exists because the response is streamed, so the entries are already on
+// their way out by the time any of this is decided. The tags match
+// SearchResponse exactly -- the document a client receives is the same
+// document, only written in a different order, and JSON says the order of an
+// object's members carries no meaning.
+type searchTail struct {
+	Truncated bool      `json:"truncated"`
+	Took      *string   `json:"took,omitempty"`
+	Cookie    *string   `json:"cookie,omitempty"`
+	Referrals *[]string `json:"referrals,omitempty"`
+	Command   *string   `json:"command,omitempty"`
+}
+
+// Search runs a bounded, paged search and streams the result as it arrives.
+//
+// Streamed for the reason the LDIF export is: building the response first meant
+// holding every entry the directory returned, every wire type derived from it
+// and the marshalled bytes of the whole document, all at the same instant. At
+// the documented maximum of 10,000 entries that was 120 MB of live heap for a
+// 15 MB answer. A page at a time it is 24 MB, and the document a client reads
+// is the same document -- the entries are written first, and the fields that
+// are only known at the end are written at the end, which JSON does not mind.
+//
+// The paging loop moved up here from the driver for the same reason. The driver
+// will happily fill a limit of ten thousand in one call, but it can only do
+// that by accumulating ten thousand entries, which is the thing being avoided.
 func (s *Server) Search(c *fiber.Ctx) error {
 	sess := s.require(c)
 	if sess == nil {
@@ -440,40 +469,46 @@ func (s *Server) Search(c *fiber.Ctx) error {
 		req.Attributes = *body.Attributes
 	}
 
+	// Deliberately not deferred. The body stream writer below runs after this
+	// function has returned, so a deferred cancel would cut the search off at
+	// its first page -- the trap the LDIF export fell into and the reason the
+	// unit-test fake honours the context it is handed. Every path out of here
+	// cancels exactly once instead.
 	ctx, cancel := reqCtx(c)
-	defer cancel()
+
+	// Asked for one page at a time. The driver loops pages internally to fill
+	// whatever Limit it is given, so asking it for the whole limit at once
+	// would put every entry back in memory a layer below.
+	//
+	// want is what is still owed, not the page size: a search for seven entries
+	// must ask the directory for seven, or a server without the paging control
+	// gets a size limit of a hundred and sends back ninety-three nobody wanted.
+	page := func(cookie []byte, want int) (*directory.SearchResult, error) {
+		one := req
+		one.Limit = min(want, req.PageSize)
+		one.Cookie = cookie
+		return sess.Conn.Search(ctx, one)
+	}
 
 	started := time.Now()
-	res, err := sess.Conn.Search(ctx, req)
+
+	// Both of these happen before a byte is sent, because once the first byte
+	// is out the status code is settled. A directory that refuses the search,
+	// or a schema that cannot be read, is still a proper HTTP answer.
+	first, err := page(req.Cookie, req.Limit)
 	if err != nil {
+		cancel()
 		return s.fail(c, err)
 	}
 	sch, err := sess.Conn.Schema(ctx)
 	if err != nil {
+		cancel()
 		return s.fail(c, err)
 	}
 
-	out := SearchResponse{
-		Entries:   make([]SearchResultEntry, 0, len(res.Entries)),
-		Truncated: res.Truncated,
-		Took:      ptr(time.Since(started).Round(time.Millisecond).String()),
-	}
-	for _, e := range res.Entries {
-		out.Entries = append(out.Entries, SearchResultEntry{
-			Dn:         e.DN.String(),
-			Rdn:        ptr(rdnLabel(e.DN)),
-			Attributes: ptr(entryAttributes(e, sch, sch.Requirements(e.ObjectClasses()))),
-		})
-	}
-	if len(res.Cookie) > 0 {
-		out.Cookie = ptr(string(res.Cookie))
-	}
-	if len(res.Referrals) > 0 {
-		out.Referrals = ptr(res.Referrals)
-	}
 	// Built from req rather than from body: the filter in it is the parsed one,
 	// which is what the directory was actually asked.
-	out.Command = ptrIfSet(searchCommand(commandTarget{
+	command := ptrIfSet(searchCommand(commandTarget{
 		Host:       sess.Host(),
 		Port:       sess.Port(),
 		TLS:        sess.TLS(),
@@ -481,7 +516,126 @@ func (s *Server) Search(c *fiber.Ctx) error {
 		SkipVerify: sess.SkipsVerification(),
 		CustomCA:   sess.HasCustomCA(),
 	}, req))
-	return c.JSON(out)
+
+	c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
+	c.Context().SetBodyStreamWriter(func(conn *bufio.Writer) {
+		// The searches that feed this run here, so the context lives until the
+		// last entry is written.
+		defer cancel()
+
+		// A wider buffer over the 4 KB one the server hands out. Every time it
+		// fills, the bytes cross a pipe to the connection goroutine and come
+		// back as a chunk of their own, and a fifteen-megabyte answer crosses
+		// it nearly four thousand times. Measured at ten thousand entries:
+		// 387 ms through the 4 KB buffer, 328 ms through this one.
+		bw := bufio.NewWriterSize(conn, 64<<10)
+		defer func() { _ = bw.Flush() }()
+
+		enc := json.NewEncoder(bw)
+		written := 0
+		var referrals []string
+
+		if _, err := bw.WriteString(`{"entries":[`); err != nil {
+			return
+		}
+		emit := func(entries []*directory.Entry) error {
+			for _, e := range entries {
+				if written > 0 {
+					if _, err := bw.WriteString(","); err != nil {
+						return err
+					}
+				}
+				// Encode writes a trailing newline, which is insignificant
+				// whitespace between two array elements. It is used rather than
+				// Marshal because it reuses one buffer across ten thousand
+				// entries instead of allocating a document-sized one per entry.
+				if err := enc.Encode(SearchResultEntry{
+					Dn:         e.DN.String(),
+					Rdn:        ptr(rdnLabel(e.DN)),
+					Attributes: ptr(entryAttributes(e, sch, sch.Requirements(e.ObjectClasses()))),
+				}); err != nil {
+					return err
+				}
+				written++
+			}
+			return nil
+		}
+
+		res := first
+		cookie, truncated := first.Cookie, first.Truncated
+		for {
+			// Collected page by page. Only the last page's would be reported by
+			// a handler that assigned here, and most of them would be lost.
+			referrals = append(referrals, res.Referrals...)
+			if err := emit(res.Entries); err != nil {
+				s.abandon(c, bw, written, err)
+				return
+			}
+			if len(cookie) == 0 || written >= req.Limit {
+				break
+			}
+			next, pErr := page(cookie, req.Limit-written)
+			if pErr != nil {
+				s.abandon(c, bw, written, pErr)
+				return
+			}
+			res, cookie, truncated = next, next.Cookie, next.Truncated
+			if len(next.Entries) == 0 {
+				// A cookie answered with no entries: take what it said and
+				// stop. The driver keeps asking in this case, and a server that
+				// kept answering the same way would spin there forever.
+				referrals = append(referrals, next.Referrals...)
+				break
+			}
+		}
+
+		// A cookie that outlives the limit is the only honest way to say the
+		// answer is short, and the client sends it back to continue.
+		tail := searchTail{
+			Truncated: truncated || len(cookie) > 0,
+			Took:      ptr(time.Since(started).Round(time.Millisecond).String()),
+			Command:   command,
+		}
+		if len(cookie) > 0 {
+			tail.Cookie = ptr(string(cookie))
+		}
+		if len(referrals) > 0 {
+			tail.Referrals = ptr(referrals)
+		}
+		rest, err := json.Marshal(tail)
+		if err != nil {
+			s.abandon(c, bw, written, err)
+			return
+		}
+		if _, err := bw.WriteString("],"); err != nil {
+			return
+		}
+		// rest is an object and searchTail always has truncated in it, so
+		// dropping the opening brace splices its members into the one already
+		// open without leaving a stray comma.
+		_, _ = bw.Write(rest[1:])
+	})
+	return nil
+}
+
+// abandon ends a search response that failed after it had begun.
+//
+// It leaves the JSON document unterminated on purpose. Once the first byte is
+// out the status code is settled, and the response has no field for "this went
+// wrong" -- so the alternatives were to close the object and hand back a short
+// answer no client could tell from a complete one, or to make the document fail
+// to parse. A parse error is the loud one, and the comment says why to whoever
+// reads the body to find out.
+func (s *Server) abandon(c *fiber.Ctx, bw *bufio.Writer, written int, err error) {
+	s.logger.Error("the search failed partway through streaming its response",
+		"written", written, "error", err, "path", c.Path())
+
+	// Folded onto one line and stripped of anything that would end the comment,
+	// so the trailer cannot be closed early by whatever the directory said.
+	reason := strings.NewReplacer("*/", "* /", "\n", " ", "\r", " ").Replace(err.Error())
+	_, _ = fmt.Fprintf(bw, "\n/* Alder: this search failed after %d entries: %s.\n"+
+		"   The response is left unterminated on purpose: a short answer that\n"+
+		"   parsed would be indistinguishable from a complete one. */\n", written, reason)
 }
 
 // --- schema -----------------------------------------------------------------

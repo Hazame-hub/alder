@@ -1625,3 +1625,57 @@ to contradict the plan — add an entry.
   of one container, which is not the question a subtree search asks. A line that
   appears only sometimes would be read as a warning about this entry rather than
   as a fact about the answer.
+
+### 2026-09-12 — streaming the search response
+
+- **The search response is written as it arrives, and the contract did not
+  move.** The entries go out first and the fields that are only known once the
+  search has finished — `truncated`, `cookie`, `took` — go out last. JSON gives
+  an object's members no order, so a client decoding the body sees the same
+  document it saw before; `api/openapi.yaml` is untouched. This was expected to
+  need a contract change and did not, which is why it is worth recording.
+  Measured at the documented maximum of 10,000 entries, over a real socket:
+  peak live heap 120.5 MB before and 24.1 MB after, 158 MB allocated per request
+  before and 34.6 MB after. That is the 300 MB working set the 2026-09-10 entry
+  recorded and left alone.
+- **The page loop moved out of the driver and into the handler.** Streaming the
+  writing alone would have saved the marshalled document and nothing else: the
+  driver fills whatever `Limit` it is given by accumulating pages, so asking it
+  for ten thousand entries put ten thousand entries in memory one layer down.
+  The handler now asks for one page and asks again. `internal/directory` is
+  unchanged — the driver still fills a limit when something wants it filled, and
+  the tally, the exports and the reference lookups all still rely on that.
+- **A failure after the first byte leaves the document unterminated.** The
+  status code is settled by then and `SearchResponse` has no field for an error,
+  so the choices were a closed object holding half the entries — which no client
+  could tell from a complete answer — or a body that fails to parse. It fails to
+  parse, and carries a trailing comment naming the failure and the count, which
+  is the same instinct as the LDIF export's "do not restore from this" footer.
+  Both the first page and the schema are fetched before anything is sent, so
+  every failure a search normally has is still a proper status code.
+- **64 KB of write buffer, because the 4 KB one the server hands out costs 15%.**
+  Every time it fills, the bytes cross a pipe to the connection goroutine and
+  come back as a chunk of their own; a fifteen-megabyte answer crosses it nearly
+  four thousand times. Measured back to back at ten thousand entries: 387 ms
+  through the 4 KB buffer, 328 ms through the wider one.
+- **It costs wall-clock time, and how much is not settled.** Ten thousand
+  entries, materialised against streamed, measured back to back on the same
+  laptop: 309 ms against 328 ms in one sitting, 366 ms against 483 ms in a
+  noisier one. Chunked framing and ten calls into the driver instead of one both
+  cost something real, and the benchmark's client de-chunks the body inside the
+  same process, which no real client does. Somewhere between noise and a third
+  slower, for a fifth of the memory, on a path whose default is a hundred
+  entries and whose maximum nobody scrolls. Recorded rather than smoothed over:
+  if it turns out to matter, the number to attack is the chunk framing.
+- **The benchmark had to serve over a real socket to say anything true.** The
+  in-memory transport the handler tests use collects the whole response before
+  handing back any of it, so a streamed body measured through it looks exactly
+  like a materialised one and the client's copy of the document lands in the
+  heap being measured. Through it the change read as 2x; over a socket it is 5x.
+  Peak live heap is sampled rather than read at the end, because by the time the
+  request returns the collector has had the whole response back either way.
+- **The fake gained `driverPaging`.** Its `pageSize` models a server, and a
+  server sits below the `Session` a handler talks to: without a knob that puts
+  the driver's own page loop back on top, a handler asking for ten thousand
+  entries at once is handed one page of a thousand and measures as frugal as one
+  that asks page by page. Two of the guards are worthless without it.
