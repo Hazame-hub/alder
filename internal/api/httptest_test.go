@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,6 +63,11 @@ type fakeSession struct {
 	applied []directory.ChangeRecord
 	// lastSearch is the request as the handler built it, which is where
 	// parameter parsing either worked or quietly did not.
+	//
+	// Guarded, because the concurrency tests run two requests against one fake
+	// and the race detector is right that this is shared. Read it through
+	// last().
+	searchMu   sync.Mutex
 	lastSearch *directory.SearchRequest
 
 	// visibility answers the access probe, keyed "dn|attribute" in lower case.
@@ -84,7 +91,11 @@ type fakeSession struct {
 	driverPaging bool
 	// searches counts the calls, which is how a test tells one round trip from
 	// several.
-	searches int
+	//
+	// Atomic because the disconnect tests read it from the test goroutine while
+	// a handler is still in its page loop, which is the whole question those
+	// tests ask.
+	searches atomic.Int64
 	// failAfterSearches makes Search fail once that many have succeeded, which
 	// is the only way to reach the failure a streamed response cannot report as
 	// a status code.
@@ -92,6 +103,21 @@ type fakeSession struct {
 	// referrals rides on every page, so a handler that keeps only the last
 	// page's is caught rather than looking right on a single-page result.
 	referrals []string
+	// searchDelay makes each page take long enough for a test to interfere
+	// partway through -- to close the connection, or to fill the concurrency
+	// limit -- rather than racing a response that is already finished.
+	searchDelay time.Duration
+}
+
+// searchCount is how many pages have been asked for, readable while a handler
+// is still running.
+func (f *fakeSession) searchCount() int { return int(f.searches.Load()) }
+
+// last is the most recent search request the handler built.
+func (f *fakeSession) last() *directory.SearchRequest {
+	f.searchMu.Lock()
+	defer f.searchMu.Unlock()
+	return f.lastSearch
 }
 
 func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
@@ -99,8 +125,17 @@ func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
 func (f *fakeSession) Schema(context.Context) (*schema.Schema, error) { return f.sch, nil }
 
 func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (*directory.SearchResult, error) {
+	f.searchMu.Lock()
 	f.lastSearch = &req
-	f.searches++
+	f.searchMu.Unlock()
+	n := f.searches.Add(1)
+	if f.searchDelay > 0 {
+		select {
+		case <-time.After(f.searchDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	// Honoured rather than ignored, because a handler that streams its response
 	// runs after its own handler function has returned -- and one that cancels
 	// its context on the way out cuts the stream off at the first page. A fake
@@ -112,7 +147,7 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 	if f.searchErr != nil {
 		return nil, f.searchErr
 	}
-	if f.failAfterSearches > 0 && f.searches > f.failAfterSearches {
+	if f.failAfterSearches > 0 && int(n) > f.failAfterSearches {
 		return nil, errors.New("the directory hung up partway through")
 	}
 
@@ -212,14 +247,18 @@ func newRig(t testing.TB, cfg Config, fake *fakeSession) *testRig {
 		cfg.MaxLifetime = time.Hour
 	}
 
-	// Built directly rather than through NewServer, which would dial a real
-	// directory. Same package, so no test-only door has to exist in production
-	// code for this.
-	s := &Server{
-		sessions: session.NewStore(slog.New(slog.DiscardHandler), cfg.IdleTimeout, cfg.MaxLifetime),
-		logger:   slog.New(slog.DiscardHandler),
-		cfg:      cfg,
-	}
+	// Through NewServer, not a struct literal.
+	//
+	// It used to be a literal, on the grounds that NewServer builds an LDAP
+	// driver and a test has no directory to dial. That is true and it does not
+	// matter -- constructing a driver dials nothing -- and the cost of the
+	// shortcut was that every field NewServer set and the rig did not was a
+	// field no test could see. Twice now: the concurrency gate and the planner
+	// were both nil in every test written to exercise them, and both suites
+	// passed.
+	//
+	// The session it opens is this rig's own, seeded below with the fake.
+	s := NewServer(slog.New(slog.DiscardHandler), cfg)
 	t.Cleanup(s.sessions.Close)
 
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})

@@ -533,6 +533,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What a set of changes would do, without doing it
+         * @description Answers the question one level above the preview: given these proposed
+         *     changes and the directory as it is, which are additions, which are
+         *     modifications, which would do nothing at all, and which cannot be
+         *     applied as written.
+         *
+         *     Nothing is written. Every entry named is read, each change is
+         *     classified, and the records that would run come back in `items[].record`
+         *     — the same values `POST /changeset/apply` takes, not a description of
+         *     them. That is what stops a plan from promising one thing and an apply
+         *     doing another.
+         *
+         *     `action` is a stable identifier and is what a client should switch on.
+         *     `reason` is prose for a person and may be reworded in any release.
+         *
+         *     Each item carries a `baseline`: an opaque token naming the state that
+         *     item was planned against. Hand it back on the corresponding change when
+         *     applying, and the server re-reads the entry and refuses with `409` if
+         *     the directory has moved since. It is a fingerprint, not a snapshot, and
+         *     it holds no attribute values; a sensitive attribute contributes only
+         *     whether it is set and how many values it has. Baselines are meaningless
+         *     to any other Alder process and do not survive a restart.
+         */
+        post: operations["planChanges"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/export/ldif": {
         parameters: {
             query?: never;
@@ -728,7 +768,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /** @description Extra context, such as the LDIF line a parse failed on. */
@@ -749,6 +789,11 @@ export interface components {
             hint?: string;
         };
         ConnectRequest: {
+            /**
+             * @description A host name or an IP literal. Where the operator has configured an
+             *     allowlist, a host and port outside it is refused with `403` and
+             *     `target_not_allowed` before any connection is opened.
+             */
             host: string;
             port: number;
             /**
@@ -1595,6 +1640,100 @@ export interface components {
             newRdn?: string;
             deleteOldRdn?: boolean;
             newSuperior?: string;
+            /**
+             * @description The `baseline` this change was planned against, from
+             *     `POST /plan`. Optional: a change without one is applied exactly as
+             *     it was before this field existed.
+             *
+             *     When present, the server re-reads the entry before applying and
+             *     refuses with `409` if what the plan depended on has changed since.
+             *     It is checked against a fingerprint the server recomputes; the value
+             *     a client sends is never trusted as a description of anything.
+             */
+            baseline?: string;
+        };
+        PlanRequest: {
+            /**
+             * @description The changes to plan, in the order they would be applied. Bounded
+             *     like a changeset, and for the same reason: the whole set is read
+             *     and classified in one request.
+             */
+            changes: components["schemas"]["ChangeRequest"][];
+            /**
+             * @description Turn an `add` of an entry that already exists into the modification
+             *     that makes the attributes it names match, leaving every attribute
+             *     it does not name alone. This is what closes the export, edit,
+             *     import loop. Without it such a change is a conflict, because a
+             *     directory refuses an add for an entry that exists.
+             * @default false
+             */
+            reconcile: boolean;
+        };
+        /**
+         * @description What a change would do. A stable identifier: switch on this rather than
+         *     reading `reason`.
+         *
+         *     `unchanged` and `conflict` are the two that apply nothing. `set_password`
+         *     is separate from `modify` because it is an extended operation with no
+         *     LDIF form, and because a directory cannot be asked whether a password is
+         *     already the one being set — so it is never reported as unchanged.
+         * @enum {string}
+         */
+        PlanAction: "add" | "modify" | "delete" | "rename" | "set_password" | "unchanged" | "conflict";
+        PlanCounts: {
+            examined: number;
+            add: number;
+            modify: number;
+            delete: number;
+            rename: number;
+            setPassword: number;
+            unchanged: number;
+            conflict: number;
+        };
+        PlanItem: {
+            /** @description The change's position in the set that was sent, so a client can line the plan up against its own list. */
+            index: number;
+            dn: string;
+            action: components["schemas"]["PlanAction"];
+            /** @description Whether the entry was there when the plan was made. */
+            exists: boolean;
+            /**
+             * @description Why this is unchanged, why it conflicts, or what the planner
+             *     rewrote. Prose, for a person to read. Not stable across releases.
+             */
+            reason?: string;
+            /**
+             * @description Exactly what would be applied, which for a reconciled change is not
+             *     what was sent. Absent for `unchanged` and `conflict`, which apply
+             *     nothing.
+             */
+            record?: components["schemas"]["ChangeRequest"];
+            /** @description The same exact LDIF and Ansible a confirmation dialog shows, for the record above. */
+            preview?: components["schemas"]["ChangePreview"];
+            /**
+             * @description An opaque token naming the state this item was planned against.
+             *     Send it back on the matching change when applying and the server
+             *     will refuse a stale plan. Absent for items that apply nothing.
+             */
+            baseline?: string;
+            /**
+             * @description Attributes left out of a reconciled record because the directory
+             *     owns them and would refuse to be told otherwise. Reported rather
+             *     than dropped silently: a document carrying `entryUUID` was exported
+             *     with operational attributes, and the reader should know they are not
+             *     being enforced.
+             */
+            skippedAttributes?: string[];
+        };
+        Plan: {
+            counts: components["schemas"]["PlanCounts"];
+            items: components["schemas"]["PlanItem"][];
+            /**
+             * @description Findings about the set as a whole rather than any one change:
+             *     an entry created before its parent, an entry acted on after it is
+             *     deleted, the same entry changed twice. None of them block.
+             */
+            warnings?: string[];
         };
         ChangePreview: {
             /**
@@ -1914,6 +2053,26 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            /**
+             * @description The operator has configured an allowlist of directories Alder may
+             *     connect to, and this host and port are not on it. The `error` code
+             *     is `target_not_allowed`, which is distinct from `forbidden` so that
+             *     a client can tell "this deployment will not go there" from "the
+             *     directory said no". The message names the target as Alder
+             *     normalised it and the endpoints that are permitted, so an operator
+             *     reading it can see what to add.
+             *
+             *     A target that is not a usable host and port at all is a `400`,
+             *     whether or not an allowlist is configured.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description The directory refused the connection or the bind. */
             502: {
                 headers: {
@@ -2386,6 +2545,19 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /**
+             * @description A change carried a `baseline` and the directory no longer matches
+             *     it: something the plan depended on has been changed by somebody
+             *     else. Nothing was applied. Plan again to see what it would do now.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description The server rejected the change on schema or policy grounds. */
             422: {
                 headers: {
@@ -2452,6 +2624,55 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /**
+             * @description A change carried a `baseline` and the directory no longer matches
+             *     it: something the plan depended on has been changed by somebody
+             *     else. Nothing was applied. Plan again to see what it would do now.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    planChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanRequest"];
+            };
+        };
+        responses: {
+            /** @description The plan. Nothing has been applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The directory could not be read, so no plan could be made. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     exportLdif: {

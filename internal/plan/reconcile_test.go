@@ -1,4 +1,4 @@
-package api
+package plan
 
 import (
 	"testing"
@@ -50,7 +50,7 @@ func TestAnUnchangedRoundTripReconcilesToNothing(t *testing.T) {
 		[]string{"mail", "alice@alder.test"},
 	)
 
-	got := reconcile(rec, live, sch)
+	got := Reconcile(rec, live, sch)
 	if got.Changed {
 		t.Errorf("an unchanged entry produced %d modifications: %+v",
 			len(got.Change.Mods), got.Change.Mods)
@@ -63,7 +63,7 @@ func TestValueOrderIsNotAChange(t *testing.T) {
 	rec := addRecord(t, alice, []string{"mail", "a@x.test", "b@x.test"})
 	live := liveEntry(t, alice, []string{"mail", "b@x.test", "a@x.test"})
 
-	if reconcile(rec, live, sch).Changed {
+	if Reconcile(rec, live, sch).Changed {
 		t.Error("reordered values were read as a change")
 	}
 }
@@ -79,7 +79,7 @@ func TestAnEditedValueBecomesAReplace(t *testing.T) {
 		[]string{"mail", "alice@alder.test"},
 	)
 
-	got := reconcile(rec, live, sch)
+	got := Reconcile(rec, live, sch)
 	if !got.Changed {
 		t.Fatal("an edited value produced no modification")
 	}
@@ -111,7 +111,7 @@ func TestAttributesTheDocumentDoesNotNameAreLeftAlone(t *testing.T) {
 		[]string{"userPassword", "{SSHA}averyrealsecret"},
 	)
 
-	got := reconcile(rec, live, sch)
+	got := Reconcile(rec, live, sch)
 	for _, mod := range got.Change.Mods {
 		if mod.Name != "cn" {
 			t.Errorf("the document named only cn, and %s %s was produced",
@@ -148,7 +148,7 @@ func TestAttributesTheDirectoryOwnsAreSkippedAndReported(t *testing.T) {
 		[]string{"entryUUID", "99999999-8888-7777-6666-555555555555"},
 	)
 
-	got := reconcile(rec, live, sch)
+	got := Reconcile(rec, live, sch)
 	for _, mod := range got.Change.Mods {
 		if mod.Name == "entryUUID" {
 			t.Error("a modification was produced for an attribute the directory owns")
@@ -169,7 +169,7 @@ func TestAnAttributeMissingFromTheEntryIsSet(t *testing.T) {
 	rec := addRecord(t, alice, []string{"description", "on secondment"})
 	live := liveEntry(t, alice, []string{"cn", "Alice Liddell"})
 
-	got := reconcile(rec, live, sch)
+	got := Reconcile(rec, live, sch)
 	if !got.Changed || len(got.Change.Mods) != 1 {
 		t.Fatalf("got %+v, want one replace", got.Change.Mods)
 	}
@@ -185,7 +185,7 @@ func TestTheLiveLookupMatchesTheWayLDAPDoes(t *testing.T) {
 	rec := addRecord(t, alice, []string{"CN", "Alice Liddell"})
 	live := liveEntry(t, alice, []string{"cn", "Alice Liddell"})
 
-	if reconcile(rec, live, sch).Changed {
+	if Reconcile(rec, live, sch).Changed {
 		t.Error("a difference in the attribute's spelling was read as a change")
 	}
 }
@@ -195,7 +195,7 @@ func TestReconcileKeepsTheDN(t *testing.T) {
 	rec := addRecord(t, alice, []string{"cn", "Somebody Else"})
 	live := liveEntry(t, alice, []string{"cn", "Alice Liddell"})
 
-	got := reconcile(rec, live, sch)
+	got := Reconcile(rec, live, sch)
 	if got.Change.DN.String() != alice {
 		t.Errorf("the modification is addressed to %q", got.Change.DN.String())
 	}

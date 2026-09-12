@@ -115,7 +115,7 @@ func TestBadParametersAreRefusedWithoutTouchingTheDirectory(t *testing.T) {
 			if res.Status != fiber.StatusBadRequest {
 				t.Errorf("got %d, want 400 for %s", res.Status, tc.name)
 			}
-			if rig.fake.lastSearch != nil {
+			if rig.fake.last() != nil {
 				t.Error("the directory was searched despite the request being invalid")
 			}
 		})
@@ -159,7 +159,7 @@ func TestSearchPassesItsParametersToTheDirectory(t *testing.T) {
 		t.Fatalf("got %d, want 200: %s", res.Status, res.Body)
 	}
 
-	got := rig.fake.lastSearch
+	got := rig.fake.last()
 	if got == nil {
 		t.Fatal("the handler never searched")
 	}

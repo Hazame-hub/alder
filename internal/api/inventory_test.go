@@ -255,8 +255,8 @@ func TestTheTallyFollowsEveryPage(t *testing.T) {
 	if got.Truncated {
 		t.Error("truncated, though every page was read to the end")
 	}
-	if rig.fake.searches < 2 {
-		t.Errorf("%d searches for 25 pages: the loop is not paging", rig.fake.searches)
+	if rig.fake.searchCount() < 2 {
+		t.Errorf("%d searches for 25 pages: the loop is not paging", rig.fake.searchCount())
 	}
 }
 

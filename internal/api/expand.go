@@ -8,6 +8,7 @@ import (
 
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
+	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/schema"
 )
 
@@ -123,7 +124,7 @@ func (e *expansion) walk(
 			// DN, so neither can be followed to an entry.
 			target, err := dn.Parse(trimUIDSuffix(value))
 			if err != nil {
-				e.Unresolvable = appendNew(e.Unresolvable, []string{attr + ": " + value})
+				e.Unresolvable = plan.AppendNew(e.Unresolvable, []string{attr + ": " + value})
 				continue
 			}
 
@@ -132,7 +133,7 @@ func (e *expansion) walk(
 				// A group on the branch that led here: following it would loop.
 				// Worth reporting rather than merely surviving — it is a
 				// configuration error somebody has to go and fix.
-				e.Cycles = appendNew(e.Cycles, []string{target.String()})
+				e.Cycles = plan.AppendNew(e.Cycles, []string{target.String()})
 				continue
 			}
 			if seen[key] {
@@ -145,7 +146,7 @@ func (e *expansion) walk(
 			e.reads++
 			member, readErr := read(ctx, target, expandAttrs)
 			if readErr != nil || member == nil {
-				e.Dangling = appendNew(e.Dangling, []string{target.String()})
+				e.Dangling = plan.AppendNew(e.Dangling, []string{target.String()})
 				continue
 			}
 

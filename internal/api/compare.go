@@ -8,6 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
+	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/schema"
 )
 
@@ -225,7 +226,7 @@ func sameAttributeValues(a, b [][]byte, name string, sch *schema.Schema) bool {
 	if dnValued(name, sch) {
 		return sameDNSet(a, b)
 	}
-	return sameValues(a, b)
+	return plan.SameValues(a, b)
 }
 
 // dnValued reports whether this attribute's values name entries.

@@ -87,6 +87,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SessionInfo" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: |
+            The operator has configured an allowlist of directories Alder may
+            connect to, and this host and port are not on it. The `error` code
+            is `target_not_allowed`, which is distinct from `forbidden` so that
+            a client can tell "this deployment will not go there" from "the
+            directory said no". The message names the target as Alder
+            normalised it and the endpoints that are permitted, so an operator
+            reading it can see what to add.
+
+            A target that is not a usable host and port at all is a `400`,
+            whether or not an allowlist is configured.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "502":
           description: The directory refused the connection or the bind.
           content:
@@ -605,6 +620,14 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: |
+            A change carried a `baseline` and the directory no longer matches
+            it: something the plan depended on has been changed by somebody
+            else. Nothing was applied. Plan again to see what it would do now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422":
           description: The server rejected the change on schema or policy grounds.
@@ -671,6 +694,61 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: |
+            A change carried a `baseline` and the directory no longer matches
+            it: something the plan depended on has been changed by somebody
+            else. Nothing was applied. Plan again to see what it would do now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /plan:
+    post:
+      tags: [changes]
+      operationId: planChanges
+      summary: What a set of changes would do, without doing it
+      description: |
+        Answers the question one level above the preview: given these proposed
+        changes and the directory as it is, which are additions, which are
+        modifications, which would do nothing at all, and which cannot be
+        applied as written.
+
+        Nothing is written. Every entry named is read, each change is
+        classified, and the records that would run come back in `items[].record`
+        — the same values `POST /changeset/apply` takes, not a description of
+        them. That is what stops a plan from promising one thing and an apply
+        doing another.
+
+        `action` is a stable identifier and is what a client should switch on.
+        `reason` is prose for a person and may be reworded in any release.
+
+        Each item carries a `baseline`: an opaque token naming the state that
+        item was planned against. Hand it back on the corresponding change when
+        applying, and the server re-reads the entry and refuses with `409` if
+        the directory has moved since. It is a fingerprint, not a snapshot, and
+        it holds no attribute values; a sensitive attribute contributes only
+        whether it is set and how many values it has. Baselines are meaningless
+        to any other Alder process and do not survive a restart.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanRequest" }
+      responses:
+        "200":
+          description: The plan. Nothing has been applied.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502":
+          description: The directory could not be read, so no plan could be made.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /export/ldif:
     get:
@@ -974,6 +1052,7 @@ components:
             - bad_request
             - unauthorized
             - forbidden
+            - target_not_allowed
             - not_found
             - conflict
             - constraint_violation
@@ -1005,7 +1084,13 @@ components:
       type: object
       required: [host, port, tls]
       properties:
-        host: { type: string, minLength: 1 }
+        host:
+          type: string
+          minLength: 1
+          description: |
+            A host name or an IP literal. Where the operator has configured an
+            allowlist, a host and port outside it is refused with `403` and
+            `target_not_allowed` before any connection is opened.
         port: { type: integer, minimum: 1, maximum: 65535 }
         tls:
           type: string
@@ -2113,6 +2198,130 @@ components:
         newRdn: { type: string }
         deleteOldRdn: { type: boolean }
         newSuperior: { type: string }
+        baseline:
+          type: string
+          description: |
+            The `baseline` this change was planned against, from
+            `POST /plan`. Optional: a change without one is applied exactly as
+            it was before this field existed.
+
+            When present, the server re-reads the entry before applying and
+            refuses with `409` if what the plan depended on has changed since.
+            It is checked against a fingerprint the server recomputes; the value
+            a client sends is never trusted as a description of anything.
+
+    PlanRequest:
+      type: object
+      required: [changes]
+      properties:
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          items: { $ref: "#/components/schemas/ChangeRequest" }
+          description: |
+            The changes to plan, in the order they would be applied. Bounded
+            like a changeset, and for the same reason: the whole set is read
+            and classified in one request.
+        reconcile:
+          type: boolean
+          default: false
+          description: |
+            Turn an `add` of an entry that already exists into the modification
+            that makes the attributes it names match, leaving every attribute
+            it does not name alone. This is what closes the export, edit,
+            import loop. Without it such a change is a conflict, because a
+            directory refuses an add for an entry that exists.
+
+    PlanAction:
+      type: string
+      description: |
+        What a change would do. A stable identifier: switch on this rather than
+        reading `reason`.
+
+        `unchanged` and `conflict` are the two that apply nothing. `set_password`
+        is separate from `modify` because it is an extended operation with no
+        LDIF form, and because a directory cannot be asked whether a password is
+        already the one being set — so it is never reported as unchanged.
+      enum:
+        - add
+        - modify
+        - delete
+        - rename
+        - set_password
+        - unchanged
+        - conflict
+
+    PlanCounts:
+      type: object
+      required: [examined, add, modify, delete, rename, setPassword, unchanged, conflict]
+      properties:
+        examined: { type: integer }
+        add: { type: integer }
+        modify: { type: integer }
+        delete: { type: integer }
+        rename: { type: integer }
+        setPassword: { type: integer }
+        unchanged: { type: integer }
+        conflict: { type: integer }
+
+    PlanItem:
+      type: object
+      required: [index, dn, action, exists]
+      properties:
+        index:
+          type: integer
+          description: The change's position in the set that was sent, so a client can line the plan up against its own list.
+        dn: { type: string }
+        action: { $ref: "#/components/schemas/PlanAction" }
+        exists:
+          type: boolean
+          description: Whether the entry was there when the plan was made.
+        reason:
+          type: string
+          description: |
+            Why this is unchanged, why it conflicts, or what the planner
+            rewrote. Prose, for a person to read. Not stable across releases.
+        record:
+          $ref: "#/components/schemas/ChangeRequest"
+          description: |
+            Exactly what would be applied, which for a reconciled change is not
+            what was sent. Absent for `unchanged` and `conflict`, which apply
+            nothing.
+        preview:
+          $ref: "#/components/schemas/ChangePreview"
+          description: The same exact LDIF and Ansible a confirmation dialog shows, for the record above.
+        baseline:
+          type: string
+          description: |
+            An opaque token naming the state this item was planned against.
+            Send it back on the matching change when applying and the server
+            will refuse a stale plan. Absent for items that apply nothing.
+        skippedAttributes:
+          type: array
+          items: { type: string }
+          description: |
+            Attributes left out of a reconciled record because the directory
+            owns them and would refuse to be told otherwise. Reported rather
+            than dropped silently: a document carrying `entryUUID` was exported
+            with operational attributes, and the reader should know they are not
+            being enforced.
+
+    Plan:
+      type: object
+      required: [counts, items]
+      properties:
+        counts: { $ref: "#/components/schemas/PlanCounts" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PlanItem" }
+        warnings:
+          type: array
+          items: { type: string }
+          description: |
+            Findings about the set as a whole rather than any one change:
+            an entry created before its parent, an entry acted on after it is
+            deleted, the same entry changed twice. None of them block.
 
     ChangePreview:
       type: object

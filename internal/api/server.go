@@ -7,10 +7,12 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/hazame-hub/alder/internal/allowlist"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/ldif"
+	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/session"
 )
 
@@ -30,6 +32,18 @@ type Config struct {
 	IdleTimeout time.Duration
 	MaxLifetime time.Duration
 
+	// MaxInFlight bounds how many API requests are answered at once. Zero uses
+	// DefaultMaxInFlight; a negative number turns the bound off, which is for
+	// somebody who has measured their own directory and decided.
+	MaxInFlight int
+
+	// AllowedTargets restricts which directories a caller may ask Alder to
+	// connect to. Nil or empty permits any, which is the default: Alder is
+	// normally run beside the directory by the person who owns both, and a
+	// mandatory allowlist would be a configuration step before the first useful
+	// screen. See internal/allowlist for what it does and does not defend.
+	AllowedTargets *allowlist.List
+
 	// SourceURL is where this build's source can be obtained, served at
 	// /api/v1/source to satisfy AGPL-3.0 section 13. An operator running a
 	// modified Alder is required to point it at their own source.
@@ -45,6 +59,10 @@ type Server struct {
 	sessions *session.Store
 	logger   *slog.Logger
 	cfg      Config
+	gate     *gate
+	// planner holds the fingerprint key that makes a plan's baseline mean
+	// something, so it lives as long as the process and no longer.
+	planner *plan.Planner
 }
 
 // NewServer returns a Server. The caller owns the session store's lifetime and
@@ -54,11 +72,27 @@ func NewServer(logger *slog.Logger, cfg Config) *Server {
 		logger = slog.Default()
 	}
 	return &Server{
+		planner:  newPlanner(logger),
 		driver:   ldapdriver.New(logger, cfg.AllowPlaintextLDAP),
 		sessions: session.NewStore(logger, cfg.IdleTimeout, cfg.MaxLifetime),
 		logger:   logger,
 		cfg:      cfg,
+		gate:     gateFor(cfg),
 	}
+}
+
+// newPlanner builds the planner, or dies trying.
+//
+// The only way this fails is crypto/rand refusing to produce a key, which is
+// not a condition to carry on from: without one, every baseline would be the
+// same value and a stale plan would verify. Better to refuse to start.
+func newPlanner(logger *slog.Logger) *plan.Planner {
+	p, err := plan.NewPlanner(isNoSuchObject)
+	if err != nil {
+		logger.Error("cannot generate a plan fingerprint key", "error", err)
+		panic("alder: " + err.Error())
+	}
+	return p
 }
 
 // Close releases every directory connection.
@@ -66,6 +100,12 @@ func (s *Server) Close() { s.sessions.Close() }
 
 // Register mounts the API on a Fiber router under /api/v1.
 func (s *Server) Register(app *fiber.App) {
+	// Mounted here rather than through FiberServerOptions.Middlewares, which the
+	// generator turns into a bare router.Use and so applies to the whole app,
+	// the SPA's own assets included. Those are served from memory, and queueing
+	// them behind directory work would make a busy Alder look broken rather
+	// than busy.
+	app.Use("/api/v1", s.gate.limit())
 	RegisterHandlersWithOptions(app, s, FiberServerOptions{BaseURL: "/api/v1"})
 }
 

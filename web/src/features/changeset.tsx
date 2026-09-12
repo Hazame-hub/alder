@@ -7,17 +7,20 @@ import {
   Check,
   ListChecks,
   Loader2,
+  SearchCheck,
   Minus,
   ShieldAlert,
   Trash2,
   X,
 } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
-import type { ChangesetResult } from "@/lib/api";
+import type { ChangeRequest, ChangesetResult, Plan } from "@/lib/api";
 import { changeset, useChangeset } from "@/lib/changeset";
+import { changesFromPlan } from "@/lib/plan";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { LdifBlock } from "@/components/ldif-block";
+import { PlanSummary } from "@/components/plan-summary";
 import { ErrorNote } from "@/components/change-dialog";
 
 /**
@@ -46,8 +49,43 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
     queryFn: async () => unwrap(await api.POST("/changeset/preview", { body })),
   });
 
+  /**
+   * The plan, on request rather than on every render.
+   *
+   * It reads every entry the changeset names, which is real work against
+   * somebody's directory; the preview beside it costs nothing because it is
+   * rendering, not asking. So this is a button, and the answer it produces is
+   * discarded the moment the changeset changes -- a plan about a different set
+   * of changes is worse than no plan.
+   */
+  const [plan, setPlan] = useState<{ for: string; plan: Plan } | null>(null);
+  const stagedKey = JSON.stringify(body);
+  const current = plan?.for === stagedKey ? plan.plan : null;
+
+  const check = useMutation({
+    // reconcile is off: these are changes somebody staged deliberately, each
+    // already the operation they meant. Turning an add of an existing entry
+    // into a modification is what an imported document wants, not this.
+    mutationFn: async () =>
+      unwrap(await api.POST("/plan", { body: { ...body, reconcile: false } })),
+    onSuccess: (p) => setPlan({ for: stagedKey, plan: p }),
+  });
+
+  /**
+   * What applying sends.
+   *
+   * With a current plan, it is the plan's own records, each carrying the
+   * baseline it was planned against -- so the server refuses if the directory
+   * has moved since, and so a reconciled record applies as the modification the
+   * plan showed rather than the add that produced it. Without one, exactly what
+   * it always sent.
+   */
+  const applyBody: { changes: ChangeRequest[] } = current
+    ? { changes: changesFromPlan(current) }
+    : body;
+
   const apply = useMutation({
-    mutationFn: async () => unwrap(await api.POST("/changeset/apply", { body })),
+    mutationFn: async () => unwrap(await api.POST("/changeset/apply", { body: applyBody })),
     onSuccess: (res) => {
       setResult(res);
       void queryClient.invalidateQueries({ queryKey: ["entry"] });
@@ -60,6 +98,7 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
         .map((o) => staged[o.index]?.id)
         .filter((id): id is string => id !== undefined);
       changeset.removeApplied(applied);
+      setPlan(null);
     },
   });
 
@@ -182,6 +221,34 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
         </div>
       ) : null}
 
+      <div className="mb-4 flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={check.isPending}
+          onClick={() => check.mutate()}
+        >
+          {check.isPending ? <Loader2 className="animate-spin" /> : <SearchCheck />}
+          {current ? "Check again" : "Check against the directory"}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          {current
+            ? "Applying will send what the plan found, and the server will refuse it if the directory has moved since."
+            : "Reads every entry these changes name and reports what each would actually do. Writes nothing."}
+        </p>
+      </div>
+
+      {check.error ? (
+        <div className="mb-4">
+          <ErrorNote
+            title="The directory could not be checked"
+            error={check.error as ApiFailure}
+          />
+        </div>
+      ) : null}
+
+      {current ? <PlanSummary plan={current} /> : null}
+
       {preview.isPending ? (
         <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
@@ -234,7 +301,9 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
           }}
         >
           {apply.isPending ? <Loader2 className="animate-spin" /> : null}
-          Apply {staged.length} change{staged.length === 1 ? "" : "s"} in order
+          {current
+            ? `Apply ${applyBody.changes.length} of ${staged.length} in order`
+            : `Apply ${staged.length} change${staged.length === 1 ? "" : "s"} in order`}
         </Button>
       </div>
     </div>

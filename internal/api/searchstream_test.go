@@ -53,9 +53,9 @@ func TestTheSearchStreamsEveryPage(t *testing.T) {
 	if len(out.Entries) != 250 {
 		t.Errorf("%d entries came back, want 250", len(out.Entries))
 	}
-	if rig.fake.searches < 10 {
+	if rig.fake.searchCount() < 10 {
 		t.Errorf("%d searches for 250 entries at 25 a page: the handler is not paging",
-			rig.fake.searches)
+			rig.fake.searchCount())
 	}
 	// A deferred cancel on the request context cuts the stream off at its first
 	// page, because the stream writer runs after the handler has returned. The
@@ -174,7 +174,7 @@ func TestTheStreamedSearchNeverAsksForMoreThanTheLimit(t *testing.T) {
 
 	out := decode[SearchResponse](t, postSearch(t, rig, searchBody(7, 100)))
 
-	if got := rig.fake.lastSearch; got == nil || got.Limit != 7 {
+	if got := rig.fake.last(); got == nil || got.Limit != 7 {
 		t.Errorf("the directory was asked for %v, want 7", got)
 	}
 	if len(out.Entries) != 7 {

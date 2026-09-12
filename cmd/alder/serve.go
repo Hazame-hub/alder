@@ -19,6 +19,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/spf13/cobra"
 
+	"github.com/hazame-hub/alder/internal/allowlist"
 	"github.com/hazame-hub/alder/internal/api"
 	"github.com/hazame-hub/alder/internal/web"
 )
@@ -35,6 +36,9 @@ type serveOptions struct {
 	sourceURL   string
 	idleTimeout time.Duration
 	maxLifetime time.Duration
+
+	allowedTargets string
+	maxInFlight    int
 }
 
 func serveCmd() *cobra.Command {
@@ -47,7 +51,13 @@ func serveCmd() *cobra.Command {
 			"the API it talks to.\n\n" +
 			"Alder holds directory credentials in memory for the life of a browser\n" +
 			"session, so it serves HTTPS by default. Pass --tls-cert and --tls-key,\n" +
-			"or terminate TLS in front of it and pass --allow-http.",
+			"or terminate TLS in front of it and pass --allow-http.\n\n" +
+			"Every flag also reads an environment variable: the flag name upper-cased\n" +
+			"with dashes as underscores, behind ALDER_. --allowed-targets reads\n" +
+			"ALDER_ALLOWED_TARGETS. A flag given on the command line wins.",
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			return applyEnvFromOS(cmd.Flags())
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runServe(cmd.Context(), o)
 		},
@@ -74,6 +84,16 @@ func serveCmd() *cobra.Command {
 		"close a session that has not been used for this long")
 	f.DurationVar(&o.maxLifetime, "session-max-lifetime", 12*time.Hour,
 		"close a session this long after it was opened, however active")
+	// Off by default. Alder is normally run beside the directory by the person
+	// who owns both, and a mandatory allowlist would be a configuration step
+	// before the first useful screen. It is one variable to turn on.
+	f.StringVar(&o.allowedTargets, "allowed-targets", "",
+		"comma-separated directories this instance may connect to, written as host, "+
+			"host:port, or an ldap:// or ldaps:// URL. Empty permits any. A host "+
+			"given without a port permits that host on any port")
+	f.IntVar(&o.maxInFlight, "max-in-flight", api.DefaultMaxInFlight,
+		"how many API requests to answer at once. A request that waits longer than "+
+			"five seconds for a slot is refused with 503. Negative turns the bound off")
 
 	return cmd
 }
@@ -111,6 +131,23 @@ func runServe(ctx context.Context, o serveOptions) error {
 			"the API is live but the UI is a placeholder. Run \"task web\"")
 	}
 
+	// Parsed before anything listens. An allowlist with a typo in it permits
+	// one host fewer than the operator wrote down, and finding that out at the
+	// first connection attempt is worse than not starting.
+	allowed, err := allowlist.Parse(o.allowedTargets)
+	if err != nil {
+		return err
+	}
+	if allowed.Enabled() {
+		logger.Info("restricting directory connections",
+			"allowed_targets", strings.Join(allowed.Endpoints(), ","))
+	} else {
+		// Said once, because it is the difference between a tool on a laptop
+		// and a service reachable by other people.
+		logger.Info("no target allowlist configured: this instance will connect " +
+			"to any directory a caller names (--allowed-targets)")
+	}
+
 	server := api.NewServer(logger, api.Config{
 		// The cookie's Secure attribute must match how the browser reaches
 		// Alder, which behind a proxy is HTTPS even though this process speaks
@@ -121,6 +158,8 @@ func runServe(ctx context.Context, o serveOptions) error {
 		ReadOnly:           o.readOnly,
 		IdleTimeout:        o.idleTimeout,
 		MaxLifetime:        o.maxLifetime,
+		AllowedTargets:     allowed,
+		MaxInFlight:        o.maxInFlight,
 		SourceURL:          o.sourceURL,
 		Version:            buildVersion(),
 	})

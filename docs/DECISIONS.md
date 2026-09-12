@@ -1804,3 +1804,94 @@ to contradict the plan — add an entry.
   so, but this machine put a 30% spread on the same benchmark across sittings
   while the allocation figures stayed put. The allocation and heap numbers are
   the ones worth quoting.
+
+### 2026-09-12 — the allowlist, the ceiling, and the plan
+
+- **Three documentation statements were wrong, and the fix is a test.**
+  `SECURITY.md` said "Pre-1.0" through four 1.x releases; `docs/COMPATIBILITY.md`
+  dated the search-streaming change to 1.4.0 when it shipped in 1.3.1; and the
+  same document had promised since 1.0 that flags keep their
+  "environment-variable equivalents" when there were none. All three are one
+  failure -- a sentence true when written with nothing watching it -- so
+  `cmd/alder` now reads the release manifest and fails when a document names a
+  version this repository is not at. Prose cannot be checked automatically; the
+  version number in it can, and that is what went wrong each time.
+- **Every flag reads `ALDER_<FLAG_NAME>`, in twenty lines of stdlib.** The
+  promise was the useful half, so it was made true rather than deleted.
+  Environment and not a file: a container is how Alder is run. The flag wins
+  over the environment, because something typed on a command line was typed on
+  purpose. An unparseable value refuses to start rather than silently leaving a
+  security setting at its default.
+- **`--allowed-targets` turns "anyone who can reach the endpoint can point Alder
+  at any host" from a property of the network into a decision.** It was always
+  written down in `SECURITY.md`; now it is adjustable. Off by default, because
+  Alder is normally run beside the directory by the person who owns both and a
+  mandatory allowlist would be a configuration step before the first useful
+  screen.
+- **Enforced in `CreateSession`, before `Connect`.** The target arrives in a
+  request body, so a check the browser makes is not one; a check after the dial
+  is after the thing being restricted. A malformed target stays a `400` whether
+  or not a list is configured, so turning the allowlist on changes which
+  destinations are reachable rather than which inputs parse. `403` with a new
+  `target_not_allowed` code, distinct from `forbidden` so a client can tell
+  "this deployment will not go there" from "the directory said no".
+- **Matching is equality of the normalised host and port, and there is no
+  substring test anywhere in the package.** Case folded, trailing dot removed,
+  IPv4-mapped addresses unmapped, zones refused, brackets handled, `ldap://`
+  and `ldaps://` accepted with their default ports, and credentials in a URL
+  refused outright rather than parsed and discarded -- by then they would have
+  been written into a configuration file. Alder does not resolve before
+  matching, so an entry naming a host permits whatever that name resolves to;
+  said out loud in `SECURITY.md` rather than implied.
+- **`--max-in-flight` is a ceiling, not a rate limiter.** Alder has no users of
+  its own to account to, so a per-caller quota would be keyed on nothing. 64 by
+  default, because the tree browser fires several requests per expansion and a
+  low number would queue an ordinary session against itself.
+- **A disconnected client does not stop the work it asked for, and that is now
+  written down rather than assumed.** Measured: a streamed search stops, because
+  the write fails; an abandoned tally served ninety more pages and stopped only
+  when it ran out of entries. fasthttp does not cancel a request's context when
+  the peer goes away -- tried, and it does not. What contains it is the
+  per-operation timeout and the concurrency cap; a real fix needs connection
+  state tracked outside the handler, and the test says so.
+
+- **The plan is not a second diff engine, and the property that matters is that
+  it hands back the records.** Alder could already preview one change exactly,
+  because the LDIF in the dialog is rendered from the record `Apply` receives.
+  What was missing was the question above it. `POST /api/v1/plan` answers it,
+  and `items[].record` is the value `changeset/apply` takes -- not a description
+  of it. A plan that described what would happen, and an apply that worked it
+  out again from the same input, would agree right up until they did not.
+- **`reconcile` moved out of `internal/api` into `internal/plan`, and both call
+  it.** The import handler has reconciled content records against live entries
+  since it was written; the planner needs the same answer. Two implementations
+  of "what would have to change to make this entry match this record" is exactly
+  how a plan and an apply come to disagree, so there is one.
+- **Drift is a keyed fingerprint of what the decision depended on, not a
+  snapshot and not a timestamp.** A snapshot would be large, would travel to the
+  browser and back, and would carry attribute values the API withholds
+  everywhere else. The key is random per process, so a baseline is meaningless
+  to another Alder and does not survive a restart -- the same rule as the
+  session store. A sensitive attribute contributes whether it is set and how
+  many values it has, never the bytes.
+- **The fingerprint covers only the attributes the change touches.** A baseline
+  over the whole entry would refuse a change because somebody edited an
+  unrelated attribute, and an operator refused for irrelevant reasons learns to
+  bypass the check.
+- **The dependency list travels inside the token, and the first version did
+  not.** A reconciled change is planned from an add naming `cn` and `mail` and
+  applied as a modify of `mail` alone, so a verifier that re-derived the list
+  from the record it was handed fingerprinted a different set and called every
+  reconcile stale -- caught by the end-to-end test, not by reasoning. The names
+  are in the MAC as well as in front of it, so narrowing the list invalidates
+  the token rather than narrowing what is checked.
+- **Every baseline in a set is checked before the first change runs.** A
+  changeset stops at its first failure, so finding at change twelve that the
+  directory had moved would leave eleven applied against assumptions nobody
+  rechecked. This is knowable in advance, which is the same reason the whole set
+  is validated up front.
+- **The test rig now builds its server through `NewServer`.** It used to be a
+  struct literal, on the grounds that `NewServer` constructs an LDAP driver and
+  a test has no directory. The cost was that every field `NewServer` set and the
+  rig did not was invisible to tests: the concurrency gate and the planner were
+  both nil in every test written to exercise them, and both suites passed.
