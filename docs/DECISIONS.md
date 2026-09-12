@@ -1600,3 +1600,28 @@ to contradict the plan — add an entry.
   would mean a second reconciler and a second set of ways to be subtly wrong.
 - **It is bounded, not streamed.** Same reason as the outline: a tree cannot be
   nested until the last entry has arrived.
+
+### 2026-09-12 — the last claim, and the one that cannot be detected
+
+- **referenced-by answers "what would break if I deleted this" with a search,**
+  and a search returns what this bind may see. A referring entry hidden by the
+  access rules is absent from the result exactly as one that does not exist is.
+  Measured on both servers: the administrator finds four referrers of
+  uid=user0001 and the delegated account three, with no error, no truncation and
+  no control to tell that from a directory which really has three.
+- **There is nothing to detect, and that is the difference from the
+  comparison.** A Compare recovers absent-from-denied for an attribute on an
+  entry you can already read. No operation says "your search would have matched
+  something you may not see". So this is pinned rather than fixed, and the
+  interface says what it is scoped to.
+- **The scoping applies to a list with entries in it, not only to an empty
+  one.** The empty case was corrected when the tree work landed: "nothing this
+  session can see names this entry". The non-empty case carries the same risk
+  and was still presenting a bare count -- acting on three references you can
+  see is no safer when there is a fourth you cannot -- so the count now carries
+  the same qualification.
+- **It is said always, because it is always true.** There is no cheap test for
+  whether a session is restricted; numSubordinates answers that for the children
+  of one container, which is not the question a subtree search asks. A line that
+  appears only sometimes would be read as a warning about this entry rather than
+  as a fact about the answer.

@@ -3451,3 +3451,89 @@ func TestAnOperationalAttributeTheSchemaOffersIsAccepted(t *testing.T) {
 		}
 	})
 }
+
+// A referring entry the bind cannot read is simply missing from the answer.
+//
+// This is the last of the family, and the one with the worst consequence: the
+// question referenced-by answers is "what would break if I deleted this", and
+// it is answered by a search. An entry the access rules hide is absent from a
+// search result exactly as one that does not exist is, so the honest answer is
+// "nothing I can see names this", which is a different claim from "nothing
+// names this".
+//
+// Unlike the comparison, there is nothing to detect. A Compare recovers
+// absent-from-denied for an attribute on an entry you can already read; there
+// is no operation that says "your search would have matched something you may
+// not see". So this pins the fact rather than fixing it, and the interface says
+// what it is scoped to.
+func TestAHiddenReferrerIsMissingRatherThanReported(t *testing.T) {
+	subject := "uid=user0001,ou=people," + suffix
+	// cn=svc-alder names the subject as its manager and lives in ou=services,
+	// which the delegated account cannot see.
+	hidden := "cn=svc-alder,ou=services," + suffix
+
+	referencesTo := func(t *testing.T, sess directory.Session, sch *schema.Schema) []string {
+		t.Helper()
+		base, err := dn.Parse(suffix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var subs []filter.Filter
+		for _, name := range []string{"member", "uniqueMember", "owner", "manager", "seeAlso"} {
+			if at := sch.AttributeType(name); at != nil {
+				subs = append(subs, filter.Equal(at.Name(), subject))
+			}
+		}
+		res, err := sess.Search(ctx(t), directory.SearchRequest{
+			BaseDN:     base,
+			Scope:      directory.ScopeSubtree,
+			Filter:     filter.Or(subs...),
+			Attributes: []string{"1.1"},
+			Limit:      100,
+			PageSize:   100,
+		})
+		if err != nil {
+			t.Fatalf("searching for referrers: %v", err)
+		}
+		if res.Truncated {
+			t.Fatal("the search truncated, so a short answer would mean something else")
+		}
+		out := []string{}
+		for _, e := range res.Entries {
+			out = append(out, strings.ToLower(e.DN.String()))
+		}
+		return out
+	}
+
+	for _, s := range servers {
+		t.Run(s.name, func(t *testing.T) {
+			admin := connect(t, s, false)
+			sch, err := admin.Schema(ctx(t))
+			if err != nil {
+				t.Fatalf("Schema: %v", err)
+			}
+
+			asAdmin := referencesTo(t, admin, sch)
+			if !slices.Contains(asAdmin, strings.ToLower(hidden)) {
+				t.Fatalf("%s does not name %s, so this case is not set up: %v",
+					hidden, subject, asAdmin)
+			}
+
+			asDelegate := referencesTo(t, connectRestricted(t, s), sch)
+			if slices.Contains(asDelegate, strings.ToLower(hidden)) {
+				t.Errorf("the delegated bind can see %s after all", hidden)
+			}
+			if len(asDelegate) >= len(asAdmin) {
+				t.Errorf("the delegated bind found %d referrers and the administrator %d",
+					len(asDelegate), len(asAdmin))
+			}
+
+			// And nothing about the shorter answer says it is short. That is
+			// the whole finding: no error, no truncation, no control -- the
+			// directory simply appears to have fewer references in it.
+			t.Logf("%s: the administrator finds %d referrers, the delegated bind %d, "+
+				"and the protocol offers nothing to tell the difference from a directory "+
+				"that really has %d", s.name, len(asAdmin), len(asDelegate), len(asDelegate))
+		})
+	}
+}
