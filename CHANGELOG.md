@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0](https://github.com/Hazame-hub/alder/compare/v1.3.2...v1.4.0) (2026-09-12)
+
+
+### Features
+
+* target allowlist, resource ceiling, and a first-class plan ([#94](https://github.com/Hazame-hub/alder/issues/94)) ([37c8fba](https://github.com/Hazame-hub/alder/commit/37c8fba4380fddb710c88113fe7f78af33f0a9cb))
+
+
+### Performance
+
+* **api:** measure the paths that were never measured, fix two ([#93](https://github.com/Hazame-hub/alder/issues/93)) ([294dec1](https://github.com/Hazame-hub/alder/commit/294dec1f94715d951c73bcfde828d12d888e7973))
+
 ## [1.3.2](https://github.com/Hazame-hub/alder/compare/v1.3.1...v1.3.2) (2026-09-12)
 
 
