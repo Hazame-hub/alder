@@ -1744,3 +1744,14 @@ to contradict the plan — add an entry.
   `slapadd` runs neither the overlays nor the access rules an LDAP write goes
   through. Bulk mode adds volume beside the fixtures; it does not produce a
   different set of them.
+- **Seeding now waits for the credential, not for the port.** Dropping `--build`
+  from the bulk task's seed step made a latent harness race reproducible: 389
+  DS's container entrypoint starts `ns-slapd` and *then* connects to it over
+  `ldapi` to replace `nsslapd-rootpw` with `DS_DM_PASSWORD`, so between those
+  two moments the server answers searches, passes its own healthcheck, and
+  rejects `cn=Directory Manager` with "Invalid credentials". `seed.sh` waited on
+  an anonymous base search, which goes green inside that window. It now also
+  waits for `ldapwhoami` to succeed with the credentials it is about to use.
+  This bug predates bulk mode and could have hit `task compose:up` and CI at any
+  time; what made it worth catching is that the window is short enough for the
+  next run to pass and for nobody to look again.
