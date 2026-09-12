@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,6 +76,18 @@ type server struct {
 	// were not there, which is the case a tool has to get right.
 	hiddenDN string
 
+	// lockAttr and lockValue name an operational attribute this server keeps
+	// and still lets an administrator set, and a value it accepts.
+	//
+	// Both servers have one and they are not the same one: 389 DS has
+	// nsAccountLock natively, OpenLDAP gets pwdAccountLockedTime from the
+	// ppolicy overlay the harness loads. Naming them per server is what lets
+	// the case below be identical -- it asserts that the schema's own
+	// declaration predicts what the server will accept, without knowing which
+	// server it is talking to.
+	lockAttr  string
+	lockValue string
+
 	// configWriteDN, configWriteAttr and configWriteValue name a harmless,
 	// restorable setting in this server's configuration.
 	//
@@ -101,6 +114,9 @@ var servers = []server{
 		restrictedPW: "alder-service",
 		hiddenDN:     "ou=services,dc=alder,dc=test",
 
+		lockAttr:  "pwdAccountLockedTime",
+		lockValue: "20260101000000Z",
+
 		configWriteDN:    "cn=config",
 		configWriteAttr:  "olcIdleTimeout",
 		configWriteValue: "1800",
@@ -115,6 +131,9 @@ var servers = []server{
 		restrictedDN: "cn=svc-alder,ou=services,dc=alder,dc=test",
 		restrictedPW: "alder-service",
 		hiddenDN:     "ou=services,dc=alder,dc=test",
+
+		lockAttr:  "nsAccountLock",
+		lockValue: "true",
 
 		configWriteDN:    "cn=config",
 		configWriteAttr:  "nsslapd-idletimeout",
@@ -3326,3 +3345,109 @@ func TestASubtreeSearchReturnsParentsFirst(t *testing.T) {
 // foldDNString lowercases a DN for comparison. The suite compares DNs as
 // strings only here, where the question is ordering rather than equality.
 func foldDNString(s string) string { return strings.ToLower(s) }
+
+// --- operational attributes an administrator is meant to set ----------------
+
+// Operational is not read-only, and the schema says which is which.
+//
+// Reported by an operator testing Alder: "a lot of operational attributes don't
+// show, they should be discovered and easy to set (for example nsAccountLock)".
+// The cause was treating USAGE as though it meant ownership. It does not.
+// NO-USER-MODIFICATION means the directory owns an attribute; a directoryOperation
+// attribute without it is one the server keeps and still expects an
+// administrator to set.
+func TestTheSchemaSaysWhichOperationalAttributesAreSettable(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("Schema: %v", err)
+		}
+
+		settable := sch.SettableOperational()
+		if len(settable) == 0 {
+			t.Fatalf("%s declares no operational attribute a client may set, so the "+
+				"editor has nothing to offer and an account cannot be locked", s.name)
+		}
+
+		// The one this server actually uses for locking is among them.
+		if !slices.Contains(settable, s.lockAttr) {
+			t.Errorf("%s does not offer %s: %v", s.name, s.lockAttr, settable)
+		}
+
+		// And the rule held for every one of them.
+		for _, name := range settable {
+			at := sch.AttributeType(name)
+			if at == nil {
+				t.Errorf("%s: %s is offered but not defined", s.name, name)
+				continue
+			}
+			if sch.EffectiveNoUserModification(at) {
+				t.Errorf("%s: %s is NO-USER-MODIFICATION and the server will refuse it", s.name, name)
+			}
+			if got := sch.EffectiveUsage(at); got != schema.UsageDirectoryOperation {
+				t.Errorf("%s: %s has usage %v; only directoryOperation is about an entry",
+					s.name, name, got)
+			}
+		}
+		t.Logf("%s offers %d settable operational attributes, including %s",
+			s.name, len(settable), s.lockAttr)
+	})
+}
+
+// And the server accepts one, which is the claim that matters.
+//
+// A schema that says an attribute is settable and a server that refuses it
+// would make the offer a lie, and the operator would find out only when their
+// change failed.
+func TestAnOperationalAttributeTheSchemaOffersIsAccepted(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		base := writeBase(t, sess, "conf-operational-"+s.name)
+		target, err := base.ChildAttr("cn", "lockable")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		create := directory.ChangeRecord{
+			DN:   target,
+			Type: directory.ChangeAdd,
+			Attrs: []directory.Attribute{
+				{Name: "objectClass", Values: bs("top", "person")},
+				{Name: "cn", Values: bs("lockable")},
+				{Name: "sn", Values: bs("Lockable")},
+			},
+		}
+		if err := sess.Apply(ctx(t), create); err != nil {
+			t.Fatalf("creating the subject: %v", err)
+		}
+
+		// Not present until set, which is the other half of what was reported:
+		// nothing on the entry hints that it could be locked.
+		before, err := sess.Read(ctx(t), target, []string{"*", "+"})
+		if err != nil {
+			t.Fatalf("reading the subject: %v", err)
+		}
+		if len(before.Get(s.lockAttr)) != 0 {
+			t.Errorf("%s is already present before anything set it", s.lockAttr)
+		}
+
+		lock := directory.ChangeRecord{
+			DN:   target,
+			Type: directory.ChangeModify,
+			Mods: []directory.Mod{
+				{Op: directory.ModReplace, Name: s.lockAttr, Values: bs(s.lockValue)},
+			},
+		}
+		if err := sess.Apply(ctx(t), lock); err != nil {
+			t.Fatalf("the server refused %s, which its own schema says is settable: %v",
+				s.lockAttr, err)
+		}
+
+		after, err := sess.Read(ctx(t), target, []string{"*", "+"})
+		if err != nil {
+			t.Fatalf("reading the subject after locking: %v", err)
+		}
+		if got := after.Get(s.lockAttr); len(got) == 0 {
+			t.Errorf("%s did not come back after being set", s.lockAttr)
+		}
+	})
+}

@@ -323,7 +323,7 @@ func (s *Server) GetEntry(c *fiber.Ctx, params GetEntryParams) error {
 		ParentDn:      ptr(entry.DN.Parent().String()),
 		ObjectClasses: ptr(classes),
 		Attributes:    entryAttributes(entry, sch, req),
-		Requirements:  ptr(requirementsView(req)),
+		Requirements:  ptr(requirementsView(req, sch)),
 		Ldif:          ptr(directory.EntryLDIF(entry).String()),
 	}
 	if kinds := candidateKinds(entry, sch, req); len(kinds) > 0 {
@@ -689,7 +689,7 @@ func (s *Server) GetRequirements(c *fiber.Ctx, params GetRequirementsParams) err
 		kinds = append(kinds, attributeKind(sch.KindOf(name)))
 	}
 	return c.JSON(RequirementsView{
-		Requirements: requirementsView(req),
+		Requirements: requirementsView(req, sch),
 		Kinds:        kinds,
 	})
 }

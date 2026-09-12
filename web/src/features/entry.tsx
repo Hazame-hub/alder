@@ -782,6 +782,18 @@ function ValueDisplay({
   return <span className="block whitespace-pre-wrap break-words font-dn">{text}</span>;
 }
 
+/*
+ * Operational is not one group but two, and calling it one was wrong.
+ *
+ * "The directory owns these" is true of entryUUID and nsUniqueId, which carry
+ * NO-USER-MODIFICATION and which a server refuses to let you write. It is not
+ * true of nsAccountLock, of accountUnlockTime, or of an OpenLDAP ppolicy
+ * pwdAccountLockedTime: the directory keeps those, and the directory also
+ * expects an administrator to set them. Filing them under "the directory owns
+ * these" told somebody trying to lock an account that they could not.
+ *
+ * The split is on readOnly, which is the flag that actually means owned.
+ */
 function groupAttributes(attributes: EntryAttribute[]) {
   return [
     {
@@ -793,8 +805,12 @@ function groupAttributes(attributes: EntryAttribute[]) {
       items: attributes.filter((a) => !a.required && !a.kind.operational),
     },
     {
+      title: "Operational — kept by the directory, yours to set",
+      items: attributes.filter((a) => a.kind.operational && !a.kind.readOnly),
+    },
+    {
       title: "Operational — the directory owns these",
-      items: attributes.filter((a) => a.kind.operational),
+      items: attributes.filter((a) => a.kind.operational && a.kind.readOnly),
     },
   ];
 }
@@ -863,6 +879,10 @@ function EntryEditor({
     const candidates = [
       ...(entry.requirements?.must ?? []),
       ...(entry.requirements?.may ?? []),
+      // Operational attributes belong to no object class, so must and may
+      // never mention them and an entry that has never been locked offered no
+      // way to lock it. The server says which of them a client may set.
+      ...(entry.requirements?.settableOperational ?? []),
     ];
     return candidates.filter((name) => !present.has(name.toLowerCase())).sort();
   }, [entry.attributes, entry.requirements, added]);

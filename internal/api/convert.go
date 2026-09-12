@@ -218,10 +218,19 @@ func foldName(s string) string {
 	return string(out)
 }
 
-func requirementsView(req schema.AttributeRequirements) Requirements {
+func requirementsView(req schema.AttributeRequirements, sch *schema.Schema) Requirements {
 	out := Requirements{
 		Must: ptr(req.Must),
 		May:  ptr(req.May),
+	}
+	// Operational attributes are in no object class, so they are in neither
+	// Must nor May, and an entry that has never been locked shows no sign that
+	// it could be. The server says which of them a client may set; this passes
+	// that on rather than deciding it here.
+	if sch != nil {
+		if settable := sch.SettableOperational(); len(settable) > 0 {
+			out.SettableOperational = ptr(settable)
+		}
 	}
 	if req.Structural != nil {
 		out.Structural = ptr(req.Structural.Name())
@@ -500,9 +509,16 @@ func candidateKinds(
 		present[foldName(name)] = true
 	}
 
-	seen := make(map[string]bool, len(req.Must)+len(req.May))
-	out := make([]AttributeKind, 0, len(req.Must)+len(req.May))
-	for _, name := range append(append([]string{}, req.Must...), req.May...) {
+	// The operational ones the server lets you set are candidates too. Without
+	// them the editor can offer nothing to add, because they belong to no
+	// object class -- which is why locking an account was impossible here.
+	settable := sch.SettableOperational()
+
+	seen := make(map[string]bool, len(req.Must)+len(req.May)+len(settable))
+	out := make([]AttributeKind, 0, len(req.Must)+len(req.May)+len(settable))
+	names := append(append([]string{}, req.Must...), req.May...)
+	names = append(names, settable...)
+	for _, name := range names {
 		key := foldName(name)
 		if present[key] || seen[key] {
 			continue
