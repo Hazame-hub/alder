@@ -19,6 +19,7 @@ import (
 
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/schema"
+	"github.com/hazame-hub/alder/internal/yamlenc"
 )
 
 // Variable names used for the connection parameters. Emitting the live values
@@ -84,10 +85,10 @@ func writeAdd(b *strings.Builder, c directory.ChangeRecord) {
 		attrs = append(attrs, kv{a.Name, a.Values})
 	}
 
-	fmt.Fprintf(b, "- name: Create %s\n", yamlScalar(c.DN.String()))
+	fmt.Fprintf(b, "- name: Create %s\n", yamlenc.Scalar(c.DN.String()))
 	fmt.Fprintf(b, "  %s:\n", moduleEnt)
 	writeConnection(b)
-	fmt.Fprintf(b, "    dn: %s\n", yamlScalar(c.DN.String()))
+	fmt.Fprintf(b, "    dn: %s\n", yamlenc.Scalar(c.DN.String()))
 	if len(objectClasses) > 0 {
 		b.WriteString("    objectClass:\n")
 		for _, v := range objectClasses {
@@ -104,10 +105,10 @@ func writeAdd(b *strings.Builder, c directory.ChangeRecord) {
 }
 
 func writeDelete(b *strings.Builder, c directory.ChangeRecord) {
-	fmt.Fprintf(b, "- name: Remove %s\n", yamlScalar(c.DN.String()))
+	fmt.Fprintf(b, "- name: Remove %s\n", yamlenc.Scalar(c.DN.String()))
 	fmt.Fprintf(b, "  %s:\n", moduleEnt)
 	writeConnection(b)
-	fmt.Fprintf(b, "    dn: %s\n", yamlScalar(c.DN.String()))
+	fmt.Fprintf(b, "    dn: %s\n", yamlenc.Scalar(c.DN.String()))
 	b.WriteString("    state: absent\n")
 }
 
@@ -128,10 +129,10 @@ func writeModify(b *strings.Builder, c directory.ChangeRecord) {
 			names[j] = m.Name
 		}
 		fmt.Fprintf(b, "- name: %s\n",
-			yamlScalar(fmt.Sprintf("%s %s on %s", verbFor(run.op), strings.Join(names, ", "), c.DN)))
+			yamlenc.Scalar(fmt.Sprintf("%s %s on %s", verbFor(run.op), strings.Join(names, ", "), c.DN)))
 		fmt.Fprintf(b, "  %s:\n", moduleAttr)
 		writeConnection(b)
-		fmt.Fprintf(b, "    dn: %s\n", yamlScalar(c.DN.String()))
+		fmt.Fprintf(b, "    dn: %s\n", yamlenc.Scalar(c.DN.String()))
 		b.WriteString("    attributes:\n")
 		for _, m := range run.mods {
 			if len(m.Values) == 0 {
@@ -153,11 +154,11 @@ func writeModify(b *strings.Builder, c directory.ChangeRecord) {
 // only if the current one does not already match, so a replayed playbook does
 // not report a change every run.
 func writeSetPassword(b *strings.Builder, c directory.ChangeRecord) {
-	fmt.Fprintf(b, "- name: %s\n", yamlScalar(fmt.Sprintf("Set the password of %s", c.DN)))
+	fmt.Fprintf(b, "- name: %s\n", yamlenc.Scalar(fmt.Sprintf("Set the password of %s", c.DN)))
 	fmt.Fprintf(b, "  %s:\n", modulePw)
 	writeConnection(b)
-	fmt.Fprintf(b, "    dn: %s\n", yamlScalar(c.DN.String()))
-	fmt.Fprintf(b, "    passwd: %s\n", yamlScalar(varNewPW))
+	fmt.Fprintf(b, "    dn: %s\n", yamlenc.Scalar(c.DN.String()))
+	fmt.Fprintf(b, "    passwd: %s\n", yamlenc.Scalar(varNewPW))
 }
 
 // writeRename emits a task for a modrdn.
@@ -182,7 +183,7 @@ func writeRename(b *strings.Builder, c directory.ChangeRecord) {
 	b.WriteString("# The bind password reaches ldapmodify in a file rather than through\n")
 	b.WriteString("# -w, because a process's arguments are readable by every user on the\n")
 	b.WriteString("# host for as long as it runs.\n")
-	fmt.Fprintf(b, "- name: Rename %s\n", yamlScalar(c.DN.String()))
+	fmt.Fprintf(b, "- name: Rename %s\n", yamlenc.Scalar(c.DN.String()))
 	b.WriteString("  ansible.builtin.shell:\n")
 	b.WriteString("    cmd: |\n")
 	b.WriteString("      set -eu\n")
@@ -203,16 +204,16 @@ func writeRename(b *strings.Builder, c directory.ChangeRecord) {
 	// the task result that Ansible prints on failure. That is also why this
 	// task does not need no_log, which would hide the reason a rename failed.
 	b.WriteString("  environment:\n")
-	fmt.Fprintf(b, "    LDAP_SERVER_URI: %s\n", yamlScalar(varURI))
-	fmt.Fprintf(b, "    LDAP_BIND_DN: %s\n", yamlScalar(varBindDN))
-	fmt.Fprintf(b, "    LDAP_BIND_PW: %s\n", yamlScalar(varBindPW))
+	fmt.Fprintf(b, "    LDAP_SERVER_URI: %s\n", yamlenc.Scalar(varURI))
+	fmt.Fprintf(b, "    LDAP_BIND_DN: %s\n", yamlenc.Scalar(varBindDN))
+	fmt.Fprintf(b, "    LDAP_BIND_PW: %s\n", yamlenc.Scalar(varBindPW))
 	b.WriteString("  changed_when: true\n")
 }
 
 func writeConnection(b *strings.Builder) {
-	fmt.Fprintf(b, "    server_uri: %s\n", yamlScalar(varURI))
-	fmt.Fprintf(b, "    bind_dn: %s\n", yamlScalar(varBindDN))
-	fmt.Fprintf(b, "    bind_pw: %s\n", yamlScalar(varBindPW))
+	fmt.Fprintf(b, "    server_uri: %s\n", yamlenc.Scalar(varURI))
+	fmt.Fprintf(b, "    bind_dn: %s\n", yamlenc.Scalar(varBindDN))
+	fmt.Fprintf(b, "    bind_pw: %s\n", yamlenc.Scalar(varBindPW))
 }
 
 type modRun struct {
@@ -294,9 +295,9 @@ func writeAttrValues(b *strings.Builder, indent, name string, values [][]byte) {
 // mangled into a string.
 func yamlValue(v []byte) string {
 	if !utf8.Valid(v) || hasControl(v) {
-		return "!!binary " + yamlScalar(base64.StdEncoding.EncodeToString(v))
+		return "!!binary " + yamlenc.Scalar(base64.StdEncoding.EncodeToString(v))
 	}
-	return yamlScalar(string(v))
+	return yamlenc.Scalar(string(v))
 }
 
 func hasControl(v []byte) bool {
@@ -311,42 +312,7 @@ func hasControl(v []byte) bool {
 // yamlKey renders a mapping key. Attribute descriptions are restricted to
 // letters, digits, hyphen and semicolon, none of which need quoting, but the
 // quoting is applied anyway so there is one rule rather than two.
-func yamlKey(s string) string { return yamlScalar(s) }
-
-// yamlScalar renders a YAML double-quoted scalar.
-//
-// The double-quoted style is the only YAML scalar style with a complete escape
-// mechanism, and its escapes are JSON's. Emitting every scalar in it means the
-// renderer never has to reason about whether a particular value would be
-// misread as a number, a boolean, a date, or the string "null", which is the
-// entire catalogue of ways hand-written YAML goes wrong.
-func yamlScalar(s string) string {
-	var b strings.Builder
-	b.Grow(len(s) + 2)
-	b.WriteByte('"')
-	for _, r := range s {
-		switch r {
-		case '"':
-			b.WriteString(`\"`)
-		case '\\':
-			b.WriteString(`\\`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\r':
-			b.WriteString(`\r`)
-		case '\t':
-			b.WriteString(`\t`)
-		default:
-			if r < 0x20 || r == 0x7f {
-				fmt.Fprintf(&b, `\x%02x`, r)
-				continue
-			}
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
-}
+func yamlKey(s string) string { return yamlenc.Scalar(s) }
 
 func equalFold(a, b string) bool { return strings.EqualFold(a, b) }
 

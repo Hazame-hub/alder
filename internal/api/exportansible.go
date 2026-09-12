@@ -10,6 +10,7 @@ import (
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/filter"
 	"github.com/hazame-hub/alder/internal/outline"
+	"github.com/hazame-hub/alder/internal/schema"
 	"github.com/hazame-hub/alder/internal/session"
 )
 
@@ -222,4 +223,96 @@ func (s *Server) ExportOutline(c *fiber.Ctx, params ExportOutlineParams) error {
 func outlineFilename(base dn.DN) string {
 	name := exportFilename(base, directory.ScopeSubtree)
 	return strings.TrimSuffix(name, ".ldif") + "-outline.txt"
+}
+
+// ExportYaml renders a subtree as nested YAML.
+//
+// The same tree the outline draws, with what each entry holds, in a format an
+// editor folds and colours. Asked for by an operator who wanted to open a
+// subtree and read it: LDIF is flat and YAML is not.
+//
+// Bounded rather than streamed, for the outline's reason: a tree cannot be
+// nested until its last entry has arrived.
+func (s *Server) ExportYaml(c *fiber.Ctx, params ExportYamlParams) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	base, ok := parseDNParam(c, params.Dn)
+	if !ok {
+		return nil
+	}
+	scopeName := "sub"
+	if params.Scope != nil {
+		scopeName = string(*params.Scope)
+	}
+
+	attrs := []string{"*"}
+	if params.IncludeOperational != nil && *params.IncludeOperational {
+		attrs = append(attrs, "+")
+	}
+	withSecrets := params.IncludeSensitive != nil && *params.IncludeSensitive
+
+	found, ok := s.searchForExport(c, sess, exportQuery{
+		Base:       base,
+		Scope:      scopeName,
+		RawFilter:  deref(params.Filter),
+		Attributes: attrs,
+		Limit:      clamp(deref(params.Limit), 1000, 1, directory.MaxResults),
+	})
+	if !ok {
+		return nil
+	}
+
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+	sch, _ := sess.Conn.Schema(ctx)
+
+	entries := make([]outline.YAMLEntry, 0, len(found.Result.Entries))
+	for _, e := range found.Result.Entries {
+		node := outline.YAMLEntry{DN: e.DN}
+		if sch != nil {
+			node.Structural = structuralName(sch, e.ObjectClasses())
+		}
+		// e.Order rather than ranging the map: the server's order is the one
+		// the LDIF export uses, and two exports of one entry should not
+		// disagree about how it reads.
+		for _, name := range e.Order {
+			if !withSecrets && schema.IsSensitive(name) {
+				// Same rule as the LDIF export. A file destined for an editor
+				// is a file destined for a repository soon after.
+				continue
+			}
+			node.Attributes = append(node.Attributes, outline.YAMLAttribute{
+				Name:   name,
+				Values: e.Attributes[name],
+			})
+		}
+		entries = append(entries, node)
+	}
+
+	rendered := ""
+	if f, err := found.Filter.Render(); err == nil {
+		rendered = f
+	}
+	limit := clamp(deref(params.Limit), 1000, 1, directory.MaxResults)
+	doc := outline.RenderYAML(entries, outline.Options{
+		Base:      base.String(),
+		Scope:     found.Scope.String(),
+		Filter:    rendered,
+		Truncated: found.Result.Truncated,
+		Limit:     limit,
+	})
+
+	c.Set(fiber.HeaderContentType, "text/plain; charset=utf-8")
+	c.Set(fiber.HeaderContentDisposition,
+		fmt.Sprintf("attachment; filename=%q", yamlFilename(base)))
+	return c.SendString(doc)
+}
+
+// yamlFilename names the download after the entry it describes, with the
+// extension an editor recognises.
+func yamlFilename(base dn.DN) string {
+	name := exportFilename(base, directory.ScopeSubtree)
+	return strings.TrimSuffix(name, ".ldif") + ".yaml"
 }

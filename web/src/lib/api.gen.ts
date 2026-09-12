@@ -627,6 +627,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/export/yaml": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The subtree as nested YAML
+         * @description The entries and what they hold, nested as the tree they form, in a
+         *     format an editor folds and colours. Asked for so that a subtree can be
+         *     opened in an editor and read: LDIF is flat and YAML is not.
+         *
+         *     Every attribute is a list, even where the schema says one value. An LDAP
+         *     attribute holds a set, and a document whose shape changed with the data
+         *     would make a second value look like a type change in the diff.
+         *
+         *     A value that is not valid printable UTF-8 is written with YAML's own
+         *     `!!binary` tag rather than passed off as a string.
+         *
+         *     **Nothing reads this back.** Alder imports LDIF, which is the format with
+         *     a specification and a changetype; this is for looking at. It is bounded
+         *     rather than streamed for the same reason the outline is: a tree cannot be
+         *     nested until its last entry has arrived.
+         */
+        get: operations["exportYaml"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/import/ldif": {
         parameters: {
             query?: never;
@@ -2509,6 +2543,41 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The outline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    exportYaml: {
+        parameters: {
+            query: {
+                dn: string;
+                scope?: "base" | "one" | "sub";
+                /** @description An RFC 4515 filter, parsed and never pasted. */
+                filter?: string;
+                includeOperational?: boolean;
+                /**
+                 * @description Off by default, as for LDIF. A file destined for an editor is a file
+                 *     destined for a repository soon after.
+                 */
+                includeSensitive?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The YAML document. */
             200: {
                 headers: {
                     [name: string]: unknown;

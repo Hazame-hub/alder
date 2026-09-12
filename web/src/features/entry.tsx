@@ -433,16 +433,16 @@ function EntryHeader({
 
 function ExportButton({ dn }: { dn: string }) {
   const [open, setOpen] = useState(false);
-  const [format, setFormat] = useState<"ldif" | "ansible" | "outline">("ldif");
+  const [format, setFormat] = useState<"ldif" | "ansible" | "outline" | "yaml">("ldif");
   const [scope, setScope] = useState<"base" | "one" | "sub">("base");
   const [operational, setOperational] = useState(false);
   const [sensitive, setSensitive] = useState(false);
 
   const download = () => {
     const params = new URLSearchParams({ dn, scope });
-    if (format === "ldif") {
-      // Neither belongs on an outline either: it carries no attribute values,
-      // so there is nothing in it to withhold or to include.
+    if (format === "ldif" || format === "yaml") {
+      // Both carry attribute values, so both have something to withhold. An
+      // outline does not, which is why it is not in this branch.
       // Neither option exists for a playbook: it never enforces an attribute
       // the directory owns, and it never carries a secret into a repository.
       params.set("includeOperational", String(operational));
@@ -481,6 +481,9 @@ function ExportButton({ dn }: { dn: string }) {
                   <SelectItem value="outline">
                     Outline — the shape of the subtree
                   </SelectItem>
+                  <SelectItem value="yaml">
+                    YAML — the tree and its values, for an editor
+                  </SelectItem>
                 </SelectContent>
               </Select>
               {format === "ansible" ? (
@@ -489,6 +492,16 @@ function ExportButton({ dn }: { dn: string }) {
                   its attributes to exactly these values, ordered parent first.
                   Running it against a directory whose entries differ will change
                   them.
+                </p>
+              ) : null}
+              {format === "yaml" ? (
+                <p className="text-xs text-muted-foreground">
+                  The entries and what they hold, nested as the tree they form,
+                  so an editor folds a subtree to one line and colours the
+                  values. Every attribute is a list even where the schema says
+                  one value, so a second value never looks like a type change in
+                  the diff. Nothing reads it back — LDIF is the format with a
+                  specification and a changetype.
                 </p>
               ) : null}
               {format === "outline" ? (
@@ -518,7 +531,8 @@ function ExportButton({ dn }: { dn: string }) {
             {format === "outline" ? (
               <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 An outline shows where entries sit, never what they hold, so no
-                attribute of any kind reaches the file.
+                attribute of any kind reaches the file. YAML carries values and
+                is offered the same choices as LDIF.
               </p>
             ) : format === "ansible" ? (
               <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">

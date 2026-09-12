@@ -831,6 +831,61 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /export/yaml:
+    get:
+      tags: [transfer]
+      operationId: exportYaml
+      summary: The subtree as nested YAML
+      description: |
+        The entries and what they hold, nested as the tree they form, in a
+        format an editor folds and colours. Asked for so that a subtree can be
+        opened in an editor and read: LDIF is flat and YAML is not.
+
+        Every attribute is a list, even where the schema says one value. An LDAP
+        attribute holds a set, and a document whose shape changed with the data
+        would make a second value look like a type change in the diff.
+
+        A value that is not valid printable UTF-8 is written with YAML's own
+        `!!binary` tag rather than passed off as a string.
+
+        **Nothing reads this back.** Alder imports LDIF, which is the format with
+        a specification and a changetype; this is for looking at. It is bounded
+        rather than streamed for the same reason the outline is: a tree cannot be
+        nested until its last entry has arrived.
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          schema: { type: string }
+        - name: scope
+          in: query
+          schema: { type: string, enum: [base, one, sub], default: sub }
+        - name: filter
+          in: query
+          schema: { type: string }
+          description: An RFC 4515 filter, parsed and never pasted.
+        - name: includeOperational
+          in: query
+          schema: { type: boolean, default: false }
+        - name: includeSensitive
+          in: query
+          schema: { type: boolean, default: false }
+          description: |
+            Off by default, as for LDIF. A file destined for an editor is a file
+            destined for a repository soon after.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 10000, default: 1000 }
+      responses:
+        "200":
+          description: The YAML document.
+          content:
+            text/plain:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /import/ldif:
     post:
       tags: [transfer]

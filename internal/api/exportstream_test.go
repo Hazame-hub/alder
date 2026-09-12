@@ -199,3 +199,60 @@ func TestTheOutlineCarriesNoAttributeValues(t *testing.T) {
 		}
 	}
 }
+
+// --- the YAML export --------------------------------------------------------
+
+// Rule 6 on a new surface. A YAML file is destined for an editor, and a file
+// destined for an editor is destined for a repository soon after.
+func TestTheYamlExportOmitsSecretsUnlessAsked(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t),
+		entries: []*directory.Entry{entryFixture(t)},
+	})
+
+	res := rig.do(t, http.MethodGet,
+		"/api/v1/export/yaml?dn=dc%3Dalder%2Cdc%3Dtest&scope=sub", nil)
+	if res.Status != fiber.StatusOK {
+		t.Fatalf("got %d: %s", res.Status, res.Body)
+	}
+	if strings.Contains(res.Body, "averyrealsecret") {
+		t.Error("the YAML carries a password")
+	}
+
+	asked := rig.do(t, http.MethodGet,
+		"/api/v1/export/yaml?dn=dc%3Dalder%2Cdc%3Dtest&scope=sub&includeSensitive=true", nil)
+	if !strings.Contains(asked.Body, "averyrealsecret") {
+		t.Error("includeSensitive did not include it, so the option does nothing")
+	}
+}
+
+// The nesting is the whole point: an editor folds it.
+func TestTheYamlExportNestsChildrenUnderParents(t *testing.T) {
+	entries := []*directory.Entry{}
+	for _, d := range []string{
+		"dc=alder,dc=test",
+		"ou=people,dc=alder,dc=test",
+		"uid=alice,ou=people,dc=alder,dc=test",
+	} {
+		e := directory.NewEntry(mustParse(t, d))
+		e.Set("objectClass", [][]byte{[]byte("top")})
+		e.Set("description", [][]byte{[]byte("a value")})
+		entries = append(entries, e)
+	}
+	rig := newRig(t, Config{}, &fakeSession{
+		caps: defaultCaps(), sch: testSchema(t), entries: entries,
+	})
+
+	res := rig.do(t, http.MethodGet,
+		"/api/v1/export/yaml?dn=dc%3Dalder%2Cdc%3Dtest&scope=sub", nil)
+
+	if !strings.Contains(res.Body, "children:") {
+		t.Errorf("nothing is nested:\n%s", res.Body)
+	}
+	if !strings.Contains(res.Body, "nothing reads this back") {
+		t.Errorf("the YAML does not say it is for reading:\n%s", res.Body)
+	}
+	if !strings.Contains(res.Header.Get("Content-Disposition"), ".yaml") {
+		t.Errorf("the download is not named as YAML: %s", res.Header.Get("Content-Disposition"))
+	}
+}
