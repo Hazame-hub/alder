@@ -1658,15 +1658,18 @@ to contradict the plan — add an entry.
   come back as a chunk of their own; a fifteen-megabyte answer crosses it nearly
   four thousand times. Measured back to back at ten thousand entries: 387 ms
   through the 4 KB buffer, 328 ms through the wider one.
-- **It costs wall-clock time, and how much is not settled.** Ten thousand
-  entries, materialised against streamed, measured back to back on the same
-  laptop: 309 ms against 328 ms in one sitting, 366 ms against 483 ms in a
-  noisier one. Chunked framing and ten calls into the driver instead of one both
-  cost something real, and the benchmark's client de-chunks the body inside the
-  same process, which no real client does. Somewhere between noise and a third
-  slower, for a fifth of the memory, on a path whose default is a hundred
-  entries and whose maximum nobody scrolls. Recorded rather than smoothed over:
-  if it turns out to matter, the number to attack is the chunk framing.
+- **The wall-clock difference is not established, in either direction.** Ten
+  thousand entries, materialised against streamed, measured back to back on the
+  same laptop: 309 ms against 328 ms in one sitting, 366 ms against 483 ms in a
+  noisier one, and 977 ms against 877 ms in a third -- streaming the faster of
+  the two that time. The sign does not hold between sittings, so the difference
+  is below what this machine can resolve and none of these figures should be
+  quoted as a cost. Chunked framing and ten calls into the driver instead of one
+  do cost something real, and the benchmark's client de-chunks the body inside
+  the same process, which no real client does; if that ever shows up above the
+  noise, the number to attack is the chunk framing. What is not in doubt is the
+  memory: peak live heap of 17.6 MB against 123.5 MB, on a path whose default is
+  a hundred entries and whose maximum nobody scrolls.
 - **The benchmark had to serve over a real socket to say anything true.** The
   in-memory transport the handler tests use collects the whole response before
   handing back any of it, so a streamed body measured through it looks exactly
