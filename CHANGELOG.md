@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.0](https://github.com/Hazame-hub/alder/compare/v1.2.0...v1.3.0) (2026-09-12)
+
+
+### Features
+
+* **entry:** offer the operational attributes a server lets you set ([#83](https://github.com/Hazame-hub/alder/issues/83)) ([fa33ce4](https://github.com/Hazame-hub/alder/commit/fa33ce44b62f01176726fab2d0f164e558cb7621))
+* **export:** draw a subtree as the tree it is ([#85](https://github.com/Hazame-hub/alder/issues/85)) ([62a16bc](https://github.com/Hazame-hub/alder/commit/62a16bc4d27d92d6ea8f31213c2441dab610751d))
+* **export:** render a subtree as nested YAML ([#86](https://github.com/Hazame-hub/alder/issues/86)) ([713aa76](https://github.com/Hazame-hub/alder/commit/713aa7611f9f94c36e72ab3b9a9e9df802016941))
+
 ## [1.2.0](https://github.com/Hazame-hub/alder/compare/v1.1.0...v1.2.0) (2026-09-12)
 
 
