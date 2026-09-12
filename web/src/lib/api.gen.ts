@@ -1413,6 +1413,13 @@ export interface components {
              *     does not exist is, and nothing in the protocol distinguishes them.
              *     The answer is "nothing I can see points at this", which is not the
              *     same claim as "nothing points at this".
+             *
+             *     That applies to a list with entries in it as much as to an empty
+             *     one: acting on three references you can see is no safer when there
+             *     is a fourth you cannot. Unlike the comparison, there is nothing to
+             *     detect here -- a Compare recovers absent-from-denied for an
+             *     attribute on an entry you can already read, and no operation says
+             *     "your search would have matched something you may not see".
              */
             truncated: boolean;
             /** @description The naming context this looked in. */
