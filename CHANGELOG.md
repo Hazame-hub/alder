@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/Hazame-hub/alder/compare/v1.1.0...v1.2.0) (2026-09-12)
+
+
+### Performance
+
+* **export:** stream the LDIF export instead of building it ([#80](https://github.com/Hazame-hub/alder/issues/80)) ([eae70ff](https://github.com/Hazame-hub/alder/commit/eae70fff996c6a2273f7fa2b4eda85e8324886d5))
+* **schema:** work out an entry's requirements once per class set ([#82](https://github.com/Hazame-hub/alder/issues/82)) ([57e8f0d](https://github.com/Hazame-hub/alder/commit/57e8f0db55779003f2ce29ce8aec0d16675e6016))
+
 ## [1.1.0](https://github.com/Hazame-hub/alder/compare/v1.0.1...v1.1.0) (2026-09-10)
 
 
