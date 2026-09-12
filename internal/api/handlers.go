@@ -14,6 +14,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/hazame-hub/alder/internal/allowlist"
 	"github.com/hazame-hub/alder/internal/ansible"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
@@ -69,6 +70,29 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 	}
 
 	if err := cfg.Validate(); err != nil {
+		return badRequest(c, "The connection settings are not usable.", err.Error())
+	}
+
+	// Checked here: on the server, before anything is dialled. The host and the
+	// port arrive in a request body, so a check the browser performs is not one
+	// at all -- and after Connect would be too late, since the connection
+	// attempt is the thing being restricted.
+	//
+	// A target that is not a usable host and port is a 400 whether or not a
+	// list is configured, so switching the allowlist on changes which
+	// destinations are reachable rather than which inputs parse.
+	if err := s.cfg.AllowedTargets.Check(cfg.Host, cfg.Port); err != nil {
+		if errors.Is(err, allowlist.ErrNotAllowed) {
+			// The target and nothing else. The request body carrying it holds a
+			// bind password, and no part of this line comes from that body
+			// beyond the host and the port.
+			s.logger.Info("refused by the target allowlist",
+				"host", cfg.Host, "port", cfg.Port)
+			return writeError(c, fiber.StatusForbidden, ErrorErrorTargetNotAllowed,
+				"This Alder is not permitted to connect to that directory.",
+				"The operator has restricted which directories this instance may reach. "+
+					"Permitted: "+strings.Join(s.cfg.AllowedTargets.Endpoints(), ", "))
+		}
 		return badRequest(c, "The connection settings are not usable.", err.Error())
 	}
 

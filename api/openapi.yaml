@@ -87,6 +87,21 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SessionInfo" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403":
+          description: |
+            The operator has configured an allowlist of directories Alder may
+            connect to, and this host and port are not on it. The `error` code
+            is `target_not_allowed`, which is distinct from `forbidden` so that
+            a client can tell "this deployment will not go there" from "the
+            directory said no". The message names the target as Alder
+            normalised it and the endpoints that are permitted, so an operator
+            reading it can see what to add.
+
+            A target that is not a usable host and port at all is a `400`,
+            whether or not an allowlist is configured.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "502":
           description: The directory refused the connection or the bind.
           content:
@@ -974,6 +989,7 @@ components:
             - bad_request
             - unauthorized
             - forbidden
+            - target_not_allowed
             - not_found
             - conflict
             - constraint_violation
@@ -1005,7 +1021,13 @@ components:
       type: object
       required: [host, port, tls]
       properties:
-        host: { type: string, minLength: 1 }
+        host:
+          type: string
+          minLength: 1
+          description: |
+            A host name or an IP literal. Where the operator has configured an
+            allowlist, a host and port outside it is refused with `403` and
+            `target_not_allowed` before any connection is opened.
         port: { type: integer, minimum: 1, maximum: 65535 }
         tls:
           type: string

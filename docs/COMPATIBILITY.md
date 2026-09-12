@@ -77,7 +77,7 @@ contract: a client that decodes the body sees exactly what it saw before.
 What it does change is how a failure *after the first byte* reads. The status
 code is settled by then, and the response has no field for "this went wrong", so
 such a response is deliberately left unterminated — it fails to parse, with a
-trailing comment saying why. Before 1.4.0 the same failure was a `502`. A short
+trailing comment saying why. Before 1.3.1 the same failure was a `502`. A short
 document that parsed cleanly would be indistinguishable from a complete answer,
 which is the one outcome worth ruling out. Every failure a search normally has
 is still a proper status code: the first page and the schema are both fetched

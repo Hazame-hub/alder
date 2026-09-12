@@ -728,7 +728,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /** @description Extra context, such as the LDIF line a parse failed on. */
@@ -749,6 +749,11 @@ export interface components {
             hint?: string;
         };
         ConnectRequest: {
+            /**
+             * @description A host name or an IP literal. Where the operator has configured an
+             *     allowlist, a host and port outside it is refused with `403` and
+             *     `target_not_allowed` before any connection is opened.
+             */
             host: string;
             port: number;
             /**
@@ -1914,6 +1919,26 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            /**
+             * @description The operator has configured an allowlist of directories Alder may
+             *     connect to, and this host and port are not on it. The `error` code
+             *     is `target_not_allowed`, which is distinct from `forbidden` so that
+             *     a client can tell "this deployment will not go there" from "the
+             *     directory said no". The message names the target as Alder
+             *     normalised it and the endpoints that are permitted, so an operator
+             *     reading it can see what to add.
+             *
+             *     A target that is not a usable host and port at all is a `400`,
+             *     whether or not an allowlist is configured.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description The directory refused the connection or the bind. */
             502: {
                 headers: {

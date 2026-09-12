@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/hazame-hub/alder/internal/allowlist"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
@@ -29,6 +30,13 @@ type Config struct {
 
 	IdleTimeout time.Duration
 	MaxLifetime time.Duration
+
+	// AllowedTargets restricts which directories a caller may ask Alder to
+	// connect to. Nil or empty permits any, which is the default: Alder is
+	// normally run beside the directory by the person who owns both, and a
+	// mandatory allowlist would be a configuration step before the first useful
+	// screen. See internal/allowlist for what it does and does not defend.
+	AllowedTargets *allowlist.List
 
 	// SourceURL is where this build's source can be obtained, served at
 	// /api/v1/source to satisfy AGPL-3.0 section 13. An operator running a

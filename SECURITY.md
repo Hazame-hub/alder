@@ -64,8 +64,24 @@ Being explicit about the boundary is more useful than implying a wider one.
 
 - **Alder has no users of its own.** It authenticates to a directory on your
   behalf; it does not authenticate you. Anyone who can reach the HTTP endpoint
-  can attempt a bind against whatever directory they name. Put it behind
-  something that controls access, and do not expose it to the internet.
+  can attempt a bind. Put it behind something that controls access, and do not
+  expose it to the internet.
+
+  *Which* directory they can attempt it against is now restrictable.
+  `--allowed-targets` (or `ALDER_ALLOWED_TARGETS`) takes a comma-separated list
+  of hosts, `host:port` pairs, or `ldap://` and `ldaps://` URLs, and the server
+  refuses anything else with `403` and `target_not_allowed` before it opens a
+  connection. Unset, any target is permitted, which is the right default for the
+  laptop-beside-the-directory case and the wrong one for anything reachable by
+  other people. Matching is on the normalised host and port — case folded,
+  trailing dot removed, IPv4-mapped addresses unmapped — and never on a
+  substring, so an entry for `example.com` does not admit `notexample.com`.
+
+  What it bounds is where a caller can send Alder, not who the caller is. Alder
+  does not resolve names before matching, so an entry naming a host permits
+  whatever that name resolves to at connection time; a deployment that needs
+  more than that should reach the directory through a network path that enforces
+  it.
 - **It is single-tenant by design.** There is no RBAC, no delegation, no
   approval workflow, and no audit log. Authorisation is whatever your directory
   grants the DN you bind as, which is the right place for it but means the bind
@@ -79,8 +95,17 @@ Being explicit about the boundary is more useful than implying a wider one.
   against hangs and unbounded allocation, but a server you do not control is a
   server whose data you are rendering.
 - **Nothing is rate-limited.** A caller with a valid session can issue searches
-  as fast as the directory will answer them.
+  as fast as the directory will answer them. Individual operations are bounded —
+  page sizes, result counts, export and import sizes, changeset length, a
+  per-operation timeout, and a cap on how many directory operations one Alder
+  will have in flight at once — but there is no per-caller quota and no
+  throttle, and adding one would be a different kind of product.
 
 ## Supported versions
 
-Pre-1.0. Fixes land on `main`; there are no backports.
+The current 1.x series. Fixes land on `main` and reach a release from there;
+there are no backports to earlier minors, and no separate maintenance branch.
+
+`docs/COMPATIBILITY.md` says what 1.x promises not to break. A security fix that
+has to break one of those promises is still a security fix, and the changelog
+will say so plainly rather than the promise quietly bending.
