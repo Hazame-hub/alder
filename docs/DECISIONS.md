@@ -1542,3 +1542,31 @@ to contradict the plan — add an entry.
   pwdPolicySubentry, pwdStartTime, pwdEndTime. The conformance case names the
   lock attribute per server and asserts the same thing about both — that the
   schema's declaration predicts what the server accepts.
+
+### 2026-09-12 — the outline, and why it is not LDIF
+
+- **Asked for by the operator testing Alder:** "having LDIF is quite flat when
+  plaintext, maybe have something that outputs the file as a hierarchy". A flat
+  list of three hundred records does not tell you the shape of what you
+  exported, which is often the thing you opened it to find out.
+- **It could not have been indented LDIF.** RFC 2849 gives a leading space its
+  own meaning — it continues the line above — so a tree drawn with indentation
+  stops being a document anyone can import. The choice was between a format that
+  is almost LDIF and quietly broken, and plainly something else. It is plainly
+  something else, and the first line of every outline says so.
+- **It shows where entries sit and never what they hold.** Only the DN, the
+  structural class and a count of what is below. That makes the sensitive and
+  operational questions that the other exports have to answer disappear rather
+  than be answered: there is nothing in the file to withhold.
+- **Bounded, where the LDIF export streams.** A record is complete on its own,
+  so LDIF can be sent as it is read. A tree cannot be drawn until the last entry
+  has arrived, because the entry that decides whether a node is a leaf may be
+  the last one to come back. The same reason the Ansible export is bounded, and
+  the limit stays at ten thousand.
+- **Siblings are sorted rather than left in server order.** A shape is compared
+  against the shape it had last week, so two outlines of an unchanged directory
+  have to be the same bytes; a test reverses the input and asserts the output
+  does not move.
+- **Parents are found through the dn package, never by cutting at the first
+  comma.** `cn=Liddell\, Alice` is one component, and the harness has that entry
+  so shortcuts get caught. It is in the golden files.

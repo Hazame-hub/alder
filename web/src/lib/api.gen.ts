@@ -592,6 +592,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/export/outline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The shape of a subtree, as a tree
+         * @description The same entries an LDIF export would give, drawn as the hierarchy they
+         *     form rather than listed one after another.
+         *
+         *     Asked for by an operator testing Alder: an LDIF export is flat, and a
+         *     flat list of three hundred records does not tell you the shape of what
+         *     you exported.
+         *
+         *     **This is not LDIF and cannot be applied.** It could not be: RFC 2849
+         *     gives a leading space its own meaning -- it continues the line above --
+         *     so a tree drawn with indentation would stop being a document you can
+         *     import. Rather than a format that is almost LDIF and quietly broken,
+         *     this is plainly something else, and says so on its first line.
+         *
+         *     Bounded rather than streamed, unlike the LDIF export: a tree cannot be
+         *     drawn until its last entry has arrived, because the entry that decides
+         *     whether a node is a leaf may be the final one to come back.
+         */
+        get: operations["exportOutline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/import/ldif": {
         parameters: {
             query?: never;
@@ -2445,6 +2480,35 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The playbook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    exportOutline: {
+        parameters: {
+            query: {
+                dn: string;
+                scope?: "base" | "one" | "sub";
+                /** @description An RFC 4515 filter, parsed and never pasted. */
+                filter?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The outline. */
             200: {
                 headers: {
                     [name: string]: unknown;

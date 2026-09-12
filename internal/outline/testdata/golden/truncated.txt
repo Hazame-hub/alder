@@ -1,0 +1,20 @@
+# The shape of what was exported, as Alder read it.
+#
+# This is not LDIF and cannot be applied. LDIF gives a leading space its own
+# meaning -- it continues the line above -- so a tree drawn with indentation
+# could never also be a document you import. Export LDIF for that; this is
+# for reading, and for pasting into a ticket.
+#
+# base:  dc=alder,dc=test
+# scope: sub
+# 6 entries
+#
+# WARNING: the search stopped at 6 entries, so this is part of the
+# subtree and not the whole of it.
+
+dc=alder,dc=test  [domain, 5 below]
+├── ou=groups  [organizationalUnit, 1 below]
+│   └── cn=platform  [groupOfNames]
+└── ou=people  [organizationalUnit, 2 below]
+    ├── uid=alice  [inetOrgPerson]
+    └── uid=bob  [inetOrgPerson]

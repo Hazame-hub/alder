@@ -784,6 +784,53 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /export/outline:
+    get:
+      tags: [transfer]
+      operationId: exportOutline
+      summary: The shape of a subtree, as a tree
+      description: |
+        The same entries an LDIF export would give, drawn as the hierarchy they
+        form rather than listed one after another.
+
+        Asked for by an operator testing Alder: an LDIF export is flat, and a
+        flat list of three hundred records does not tell you the shape of what
+        you exported.
+
+        **This is not LDIF and cannot be applied.** It could not be: RFC 2849
+        gives a leading space its own meaning -- it continues the line above --
+        so a tree drawn with indentation would stop being a document you can
+        import. Rather than a format that is almost LDIF and quietly broken,
+        this is plainly something else, and says so on its first line.
+
+        Bounded rather than streamed, unlike the LDIF export: a tree cannot be
+        drawn until its last entry has arrived, because the entry that decides
+        whether a node is a leaf may be the final one to come back.
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          schema: { type: string }
+        - name: scope
+          in: query
+          schema: { type: string, enum: [base, one, sub], default: sub }
+        - name: filter
+          in: query
+          schema: { type: string }
+          description: An RFC 4515 filter, parsed and never pasted.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 10000, default: 1000 }
+      responses:
+        "200":
+          description: The outline.
+          content:
+            text/plain:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /import/ldif:
     post:
       tags: [transfer]

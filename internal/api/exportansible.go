@@ -9,6 +9,7 @@ import (
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/filter"
+	"github.com/hazame-hub/alder/internal/outline"
 	"github.com/hazame-hub/alder/internal/session"
 )
 
@@ -150,4 +151,75 @@ func (s *Server) ExportAnsible(c *fiber.Ctx, params ExportAnsibleParams) error {
 func playbookFilename(base dn.DN, scope directory.Scope) string {
 	name := exportFilename(base, scope)
 	return strings.TrimSuffix(name, ".ldif") + ".yml"
+}
+
+// ExportOutline draws a subtree as the tree it is.
+//
+// The LDIF export streams because a record is complete on its own. This cannot:
+// a tree is not drawable until the last entry has arrived, since the entry that
+// decides whether a node is a leaf may be the final one to come back. So it is
+// bounded like the Ansible export, and for a reason of the same kind.
+func (s *Server) ExportOutline(c *fiber.Ctx, params ExportOutlineParams) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	base, ok := parseDNParam(c, params.Dn)
+	if !ok {
+		return nil
+	}
+	scopeName := "sub"
+	if params.Scope != nil {
+		scopeName = string(*params.Scope)
+	}
+
+	found, ok := s.searchForExport(c, sess, exportQuery{
+		Base:      base,
+		Scope:     scopeName,
+		RawFilter: deref(params.Filter),
+		// objectClass so each node can say what kind of thing it is, which is
+		// most of what a shape view is asked. Nothing else is read: the outline
+		// is about where entries sit, not what they hold.
+		Attributes: []string{"objectClass"},
+		Limit:      clamp(deref(params.Limit), 1000, 1, directory.MaxResults),
+	})
+	if !ok {
+		return nil
+	}
+
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+	sch, _ := sess.Conn.Schema(ctx)
+
+	entries := make([]outline.Entry, 0, len(found.Result.Entries))
+	for _, e := range found.Result.Entries {
+		node := outline.Entry{DN: e.DN}
+		if sch != nil {
+			node.Structural = structuralName(sch, e.ObjectClasses())
+		}
+		entries = append(entries, node)
+	}
+
+	rendered := ""
+	if f, err := found.Filter.Render(); err == nil {
+		rendered = f
+	}
+	doc := outline.Render(entries, outline.Options{
+		Base:      base.String(),
+		Scope:     found.Scope.String(),
+		Filter:    rendered,
+		Truncated: found.Result.Truncated,
+		Limit:     clamp(deref(params.Limit), 1000, 1, directory.MaxResults),
+	})
+
+	c.Set(fiber.HeaderContentType, "text/plain; charset=utf-8")
+	c.Set(fiber.HeaderContentDisposition,
+		fmt.Sprintf("attachment; filename=%q", outlineFilename(base)))
+	return c.SendString(doc)
+}
+
+// outlineFilename names the download after the entry it is a picture of.
+func outlineFilename(base dn.DN) string {
+	name := exportFilename(base, directory.ScopeSubtree)
+	return strings.TrimSuffix(name, ".ldif") + "-outline.txt"
 }
