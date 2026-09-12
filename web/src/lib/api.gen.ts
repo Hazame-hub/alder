@@ -892,6 +892,27 @@ export interface components {
         Requirements: {
             must?: string[];
             may?: string[];
+            /**
+             * @description Operational attributes this server says a client may set on an
+             *     entry: `USAGE directoryOperation` and no `NO-USER-MODIFICATION`.
+             *
+             *     Operational is not the same as read-only, and treating it as such
+             *     is why an account could not be locked from here — 389 DS keeps
+             *     `nsAccountLock` itself and still expects you to set it, as OpenLDAP
+             *     does for a ppolicy `pwdAccountLockedTime`. Only
+             *     `NO-USER-MODIFICATION` means the directory owns an attribute.
+             *
+             *     These are not in any object class, so they never appear in `must`
+             *     or `may` and an entry that has never been locked shows no sign that
+             *     it could be. They are listed separately rather than merged in,
+             *     because "what this class permits" and "what the server lets you set
+             *     besides" are different answers to different questions.
+             *
+             *     `dSAOperation` attributes are excluded: `namingContexts` and
+             *     `supportedControl` are operational and unflagged too, but they
+             *     belong to the server rather than to an entry.
+             */
+            settableOperational?: string[];
             /** @description The single structural class, or empty when it is ambiguous. */
             structural?: string;
             /** @description Object classes on the entry that the schema does not define. */

@@ -222,6 +222,11 @@ type Schema struct {
 	// combinations in a directory, which is dozens.
 	requirementsMu    sync.RWMutex
 	requirementsCache map[string]AttributeRequirements
+
+	// settableOperational is computed once from the whole schema, which does
+	// not change for the life of a parsed one.
+	settableMu          sync.RWMutex
+	settableOperational []string
 }
 
 // Name returns the first name of a definition, falling back to the OID for the
@@ -702,5 +707,50 @@ func (s *Schema) AttributesWithSyntax(oid string) []*AttributeType {
 	sort.Slice(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name()) < strings.ToLower(out[j].Name())
 	})
+	return out
+}
+
+// SettableOperational lists the operational attributes this server says a
+// client may set on an entry.
+//
+// Operational is not the same as read-only, and conflating them is why an
+// administrator could not lock an account through Alder. 389 DS declares
+// nsAccountLock as USAGE directoryOperation with no NO-USER-MODIFICATION: the
+// server keeps it, and the server also expects you to set it. The same is true
+// of accountUnlockTime, of an OpenLDAP ppolicy pwdAccountLockedTime, and of the
+// aci attribute. Only NO-USER-MODIFICATION means "the directory owns this".
+//
+// The usage matters as much as the flag. dSAOperation attributes -- namingContexts,
+// supportedControl -- are also operational and also unflagged, but they belong
+// to the server rather than to an entry, and offering them on a person would be
+// noise. directoryOperation is the usage that means "operational, about this
+// entry".
+//
+// Nothing here is a list of attribute names. Which attributes exist and which
+// may be set is read from the schema the server published, so a directory with
+// an overlay Alder has never heard of gets the same treatment as one it has.
+func (s *Schema) SettableOperational() []string {
+	s.settableMu.RLock()
+	cached := s.settableOperational
+	s.settableMu.RUnlock()
+	if cached != nil {
+		return cached
+	}
+
+	out := []string{}
+	for _, at := range s.AttributeTypes {
+		if s.EffectiveUsage(at) != UsageDirectoryOperation {
+			continue
+		}
+		if s.EffectiveNoUserModification(at) {
+			continue
+		}
+		out = append(out, at.Name())
+	}
+	sort.Strings(out)
+
+	s.settableMu.Lock()
+	s.settableOperational = out
+	s.settableMu.Unlock()
 	return out
 }

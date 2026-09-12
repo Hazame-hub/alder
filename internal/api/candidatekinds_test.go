@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hazame-hub/alder/internal/directory"
@@ -136,4 +137,58 @@ func kindNames(kinds []AttributeKind) []string {
 		out = append(out, k.Name)
 	}
 	return out
+}
+
+// The case a real operator reported: an account that has never been locked
+// offered no way to lock it.
+//
+// nsAccountLock belongs to no object class, so it is in neither must nor may,
+// and the editor's list of what could be added came from those two alone. The
+// attribute existed, the server would have accepted it, and there was nowhere
+// to type it.
+func TestCandidateKindsOfferAnOperationalAttributeTheServerLetsYouSet(t *testing.T) {
+	sch := operationalTestSchema(t)
+	entry := directory.NewEntry(mustParse(t, "uid=alice,ou=people,dc=alder,dc=test"))
+	entry.Set("objectClass", [][]byte{[]byte("top")})
+
+	kinds := candidateKinds(entry, sch, sch.Requirements([]string{"top"}))
+
+	var lock, unique *AttributeKind
+	for i := range kinds {
+		switch strings.ToLower(kinds[i].Name) {
+		case "nsaccountlock":
+			lock = &kinds[i]
+		case "nsuniqueid":
+			unique = &kinds[i]
+		}
+	}
+
+	if lock == nil {
+		t.Fatal("nsAccountLock is not offered, so the account cannot be locked from here")
+	}
+	if deref(lock.ReadOnly) {
+		t.Error("nsAccountLock is marked read-only, so the editor would refuse it")
+	}
+	if !deref(lock.Operational) {
+		t.Error("nsAccountLock is not marked operational, so it would be filed with ordinary attributes")
+	}
+	if unique != nil {
+		t.Error("nsUniqueId is offered, and the server will refuse to write it")
+	}
+}
+
+// operationalTestSchema carries one operational attribute the server lets you
+// set and one it owns, which is the distinction the offer turns on.
+func operationalTestSchema(t *testing.T) *schema.Schema {
+	t.Helper()
+	return schema.Load("cn=subschema", map[string][]string{
+		"objectClasses": {
+			"( 2.5.6.0 NAME 'top' ABSTRACT MUST objectClass )",
+		},
+		"attributeTypes": {
+			"( 2.5.4.0 NAME 'objectClass' SYNTAX 1.3.6.1.4.1.1466.115.121.1.38 )",
+			"( 2.16.840.1.113730.3.1.610 NAME 'nsAccountLock' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 USAGE directoryOperation )",
+			"( 2.16.840.1.113730.3.1.542 NAME 'nsUniqueId' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 SINGLE-VALUE NO-USER-MODIFICATION USAGE directoryOperation )",
+		},
+	})
 }

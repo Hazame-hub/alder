@@ -472,3 +472,77 @@ func TestRequirementsAreSafeToShare(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// --- settable operational attributes ----------------------------------------
+
+// operationalSchema carries one attribute of each kind the rule has to
+// separate, so the test is about the rule rather than about any one server.
+func operationalSchema(t *testing.T) *Schema {
+	t.Helper()
+	return Load("cn=subschema", map[string][]string{
+		"objectClasses": {
+			"( 2.5.6.0 NAME 'top' ABSTRACT MUST objectClass )",
+		},
+		"attributeTypes": {
+			"( 2.5.4.0 NAME 'objectClass' SYNTAX 1.3.6.1.4.1.1466.115.121.1.38 )",
+			// Operational, about the entry, and the server expects you to set
+			// it. This is the case the whole thing exists for.
+			"( 2.16.840.1.113730.3.1.610 NAME 'nsAccountLock' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 USAGE directoryOperation )",
+			// Operational and the directory's own.
+			"( 2.16.840.1.113730.3.1.542 NAME 'nsUniqueId' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 SINGLE-VALUE NO-USER-MODIFICATION USAGE directoryOperation )",
+			// Operational, unflagged, but about the server rather than an
+			// entry -- offering it on a person would be noise.
+			"( 1.3.6.1.4.1.1466.101.120.5 NAME 'namingContexts' SYNTAX 1.3.6.1.4.1.1466.115.121.1.12 USAGE dSAOperation )",
+			// An ordinary attribute, which the object classes already offer.
+			"( 2.5.4.13 NAME 'description' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
+		},
+	})
+}
+
+// Operational is not read-only, and treating it as such is why an
+// administrator could not lock an account.
+func TestSettableOperationalIncludesAnOperationalAttributeTheServerLetsYouSet(t *testing.T) {
+	got := operationalSchema(t).SettableOperational()
+	if !slices.Contains(got, "nsAccountLock") {
+		t.Errorf("nsAccountLock is not offered: %v", got)
+	}
+}
+
+// NO-USER-MODIFICATION is the flag that means the directory owns it.
+func TestSettableOperationalExcludesWhatTheDirectoryOwns(t *testing.T) {
+	got := operationalSchema(t).SettableOperational()
+	if slices.Contains(got, "nsUniqueId") {
+		t.Errorf("nsUniqueId is offered although the server will refuse it: %v", got)
+	}
+}
+
+// dSAOperation attributes belong to the server, not to an entry. They are
+// unflagged on both target servers, so the usage is the only thing separating
+// namingContexts from nsAccountLock.
+func TestSettableOperationalExcludesTheServersOwnAttributes(t *testing.T) {
+	got := operationalSchema(t).SettableOperational()
+	if slices.Contains(got, "namingContexts") {
+		t.Errorf("namingContexts is offered on entries: %v", got)
+	}
+}
+
+// Ordinary attributes are the object classes' business and must not be
+// duplicated here.
+func TestSettableOperationalExcludesOrdinaryAttributes(t *testing.T) {
+	got := operationalSchema(t).SettableOperational()
+	if slices.Contains(got, "description") {
+		t.Errorf("an ordinary attribute is in the operational list: %v", got)
+	}
+}
+
+func TestSettableOperationalIsSortedAndStable(t *testing.T) {
+	sch := operationalSchema(t)
+	first := sch.SettableOperational()
+	second := sch.SettableOperational()
+	if !slices.Equal(first, second) {
+		t.Errorf("two calls differ: %v vs %v", first, second)
+	}
+	if !slices.IsSorted(first) {
+		t.Errorf("not sorted: %v", first)
+	}
+}

@@ -1503,3 +1503,42 @@ to contradict the plan — add an entry.
   way — a change to the contract, for a ceiling the interface defaults to a
   hundredth of. The benchmark that found this is committed, so the next person
   starts from a number rather than a guess.
+
+### 2026-09-12 — operational is not read-only
+
+- **Reported by the first operator to test Alder against a real directory:**
+  "a lot of operational attributes don't show on Alder for 389ds by default,
+  they should be discovered and easy to set (for example nsAccountLock)", and
+  "same for OpenLDAP and attributes linked to module ppolicy". Both were true,
+  and the cause was one confusion.
+- **USAGE says where an attribute lives; NO-USER-MODIFICATION says who owns
+  it.** 389 DS declares nsAccountLock as `USAGE directoryOperation` with no
+  NO-USER-MODIFICATION: the server keeps it and the server also expects an
+  administrator to set it. The same is true of accountUnlockTime, of aci, and of
+  an OpenLDAP ppolicy pwdAccountLockedTime. Alder's schema layer already had
+  both flags and got them right; everything above it read only the first.
+- **So an account could not be locked from Alder at all.** Operational
+  attributes are in no object class, the editor's list of what could be added
+  was `must` plus `may`, and an entry that had never been locked showed no sign
+  that it could be. There was nothing to type into.
+- **The offer is discovered, never listed.** `SettableOperational` is every
+  attribute type the server declares as directoryOperation and does not flag,
+  read from the published schema. No attribute name appears in Alder's source,
+  so a directory with an overlay nobody here has heard of gets the same
+  treatment as one we tested against.
+- **dSAOperation is excluded, and that distinction earns its keep.**
+  namingContexts and supportedControl are operational and unflagged too, but
+  they belong to the server rather than to an entry; offering them on a person
+  would be noise. Measured before choosing: OpenLDAP declares 12 dSAOperation
+  attributes and 389 DS 10, and dropping them is what turns a useless list into
+  a usable one.
+- **The entry view had been asserting something false.** Every operational
+  attribute sat under "Operational — the directory owns these". That is right
+  for entryUUID and wrong for nsAccountLock, and it is the sentence that told an
+  operator not to try. It splits on readOnly now.
+- **The harness gained the ppolicy overlay**, because without it OpenLDAP
+  declares no settable operational attribute that means anything on a person and
+  half the report could not be tested. With it: pwdAccountLockedTime, pwdReset,
+  pwdPolicySubentry, pwdStartTime, pwdEndTime. The conformance case names the
+  lock attribute per server and asserts the same thing about both — that the
+  schema's declaration predicts what the server accepts.
