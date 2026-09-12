@@ -16,3 +16,9 @@
 
 # TypeScript incremental build state. Machine-specific, like .task/.
 *.tsbuildinfo
+
+# Generated bulk filler for scale work, written on demand by "task compose:bulk".
+# Never committed: a hundred thousand entries is about 40 MB, and that is not
+# something every clone should carry for a measurement taken a few times a year.
+# The directory itself is kept, because docker-compose.yml bind-mounts it.
+/test/compose/bulk/*.ldif

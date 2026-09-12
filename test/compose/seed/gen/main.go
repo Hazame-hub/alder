@@ -11,6 +11,9 @@
 // This file carries a small LDIF writer of its own. internal/ldif, which lands
 // in M3, is the real one; duplicating a hundred lines here keeps the fixtures
 // independent of the code under test, which is what you want from a fixture.
+//
+// -bulk is the other mode: filler for scale work rather than fixtures, written
+// to one file and deliberately never committed. See test/compose/README.md.
 package main
 
 import (
@@ -29,6 +32,7 @@ const (
 	people   = "ou=people," + suffix
 	groups   = "ou=groups," + suffix
 	services = "ou=services," + suffix
+	bulkOU   = "ou=bulk," + suffix
 
 	userCount = 300
 )
@@ -53,7 +57,13 @@ var surnames = []string{
 
 func main() {
 	out := flag.String("out", ".", "directory to write the generated LDIF into")
+	bulk := flag.Int("bulk", 0, "instead of the fixtures, write bulk.ldif with this many filler entries under "+bulkOU)
 	flag.Parse()
+
+	if *bulk > 0 {
+		writeBulk(filepath.Join(*out, "bulk.ldif"), *bulk)
+		return
+	}
 
 	files := map[string]func() []byte{
 		"10-users.ldif":      usersLDIF,
@@ -253,6 +263,88 @@ func edgeCasesLDIF() []byte {
 	photo.writeTo(&b)
 
 	return b.Bytes()
+}
+
+// --- bulk filler --------------------------------------------------------------
+
+// writeBulk writes n filler entries under ou=bulk,dc=alder,dc=test.
+//
+// This is not seed data and must never be confused with it. The fixtures above
+// are chosen one at a time to break something specific; these are volume, for
+// measuring how the product behaves against a directory of a realistic size.
+// They live under their own OU and are named uid=bulk* so that a search result,
+// a tree screenshot or an export makes it obvious at a glance which is which.
+//
+// The output is written to a gitignored file and generated on demand. A hundred
+// thousand entries is about 40 MB, which is not something to make every clone
+// of this repository pay for a measurement taken a few times a year.
+//
+// The entries deliberately carry alderTeam and uid, because those two are what
+// the scale work actually measures: alderTeam is the attribute that groups
+// entries, uid the one that identifies them, and a tally of each has a very
+// different cost. Filler without them would be filler nobody could measure with.
+func writeBulk(path string, n int) {
+	f, err := os.Create(path)
+	if err != nil {
+		log.Fatalf("creating %s: %v", path, err)
+	}
+
+	var b bytes.Buffer
+	// flush keeps peak memory flat rather than holding the whole document. The
+	// failure this avoids is not subtle: at a million entries the buffer alone
+	// is several hundred megabytes, on a machine that is about to run two
+	// directory servers.
+	flush := func() {
+		if _, werr := f.Write(b.Bytes()); werr != nil {
+			log.Fatalf("writing %s: %v", path, werr)
+		}
+		b.Reset()
+	}
+
+	// Not the header() the fixtures get: that one tells the reader to run
+	// "task seed" and commit the diff, which is the opposite of what should
+	// happen to this file.
+	fmt.Fprintf(&b, "# Bulk filler written by test/compose/seed/gen -bulk %d.\n#\n", n)
+	b.WriteString("# NOT seed data. Not committed, not a fixture, and nothing in the\n")
+	b.WriteString("# conformance suite may depend on it. Loaded by \"task compose:bulk\";\n")
+	b.WriteString("# see test/compose/README.md.\n\n")
+
+	ou := newEntry(bulkOU)
+	ou.add("objectClass", "top", "organizationalUnit")
+	ou.add("ou", "bulk")
+	ou.add("description", fmt.Sprintf("Generated filler, %d entries. Nothing here is a fixture.", n))
+	ou.writeTo(&b)
+
+	for i := 1; i <= n; i++ {
+		uid := fmt.Sprintf("bulk%07d", i)
+		given := forenames[i%len(forenames)]
+		sur := surnames[(i/len(forenames))%len(surnames)]
+
+		e := newEntry("uid=" + uid + "," + bulkOU)
+		e.add("objectClass", "top", "person", "organizationalPerson",
+			"inetOrgPerson", "posixAccount", "alderEmployee")
+		e.add("uid", uid)
+		e.add("cn", given+" "+sur)
+		e.add("sn", sur)
+		e.add("givenName", given)
+		e.add("mail", uid+"@bulk.alder.test")
+		e.add("uidNumber", fmt.Sprint(100000+i))
+		e.add("gidNumber", fmt.Sprint(20000+(i%len(teams))))
+		e.add("homeDirectory", "/home/"+uid)
+		e.add("loginShell", "/bin/bash")
+		e.add("alderTeam", teams[i%len(teams)])
+		e.writeTo(&b)
+
+		if b.Len() > 1<<20 {
+			flush()
+		}
+	}
+	flush()
+
+	if err := f.Close(); err != nil {
+		log.Fatalf("closing %s: %v", path, err)
+	}
+	fmt.Printf("wrote %s: %d entries under %s\n", path, n, bulkOU)
 }
 
 // --- a very small LDIF writer ------------------------------------------------
