@@ -74,6 +74,13 @@ type fakeSession struct {
 	// handler that consumes a search incrementally can be tested. Zero keeps
 	// the old all-at-once behaviour that every other test relies on.
 	pageSize int
+	// driverPaging makes one Search call fill req.Limit by looping its own
+	// pages, which is what the real driver does and what pageSize alone does
+	// not: pageSize models a server, and a server is below the Session the
+	// handlers talk to. Only a measurement needs the difference -- a handler
+	// that asks for ten thousand at once has to be given ten thousand at once,
+	// or it looks as frugal as one that asks a page at a time.
+	driverPaging bool
 	// searches counts the calls, which is how a test tells one round trip from
 	// several.
 	searches int
@@ -115,6 +122,9 @@ func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (
 		}
 		if start > len(f.entries) {
 			start = len(f.entries)
+		}
+		if f.driverPaging && req.Limit > size {
+			size = req.Limit
 		}
 		end := start + size
 		if end > len(f.entries) {
@@ -176,7 +186,10 @@ type testRig struct {
 	cookie string
 }
 
-func newRig(t *testing.T, cfg Config, fake *fakeSession) *testRig {
+// testing.TB rather than *testing.T so a benchmark can drive the real handler
+// through the real router. A benchmark that reimplements the handler measures
+// the reimplementation.
+func newRig(t testing.TB, cfg Config, fake *fakeSession) *testRig {
 	t.Helper()
 	if fake.sch == nil {
 		fake.sch = testSchema(t)
@@ -226,7 +239,7 @@ type response struct {
 	Header http.Header
 }
 
-func (r *testRig) send(t *testing.T, req *http.Request) response {
+func (r *testRig) send(t testing.TB, req *http.Request) response {
 	t.Helper()
 	res, err := r.app.Test(req, -1)
 	if err != nil {
@@ -242,7 +255,7 @@ func (r *testRig) send(t *testing.T, req *http.Request) response {
 }
 
 // do sends a request carrying the session cookie.
-func (r *testRig) do(t *testing.T, method, target string, body io.Reader) response {
+func (r *testRig) do(t testing.TB, method, target string, body io.Reader) response {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), method, target, body)
 	if body != nil {
@@ -250,6 +263,31 @@ func (r *testRig) do(t *testing.T, method, target string, body io.Reader) respon
 	}
 	req.AddCookie(&http.Cookie{Name: session.CookieNameInsecure, Value: r.cookie})
 	return r.send(t, req)
+}
+
+// drain sends a request and throws the body away as it arrives, reporting its
+// length. It exists for the benchmarks: holding the whole response as a string
+// is what `send` does, and a measurement of the server's memory should not
+// include the test client's copy of the answer.
+func (r *testRig) drain(t testing.TB, method, target string, body io.Reader) (int, int64) {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, target, body)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.AddCookie(&http.Cookie{Name: session.CookieNameInsecure, Value: r.cookie})
+
+	res, err := r.app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, target, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	n, err := io.Copy(io.Discard, res.Body)
+	if err != nil {
+		t.Fatalf("reading the response to %s %s: %v", method, target, err)
+	}
+	return res.StatusCode, n
 }
 
 // anonymous sends the same request with no session at all.
