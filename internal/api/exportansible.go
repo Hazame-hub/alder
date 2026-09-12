@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"fmt"
 	"strings"
 
@@ -200,23 +201,55 @@ func (s *Server) ExportOutline(c *fiber.Ctx, params ExportOutlineParams) error {
 		}
 		entries = append(entries, node)
 	}
+	// The entries have handed over everything the outline needs, so let them go
+	// before the tree is built rather than keeping two representations of ten
+	// thousand entries alive at once.
+	truncated := found.Result.Truncated
+	found.Result.Entries = nil
 
 	rendered := ""
 	if f, err := found.Filter.Render(); err == nil {
 		rendered = f
 	}
-	doc := outline.Render(entries, outline.Options{
+	opts := outline.Options{
 		Base:      base.String(),
 		Scope:     found.Scope.String(),
 		Filter:    rendered,
-		Truncated: found.Result.Truncated,
+		Truncated: truncated,
 		Limit:     clamp(deref(params.Limit), 1000, 1, directory.MaxResults),
-	})
+	}
 
 	c.Set(fiber.HeaderContentType, "text/plain; charset=utf-8")
 	c.Set(fiber.HeaderContentDisposition,
 		fmt.Sprintf("attachment; filename=%q", outlineFilename(base)))
-	return c.SendString(doc)
+	writeExportStream(c, func(bw *bufio.Writer) error {
+		return outline.WriteTo(bw, entries, opts)
+	})
+	return nil
+}
+
+// writeExportStream hands the rendering to the connection.
+//
+// Both tree exports are bounded rather than streamed -- the tree is complete
+// before the first byte goes out -- so unlike the search and the LDIF export
+// there is no window here in which a failure arrives after the status code:
+// everything that can fail, the search and the schema, has already happened.
+// What this buys is that the finished document is never held alongside the tree
+// it was drawn from.
+func writeExportStream(c *fiber.Ctx, render func(*bufio.Writer) error) {
+	c.Context().SetBodyStreamWriter(func(conn *bufio.Writer) {
+		// A wider buffer than the 4 KB one the server hands out, for the reason
+		// the search stream gives: every time it fills, the bytes cross a pipe
+		// to the connection goroutine and come back as a chunk of their own.
+		bw := bufio.NewWriterSize(conn, 64<<10)
+		if err := render(bw); err != nil {
+			// The client has gone, or the connection broke. There is no status
+			// left to change and nothing worth appending to a half-written
+			// document, so the write simply stops.
+			return
+		}
+		_ = bw.Flush()
+	})
 }
 
 // outlineFilename names the download after the entry it is a picture of.
@@ -290,24 +323,32 @@ func (s *Server) ExportYaml(c *fiber.Ctx, params ExportYamlParams) error {
 		}
 		entries = append(entries, node)
 	}
+	// The values are shared with the entries rather than copied, but the map
+	// and the ordering slice each entry carries are not, and ten thousand of
+	// those is the larger half of what the search returned. Dropped here so
+	// they are collectable while the document is being written.
+	truncated := found.Result.Truncated
+	found.Result.Entries = nil
 
 	rendered := ""
 	if f, err := found.Filter.Render(); err == nil {
 		rendered = f
 	}
-	limit := clamp(deref(params.Limit), 1000, 1, directory.MaxResults)
-	doc := outline.RenderYAML(entries, outline.Options{
+	opts := outline.Options{
 		Base:      base.String(),
 		Scope:     found.Scope.String(),
 		Filter:    rendered,
-		Truncated: found.Result.Truncated,
-		Limit:     limit,
-	})
+		Truncated: truncated,
+		Limit:     clamp(deref(params.Limit), 1000, 1, directory.MaxResults),
+	}
 
 	c.Set(fiber.HeaderContentType, "text/plain; charset=utf-8")
 	c.Set(fiber.HeaderContentDisposition,
 		fmt.Sprintf("attachment; filename=%q", yamlFilename(base)))
-	return c.SendString(doc)
+	writeExportStream(c, func(bw *bufio.Writer) error {
+		return outline.WriteYAML(bw, entries, opts)
+	})
+	return nil
 }
 
 // yamlFilename names the download after the entry it describes, with the
