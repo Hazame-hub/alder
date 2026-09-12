@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/Hazame-hub/alder/compare/v1.3.1...v1.3.2) (2026-09-12)
+
+
+### Performance
+
+* **export:** stop holding the tree exports twice ([#91](https://github.com/Hazame-hub/alder/issues/91)) ([82fac49](https://github.com/Hazame-hub/alder/commit/82fac497685afe9c91908fe9be1ee5a31dd857b3))
+
 ## [1.3.1](https://github.com/Hazame-hub/alder/compare/v1.3.0...v1.3.1) (2026-09-12)
 
 
