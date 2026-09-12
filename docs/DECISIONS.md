@@ -918,6 +918,7 @@ to contradict the plan — add an entry.
   generate entries from a spreadsheet or a feed, and that is what the excluded
   line means; it now says so instead of leaving a reader to infer it from a
   count.
+
 ### 2026-09-06 — the changeset cap is 2000, and the number was measured
 
 - **500 blocked the case it cost least to allow.** A container delete of 600
@@ -945,6 +946,7 @@ to contradict the plan — add an entry.
 - **Three files hold this number** — the Go constant, `maxItems` in the spec,
   and the SPA's `maxStagedChanges` — and two tests exist solely to fail when
   they drift apart. They were updated with it.
+
 ### 2026-09-06 — the search, as the command you would have typed
 
 - **Rendered by the server, for the same reason the LDIF preview is.** The
@@ -978,6 +980,7 @@ to contradict the plan — add an entry.
   `'\''` dance for an apostrophe.
 - **Verified by running it.** The emitted command, given to a real `ldapsearch`
   in the harness, returned the same twelve entries the API did.
+
 ### 2026-09-06 — three pieces of debt, cleared
 
 - **`NewEntryDialog` is gone.** It was exported from `entry.tsx`, imported by
@@ -1931,3 +1934,61 @@ to contradict the plan — add an entry.
   other administrator in between. Verified by dropping the baseline from what is
   handed back: the refusal test fails, which is what says it is testing the
   mechanism rather than something incidental.
+
+### 2026-09-12 — the paths that were never measured
+
+- **Three of them, and only one was fine.** The tree exports had just been
+  measured and fixed; these are the rest. The inventory came out as designed:
+  a hundred thousand entries tallied for 4.7 MB of peak heap above the fixture,
+  ten thousand for 0.5 MB, which is the folding-as-it-arrives claim holding. The
+  playbook export and the comparison did not.
+- **The comparison parsed every DN six times.** Comparing two groups of a
+  hundred thousand members took 1.73 s and 19.6 M allocations to produce a few
+  hundred rows. Keying a value means parsing it as a DN, and the code reached
+  the single-value case by wrapping the value in a slice and taking the first
+  element back out; it then did that twice to build the membership maps, twice
+  more in the emit loops, and twice again in the equality check that runs
+  before all of it. Each side is now keyed once, positionally, and those keys
+  are what both the equality check and the listing read: **0.36 s and 6.4 M**.
+- **It also kept working after there was nothing left to emit.** The emit
+  function stopped appending at the limit but the loops ran on to the end of a
+  hundred thousand values, keying every one of them for a row that could not be
+  produced. Both passes now stop when the limit is reached, and the left-hand
+  membership set is built only if the first pass left room for a row that needs
+  it.
+- **`sameAttributeValues`, `sameDNSet` and `normalisedDNs` are gone,** replaced
+  by `comparisonKeys` and `sameKeySets` over the shared keys. `sameKeySets`
+  clones before sorting: the key slices are positional, and sorting them where
+  they lie would have left the listing reporting values on the wrong side.
+- **The playbook export was the worst of any path, and the fix was one line of
+  the renderer.** `Playbook` indented the tasks by running `strings.Split` over
+  the whole document -- a slice header for every line of thirty megabytes --
+  and building a second indented copy before sending it. Walking the lines with
+  `strings.Cut` holds one line at a time: **62.0 MB of peak heap becomes 49.5 MB
+  and 211 ms becomes 141 ms**, better on both counts.
+- **The playbook export is not streamed, and that is a measured choice.**
+  Handing it to the connection the way the tree exports now are takes peak heap
+  further, to 32.5 MB, and costs 300 ms against 141 -- a stable 2x, reproduced
+  across three runs of ten each, unlike the search timing that would not hold
+  its sign. The tree exports got faster because the change removed work; this
+  one only changes delivery, so the chunked framing shows up net. Recorded here
+  rather than taken quietly: 17 MB of peak heap is available whenever it is
+  worth 160 ms.
+- **What still materialises is `EnforceTasks`,** which builds the whole task
+  document as one string before any of it can be indented. That is the deeper
+  fix and it is not done; the number to attack is the 78 MB the streamed variant
+  still allocates.
+- **The benchmark cannot prove the inventory holds no entries.** The fake hands
+  out slices of a fixture that is live for the whole run, so an endpoint that
+  retained every entry would measure the same as one that dropped each page.
+  What the figures do show is that nothing *derived* grows with the directory,
+  which is the part that was in doubt.
+- **A conflicting pull request now says so.** `pull_request` workflows run
+  against a merge commit GitHub builds from the two branches; when they conflict
+  there is no such commit, so none of them run -- ci included -- and the pull
+  request sits with a short checks list, no failure, and nothing saying why.
+  Branch protection does block the merge, so this was never a hole, but it cost
+  two pull requests a round trip each. `mergeable.yml` runs on
+  `pull_request_target`, which is scheduled from the base branch and therefore
+  runs regardless, checks out nothing, and fails with the reason. It is not a
+  required check: it reports a condition that already blocks the merge.

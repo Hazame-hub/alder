@@ -141,6 +141,9 @@ func (s *Server) ExportAnsible(c *fiber.Ctx, params ExportAnsibleParams) error {
 		Filter:    rendered,
 		Truncated: found.Result.Truncated,
 	})
+	// The tasks carry everything the entries did, so the entries can go before
+	// the playbook is written rather than being held beside it.
+	found.Result.Entries = nil
 
 	c.Set(fiber.HeaderContentType, "text/plain; charset=utf-8")
 	c.Set(fiber.HeaderContentDisposition,
