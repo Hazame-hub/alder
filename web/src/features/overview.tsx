@@ -14,8 +14,9 @@ import {
 import { api, unwrap } from "@/lib/api";
 import type { ApiFailure, CountResult, SessionInfo } from "@/lib/api";
 import type { AppView } from "@/lib/route";
-import { displayText } from "@/lib/values";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { LdapValue } from "@/components/ldap-value";
 import { ErrorNote } from "@/components/change-dialog";
 
 /**
@@ -331,21 +332,7 @@ function MonitorCard({ dn, onBrowse }: { dn: string; onBrowse: (dn: string) => v
         <>
           <dl className="grid gap-x-6 gap-y-1.5 px-4 py-3 text-sm sm:grid-cols-2">
             {shown.map((a) => (
-              <div key={a.name} className="flex items-baseline justify-between gap-3">
-                <dt className="truncate font-dn text-xs text-muted-foreground" title={a.name}>
-                  {a.name}
-                </dt>
-                <dd className="shrink-0 truncate tabular-nums" title={a.values.map(displayText).join(", ")}>
-                  {a.values.length === 0
-                    ? "—"
-                    : displayText(a.values[0] as (typeof a.values)[number])}
-                  {a.values.length > 1 ? (
-                    <span className="ml-1 text-xs text-muted-foreground">
-                      +{a.values.length - 1}
-                    </span>
-                  ) : null}
-                </dd>
-              </div>
+              <MonitorField key={a.name} name={a.name} values={a.values} />
             ))}
           </dl>
           {attrs.length > shown.length ? (
@@ -358,6 +345,42 @@ function MonitorCard({ dn, onBrowse }: { dn: string; onBrowse: (dn: string) => v
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * One attribute of the monitoring entry.
+ *
+ * The row wraps: a value that fits beside its name sits at the right of the
+ * row, as counters always have; one that does not drops below the name and
+ * wraps there, instead of squeezing the name away or running out of the card.
+ * Expanded, the field takes the whole width of the card, so a long aci reads
+ * as a paragraph rather than a narrow column.
+ */
+function MonitorField({
+  name,
+  values,
+}: {
+  name: string;
+  values: Parameters<typeof LdapValue>[0]["values"];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div
+      className={cn(
+        // min-w-0: a grid item's automatic minimum is its content, which for
+        // an unbroken value is wider than the column.
+        "flex min-w-0 flex-wrap items-baseline justify-between gap-x-3",
+        expanded && "sm:col-span-2",
+      )}
+    >
+      <dt className="max-w-full font-dn text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        {name}
+      </dt>
+      <dd className={cn("ml-auto min-w-0 max-w-full tabular-nums", expanded && "w-full")}>
+        <LdapValue values={values} expanded={expanded} onExpandedChange={setExpanded} />
+      </dd>
+    </div>
   );
 }
 

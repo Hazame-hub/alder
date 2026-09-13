@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check, Copy, Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -101,12 +101,27 @@ function LdifLine({
   );
 }
 
-export function CopyButton({ text, label }: { text: string; label?: string }) {
+export function CopyButton({
+  text,
+  label,
+  ariaLabel = "Copy to clipboard",
+  variant = "secondary",
+  className,
+}: {
+  text: string;
+  label?: string;
+  /** The accessible name when the button shows only an icon. */
+  ariaLabel?: string;
+  variant?: ButtonProps["variant"];
+  className?: string;
+}) {
   const [copied, setCopied] = useState(false);
   return (
     <Button
       type="button"
-      variant="secondary"
+      variant={variant}
+      className={className}
+      aria-label={label ? undefined : ariaLabel}
       size={label ? "sm" : "icon-sm"}
       onClick={() => {
         void navigator.clipboard.writeText(text).then(() => {
@@ -114,7 +129,7 @@ export function CopyButton({ text, label }: { text: string; label?: string }) {
           window.setTimeout(() => setCopied(false), 1600);
         });
       }}
-      title="Copy to clipboard"
+      title={ariaLabel}
     >
       {copied ? <Check className="text-success" /> : <Copy />}
       {label ? <span>{copied ? "Copied" : label}</span> : null}
