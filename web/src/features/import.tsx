@@ -1,14 +1,22 @@
 import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { CheckCircle2, FileUp, ListChecks, Loader2, Upload } from "lucide-react";
+import {
+  CheckCircle2,
+  FileSearch,
+  FileUp,
+  ListChecks,
+  Loader2,
+  Upload,
+} from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
-import type { ChangeRequest, ImportResult } from "@/lib/api";
+import type { ChangeRequest, ImportResult, Plan } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui";
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { LdifBlock } from "@/components/ldif-block";
+import { PlanSummary } from "@/components/plan-summary";
 import { stageChanges, type StageOutcome } from "@/lib/stage-deletes";
 
 /**
@@ -37,16 +45,19 @@ export function ImportPanel({
   const [applied, setApplied] = useState<Set<number>>(new Set());
   const [staged, setStaged] = useState<Set<number>>(new Set());
   const [staging, setStaging] = useState<StageOutcome | null>(null);
-  const [pending, setPending] = useState<{ index: number; change: ChangeRequest } | null>(
-    null,
-  );
+  const [pending, setPending] = useState<{
+    index: number;
+    change: ChangeRequest;
+  } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [reconcile, setReconcile] = useState(false);
 
   const parse = useMutation<ImportResult, ApiFailure>({
     mutationFn: async () =>
-      unwrap(await api.POST("/import/ldif", { body: { ldif: text, reconcile } })),
+      unwrap(
+        await api.POST("/import/ldif", { body: { ldif: text, reconcile } }),
+      ),
     onSuccess: () => {
       setApplied(new Set());
       setStaged(new Set());
@@ -54,17 +65,39 @@ export function ImportPanel({
     },
   });
 
+  // The same document planned against the directory. The checkbox decides how
+  // it is read, and the server refuses a desired-state document that also says
+  // what to do, rather than choosing one reading for it. Planning here is for
+  // reading: whatever is staged is planned again by the changeset before it
+  // can be applied, so nothing applied is ever a plan nobody saw.
+  const plan = useMutation<Plan, ApiFailure>({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/plan", {
+          body: {
+            ldif: text,
+            mode: reconcile ? "desired" : "changes",
+            reconcile: false,
+          },
+        }),
+      ),
+  });
+
   // What the button would act on: everything parsed that is neither already
   // applied from this panel nor already in the basket.
   const remaining = (parse.data?.requests ?? [])
     .map((request, index) => ({ request, index }))
-    .filter(({ request, index }) => request && !applied.has(index) && !staged.has(index));
+    .filter(
+      ({ request, index }) =>
+        request && !applied.has(index) && !staged.has(index),
+    );
 
   const loadFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
       setText(String(reader.result ?? ""));
       parse.reset();
+      plan.reset();
     };
     reader.readAsText(file);
   };
@@ -104,14 +137,30 @@ export function ImportPanel({
           onChange={(e) => {
             setText(e.target.value);
             parse.reset();
+            plan.reset();
           }}
         />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={() => parse.mutate()} disabled={!text.trim() || parse.isPending}>
+        <Button
+          onClick={() => parse.mutate()}
+          disabled={!text.trim() || parse.isPending}
+        >
           {parse.isPending ? <Loader2 className="animate-spin" /> : <FileUp />}
           Parse
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => plan.mutate()}
+          disabled={!text.trim() || plan.isPending}
+        >
+          {plan.isPending ? (
+            <Loader2 className="animate-spin" />
+          ) : (
+            <FileSearch />
+          )}
+          Plan against the directory
         </Button>
         <Button variant="outline" onClick={() => fileInput.current?.click()}>
           <Upload />
@@ -139,23 +188,63 @@ export function ImportPanel({
           onCheckedChange={(v) => {
             setReconcile(v === true);
             parse.reset();
+            plan.reset();
           }}
           className="mt-0.5"
         />
         <span>
-          Update entries that already exist
+          Read it as desired state
           <span className="block text-xs text-muted-foreground">
+            A record with no <code className="font-mono">changetype</code> says
+            what that entry should hold, and an entry that is already there gets
+            the modification that brings it there. Planned this way, a document
+            may not also contain <code className="font-mono">changetype</code>{" "}
+            records, which say what to do rather than what should be.
+          </span>
+          <span className="mt-1 block text-xs text-muted-foreground">
             A record for an entry that is already there becomes a modification
             bringing it to what the record says, instead of an add the directory
-            refuses. It replaces the attributes the record names and leaves every
-            other attribute alone — a document that does not mention{" "}
+            refuses. It replaces the attributes the record names and leaves
+            every other attribute alone — a document that does not mention{" "}
             <span className="font-dn">userPassword</span> is not a document
             asking for it to be removed.
           </span>
         </span>
       </label>
 
-      {parse.isError ? <ErrorNote title="The LDIF could not be used" error={parse.error} /> : null}
+      {plan.isError ? (
+        <div className="space-y-1.5">
+          <ErrorNote
+            title="This document could not be planned"
+            error={plan.error}
+          />
+          {plan.error.affected?.length ? (
+            <ul className="ml-5 list-disc space-y-0.5 text-xs text-muted-foreground">
+              {plan.error.affected.map((a) => (
+                <li key={a.index}>
+                  Record {a.index + 1}: <span className="font-dn">{a.dn}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {plan.data ? (
+        <section className="space-y-2">
+          <h3 className="font-medium">What this document would do</h3>
+          <p className="text-xs text-muted-foreground">
+            Read against the directory as it is now. Nothing has been written.
+            To apply it, parse and stage the records: the changeset plans them
+            again before anything runs.
+          </p>
+          <PlanSummary plan={plan.data} />
+        </section>
+      ) : null}
+
+      {parse.isError ? (
+        <ErrorNote title="The LDIF could not be used" error={parse.error} />
+      ) : null}
 
       {parse.data ? (
         <section className="space-y-3">
@@ -189,7 +278,8 @@ export function ImportPanel({
                     })),
                     {
                       noun: "change",
-                      nothing: "Every record here is already applied or staged.",
+                      nothing:
+                        "Every record here is already applied or staged.",
                     },
                   );
                   setStaging(outcome);
@@ -214,7 +304,11 @@ export function ImportPanel({
               <Button size="sm" variant="outline" onClick={onReviewChangeset}>
                 {staging.ok ? "Review the changeset" : "Open the changeset"}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setStaging(null)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setStaging(null)}
+              >
                 Dismiss
               </Button>
             </div>
@@ -233,7 +327,10 @@ export function ImportPanel({
               </span>
               <ul className="mt-1.5 max-h-32 space-y-0.5 overflow-y-auto">
                 {parse.data.unchanged.map((dn) => (
-                  <li key={dn} className="truncate font-dn text-xs text-muted-foreground">
+                  <li
+                    key={dn}
+                    className="truncate font-dn text-xs text-muted-foreground"
+                  >
                     {dn}
                   </li>
                 ))}
@@ -257,13 +354,12 @@ export function ImportPanel({
             const done = applied.has(i);
             const inBasket = staged.has(i);
             return (
-              <div
-                key={i}
-                className={cnCard(done, inBasket)}
-              >
+              <div key={i} className={cnCard(done, inBasket)}>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
                   <div className="flex items-center gap-2">
-                    {done ? <CheckCircle2 className="size-4 text-success" /> : null}
+                    {done ? (
+                      <CheckCircle2 className="size-4 text-success" />
+                    ) : null}
                     {inBasket ? (
                       <ListChecks className="size-4 text-muted-foreground" />
                     ) : null}
@@ -273,9 +369,15 @@ export function ImportPanel({
                     size="sm"
                     variant={done || inBasket ? "outline" : "default"}
                     disabled={!request || done || inBasket}
-                    onClick={() => request && setPending({ index: i, change: request })}
+                    onClick={() =>
+                      request && setPending({ index: i, change: request })
+                    }
                   >
-                    {done ? "Applied" : inBasket ? "Staged" : "Review and apply"}
+                    {done
+                      ? "Applied"
+                      : inBasket
+                        ? "Staged"
+                        : "Review and apply"}
                   </Button>
                 </div>
                 {change.warnings?.length ? (

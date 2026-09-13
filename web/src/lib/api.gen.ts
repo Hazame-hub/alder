@@ -558,13 +558,44 @@ export interface paths {
          *     `action` is a stable identifier and is what a client should switch on.
          *     `reason` is prose for a person and may be reworded in any release.
          *
-         *     Each item carries a `baseline`: an opaque token naming the state that
-         *     item was planned against. Hand it back on the corresponding change when
-         *     applying, and the server re-reads the entry and refuses with `409` if
-         *     the directory has moved since. It is a fingerprint, not a snapshot, and
-         *     it holds no attribute values; a sensitive attribute contributes only
-         *     whether it is set and how many values it has. Baselines are meaningless
-         *     to any other Alder process and do not survive a restart.
+         *     Each applicable item carries a `baseline`: an opaque token binding two
+         *     things — the exact operation in `record`, and the state of the directory
+         *     that operation was planned against. Hand it back on the corresponding
+         *     change when applying. The server re-reads the entry and refuses the
+         *     whole set before anything runs: `400 plan_mismatch` if a change is not
+         *     the operation its baseline was issued for, `409 conflict` with
+         *     `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+         *     holds no attribute values; a sensitive attribute contributes only
+         *     whether it is set and how many values it has, and a password change
+         *     binds the entry and the fact of the change, never the password.
+         *     Baselines are meaningless to any other Alder process and do not survive
+         *     a restart.
+         *
+         *     The input is either `changes` or `ldif`, never both.
+         *
+         *     **`ldif` with `mode: changes`** (the default) plans every record as the
+         *     exact operation it states. A record with no `changetype` is an add,
+         *     which is what `ldapadd` does with it. An add of an entry that already
+         *     exists is a conflict (`entry_exists`); it is never turned into a
+         *     modification nobody asked for.
+         *
+         *     **`ldif` with `mode: desired`** reads the document as the state entries
+         *     should be in. Only content records — no `changetype` — are accepted; a
+         *     record with one is refused with `400 ldif_mode_mismatch`, because a
+         *     document mixing "this entry looks like this" with "do this" has no
+         *     single meaning. Each record is reconciled: created if the entry is
+         *     absent, turned into the modification of the attributes it names if
+         *     present, reported `unchanged` if it already matches. Attributes a record
+         *     does not name are left alone. **An entry the document does not mention
+         *     is not deleted**; there is no mode in which absence means deletion.
+         *
+         *     `impact` reports facts, not a risk score: which target area each change
+         *     touches (ordinary data, schema, server configuration), memberships
+         *     gained and lost, deletions grouped into the branches they remove, and —
+         *     for deletions and renames — the entries that name the affected DN and
+         *     how many of those references the plan would leave dangling. Reference
+         *     search runs as the session's own bind, so it reports what that bind can
+         *     see; see `impact.references`.
          */
         post: operations["planChanges"];
         delete?: never;
@@ -768,9 +799,25 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
+            /**
+             * @description A more precise reason beside `error`, where the error code has to
+             *     stay what an earlier release sent. `plan_stale` accompanies
+             *     `error: conflict` when a planned change's baseline no longer matches
+             *     the directory: 1.4 answered that case with `conflict`, and a client
+             *     switching on that must keep working, so the code is unchanged and the
+             *     precision is added here. Added in 1.5.
+             * @enum {string}
+             */
+            cause?: "plan_stale";
+            /**
+             * @description The changes or records an error is about, by position in what was
+             *     sent and by DN: every stale change, not just the first. Added in
+             *     1.5.
+             */
+            affected?: components["schemas"]["ErrorAffected"][];
             /** @description Extra context, such as the LDIF line a parse failed on. */
             detail?: string;
             /** @description The LDAP result code, where the failure came from the directory. */
@@ -787,6 +834,10 @@ export interface components {
              *     for.
              */
             hint?: string;
+        };
+        ErrorAffected: {
+            index: number;
+            dn: string;
         };
         ConnectRequest: {
             /**
@@ -1652,34 +1703,171 @@ export interface components {
              */
             baseline?: string;
         };
+        /**
+         * @description Exactly one of `changes` and `ldif`. `changes` was required in 1.4; it
+         *     is now one of two inputs, which loosens the request and breaks no client
+         *     that sends it.
+         */
         PlanRequest: {
             /**
              * @description The changes to plan, in the order they would be applied. Bounded
              *     like a changeset, and for the same reason: the whole set is read
              *     and classified in one request.
              */
-            changes: components["schemas"]["ChangeRequest"][];
+            changes?: components["schemas"]["ChangeRequest"][];
             /**
              * @description Turn an `add` of an entry that already exists into the modification
              *     that makes the attributes it names match, leaving every attribute
              *     it does not name alone. This is what closes the export, edit,
              *     import loop. Without it such a change is a conflict, because a
              *     directory refuses an add for an entry that exists.
+             *
+             *     Applies to `changes` only. For LDIF the same choice is `mode`, made
+             *     per document from its records rather than by a switch that
+             *     reinterprets them.
              * @default false
              */
             reconcile: boolean;
+            /**
+             * @description An LDIF document to plan, bounded like an import. Parsed with the
+             *     same reader as `/import/ldif`; `attr:< url` references and LDAP
+             *     controls are refused, as they are there.
+             */
+            ldif?: string;
+            mode?: components["schemas"]["PlanLdifMode"];
+        };
+        /**
+         * @description How an LDIF document is read. `changes`: every record is the exact
+         *     operation it states, and a content record is an add. `desired`: the
+         *     document is the state entries should be in; only content records are
+         *     accepted, each is reconciled, and absence never means deletion.
+         * @default changes
+         * @enum {string}
+         */
+        PlanLdifMode: "changes" | "desired";
+        /**
+         * @description How a proposal was read. `exact` is planned as written and never
+         *     rewritten. `desired` is reconciled against the entry that is there.
+         * @enum {string}
+         */
+        PlanIntent: "exact" | "desired";
+        /**
+         * @description Why a change would not apply. Stable identifiers.
+         *
+         *     State conflicts (`action: conflict`), which may resolve when the
+         *     directory changes: `entry_missing`, `entry_exists`, `has_children`,
+         *     `rename_target_exists`.
+         *
+         *     Schema violations (`action: invalid`), which will not resolve by
+         *     waiting: `object_class_undefined`, `attribute_undefined`,
+         *     `attribute_not_permitted`, `single_value_violation`,
+         *     `missing_required_attribute`. Only rules the schema states outright are
+         *     checked; anything that depends on server behaviour is left for the
+         *     directory to refuse.
+         * @enum {string}
+         */
+        PlanProblemCode: "entry_missing" | "entry_exists" | "has_children" | "rename_target_exists" | "object_class_undefined" | "attribute_undefined" | "attribute_not_permitted" | "single_value_violation" | "missing_required_attribute";
+        PlanProblem: {
+            code: components["schemas"]["PlanProblemCode"];
+            /** @description The attribute or object class concerned, where there is one. */
+            attribute?: string;
+        };
+        /**
+         * @description Which area of the server a change lands in. `schema`: the server's
+         *     schema entry, where a write changes what every entry may hold.
+         *     `config`: the server's own configuration tree. `data`: everything else.
+         *     Decided from the locations the server announces, not from a DN pattern.
+         * @enum {string}
+         */
+        PlanTargetKind: "data" | "schema" | "config";
+        /**
+         * @description One membership attribute's net effect on the entry a change touches:
+         *     the change's modifications replayed in order over the values the entry
+         *     holds, so an add and a delete of the same member is no change. Member
+         *     DNs are compared as DNs.
+         */
+        PlanMembershipChange: {
+            attribute: string;
+            gained: string[];
+            removed: string[];
+        };
+        /** @description Entries naming a DN this change deletes or renames away. */
+        PlanReferenceImpact: {
+            /** @description How many references were found. */
+            count: number;
+            /**
+             * @description How many of them the plan leaves pointing at nothing: not removed
+             *     by another change in the same plan, and not held by an entry the
+             *     plan also deletes.
+             */
+            dangling: number;
+            byAttribute: components["schemas"]["PlanReferenceCount"][];
+            /** @description The referring entries, at most fifty. */
+            referrers?: string[];
+        };
+        /**
+         * @description Planned deletions that together remove a branch. Reported only for more
+         *     than one entry, so a subtree deletion never reads as a one-entry change.
+         */
+        PlanSubtree: {
+            root: string;
+            entries: number;
+        };
+        PlanReferenceCount: {
+            attribute: string;
+            count: number;
+        };
+        /** @description How many applicable changes land in each target area. */
+        PlanImpactKinds: {
+            data: number;
+            schema: number;
+            config: number;
+        };
+        PlanImpactMembership: {
+            gained: number;
+            removed: number;
+            /** @description How many distinct entries have membership changes. */
+            groups: number;
+        };
+        PlanImpactReferences: {
+            /**
+             * @description Whether references were searched for. False when the plan deletes
+             *     or renames nothing, or when it affects more DNs than a single
+             *     request will search for; `reason` then says which, and no count is
+             *     offered in place of one.
+             */
+            analysed: boolean;
+            reason?: string;
+            found: number;
+            dangling: number;
+            /**
+             * @description The reference search reached its bound, so there may be more
+             *     references than counted. Independently of this, the search runs as
+             *     the session's own bind: an entry the access rules hide is absent
+             *     from the answer exactly as one that does not exist is.
+             */
+            truncated: boolean;
+        };
+        PlanImpact: {
+            kinds: components["schemas"]["PlanImpactKinds"];
+            membership: components["schemas"]["PlanImpactMembership"];
+            references: components["schemas"]["PlanImpactReferences"];
         };
         /**
          * @description What a change would do. A stable identifier: switch on this rather than
          *     reading `reason`.
          *
-         *     `unchanged` and `conflict` are the two that apply nothing. `set_password`
-         *     is separate from `modify` because it is an extended operation with no
-         *     LDIF form, and because a directory cannot be asked whether a password is
-         *     already the one being set — so it is never reported as unchanged.
+         *     `unchanged`, `conflict` and `invalid` apply nothing. `conflict` is a
+         *     change the directory would refuse as things stand; `invalid` is one the
+         *     schema forbids whatever the state. `invalid` was added in 1.5, and a
+         *     client that does not recognise it should treat it as it treats
+         *     `conflict`. `set_password` is separate from `modify` because it is an
+         *     extended operation with no LDIF form, and because a directory cannot be
+         *     asked whether a password is already the one being set, so it is never
+         *     reported as unchanged.
          * @enum {string}
          */
-        PlanAction: "add" | "modify" | "delete" | "rename" | "set_password" | "unchanged" | "conflict";
+        PlanAction: "add" | "modify" | "delete" | "rename" | "set_password" | "unchanged" | "conflict" | "invalid";
         PlanCounts: {
             examined: number;
             add: number;
@@ -1689,6 +1877,8 @@ export interface components {
             setPassword: number;
             unchanged: number;
             conflict: number;
+            /** @description Added in 1.5. */
+            invalid?: number;
         };
         PlanItem: {
             /** @description The change's position in the set that was sent, so a client can line the plan up against its own list. */
@@ -1697,6 +1887,13 @@ export interface components {
             action: components["schemas"]["PlanAction"];
             /** @description Whether the entry was there when the plan was made. */
             exists: boolean;
+            intent?: components["schemas"]["PlanIntent"];
+            kind?: components["schemas"]["PlanTargetKind"];
+            /** @description Set for `conflict` and `invalid`. */
+            problem?: components["schemas"]["PlanProblem"];
+            membership?: components["schemas"]["PlanMembershipChange"][];
+            /** @description Set for a deletion or a rename when references were analysed. */
+            references?: components["schemas"]["PlanReferenceImpact"];
             /**
              * @description Why this is unchanged, why it conflicts, or what the planner
              *     rewrote. Prose, for a person to read. Not stable across releases.
@@ -1711,9 +1908,9 @@ export interface components {
             /** @description The same exact LDIF and Ansible a confirmation dialog shows, for the record above. */
             preview?: components["schemas"]["ChangePreview"];
             /**
-             * @description An opaque token naming the state this item was planned against.
-             *     Send it back on the matching change when applying and the server
-             *     will refuse a stale plan. Absent for items that apply nothing.
+             * @description An opaque token binding the operation in `record` and the state it
+             *     was planned against. Send it back on the matching change when
+             *     applying. Absent for items that apply nothing.
              */
             baseline?: string;
             /**
@@ -1734,6 +1931,8 @@ export interface components {
              *     deleted, the same entry changed twice. None of them block.
              */
             warnings?: string[];
+            impact?: components["schemas"]["PlanImpact"];
+            subtrees?: components["schemas"]["PlanSubtree"][];
         };
         ChangePreview: {
             /**
@@ -2548,7 +2747,16 @@ export interface operations {
             /**
              * @description A change carried a `baseline` and the directory no longer matches
              *     it: something the plan depended on has been changed by somebody
-             *     else. Nothing was applied. Plan again to see what it would do now.
+             *     else. The code is `conflict`, as it was in 1.4, with
+             *     `cause: plan_stale`; `affected` lists every stale change, not only
+             *     the first. Nothing was applied, and nothing is
+             *     replanned on the caller's behalf — a plan the operator did not see
+             *     is not the plan they confirmed. Plan again to see what these changes
+             *     would do now.
+             *
+             *     A change whose `baseline` was issued for a different operation is
+             *     refused with `400 plan_mismatch` instead, and nothing is applied
+             *     either.
              */
             409: {
                 headers: {
@@ -2627,7 +2835,16 @@ export interface operations {
             /**
              * @description A change carried a `baseline` and the directory no longer matches
              *     it: something the plan depended on has been changed by somebody
-             *     else. Nothing was applied. Plan again to see what it would do now.
+             *     else. The code is `conflict`, as it was in 1.4, with
+             *     `cause: plan_stale`; `affected` lists every stale change, not only
+             *     the first. Nothing was applied, and nothing is
+             *     replanned on the caller's behalf — a plan the operator did not see
+             *     is not the plan they confirmed. Plan again to see what these changes
+             *     would do now.
+             *
+             *     A change whose `baseline` was issued for a different operation is
+             *     refused with `400 plan_mismatch` instead, and nothing is applied
+             *     either.
              */
             409: {
                 headers: {
@@ -2652,7 +2869,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The plan. Nothing has been applied. */
+            /**
+             * @description The plan. Nothing has been applied. A plan in which every item is
+             *     `unchanged` is a successful answer, not an error.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2661,7 +2881,20 @@ export interface operations {
                     "application/json": components["schemas"]["Plan"];
                 };
             };
-            400: components["responses"]["BadRequest"];
+            /**
+             * @description The request could not be planned: neither or both of `changes` and
+             *     `ldif`, LDIF that does not parse (`bad_request`, with the line in
+             *     `detail`), or a record with a `changetype` in `mode: desired`
+             *     (`ldif_mode_mismatch`, with the record in `affected`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description The directory could not be read, so no plan could be made. */

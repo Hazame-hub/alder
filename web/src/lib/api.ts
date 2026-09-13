@@ -60,6 +60,7 @@ export type ChangesetResult = Schemas["ChangesetResult"];
 export type Plan = Schemas["Plan"];
 export type PlanItem = Schemas["PlanItem"];
 export type PlanAction = Schemas["PlanAction"];
+export type PlanProblemCode = Schemas["PlanProblemCode"];
 export type ChangesetOutcome = Schemas["ChangesetOutcome"];
 export type ImportResult = Schemas["ImportResult"];
 export type ApiError = Schemas["Error"];
@@ -75,6 +76,13 @@ export class ApiFailure extends Error {
   readonly ldapCode?: number;
   /** What the result code usually means for what was attempted. */
   readonly hint?: string;
+  /**
+   * A more precise reason beside the code, where the code has to stay what an
+   * earlier release sent — `plan_stale` rides beside `conflict`.
+   */
+  readonly cause?: ApiError["cause"];
+  /** The changes or records the error is about, by position and DN. */
+  readonly affected?: ApiError["affected"];
 
   constructor(status: number, body?: ApiError) {
     super(body?.message ?? `Request failed with status ${status}`);
@@ -84,6 +92,21 @@ export class ApiFailure extends Error {
     this.detail = body?.detail;
     this.ldapCode = body?.ldapCode;
     this.hint = body?.hint;
+    this.cause = body?.cause;
+    this.affected = body?.affected;
+  }
+
+  /**
+   * True when a checked plan was refused because the directory, or the request,
+   * no longer matches it. The only way forward is to plan again: the server did
+   * not apply anything, and nothing may be applied on the strength of the old
+   * plan.
+   */
+  get isStalePlan() {
+    return (
+      (this.status === 409 && this.cause === "plan_stale") ||
+      this.code === "plan_mismatch"
+    );
   }
 
   /** True when the session is gone and the user must connect again. */
@@ -96,9 +119,16 @@ export class ApiFailure extends Error {
  * unwrap turns openapi-fetch's `{ data, error }` into a value or a throw, which
  * is what TanStack Query expects.
  */
-export function unwrap<T>(res: { data?: T; error?: unknown; response: Response }): T {
+export function unwrap<T>(res: {
+  data?: T;
+  error?: unknown;
+  response: Response;
+}): T {
   if (res.error !== undefined || res.data === undefined) {
-    throw new ApiFailure(res.response.status, res.error as ApiError | undefined);
+    throw new ApiFailure(
+      res.response.status,
+      res.error as ApiError | undefined,
+    );
   }
   return res.data;
 }
