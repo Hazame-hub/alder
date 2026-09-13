@@ -46,6 +46,11 @@ tags:
     description: Previewing and applying modifications.
   - name: transfer
     description: LDIF import and export, and Ansible generation.
+  - name: snapshots
+    description: |
+      Capturing directory state as a versioned snapshot, and comparing states.
+      Nothing here writes: a comparison can propose change requests, and those
+      only ever reach the directory through `/plan` and the ordinary apply.
   - name: licence
     description: |
       The AGPL section 13 offer. The only endpoint here that answers without a
@@ -822,6 +827,121 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /snapshots/capture:
+    post:
+      tags: [snapshots]
+      operationId: captureSnapshot
+      summary: Capture a subtree as a versioned snapshot
+      description: |
+        Reads the subtree as the session's own identity and returns it as an
+        Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+        repository. See `docs/SNAPSHOTS.md`.
+
+        - Entries, attribute names and values are in one defined order, so two
+          captures of an unchanged subtree differ only in `createdAt`, and have
+          the same `checksum`.
+        - Operational attributes are left out unless
+          `operationalAttributes` is set. Each entry's stable identity
+          (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+        - Sensitive attributes are recorded as a `withheld` count, never as a
+          value or anything derived from one.
+        - A capture that cannot finish -- more than 50,000 entries, a search
+          limit, a failure part way -- is an error. There is no partial
+          snapshot.
+        - Only data snapshots exist in 1.x so far: a base inside the schema or
+          the server's configuration is refused with
+          `snapshot_scope_unsupported`.
+
+        Nothing is kept on the server. The snapshot is returned and belongs to
+        the caller.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SnapshotCaptureRequest" }
+      responses:
+        "200":
+          description: The snapshot document, with a download filename.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Snapshot" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /snapshots/inspect:
+    post:
+      tags: [snapshots]
+      operationId: inspectSnapshot
+      summary: Validate a snapshot and describe it
+      description: |
+        Validates an uploaded snapshot exactly as a comparison would and
+        describes what it covers. Read-only: nothing is kept and nothing is
+        applied.
+
+        A snapshot is refused when its format or version is not one this Alder
+        reads (`snapshot_unsupported_version` for a newer version), when any DN,
+        value or field is malformed or unknown (`snapshot_invalid`), when a
+        sensitive attribute carries a value, or when a checksum is present and
+        does not match (`snapshot_checksum_mismatch`). A snapshot without a
+        checksum is accepted and described as `integrity: unverified`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Snapshot" }
+      responses:
+        "200":
+          description: What the snapshot covers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SnapshotInspection" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /diff:
+    post:
+      tags: [snapshots]
+      operationId: diffStates
+      summary: Compare two directory states
+      description: |
+        Compares `source` with `target`, each a snapshot or the live directory
+        this session is bound to. The direction is explicit: `added` means in
+        the target and not in the source. See `docs/SNAPSHOTS.md`.
+
+        - Values compare by the equality rule both sides recorded for the
+          attribute where Alder models it, and byte for byte otherwise; the
+          attributes compared by bytes are listed.
+        - A rename is only reported when both sides share an entry's stable
+          identity. Otherwise a moved entry is removed and added.
+        - What could not be seen is `unknown`, never `removed` or `added`: an
+          entry beyond a live search's bound, outside the other side's scope, or
+          an attribute the live directory will not show. Any of those makes the
+          comparison `complete: false`, with `reasons`.
+        - A live side reads as the session's identity. An entry the access
+          rules hide is indistinguishable from one that does not exist; see the
+          limits in `docs/SNAPSHOTS.md`.
+
+        When the source is live, each item carries a `candidate`: change
+        requests that would move the live directory toward the target. They are
+        input for `POST /plan`, never applied from here. Deleting an entry is a
+        `destructive` candidate, is never selected for the caller, and is
+        withheld entirely when the comparison is partial. A missing entry in the
+        target is never, by itself, a reason to delete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiffRequest" }
+      responses:
+        "200":
+          description: The comparison.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Diff" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /export/ldif:
     get:
       tags: [transfer]
@@ -1127,6 +1247,11 @@ components:
             - target_not_allowed
             - plan_mismatch
             - ldif_mode_mismatch
+            - snapshot_invalid
+            - snapshot_unsupported_version
+            - snapshot_checksum_mismatch
+            - snapshot_too_large
+            - snapshot_scope_unsupported
             - not_found
             - conflict
             - constraint_violation
@@ -1373,6 +1498,300 @@ components:
         readOnly:
           type: boolean
           description: True when the server was started with --read-only.
+
+    SnapshotScope:
+      type: string
+      enum: [base, one, sub]
+      x-enum-varnames: [SnapshotScopeBase, SnapshotScopeOne, SnapshotScopeSub]
+
+    SnapshotValue:
+      type: object
+      description: Exactly one of `text` or `base64`.
+      properties:
+        text: { type: string }
+        base64: { type: string }
+
+    SnapshotAttribute:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/SnapshotValue" }
+        withheld:
+          type: integer
+          description: For a sensitive attribute, how many values it held. It never has values.
+
+    SnapshotEntry:
+      type: object
+      required: [dn, attributes]
+      properties:
+        dn: { type: string }
+        id:
+          type: string
+          description: The server's stable identity for the entry, as `entryUUID=...` or `nsUniqueId=...`.
+        attributes:
+          type: array
+          items: { $ref: "#/components/schemas/SnapshotAttribute" }
+
+    SnapshotAttributeInfo:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        equality: { type: string }
+        syntax: { type: string }
+        singleValue: { type: boolean }
+        operational: { type: boolean }
+        sensitive: { type: boolean }
+
+    SnapshotSource:
+      type: object
+      required: [base, scope, filter]
+      properties:
+        vendor: { type: string }
+        vendorVersion: { type: string }
+        base: { type: string }
+        scope: { $ref: "#/components/schemas/SnapshotScope" }
+        filter: { type: string }
+
+    SnapshotExcluded:
+      type: string
+      enum: [operational-attributes, sensitive-values]
+      x-enum-varnames: [SnapshotExcludedOperationalAttributes, SnapshotExcludedSensitiveValues]
+
+    Snapshot:
+      type: object
+      description: |
+        An Alder snapshot, format version 1. The document is canonical: see
+        `docs/SNAPSHOTS.md` for its ordering and what `checksum` covers.
+      required: [format, version, kind, createdAt, source, operationalAttributes, schemaAvailable,
+        excluded, completeness, entryCount, attributes, entries]
+      properties:
+        format:
+          type: string
+          enum: [alder-snapshot]
+          x-enum-varnames: [SnapshotFormatAlderSnapshot]
+        version: { type: integer, description: "The snapshot format version. This Alder reads 1." }
+        kind:
+          type: string
+          enum: [data]
+          x-enum-varnames: [SnapshotKindData]
+        createdAt: { type: string, format: date-time }
+        source: { $ref: "#/components/schemas/SnapshotSource" }
+        operationalAttributes: { type: boolean }
+        schemaAvailable: { type: boolean }
+        excluded:
+          type: array
+          items: { $ref: "#/components/schemas/SnapshotExcluded" }
+        completeness:
+          type: string
+          enum: [complete]
+          x-enum-varnames: [SnapshotCompletenessComplete]
+        entryCount: { type: integer }
+        attributes:
+          type: array
+          items: { $ref: "#/components/schemas/SnapshotAttributeInfo" }
+        checksum:
+          type: string
+          description: "`sha256:<hex>` over the canonical content, excluding `createdAt`. Detects corruption or editing; it is not a signature."
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/SnapshotEntry" }
+
+    SnapshotCaptureRequest:
+      type: object
+      required: [base]
+      properties:
+        base: { type: string }
+        scope: { $ref: "#/components/schemas/SnapshotScope" }
+        filter:
+          type: string
+          description: An RFC 4515 filter, defaulting to `(objectClass=*)`. Parsed, never pasted.
+        operationalAttributes:
+          type: boolean
+          description: Capture operational attributes too. Off by default.
+
+    SnapshotIntegrity:
+      type: string
+      enum: [verified, unverified]
+      x-enum-varnames: [SnapshotIntegrityVerified, SnapshotIntegrityUnverified]
+
+    SnapshotInspection:
+      type: object
+      required: [version, kind, createdAt, source, operationalAttributes, schemaAvailable, excluded,
+        entryCount, checksum, integrity]
+      properties:
+        version: { type: integer }
+        kind: { type: string }
+        createdAt: { type: string }
+        source: { $ref: "#/components/schemas/SnapshotSource" }
+        operationalAttributes: { type: boolean }
+        schemaAvailable: { type: boolean }
+        excluded:
+          type: array
+          items: { $ref: "#/components/schemas/SnapshotExcluded" }
+        entryCount: { type: integer }
+        checksum: { type: string, description: "The checksum of the canonical content, whether or not the document carried one." }
+        integrity: { $ref: "#/components/schemas/SnapshotIntegrity" }
+
+    DiffLiveSide:
+      type: object
+      description: |
+        The live directory. Omitted fields are taken from the other side's
+        snapshot, so `{}` means "the same subtree, as it is now".
+      properties:
+        base: { type: string }
+        scope: { $ref: "#/components/schemas/SnapshotScope" }
+        filter: { type: string }
+        operationalAttributes: { type: boolean }
+
+    DiffSide:
+      type: object
+      description: Exactly one of `snapshot` or `live`.
+      properties:
+        snapshot: { $ref: "#/components/schemas/Snapshot" }
+        live: { $ref: "#/components/schemas/DiffLiveSide" }
+
+    DiffRequest:
+      type: object
+      required: [source, target]
+      properties:
+        source: { $ref: "#/components/schemas/DiffSide" }
+        target: { $ref: "#/components/schemas/DiffSide" }
+        includeUnchanged:
+          type: boolean
+          description: List unchanged entries as items rather than only counting them.
+
+    DiffSideKind:
+      type: string
+      enum: [snapshot, live]
+      x-enum-varnames: [DiffSideKindSnapshot, DiffSideKindLive]
+
+    DiffSideSummary:
+      type: object
+      required: [kind, base, scope, filter, operationalAttributes, entryCount]
+      properties:
+        kind: { $ref: "#/components/schemas/DiffSideKind" }
+        vendor: { type: string }
+        base: { type: string }
+        scope: { $ref: "#/components/schemas/SnapshotScope" }
+        filter: { type: string }
+        createdAt: { type: string }
+        checksum: { type: string }
+        integrity: { $ref: "#/components/schemas/SnapshotIntegrity" }
+        operationalAttributes: { type: boolean }
+        entryCount: { type: integer }
+
+    DiffKind:
+      type: string
+      enum: [added, removed, modified, renamed, unchanged, unknown]
+      x-enum-varnames: [DiffKindAdded, DiffKindRemoved, DiffKindModified, DiffKindRenamed, DiffKindUnchanged, DiffKindUnknown]
+
+    DiffReasonCode:
+      type: string
+      enum: [search_limit_reached, scope_mismatch, insufficient_access, access_not_verified, schema_unavailable]
+      x-enum-varnames: [DiffReasonSearchLimitReached, DiffReasonScopeMismatch, DiffReasonInsufficientAccess,
+        DiffReasonAccessNotVerified, DiffReasonSchemaUnavailable]
+
+    DiffReason:
+      type: object
+      required: [code, detail]
+      properties:
+        code: { $ref: "#/components/schemas/DiffReasonCode" }
+        detail: { type: string }
+
+    DiffCounts:
+      type: object
+      required: [compared, added, removed, modified, renamed, unchanged, unknown]
+      properties:
+        compared: { type: integer }
+        added: { type: integer }
+        removed: { type: integer }
+        modified: { type: integer }
+        renamed: { type: integer }
+        unchanged: { type: integer }
+        unknown: { type: integer }
+
+    DiffAttributeChange:
+      type: object
+      required: [name, kind]
+      properties:
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/DiffKind" }
+        added:
+          type: array
+          items: { $ref: "#/components/schemas/SnapshotValue" }
+        removed:
+          type: array
+          items: { $ref: "#/components/schemas/SnapshotValue" }
+        addedOmitted: { type: integer, description: Values in the target and not the source beyond the 1,000 listed. }
+        removedOmitted: { type: integer, description: Values in the source and not the target beyond the 1,000 listed. }
+        operational: { type: boolean }
+        sensitive: { type: boolean, description: "Compared by withheld count only; no values are ever listed." }
+        comparedByBytes: { type: boolean }
+        withheldSource: { type: integer }
+        withheldTarget: { type: integer }
+        unknownReason: { $ref: "#/components/schemas/DiffReasonCode" }
+
+    DiffCandidateBlocked:
+      type: string
+      enum: [source_not_live, incomplete_comparison, nothing_to_change, unknown_difference,
+        only_unchangeable_attributes, unresolvable_rename]
+      x-enum-varnames: [DiffBlockedSourceNotLive, DiffBlockedIncompleteComparison, DiffBlockedNothingToChange,
+        DiffBlockedUnknownDifference, DiffBlockedOnlyUnchangeableAttributes, DiffBlockedUnresolvableRename]
+
+    DiffCandidate:
+      type: object
+      description: |
+        Change requests that would move the live source toward the target: input
+        for `POST /plan`, never applied from here.
+      required: [changes, destructive]
+      properties:
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/ChangeRequest" }
+        destructive:
+          type: boolean
+          description: The candidate deletes an entry. Never selected for the caller.
+        blocked: { $ref: "#/components/schemas/DiffCandidateBlocked" }
+
+    DiffItem:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: "#/components/schemas/DiffKind" }
+        sourceDn: { type: string }
+        targetDn: { type: string }
+        attributes:
+          type: array
+          items: { $ref: "#/components/schemas/DiffAttributeChange" }
+        reason: { $ref: "#/components/schemas/DiffReasonCode" }
+        candidate: { $ref: "#/components/schemas/DiffCandidate" }
+
+    Diff:
+      type: object
+      required: [source, target, complete, counts, crossVendor, operationalIgnored, items]
+      properties:
+        source: { $ref: "#/components/schemas/DiffSideSummary" }
+        target: { $ref: "#/components/schemas/DiffSideSummary" }
+        complete: { type: boolean }
+        reasons:
+          type: array
+          items: { $ref: "#/components/schemas/DiffReason" }
+        counts: { $ref: "#/components/schemas/DiffCounts" }
+        crossVendor: { type: boolean }
+        comparedByBytes:
+          type: array
+          items: { type: string }
+        ruleDifferences:
+          type: array
+          items: { type: string }
+        operationalIgnored: { type: boolean }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/DiffItem" }
 
     AttributeValue:
       type: object
