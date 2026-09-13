@@ -52,8 +52,10 @@ export default defineConfig({
     // value is escaped into a DN, whether a value looks like a switch. None of
     // it touches the DOM, and a DOM environment would only add a dependency and
     // a second way for these to fail.
+    // Components are tested by rendering them to markup, which needs no DOM
+    // either.
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
   server: {
     port: 5173,
