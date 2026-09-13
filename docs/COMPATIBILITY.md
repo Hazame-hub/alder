@@ -95,6 +95,24 @@ those rules were applied:
   entry into a modification too. The document said add; this is a correctness
   fix, and the one place a 1.4 request now produces a different result.
 
+1.6 moved every single-change write in the interface onto the plan. The HTTP
+contract changed only by tightening what a token proves:
+
+- **`POST /changes/preview` is kept, and marked deprecated.** The interface no
+  longer calls it: its dialog plans the change and shows the preview that comes
+  back inside the plan item, which is rendered by the same code. The endpoint
+  still renders exactly what it did, for any 1.x client that uses it, and it is
+  not removed within 1.x.
+- **`POST /changes/apply` without a `baseline` applies as it always has.** The
+  interface now always sends one.
+- **A secret sent under a token must be the secret that was planned.** A
+  `set_password` change, or a sensitive attribute value, that differs from the
+  planned one is `400 plan_mismatch`; in 1.5 a value of the same length was
+  accepted. This is the guarantee a token exists to give, so it is treated as a
+  correctness fix. A consequence: a token carrying a secret verifies only in the
+  session that planned it, where 1.5's would verify in any session of the same
+  process.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —
