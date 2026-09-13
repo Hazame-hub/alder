@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/Hazame-hub/alder/compare/v1.4.0...v1.5.0) (2026-09-13)
+
+
+### Features
+
+* make the plan the operation, and plan LDIF ([#97](https://github.com/Hazame-hub/alder/issues/97)) ([e5a1a65](https://github.com/Hazame-hub/alder/commit/e5a1a65f1908c7b8efb5a1dbc88c2ee00358ebd5))
+
+
+### Fixes
+
+* **web:** make every monitor value inspectable instead of truncating it ([#100](https://github.com/Hazame-hub/alder/issues/100)) ([55ba768](https://github.com/Hazame-hub/alder/commit/55ba7683c5d1a29b49ec5dda54219d4fcc1fd72f))
+
 ## [1.4.0](https://github.com/Hazame-hub/alder/compare/v1.3.2...v1.4.0) (2026-09-12)
 
 
