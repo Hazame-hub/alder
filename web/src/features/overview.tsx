@@ -331,16 +331,29 @@ function MonitorCard({ dn, onBrowse }: { dn: string; onBrowse: (dn: string) => v
         <>
           <dl className="grid gap-x-6 gap-y-1.5 px-4 py-3 text-sm sm:grid-cols-2">
             {shown.map((a) => (
-              <div key={a.name} className="flex items-baseline justify-between gap-3">
-                <dt className="truncate font-dn text-xs text-muted-foreground" title={a.name}>
+              // min-w-0 on the row and the value, shrink-0 on the label: a long
+              // value (389 DS's connection lines, an aci) truncates inside its
+              // column instead of squeezing the label away and running out of
+              // the card. The label is capped at half the row so a long
+              // attribute name cannot do the same to the value.
+              <div key={a.name} className="flex min-w-0 items-baseline justify-between gap-3">
+                <dt
+                  className="max-w-[50%] shrink-0 truncate font-dn text-xs text-muted-foreground"
+                  title={a.name}
+                >
                   {a.name}
                 </dt>
-                <dd className="shrink-0 truncate tabular-nums" title={a.values.map(displayText).join(", ")}>
-                  {a.values.length === 0
-                    ? "—"
-                    : displayText(a.values[0] as (typeof a.values)[number])}
+                <dd
+                  className="flex min-w-0 items-baseline justify-end gap-1 tabular-nums"
+                  title={a.values.map(displayText).join(", ")}
+                >
+                  <span className="truncate">
+                    {a.values.length === 0
+                      ? "—"
+                      : displayText(a.values[0] as (typeof a.values)[number])}
+                  </span>
                   {a.values.length > 1 ? (
-                    <span className="ml-1 text-xs text-muted-foreground">
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       +{a.values.length - 1}
                     </span>
                   ) : null}
