@@ -81,7 +81,7 @@ func (s *Server) PlanChanges(c *fiber.Ctx) error {
 	defer cancel()
 	sch, _ := sess.Conn.Schema(ctx)
 
-	computed, err := s.planner.ComputeProposals(ctx, planReader{sess.Conn}, sch, proposals,
+	computed, err := s.planner.ForSession(sessionScope(sess)).ComputeProposals(ctx, planReader{sess.Conn}, sch, proposals,
 		plan.Options{MembershipAttributes: membershipAttrs})
 	if err != nil {
 		return s.fail(c, err)
@@ -380,9 +380,14 @@ func targetKind(caps directory.Capabilities, target dn.DN) PlanTargetKind {
 		target.Equal(subschema) {
 		return PlanTargetSchema
 	}
-	if config, err := dn.Parse(caps.ConfigContext); err == nil && !config.IsEmpty() &&
-		target.HasSuffix(config) {
-		return PlanTargetConfig
+	// The configuration tree as the server announced it, or -- for a server
+	// that announces none, which is 389 DS -- where Alder found it answering at
+	// the conventional location when the session connected. Either is a place
+	// the server itself put there; neither is a guess from what a DN looks like.
+	for _, root := range []string{caps.ConfigContext, caps.Config.DN} {
+		if config, err := dn.Parse(root); err == nil && !config.IsEmpty() && target.HasSuffix(config) {
+			return PlanTargetConfig
+		}
 	}
 	return PlanTargetData
 }
@@ -686,6 +691,14 @@ func (p planReader) HasChildren(ctx context.Context, target dn.DN) (bool, error)
 // problem from a plan the directory has outgrown, and saying "the directory
 // moved" about a change nobody planned would send the operator looking in the
 // wrong place.
+// sessionScope is what separates one session's secret bindings from another's:
+// a token that binds a password is only reproducible in the session that
+// planned it. The session ID never leaves the server in this form -- it is an
+// input to a key derivation under the process's fingerprint key.
+func sessionScope(sess *session.Session) []byte {
+	return []byte(sess.ID)
+}
+
 func (s *Server) checkPlannedChanges(
 	ctx context.Context,
 	sess *session.Session,
@@ -693,11 +706,12 @@ func (s *Server) checkPlannedChanges(
 	records []directory.ChangeRecord,
 ) (refusal *Error, status int, err error) {
 	var stale, mismatched []ErrorAffected
+	planner := s.planner.ForSession(sessionScope(sess))
 	for i, req := range requests {
 		if req.Baseline == nil || *req.Baseline == "" {
 			continue
 		}
-		verifyErr := s.planner.Verify(ctx, planReader{sess.Conn}, records[i], plan.Baseline(*req.Baseline))
+		verifyErr := planner.Verify(ctx, planReader{sess.Conn}, records[i], plan.Baseline(*req.Baseline))
 		switch {
 		case verifyErr == nil:
 		case plan.IsMismatch(verifyErr):

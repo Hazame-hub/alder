@@ -1493,7 +1493,7 @@ func (s *Server) ParseLdif(c *fiber.Ctx) error {
 			}
 		}
 		if len(desired) > 0 {
-			computed, planErr := s.planner.ComputeProposals(ctx, planReader{sess.Conn}, sch,
+			computed, planErr := s.planner.ForSession(sessionScope(sess)).ComputeProposals(ctx, planReader{sess.Conn}, sch,
 				desired, plan.Options{})
 			if planErr != nil {
 				return s.fail(c, planErr)
