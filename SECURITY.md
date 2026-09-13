@@ -78,8 +78,9 @@ entries outside the stated scope and sensitive attributes carrying values are
 all refused. It is bounded at 50,000 entries within the server's 16 MB request
 limit. A download's filename is built by the server from a sanitised base DN and
 a timestamp, and nothing in a document becomes a path. The interface renders
-every value as text. The checksum detects accidental damage and is not a
-signature. A comparison proposes changes but never applies them: its candidates
+every value as text. The checksum covers everything but `createdAt` and detects
+corruption of that content; it is not authentication or a signature, since
+anyone who edits a file can recompute it. A comparison proposes changes but never applies them: its candidates
 are staged and go through the plan like any other write.
 
 **TLS is on by default in both directions.** The server refuses to start without

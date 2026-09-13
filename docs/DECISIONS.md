@@ -2136,8 +2136,10 @@ to contradict the plan — add an entry.
 - **Canonical, and checksummed without the time.** Entries parent-first, attributes
   `objectClass`-first then by name, values by their matching-rule key. SHA-256
   over everything but `createdAt`, so an unchanged directory produces the same
-  checksum twice. The checksum catches damage and hand edits. It is described
-  everywhere as not being a signature. Rejected: signing, which needs a key to
+  checksum twice. A change to the captured content or the covered metadata
+  invalidates it; a change to `createdAt` does not, by design. It is an integrity
+  check against corruption, described everywhere as neither authentication nor
+  a signature. Rejected: signing, which needs a key to
   manage and would suggest an authenticity nobody can check.
 - **Sensitive attributes are a count, never a digest.** A hash of a password in
   a file people share is an offline guessing oracle. The consequence, stated in
@@ -2148,8 +2150,9 @@ to contradict the plan — add an entry.
   single value, so a future partial kind would be a new value an old reader
   refuses, not a document it misreads.
 - **Unknown fields are refused.** A 1.x reader that skipped a field a later
-  writer relied on would compare wrongly without saying so. Version 1 stays
-  readable by every 1.x release.
+  writer relied on would compare wrongly without saying so. Snapshot format
+  version 1 was introduced in 1.7, and every later 1.x release will continue to
+  read it.
 - **Direction is explicit, and only a live source proposes changes.** `added` means
   in the target and not in the source, always. Candidates exist only when the
   source is the directory, because that is the only side a change can be made

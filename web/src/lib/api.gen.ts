@@ -1177,7 +1177,7 @@ export interface components {
             completeness: "complete";
             entryCount: number;
             attributes: components["schemas"]["SnapshotAttributeInfo"][];
-            /** @description `sha256:<hex>` over the canonical content, excluding `createdAt`. Detects corruption or editing; it is not a signature. */
+            /** @description `sha256:<hex>` over the canonical content: every field except `createdAt` and `checksum`. A change to the captured entries or to the covered metadata invalidates it; a change to `createdAt` does not. An integrity check against corruption, not authentication or a signature. */
             checksum?: string;
             entries: components["schemas"]["SnapshotEntry"][];
         };

@@ -119,13 +119,23 @@ data. Alder does not claim a snapshot is free of secrets it cannot recognise.
 
 ### The checksum
 
-`checksum` is SHA-256 over the canonical content: every field except
+`checksum` is SHA-256 over the canonical snapshot payload: every field except
 `createdAt` and `checksum` itself. Two captures of the same state therefore
-carry the same checksum.
+carry the same checksum. Precisely:
 
-It detects a **damaged or hand-edited** snapshot. It is **not a signature**. It
-proves nothing about who made the file, because anyone who edits one can
-recompute it. On reading:
+- **Changing captured content invalidates it.** That means any entry, attribute,
+  value or withheld count, and any covered metadata: `format`, `version`,
+  `kind`, `source`, `operationalAttributes`, `schemaAvailable`, `excluded`,
+  `completeness`, `entryCount` and `attributes`.
+- **Changing `createdAt` does not.** The capture time is deliberately outside
+  the checksum, so identical state gives identical checksums.
+- **Reformatting or reordering does not.** The checksum is computed over the
+  canonical form, so re-indenting the file, or reordering its entries,
+  attributes or values, changes nothing it covers.
+
+It is an **integrity check against corruption**. It is **not authentication and
+not a signature**: it proves nothing about who made the file, because anyone who
+edits one can recompute it. On reading:
 
 | The document… | Result |
 |---|---|
@@ -338,5 +348,5 @@ directory holds now.
 - **Storage.** Alder keeps no snapshots, no history and no schedule.
 - **Signing, compression, fuzzy rename detection, rollback, inverse LDIF.**
 
-Version 1 snapshots will be readable by every 1.x release. See
-[COMPATIBILITY.md](COMPATIBILITY.md).
+Snapshot format version 1 was introduced in Alder 1.7. Every later 1.x release
+will continue to read it. See [COMPATIBILITY.md](COMPATIBILITY.md).

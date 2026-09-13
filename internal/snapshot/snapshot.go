@@ -139,8 +139,9 @@ type Snapshot struct {
 	EntryCount   int             `json:"entryCount"`
 	Attributes   []AttributeInfo `json:"attributes"`
 	// Checksum is "sha256:<hex>" over the canonical content -- everything but
-	// CreatedAt and Checksum. It detects accidental corruption or editing. It
-	// is not a signature and proves nothing about who wrote the file.
+	// CreatedAt and Checksum. A change to the entries or the covered metadata
+	// invalidates it; a change to CreatedAt does not. It is an integrity check
+	// against corruption, not authentication or a signature.
 	Checksum string  `json:"checksum,omitempty"`
 	Entries  []Entry `json:"entries"`
 

@@ -1595,7 +1595,7 @@ components:
           items: { $ref: "#/components/schemas/SnapshotAttributeInfo" }
         checksum:
           type: string
-          description: "`sha256:<hex>` over the canonical content, excluding `createdAt`. Detects corruption or editing; it is not a signature."
+          description: "`sha256:<hex>` over the canonical content: every field except `createdAt` and `checksum`. A change to the captured entries or to the covered metadata invalidates it; a change to `createdAt` does not. An integrity check against corruption, not authentication or a signature."
         entries:
           type: array
           items: { $ref: "#/components/schemas/SnapshotEntry" }

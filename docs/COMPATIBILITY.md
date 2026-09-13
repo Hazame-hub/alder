@@ -119,14 +119,15 @@ contract changed only by tightening what a token proves:
   `POST /diff`, and the error identifiers `snapshot_invalid`,
   `snapshot_unsupported_version`, `snapshot_checksum_mismatch`,
   `snapshot_too_large` and `snapshot_scope_unsupported`.
-- **The snapshot document is covered like the API.** A version 1 snapshot, as
-  described in [SNAPSHOTS.md](SNAPSHOTS.md), is readable by every 1.x release, and
-  two captures of the same state produce the same document apart from
-  `createdAt`. A later 1.x may write a new version, or a new `kind`, and will
-  still read version 1. Readers refuse unknown fields rather than ignore them, so
-  a document that uses a field an older release does not know is refused by that
-  release with `snapshot_invalid`. That is deliberate: a field the reader skipped
-  could change what the comparison means.
+- **The snapshot document is covered like the API.** Snapshot format version 1,
+  described in [SNAPSHOTS.md](SNAPSHOTS.md), was introduced in Alder 1.7. Every
+  later 1.x release will continue to read it, and two captures of the same state
+  will produce the same document apart from `createdAt`. Releases before 1.7 have
+  no snapshot support at all. A later 1.x may write a new version, or a new
+  `kind`, and will still read version 1. Readers refuse unknown fields rather
+  than ignore them, so a document that uses a field an older release does not
+  know is refused by that release with `snapshot_invalid`. That is deliberate: a
+  field the reader skipped could change what the comparison means.
 - **Comparison enums may grow.** New values in `DiffKind`, `DiffReasonCode` and
   `DiffCandidateBlocked` follow the enum rule above. A client that does not
   recognise a `blocked` value should treat the item as offering no change.
