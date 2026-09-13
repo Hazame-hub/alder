@@ -7,25 +7,38 @@
 // are additions, which are modifications, which would do nothing at all, and
 // which cannot be applied as written.
 //
-// The LDIF import came closest: it reconciles content records against live
-// entries, reports how many it rewrote and lists the ones that already matched.
-// This is that, generalised to any set of changes and made machine-readable,
-// with the classification a client can switch on instead of parsing prose.
+// # The rule this package exists to keep
 //
-// # What this is not
+// The records a plan carries are the records Apply receives -- the same values,
+// not an equivalent reconstruction. Nothing downstream of a plan decides again
+// what to write. Since 1.5 that is enforced rather than conventional: each
+// planned record carries a token binding the exact operation, and the apply
+// path refuses a request that is not the operation that was planned (see
+// baseline.go).
 //
-// It is not a second way to work out what to write. The records a plan carries
-// are the records Apply receives -- the same values, not an equivalent
-// reconstruction -- which is the one property that stops a plan from describing
-// a change the apply does not make. Everything here classifies and annotates
-// records; nothing here invents one, except by calling the same reconcile the
-// import path has always used.
+// # Two kinds of proposal
+//
+// A proposal is either an exact operation or a statement of desired state, and
+// the two are never confused.
+//
+// An exact operation -- a changetype record, or a change built in the editor --
+// is planned as written. It is checked against the directory (does the entry it
+// modifies exist, does the one it adds not) and classified, but it is never
+// rewritten: an add of an entry that exists is a conflict, not a modification
+// somebody did not ask for.
+//
+// A desired-state proposal -- a content record, what an export produces -- says
+// what an entry should look like. It is reconciled: created if absent, turned
+// into the modification of the attributes it names if present, and reported
+// unchanged if it already matches. Attributes it does not name are left alone,
+// and an entry it does not mention is not a deletion.
 package plan
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
@@ -58,7 +71,87 @@ const (
 	// modifying an entry that is not there, deleting one that has children.
 	// Reported rather than attempted, and never applied by a plan.
 	ActionConflict Action = "conflict"
+	// ActionInvalid is a change the schema would refuse whatever state the
+	// directory were in: an attribute no class on the entry permits, a second
+	// value for a single-valued attribute. Separate from conflict because the
+	// remedy is different -- a conflict may resolve itself when the directory
+	// changes, an invalid change will not.
+	ActionInvalid Action = "invalid"
 )
+
+// Intent is how a proposal is to be read.
+type Intent int
+
+const (
+	// IntentExact plans the record as written.
+	IntentExact Intent = iota
+	// IntentDesired reconciles an add against the entry that is there.
+	IntentDesired
+)
+
+func (i Intent) String() string {
+	if i == IntentDesired {
+		return "desired"
+	}
+	return "exact"
+}
+
+// Proposal is one change offered for planning, with how to read it.
+type Proposal struct {
+	Record directory.ChangeRecord
+	Intent Intent
+}
+
+// Exact wraps records as exact operations.
+func Exact(records ...directory.ChangeRecord) []Proposal {
+	out := make([]Proposal, 0, len(records))
+	for _, r := range records {
+		out = append(out, Proposal{Record: r, Intent: IntentExact})
+	}
+	return out
+}
+
+// ProblemCode says precisely why a change would not apply. Stable, like Action.
+type ProblemCode string
+
+const (
+	// ProblemEntryMissing: the change needs an entry that is not there.
+	ProblemEntryMissing ProblemCode = "entry_missing"
+	// ProblemEntryExists: an exact add of an entry that is already there.
+	ProblemEntryExists ProblemCode = "entry_exists"
+	// ProblemHasChildren: a delete of an entry that is not a leaf.
+	ProblemHasChildren ProblemCode = "has_children"
+	// ProblemRenameTargetExists: a rename onto a DN that is already taken.
+	ProblemRenameTargetExists ProblemCode = "rename_target_exists"
+	// ProblemObjectClassUndefined: an object class the schema does not define.
+	ProblemObjectClassUndefined ProblemCode = "object_class_undefined"
+	// ProblemAttributeUndefined: an attribute type the schema does not define.
+	ProblemAttributeUndefined ProblemCode = "attribute_undefined"
+	// ProblemAttributeNotPermitted: an attribute no class on the entry allows.
+	ProblemAttributeNotPermitted ProblemCode = "attribute_not_permitted"
+	// ProblemSingleValue: more than one value for a single-valued attribute.
+	ProblemSingleValue ProblemCode = "single_value_violation"
+	// ProblemMissingRequired: an add that omits an attribute a class requires.
+	ProblemMissingRequired ProblemCode = "missing_required_attribute"
+)
+
+// Problem is the typed reason a change would not apply.
+type Problem struct {
+	Code ProblemCode
+	// Attribute names the attribute or object class concerned, where there is
+	// one.
+	Attribute string
+}
+
+// MembershipChange is one membership attribute's net effect on a group.
+type MembershipChange struct {
+	Attribute string
+	// Gained and Removed are the values in the spelling the change or the
+	// directory used. Net, not per modification: an add followed by a delete
+	// of the same member is no change.
+	Gained  []string
+	Removed []string
+}
 
 // Item is one change and what the plan makes of it.
 type Item struct {
@@ -67,24 +160,29 @@ type Item struct {
 	Index int
 	// DN is the entry the change is about.
 	DN dn.DN
+	// Intent is how the proposal was read.
+	Intent Intent
 	// Action is the classification.
 	Action Action
-	// Record is exactly what Apply will be given. Empty for unchanged and for
-	// conflict, which are the two outcomes that apply nothing.
+	// Record is exactly what Apply will be given. Empty for unchanged, conflict
+	// and invalid, which are the outcomes that apply nothing.
 	Record directory.ChangeRecord
+	// Problem is set for conflict and invalid.
+	Problem *Problem
 	// Reason explains an unchanged, a conflict, or a record the planner
-	// rewrote. Prose, for a person; Action is what a client reads.
+	// rewrote. Prose, for a person; Action and Problem are what a client reads.
 	Reason string
-	// Baseline is the state this decision was made against. Handed back on
-	// apply, where the server recomputes it.
+	// Baseline binds the operation and the state it was planned against.
+	// Handed back on apply, where the server checks both.
 	Baseline Baseline
 	// Exists is whether the entry was there when the plan was made.
 	Exists bool
 	// SkippedAttributes are attributes left out of a reconciled record because
-	// the directory owns them. Reported rather than dropped silently: a
-	// document carrying entryUUID was exported with operational attributes and
-	// the reader should know they are not being enforced.
+	// the directory owns them.
 	SkippedAttributes []string
+	// Membership is what this change does to group membership, where it
+	// touches a membership attribute.
+	Membership []MembershipChange
 }
 
 // Counts is the summary, which is what an operator reads first.
@@ -97,12 +195,25 @@ type Counts struct {
 	SetPassword int
 	Unchanged   int
 	Conflict    int
+	Invalid     int
+}
+
+// Subtree is a set of planned deletions that together remove a branch.
+type Subtree struct {
+	// Root is the topmost entry deleted.
+	Root dn.DN
+	// Entries is how many planned deletions fall under Root, Root included.
+	Entries int
 }
 
 // Plan is the whole answer.
 type Plan struct {
 	Items  []Item
 	Counts Counts
+	// Subtrees groups deletions that remove a branch rather than a leaf, so a
+	// deletion of four hundred entries does not read as four hundred unrelated
+	// one-line changes -- or, worse, as the one entry at the top.
+	Subtrees []Subtree
 }
 
 // Applicable is the records that would actually run, in order.
@@ -113,13 +224,18 @@ type Plan struct {
 func (p Plan) Applicable() []directory.ChangeRecord {
 	out := make([]directory.ChangeRecord, 0, len(p.Items))
 	for _, item := range p.Items {
-		switch item.Action {
-		case ActionUnchanged, ActionConflict:
+		if item.Action.AppliesNothing() {
 			continue
 		}
 		out = append(out, item.Record)
 	}
 	return out
+}
+
+// AppliesNothing reports whether an item of this action is left out of what is
+// applied: unchanged, conflict and invalid.
+func (a Action) AppliesNothing() bool {
+	return a == ActionUnchanged || a == ActionConflict || a == ActionInvalid
 }
 
 // Reader is what a plan needs from a directory: the ability to look at what is
@@ -137,11 +253,12 @@ type ChildCounter interface {
 
 // Options tune what the planner does.
 type Options struct {
-	// Reconcile turns an add of an existing entry into the modification that
-	// makes it match, which is what closes the export-edit-import loop. Without
-	// it such a record is a conflict, because a directory refuses an add for an
-	// entry that exists.
+	// Reconcile is the 1.4 switch: read every add as desired state. Only
+	// consulted by Compute; ComputeProposals takes the intent per proposal.
 	Reconcile bool
+	// MembershipAttributes names the attributes that hold group members, so
+	// the plan can report memberships gained and lost. Empty reports none.
+	MembershipAttributes []string
 }
 
 // Planner computes plans and checks them.
@@ -170,12 +287,8 @@ func NewPlanner(notFound func(error) bool) (*Planner, error) {
 	return &Planner{fp: fp, notFound: notFound}, nil
 }
 
-// Compute classifies each record against the directory as it is now.
-//
-// The records must already be valid: this reports what they would do, not
-// whether they are well formed, and a caller that has not validated is one
-// whose plan describes a change Apply will refuse. The API layer validates
-// before it gets here, exactly as it does before Apply.
+// Compute plans records with the 1.4 reading: exact, except that an add is
+// desired state when Reconcile is set.
 func (pl *Planner) Compute(
 	ctx context.Context,
 	r Reader,
@@ -183,10 +296,34 @@ func (pl *Planner) Compute(
 	records []directory.ChangeRecord,
 	opts Options,
 ) (Plan, error) {
-	p := Plan{Items: make([]Item, 0, len(records))}
+	proposals := make([]Proposal, 0, len(records))
+	for _, rec := range records {
+		intent := IntentExact
+		if opts.Reconcile && rec.Type == directory.ChangeAdd {
+			intent = IntentDesired
+		}
+		proposals = append(proposals, Proposal{Record: rec, Intent: intent})
+	}
+	return pl.ComputeProposals(ctx, r, sch, proposals, opts)
+}
 
-	for i, record := range records {
-		item, err := pl.classify(ctx, r, sch, i, record, opts)
+// ComputeProposals classifies each proposal against the directory as it is now.
+//
+// The records must already be valid in form: this reports what they would do,
+// not whether they parse. The API layer validates before it gets here, exactly
+// as it does before Apply.
+func (pl *Planner) ComputeProposals(
+	ctx context.Context,
+	r Reader,
+	sch *schema.Schema,
+	proposals []Proposal,
+	opts Options,
+) (Plan, error) {
+	p := Plan{Items: make([]Item, 0, len(proposals))}
+	members := foldSet(opts.MembershipAttributes)
+
+	for i, proposal := range proposals {
+		item, err := pl.classify(ctx, r, sch, i, proposal, members)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -207,8 +344,11 @@ func (pl *Planner) Compute(
 			p.Counts.Unchanged++
 		case ActionConflict:
 			p.Counts.Conflict++
+		case ActionInvalid:
+			p.Counts.Invalid++
 		}
 	}
+	p.Subtrees = deletedSubtrees(p.Items)
 	return p, nil
 }
 
@@ -217,68 +357,113 @@ func (pl *Planner) classify(
 	r Reader,
 	sch *schema.Schema,
 	index int,
-	record directory.ChangeRecord,
-	opts Options,
+	proposal Proposal,
+	members map[string]bool,
 ) (Item, error) {
-	item := Item{Index: index, DN: record.DN, Record: record}
+	record := proposal.Record
+	item := Item{Index: index, DN: record.DN, Record: record, Intent: proposal.Intent}
 
-	live, err := r.Read(ctx, record.DN, Attributes(record))
-	switch {
-	case err == nil:
-		item.Exists = live != nil
-	case pl.notFound(err):
-		item.Exists = false
-		live = nil
-	default:
-		// Anything other than "it is not there" is a real failure. Planning
-		// half a set and reporting the rest as absent would be worse than
-		// saying the plan could not be made.
-		return Item{}, fmt.Errorf("plan: reading %s: %w", record.DN, err)
+	// One read per proposal: what the fingerprint needs, plus -- for a delete --
+	// the membership the entry takes with it, which is impact rather than
+	// state and so is read here but never folded into the baseline.
+	attrs := Attributes(record)
+	if record.Type == directory.ChangeDelete {
+		attrs = append(attrs, sortedKeys(members)...)
 	}
-	item.Baseline = pl.fp.Of(record, live)
+	live, err := pl.read(ctx, r, record.DN, attrs)
+	if err != nil {
+		return Item{}, err
+	}
+	item.Exists = live != nil
+	// The state this decision rests on is what the *proposal* named, even when
+	// the operation that runs is narrower.
+	deps := dependsOn(record)
 
 	switch record.Type {
 	case directory.ChangeAdd:
-		return planAdd(item, live, sch, opts), nil
+		item = planAdd(item, live, sch, proposal.Intent)
 	case directory.ChangeModify:
-		return planModify(item, live), nil
+		item = planModify(item, live)
 	case directory.ChangeDelete:
-		return planDelete(ctx, r, item), nil
+		item = planDelete(ctx, r, item)
 	case directory.ChangeModRDN:
-		return planRename(item), nil
+		item, err = pl.planRename(ctx, r, item)
+		if err != nil {
+			return Item{}, err
+		}
 	case directory.ChangeSetPassword:
 		if !item.Exists {
-			item.Action = ActionConflict
-			item.Reason = "There is no such entry, so there is no password to set."
-			item.Record = directory.ChangeRecord{}
-			return item, nil
+			item = refuse(item, ActionConflict, ProblemEntryMissing, "",
+				"There is no such entry, so there is no password to set.")
+		} else {
+			// Never unchanged: there is no way to ask a directory whether a
+			// password is already the one being set, and guessing would be the
+			// only place in Alder that reported a write as unnecessary without
+			// having compared anything.
+			item.Action = ActionSetPassword
 		}
-		// Never unchanged: there is no way to ask a directory whether a
-		// password is already the one being set, and guessing would be the
-		// only place in Alder that reported a write as unnecessary without
-		// having compared anything.
-		item.Action = ActionSetPassword
-		return item, nil
+	default:
+		return Item{}, fmt.Errorf("plan: Alder does not know how to plan a %q change", record.Type)
 	}
-	item.Action = ActionConflict
-	item.Reason = fmt.Sprintf("Alder does not know how to plan a %q change.", record.Type)
-	item.Record = directory.ChangeRecord{}
+
+	// The schema is checked against the operation that would actually run --
+	// the reconciled modification, not the add it came from -- because that
+	// is what the directory will be asked to accept.
+	if item.Action == ActionAdd || item.Action == ActionModify {
+		if problem := validate(sch, item.Record, live); problem != nil {
+			item = refuse(item, ActionInvalid, problem.Code, problem.Attribute,
+				problemReason(*problem))
+		}
+	}
+
+	if len(members) > 0 {
+		item.Membership = membershipChanges(item, live, members)
+	}
+	if !item.Action.AppliesNothing() {
+		item.Baseline = pl.fp.Token(deps, item.Record, live)
+	}
 	return item, nil
 }
 
-// planAdd decides between creating an entry and reconciling one that is
-// already there.
-func planAdd(item Item, live *directory.Entry, sch *schema.Schema, opts Options) Item {
+// read fetches an entry, turning "there is no such entry" into nil.
+//
+// Anything other than "it is not there" is a real failure. Planning half a set
+// and reporting the rest as absent would be worse than saying the plan could not
+// be made.
+func (pl *Planner) read(ctx context.Context, r Reader, target dn.DN, attrs []string) (*directory.Entry, error) {
+	live, err := r.Read(ctx, target, attrs)
+	switch {
+	case err == nil:
+		return live, nil
+	case pl.notFound(err):
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("plan: reading %s: %w", target, err)
+	}
+}
+
+// refuse turns an item into one that applies nothing.
+func refuse(item Item, action Action, code ProblemCode, attribute, reason string) Item {
+	item.Action = action
+	item.Problem = &Problem{Code: code, Attribute: attribute}
+	item.Reason = reason
+	item.Record = directory.ChangeRecord{}
+	return item
+}
+
+// planAdd decides between creating an entry, refusing to, and reconciling one
+// that is already there -- and which of those depends on the intent, never on
+// a guess.
+func planAdd(item Item, live *directory.Entry, sch *schema.Schema, intent Intent) Item {
 	if !item.Exists {
 		item.Action = ActionAdd
 		return item
 	}
-	if !opts.Reconcile {
-		item.Action = ActionConflict
-		item.Reason = "This entry already exists, and the change would create it. " +
-			"Plan with reconcile to turn it into the modification that makes it match."
-		item.Record = directory.ChangeRecord{}
-		return item
+	if intent != IntentDesired {
+		return refuse(item, ActionConflict, ProblemEntryExists, "",
+			"This entry already exists, and the change would create it. An explicit "+
+				"add is planned as written; offer the record as desired state to "+
+				"reconcile it instead.")
 	}
 
 	// The same reconcile the import path has used since it was written. Not a
@@ -301,10 +486,7 @@ func planAdd(item Item, live *directory.Entry, sch *schema.Schema, opts Options)
 
 func planModify(item Item, live *directory.Entry) Item {
 	if !item.Exists {
-		item.Action = ActionConflict
-		item.Reason = "There is no such entry to modify."
-		item.Record = directory.ChangeRecord{}
-		return item
+		return refuse(item, ActionConflict, ProblemEntryMissing, "", "There is no such entry to modify.")
 	}
 	if satisfied(item.Record.Mods, live) {
 		item.Action = ActionUnchanged
@@ -328,26 +510,37 @@ func planDelete(ctx context.Context, r Reader, item Item) Item {
 	// changeset.
 	if counter, ok := r.(ChildCounter); ok {
 		if kids, err := counter.HasChildren(ctx, item.DN); err == nil && kids {
-			item.Action = ActionConflict
-			item.Reason = "This entry has children. LDAP deletes one leaf at a time, so " +
-				"everything below it has to go first, deepest first."
-			item.Record = directory.ChangeRecord{}
-			return item
+			return refuse(item, ActionConflict, ProblemHasChildren, "",
+				"This entry has children. LDAP deletes one leaf at a time, so "+
+					"everything below it has to go first, deepest first.")
 		}
 	}
 	item.Action = ActionDelete
 	return item
 }
 
-func planRename(item Item) Item {
+func (pl *Planner) planRename(ctx context.Context, r Reader, item Item) (Item, error) {
 	if !item.Exists {
-		item.Action = ActionConflict
-		item.Reason = "There is no such entry to rename."
-		item.Record = directory.ChangeRecord{}
-		return item
+		return refuse(item, ActionConflict, ProblemEntryMissing, "", "There is no such entry to rename."), nil
+	}
+	target, err := item.Record.Target()
+	if err != nil {
+		return Item{}, fmt.Errorf("plan: working out where %s would move: %w", item.DN, err)
+	}
+	// Renaming onto a name that is taken is refused by every directory. A
+	// rename to the same name -- a change of case, say -- is not a collision.
+	if !target.Equal(item.DN) {
+		occupant, readErr := pl.read(ctx, r, target, []string{"objectClass"})
+		if readErr != nil {
+			return Item{}, readErr
+		}
+		if occupant != nil {
+			return refuse(item, ActionConflict, ProblemRenameTargetExists, "",
+				"There is already an entry at "+target.String()+"."), nil
+		}
 	}
 	item.Action = ActionRename
-	return item
+	return item, nil
 }
 
 // satisfied reports whether every modification in a set is already true of the
@@ -357,33 +550,54 @@ func planRename(item Item) Item {
 // A plan that says "modify" and turns out to have nothing to do costs a line in
 // a summary; one that says "unchanged" about a change that would have done
 // something is the plan lying.
+//
+// Each attribute's current values are indexed once, so adding one member to a
+// group of a hundred thousand is a map lookup rather than a scan per value --
+// the compare endpoint taught that lesson in 1.4 and this path would otherwise
+// have had to learn it again.
 func satisfied(mods []directory.Mod, live *directory.Entry) bool {
 	if len(mods) == 0 {
 		return false
 	}
+	indexes := map[string]map[string]bool{}
+	valuesOf := func(name string) map[string]bool {
+		key := strings.ToLower(name)
+		if set, ok := indexes[key]; ok {
+			return set
+		}
+		current := live.Get(name)
+		set := make(map[string]bool, len(current))
+		for _, v := range current {
+			set[string(v)] = true
+		}
+		indexes[key] = set
+		return set
+	}
+
 	for _, m := range mods {
-		current := live.Get(m.Name)
 		switch m.Op {
 		case directory.ModReplace:
-			if !SameValues(current, m.Values) {
+			if !SameValues(live.Get(m.Name), m.Values) {
 				return false
 			}
 		case directory.ModAdd:
+			have := valuesOf(m.Name)
 			for _, v := range m.Values {
-				if !containsValue(current, v) {
+				if !have[string(v)] {
 					return false
 				}
 			}
 		case directory.ModDelete:
+			have := valuesOf(m.Name)
 			if len(m.Values) == 0 {
 				// Removing the whole attribute. Already gone means nothing to do.
-				if len(current) > 0 {
+				if len(have) > 0 {
 					return false
 				}
 				continue
 			}
 			for _, v := range m.Values {
-				if containsValue(current, v) {
+				if have[string(v)] {
 					return false
 				}
 			}
@@ -394,35 +608,33 @@ func satisfied(mods []directory.Mod, live *directory.Entry) bool {
 	return true
 }
 
-func containsValue(have [][]byte, want []byte) bool {
-	for _, v := range have {
-		if string(v) == string(want) {
-			return true
-		}
-	}
-	return false
-}
-
-// Verify reports whether the directory still looks the way the plan assumed.
+// Verify reports whether an apply request is still the plan it claims to be.
 //
-// The server does this, from a fresh read, at apply time. A baseline the client
+// The server does this, from a fresh read, at apply time. A token the client
 // hands back is only ever compared against one Alder recomputes; it is never
 // trusted as a description of anything.
+//
+// The read covers the attributes the token names as well as the ones the
+// operation touches. They differ for a reconciled change -- planned from an add
+// naming several attributes, applied as a modify of fewer -- and a directory
+// returns only what it is asked for. Reading only the operation's attributes
+// made every reconciled plan look stale against a real server, which the 1.4
+// fake could not show because it returned whole entries.
 func (pl *Planner) Verify(
 	ctx context.Context,
 	r Reader,
 	record directory.ChangeRecord,
 	claimed Baseline,
 ) error {
-	live, err := r.Read(ctx, record.DN, Attributes(record))
-	switch {
-	case err == nil:
-	case pl.notFound(err):
-		live = nil
-	default:
+	attrs := append(Attributes(record), claimed.Attributes()...)
+	live, err := pl.read(ctx, r, record.DN, attrs)
+	if err != nil {
 		return fmt.Errorf("plan: re-reading %s: %w", record.DN, err)
 	}
-	if !pl.fp.Verify(record.DN.String(), claimed, live) {
+	switch pl.fp.Check(claimed, record, live) {
+	case VerdictMismatch:
+		return &MismatchError{DN: record.DN}
+	case VerdictStale:
 		return &StaleError{DN: record.DN}
 	}
 	return nil
@@ -439,4 +651,18 @@ func (e *StaleError) Error() string {
 func IsStale(err error) bool {
 	var stale *StaleError
 	return errors.As(err, &stale)
+}
+
+// MismatchError is returned when a request carries a baseline for a different
+// operation than the one it asks for.
+type MismatchError struct{ DN dn.DN }
+
+func (e *MismatchError) Error() string {
+	return fmt.Sprintf("plan: the change to %s is not the change that was planned", e.DN)
+}
+
+// IsMismatch reports whether an error is a request that is not its plan.
+func IsMismatch(err error) bool {
+	var mismatch *MismatchError
+	return errors.As(err, &mismatch)
 }

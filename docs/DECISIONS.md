@@ -1992,3 +1992,84 @@ to contradict the plan — add an entry.
   `pull_request_target`, which is scheduled from the base branch and therefore
   runs regardless, checks out nothing, and fails with the reason. It is not a
   required check: it reports a condition that already blocks the merge.
+
+### 2026-09-13 — the plan becomes the operation
+
+- **The plan is the source of the operations, and apply may not reconstruct
+  them.** 1.4's baseline bound the state a change depended on and nothing about
+  the change, so a client could plan one modification and apply another against
+  the same attributes and be told the plan was current. The baseline is now two
+  MACs: one over the exact operation — type, DN, every modification in order,
+  every value — and one over the state. The apply recomputes both from what it
+  was sent and what it reads. Rejected: storing plans server-side and applying by
+  plan id. That is persistence, which v1 does not have, and it would make a
+  restart lose every reviewed plan instead of merely invalidating its tokens.
+- **Mismatch and staleness are different answers.** A request that is not the
+  planned operation is the client's mistake and gets `400 plan_mismatch`; a
+  planned operation the directory has moved away from is nobody's mistake and
+  gets `409`. A token that verifies neither way is reported stale, because the
+  honest remedy for both is the same: plan again and look.
+- **Stale stays `error: conflict`, with `cause: plan_stale` added.** The first
+  cut changed the code to `plan_stale`; the 1.4 HTTP test pinning `conflict`
+  failed, which is what it was for. Error identifiers are API.
+- **Never replan and apply on the caller's behalf.** The interface disables Apply
+  on a stale plan and offers Recompute plan, and applying is possible again only
+  once the new plan has been rendered. Rejected: an automatic retry with a fresh
+  plan when nothing in the new plan "looks different" — deciding that is the
+  operator's review, done by the program.
+- **LDIF is read in a mode the caller names, and a mixed document is refused.**
+  `changes` makes every record the operation it states; `desired` makes every
+  record a statement of state and accepts no `changetype`. Rejected: inferring
+  the mode per record, which is exactly the silent reinterpretation a desired-
+  state input must not do — a `changetype: add` that became a modification is
+  a different change from the one written. That was 1.4's import behaviour with
+  reconcile on, and it is fixed: only records with no `changetype` reconcile.
+- **Absence never means deletion,** in any mode, and no flag is offered to make
+  it. A document that omits an entry is not a document about that entry.
+- **Schema validation judges only what the schema states and the operation
+  would produce.** An undefined class or attribute, an attribute no class
+  permits, a second value in a single-valued attribute, a missing required
+  attribute on an add. Anything that depends on server behaviour is left for the
+  server: the RDN attribute counts as present, operational attributes are exempt
+  from class permission, and when no object class is visible the class rules are
+  skipped entirely. A false `invalid` withholds a change the directory would have
+  accepted, which is worse than letting the directory refuse it.
+- **Impact is facts, not a risk score.** Target kind from the locations the
+  server announces; membership gained and removed by replaying modifications
+  over the live values; inbound references and how many the plan would leave
+  dangling; deletions grouped into subtrees. A score would be a claim about the
+  operator's directory that Alder cannot back.
+- **Reference search runs as the session's bind and says so.** Entries the ACLs
+  hide are indistinguishable from entries that do not exist, and no LDAP
+  operation reports the difference. Above 2,000 deleted or renamed entries the
+  search is not run at all and the plan says it was not analysed, rather than
+  reporting a partial count as if it were the answer.
+- **Sensitive values are bound by shape and withheld everywhere a change is
+  rendered.** A token binds a `userPassword` modification by name, operation
+  and count — the rule `set_password` always had — so no token is a function of
+  a password. Plan records carry `{size}` instead of the value, previews
+  `withheld (n bytes)`. Doing this found a real leak: `/changes/apply` and the
+  change preview echoed a directly-set `userPassword` back to the browser. A
+  size-only value is refused on the way in rather than written as empty.
+- **A latent 1.4 bug, found by the design rather than by a test.** Verifying a
+  reconciled plan read back only the attributes of the narrower modification,
+  while its token covered every attribute the document named, so a reconciled
+  plan looked stale against any real server. The fake directory returned whole
+  entries and hid it. Verification now reads the token's attributes too, and a
+  test uses a fake that returns only what it is asked for; the conformance suite
+  applies a reconciled desired-state plan on both servers.
+- **The equivalence invariant is a test of executed operations, not end state.**
+  It plans a mixed set over HTTP, applies it as a client would, and compares the
+  recording session's operations one for one and in order with the plan's
+  records, using a comparison written in the test rather than the production
+  token. Three deliberate breaks — an inverted `deleteOldRDN` on the apply side,
+  reordered modifications on the apply side, an inverted `deleteOldRDN` in the
+  plan's rendering — each fail it.
+- **Membership impact had to be made cheap before it could ship.** As first
+  written it keyed every member as a parsed DN on both sides, three times over:
+  planning an add of 100 members to a 100,000-member group went from 25 ms to
+  about a second. A byte-equal pre-pass, recognising an append positionally,
+  and a scan that keys plain DNs without parsing (held to the parser's answer
+  by a test) bring it to roughly 75–110 ms and 33 MB; framing token fields
+  without `fmt` took classification alone to 34 ms for the add and 24 ms for a
+  replace, against 25 and 38 in 1.4.

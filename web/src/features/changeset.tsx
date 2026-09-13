@@ -33,7 +33,11 @@ import { ErrorNote } from "@/components/change-dialog";
  * one LDIF file and handing it over as one playbook is the thing being claimed
  * on the front page.
  */
-export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) {
+export function ChangesetView({
+  onBrowse,
+}: {
+  onBrowse: (dn: string) => void;
+}) {
   const staged = useChangeset();
   const queryClient = useQueryClient();
   const [result, setResult] = useState<ChangesetResult | null>(null);
@@ -68,7 +72,13 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
     // into a modification is what an imported document wants, not this.
     mutationFn: async () =>
       unwrap(await api.POST("/plan", { body: { ...body, reconcile: false } })),
-    onSuccess: (p) => setPlan({ for: stagedKey, plan: p }),
+    onSuccess: (p) => {
+      setPlan({ for: stagedKey, plan: p });
+      // The refusal asked for a new plan; this is it. Clearing it here, and
+      // only here, is what keeps Apply disabled until the operator has seen
+      // what the changes would do now.
+      apply.reset();
+    },
   });
 
   /**
@@ -81,11 +91,12 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
    * it always sent.
    */
   const applyBody: { changes: ChangeRequest[] } = current
-    ? { changes: changesFromPlan(current) }
+    ? { changes: changesFromPlan(current, body.changes) }
     : body;
 
   const apply = useMutation({
-    mutationFn: async () => unwrap(await api.POST("/changeset/apply", { body: applyBody })),
+    mutationFn: async () =>
+      unwrap(await api.POST("/changeset/apply", { body: applyBody })),
     onSuccess: (res) => {
       setResult(res);
       void queryClient.invalidateQueries({ queryKey: ["entry"] });
@@ -104,12 +115,19 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
 
   const previewError = preview.error as ApiFailure | null;
   const applyError = apply.error as ApiFailure | null;
+  // A checked plan the server refused because it no longer holds. Apply stays
+  // disabled until the operator plans again: re-sending the old plan would be
+  // refused again, and silently sending the changes unchecked would be applying
+  // something nobody reviewed against the directory as it now is.
+  const stalePlan = applyError?.isStalePlan ? applyError : null;
   const data = preview.data;
 
   if (staged.length === 0) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16">
-        {result ? <ResultPanel result={result} onDismiss={() => setResult(null)} /> : null}
+        {result ? (
+          <ResultPanel result={result} onDismiss={() => setResult(null)} />
+        ) : null}
         <div className="rounded-lg border border-dashed p-10 text-center">
           <ListChecks className="mx-auto mb-3 size-8 text-muted-foreground" />
           <h2 className="text-base font-medium">The changeset is empty</h2>
@@ -122,8 +140,8 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
           </p>
           <p className="mx-auto mt-3 max-w-md text-xs text-muted-foreground">
             The changeset lives in this tab only. Reloading the page clears it,
-            and it is never written to browser storage, because a staged password
-            change carries the password.
+            and it is never written to browser storage, because a staged
+            password change carries the password.
           </p>
         </div>
       </div>
@@ -148,7 +166,9 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
         </Button>
       </div>
 
-      {result ? <ResultPanel result={result} onDismiss={() => setResult(null)} /> : null}
+      {result ? (
+        <ResultPanel result={result} onDismiss={() => setResult(null)} />
+      ) : null}
 
       <ol className="mb-5 space-y-1.5">
         {staged.map((item, i) => (
@@ -199,7 +219,10 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
       </ol>
 
       {previewError ? (
-        <ErrorNote title="This changeset cannot be rendered" error={previewError} />
+        <ErrorNote
+          title="This changeset cannot be rendered"
+          error={previewError}
+        />
       ) : null}
 
       {data?.warnings?.length ? (
@@ -214,9 +237,9 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
             ))}
           </ul>
           <p className="mt-2 text-xs text-muted-foreground">
-            Alder will not reorder these for you. Moving an entry under something
-            created later is a legitimate thing to want, and guessing which of
-            the two you meant would change what you reviewed.
+            Alder will not reorder these for you. Moving an entry under
+            something created later is a legitimate thing to want, and guessing
+            which of the two you meant would change what you reviewed.
           </p>
         </div>
       ) : null}
@@ -228,7 +251,11 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
           disabled={check.isPending}
           onClick={() => check.mutate()}
         >
-          {check.isPending ? <Loader2 className="animate-spin" /> : <SearchCheck />}
+          {check.isPending ? (
+            <Loader2 className="animate-spin" />
+          ) : (
+            <SearchCheck />
+          )}
           {current ? "Check again" : "Check against the directory"}
         </Button>
         <p className="text-xs text-muted-foreground">
@@ -286,15 +313,57 @@ export function ChangesetView({ onBrowse }: { onBrowse: (dn: string) => void }) 
         </Tabs>
       ) : null}
 
-      {applyError ? (
+      {stalePlan ? (
+        <div className="mt-4 rounded-md border border-warning/40 bg-warning/10 p-3">
+          <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-warning-tint-foreground">
+            <AlertTriangle className="size-4" />
+            {stalePlan.code === "plan_mismatch"
+              ? "These changes are not the ones that were planned"
+              : "The directory has changed since this plan was made"}
+          </div>
+          <p className="text-sm text-warning-tint-foreground/90">
+            Nothing was applied. {stalePlan.message}
+          </p>
+          {stalePlan.affected?.length ? (
+            <ul className="mt-2 ml-5 list-disc space-y-0.5 text-xs text-warning-tint-foreground/90">
+              {stalePlan.affected.map((a) => (
+                <li key={a.index}>
+                  Change {a.index + 1}: <span className="font-dn">{a.dn}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="mt-3 flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={check.isPending}
+              onClick={() => check.mutate()}
+            >
+              {check.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <SearchCheck />
+              )}
+              Recompute plan
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Applying stays disabled until you have seen the new plan.
+            </span>
+          </div>
+        </div>
+      ) : applyError ? (
         <div className="mt-4">
-          <ErrorNote title="The changeset could not be applied" error={applyError} />
+          <ErrorNote
+            title="The changeset could not be applied"
+            error={applyError}
+          />
         </div>
       ) : null}
 
       <div className="mt-5 flex items-center justify-end gap-2 border-t pt-4">
         <Button
-          disabled={!data || apply.isPending}
+          disabled={!data || apply.isPending || stalePlan !== null}
           onClick={() => {
             setResult(null);
             apply.mutate();
@@ -328,7 +397,9 @@ function ResultPanel({
   return (
     <div
       className={`mb-5 rounded-md border p-3 ${
-        failed ? "border-warning/40 bg-warning/10" : "border-success/40 bg-success/10"
+        failed
+          ? "border-warning/40 bg-warning/10"
+          : "border-success/40 bg-success/10"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -337,7 +408,11 @@ function ResultPanel({
             failed ? "text-warning-tint-foreground" : "text-success"
           }`}
         >
-          {failed ? <ShieldAlert className="size-4" /> : <Check className="size-4" />}
+          {failed ? (
+            <ShieldAlert className="size-4" />
+          ) : (
+            <Check className="size-4" />
+          )}
           {!failed
             ? `All ${result.appliedCount} changes applied.`
             : result.appliedCount === 0
@@ -366,7 +441,9 @@ function ResultPanel({
               {o.error ? (
                 <span className="ml-2 text-destructive">{o.error.message}</span>
               ) : !o.applied ? (
-                <span className="ml-2 text-muted-foreground">not attempted</span>
+                <span className="ml-2 text-muted-foreground">
+                  not attempted
+                </span>
               ) : null}
             </span>
           </li>
@@ -375,10 +452,10 @@ function ResultPanel({
 
       {failed ? (
         <p className="mt-2.5 text-xs text-muted-foreground">
-          The changes that applied are done and are not rolled back — LDAP has no
-          transaction spanning entries. The ones that did not are still staged,
-          in order, so fixing the failure and applying again resumes rather than
-          repeats.
+          The changes that applied are done and are not rolled back — LDAP has
+          no transaction spanning entries. The ones that did not are still
+          staged, in order, so fixing the failure and applying again resumes
+          rather than repeats.
         </p>
       ) : null}
     </div>

@@ -4,6 +4,7 @@ package conformance
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -214,6 +215,14 @@ func TestApplyOverHTTPRefusesAPlanTheDirectoryHasOutgrown(t *testing.T) {
 		if refused.status != http.StatusConflict {
 			t.Fatalf("applying a stale plan: status %d, want 409\n%s", refused.status, refused.body)
 		}
+		// conflict, the 1.4 code, with the precise cause beside it.
+		body := decodeInto[api.Error](t, refused)
+		if body.Error != api.ErrorErrorConflict || body.Cause == nil || *body.Cause != api.ErrorCausePlanStale {
+			t.Errorf("stale refusal = %+v, want conflict with cause plan_stale", body)
+		}
+		if body.Affected == nil || len(*body.Affected) != 1 {
+			t.Errorf("affected = %+v, want the one stale change", body.Affected)
+		}
 		// And it really did not apply: the other administrator's value stands.
 		if got := readOne(t, sess, target, "description"); got != "somebody else got here first" {
 			t.Errorf("description = %q; the refused change was applied anyway", got)
@@ -308,6 +317,211 @@ func restoreDescription(t *testing.T, sess directory.Session, target string) {
 		}
 		if err := sess.Apply(ctx(t), restore); err != nil {
 			t.Logf("restoring the description of %s: %v", target, err)
+		}
+	})
+}
+
+// --- 1.5: LDIF, against both servers ---------------------------------------------
+
+func planLdif(t *testing.T, client *http.Client, base, mode, text string) httpResult {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"ldif": text, "mode": mode})
+	if err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+	return post(t, client, base+"/plan", string(body))
+}
+
+// ldifOf renders an entry as a content record, every value as base64 so that
+// nothing the server returned is reinterpreted on the way back in.
+func ldifOf(e *directory.Entry) string {
+	var b strings.Builder
+	b.WriteString("dn: " + e.DN.String() + "\n")
+	for _, name := range e.Order {
+		for _, v := range e.Get(name) {
+			b.WriteString(name + ":: " + base64.StdEncoding.EncodeToString(v) + "\n")
+		}
+	}
+	return b.String()
+}
+
+// The operator path end to end: export an entry as a desired-state document,
+// change one attribute in it, plan it against the real directory, apply what
+// the plan returned, and find the directory holding exactly that.
+//
+// This is also the path 1.4 had a latent bug on: a reconciled plan's token
+// covers every attribute the document named, and verification read back only
+// the attributes of the narrower operation. The fake returned whole entries, so
+// only a real directory -- which returns what it is asked for -- could show it.
+func TestPlanOverHTTPFromDesiredStateLdifThenApply(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		client, base := alder(t, s)
+		target := "uid=user0007,ou=people," + suffix
+		restoreDescription(t, sess, target)
+
+		live, err := sess.Read(ctx(t), mustDN(t, target), []string{"*"})
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		edited := directory.NewEntry(live.DN)
+		for _, name := range live.Order {
+			if strings.EqualFold(name, "description") {
+				continue
+			}
+			edited.Set(name, live.Get(name))
+		}
+		edited.Set("description", [][]byte{[]byte("set from a desired-state document")})
+
+		res := planLdif(t, client, base, "desired", ldifOf(edited))
+		if res.status != http.StatusOK {
+			t.Fatalf("planning: status %d\n%s", res.status, res.body)
+		}
+		p := decodeInto[api.Plan](t, res)
+		if len(p.Items) != 1 {
+			t.Fatalf("items = %+v, want one", p.Items)
+		}
+		item := p.Items[0]
+		if item.Action != api.PlanActionModify {
+			t.Fatalf("action = %q, want modify\nitem: %+v", item.Action, item)
+		}
+		if item.Intent == nil || *item.Intent != api.PlanIntentDesired {
+			t.Errorf("intent = %v, want desired", item.Intent)
+		}
+		if item.Record == nil || item.Record.Mods == nil || len(*item.Record.Mods) != 1 ||
+			!strings.EqualFold((*item.Record.Mods)[0].Name, "description") {
+			t.Fatalf("the reconciled record is not a modify of description alone: %+v", item.Record)
+		}
+
+		applied := post(t, client, base+"/changeset/apply", applyBody(t, item))
+		if applied.status != http.StatusOK {
+			t.Fatalf("applying the reconciled plan: status %d\n%s", applied.status, applied.body)
+		}
+		if got := readOne(t, sess, target, "description"); got != "set from a desired-state document" {
+			t.Errorf("description = %q after applying", got)
+		}
+	})
+}
+
+// Explicit change LDIF against both servers, planned and applied exactly.
+func TestPlanOverHTTPFromChangeLdifThenApply(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		client, base := alder(t, s)
+		target := "uid=user0008,ou=people," + suffix
+		restoreDescription(t, sess, target)
+
+		doc := strings.Join([]string{
+			"dn: " + target,
+			"changetype: modify",
+			"replace: description",
+			"description: set from a change document",
+			"-",
+			"",
+		}, "\n")
+		res := planLdif(t, client, base, "changes", doc)
+		if res.status != http.StatusOK {
+			t.Fatalf("planning: status %d\n%s", res.status, res.body)
+		}
+		item := decodeInto[api.Plan](t, res).Items[0]
+		if item.Action != api.PlanActionModify || item.Intent == nil || *item.Intent != api.PlanIntentExact {
+			t.Fatalf("item = %+v, want an exact modify", item)
+		}
+		applied := post(t, client, base+"/changeset/apply", applyBody(t, item))
+		if applied.status != http.StatusOK {
+			t.Fatalf("applying: status %d\n%s", applied.status, applied.body)
+		}
+		if got := readOne(t, sess, target, "description"); got != "set from a change document" {
+			t.Errorf("description = %q after applying", got)
+		}
+	})
+}
+
+// An explicit add of an entry that exists is a typed conflict on both servers,
+// never a modification.
+func TestPlanOverHTTPRefusesToReinterpretAnExplicitAdd(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		client, base := alder(t, s)
+		target := "uid=user0009,ou=people," + suffix
+		doc := strings.Join([]string{
+			"dn: " + target, "changetype: add",
+			"objectClass: top", "objectClass: person", "objectClass: inetOrgPerson",
+			"cn: Someone", "sn: Else", "",
+		}, "\n")
+		res := planLdif(t, client, base, "changes", doc)
+		if res.status != http.StatusOK {
+			t.Fatalf("planning: status %d\n%s", res.status, res.body)
+		}
+		item := decodeInto[api.Plan](t, res).Items[0]
+		if item.Action != api.PlanActionConflict || item.Problem == nil ||
+			item.Problem.Code != api.PlanProblemEntryExists {
+			t.Errorf("item = %+v, want conflict entry_exists", item)
+		}
+	})
+}
+
+// Deleting an entry that groups name, against both servers: the references are
+// found through the same search the entry page uses, and all of them would be
+// left dangling because nothing else in the plan removes them. Nothing is
+// applied.
+func TestPlanOverHTTPReportsReferencesToADeletedEntry(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		client, base := alder(t, s)
+		target := "uid=user0001,ou=people," + suffix
+
+		res := post(t, client, base+"/plan",
+			fmt.Sprintf(`{"changes":[{"dn":%q,"type":"delete"}]}`, target))
+		if res.status != http.StatusOK {
+			t.Fatalf("planning: status %d\n%s", res.status, res.body)
+		}
+		p := decodeInto[api.Plan](t, res)
+		item := p.Items[0]
+		if item.Action != api.PlanActionDelete {
+			t.Fatalf("action = %q, want delete", item.Action)
+		}
+		if item.References == nil || item.References.Count == 0 {
+			t.Fatalf("no references found to %s, which the seed puts in groups: %+v", target, item.References)
+		}
+		if item.References.Dangling != item.References.Count {
+			t.Errorf("dangling = %d of %d; nothing in this plan removes them", item.References.Dangling, item.References.Count)
+		}
+		if p.Impact == nil || !p.Impact.References.Analysed {
+			t.Errorf("impact.references = %+v, want analysed", p.Impact)
+		}
+		if item.Kind == nil || *item.Kind != api.PlanTargetData {
+			t.Errorf("kind = %v, want data", item.Kind)
+		}
+		if _, err := sess.Read(ctx(t), mustDN(t, target), []string{"cn"}); err != nil {
+			t.Fatalf("planning a delete removed the entry: %v", err)
+		}
+	})
+}
+
+// A desired-state document carrying a password, against both servers: the plan
+// says the password would change and shows no value. Not applied -- a seeded
+// user's password stays what the harness set.
+func TestPlanOverHTTPWithholdsPasswordValues(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		client, base := alder(t, s)
+		target := "uid=user0010,ou=people," + suffix
+		const secret = "{SSHA}Y29uZm9ybWFuY2Utc2VjcmV0LXZhbHVl"
+
+		live, err := sess.Read(ctx(t), mustDN(t, target), []string{"objectClass", "cn", "sn"})
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		edited := directory.NewEntry(live.DN)
+		for _, name := range live.Order {
+			edited.Set(name, live.Get(name))
+		}
+		edited.Set("userPassword", [][]byte{[]byte(secret)})
+
+		res := planLdif(t, client, base, "desired", ldifOf(edited))
+		if res.status != http.StatusOK {
+			t.Fatalf("planning: status %d\n%s", res.status, res.body)
+		}
+		encoded := base64.StdEncoding.EncodeToString([]byte(secret))
+		if strings.Contains(res.body, secret) || strings.Contains(res.body, encoded) ||
+			strings.Contains(res.body, "Y29uZm9ybWFuY2U") {
+			t.Fatalf("the plan response carries the password:\n%s", res.body)
 		}
 	})
 }

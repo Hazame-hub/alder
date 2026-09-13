@@ -68,6 +68,33 @@ It will not, within 1.x:
 Tightening a promise is allowed: a field that was optional in a response may
 become required, because a client that already handles it absent still works.
 
+1.5 changed the plan more than any release since it appeared, and this is how
+those rules were applied:
+
+- **A stale plan is still `409` with `error: conflict`,** exactly as in 1.4. The
+  precise reason is a new `cause: plan_stale` beside it, and a new `affected`
+  lists every change it applies to. A client that switches on `conflict` keeps
+  working; an earlier draft that replaced the code was caught by the 1.4 test
+  pinning it.
+- **New identifiers:** the `invalid` plan action; the `plan_mismatch` and
+  `ldif_mode_mismatch` errors; the plan fields `intent`, `kind`, `problem`,
+  `membership`, `references`, `impact` and `subtrees`; `ldif` and `mode` on the
+  plan request, which previously required `changes` and now requires exactly one
+  of the two.
+- **A planned change that is not the planned operation is refused** with
+  `plan_mismatch`. In 1.4 a baseline bound only the state, so a client could plan
+  one change and apply a different one against the same attributes. That is the
+  guarantee a plan exists to give, so this is treated as a correctness fix.
+- **Sensitive values are withheld** from plan records (`{"size": n}` in place of
+  the value), from previews (`withheld (n bytes)`), and from the LDIF in apply
+  responses. Before 1.5 a change that set `userPassword` directly had the value
+  echoed back in its preview and its apply response. A value sent back with only
+  a `size` is refused with `400` rather than written as empty.
+- **Import with `reconcile: true` reconciles only records with no
+  `changetype`.** It used to turn an explicit `changetype: add` of an existing
+  entry into a modification too. The document said add; this is a correctness
+  fix, and the one place a 1.4 request now produces a different result.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —

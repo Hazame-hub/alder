@@ -304,6 +304,25 @@ a snapshot, it holds no attribute values, and a password contributes only
 whether it is set — the same rule as everywhere else. Applying without one
 behaves exactly as it did before.
 
+**Plan an LDIF document, and say how to read it.** The plan takes an LDIF
+document as well as staged changes, read one of two ways and never guessed. As
+`changes`, every record is the exact operation it states, and an add of an entry
+that already exists is a conflict rather than a modification nobody asked for.
+As `desired` state, a record says what an entry should hold, the plan works out
+the modification that gets it there, and an entry the document does not mention
+is left alone: absence never means deletion. A desired-state document that also
+contains `changetype` records is refused, with the records named.
+
+A plan reports impact as facts, not a score: whether each change touches data,
+the schema or the server's own configuration; the group memberships it adds and
+removes; for a deletion or a rename, the entries that still name the DN and how
+many the plan would leave dangling; and deletions grouped into the subtrees they
+remove. What you reviewed is what runs — applying refuses a change that is not
+the operation its plan was issued for, refuses a plan the directory has moved
+away from, names every change affected either way, and never replans on your
+behalf. Passwords are withheld from plans, previews and apply responses alike.
+[docs/PLAN.md](docs/PLAN.md) is the reference.
+
 **Delete a container** by staging what is under it. LDAP deletes one leaf at a
 time, so removing an organisational unit means removing everything below it
 first, deepest first, in order. Alder walks the subtree, stages the deletions in

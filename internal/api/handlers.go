@@ -1023,6 +1023,12 @@ func (s *Server) PreviewChange(c *fiber.Ctx) error {
 // are worth warning about: what the schema says the entry may hold, and whether
 // the entry is part of the server's own configuration.
 func (s *Server) renderPreview(record directory.ChangeRecord, sch *schema.Schema, caps directory.Capabilities) (ChangePreview, error) {
+	// Every preview renders sensitive values withheld: the dialog, the
+	// changeset, the import and the plan all come through here. A password
+	// hash, or the plaintext an LDIF file sometimes carries, was echoed back
+	// by every one of them until 1.5 found it; the value reached the server
+	// from the browser and has no business going back the other way.
+	record = withholdSensitive(record)
 	task, err := ansible.Task(record)
 	if err != nil {
 		return ChangePreview{}, err
@@ -1159,12 +1165,14 @@ func (s *Server) ApplyChange(c *fiber.Ctx) error {
 
 	// A single change carries a baseline for the same reason a set does: the
 	// gap between deciding and applying is where somebody else edits the entry.
-	if stale, verifyErr := s.verifyBaselines(ctx, sess,
-		[]ChangeRequest{body}, []directory.ChangeRecord{record}); verifyErr != nil {
+	refusal, status, verifyErr := s.checkPlannedChanges(ctx, sess,
+		[]ChangeRequest{body}, []directory.ChangeRecord{record})
+	if verifyErr != nil {
 		return s.fail(c, verifyErr)
-	} else if stale != nil {
-		s.logger.Info("change refused: the entry moved since it was planned", "dn", stale.String())
-		return refuseStale(c, *stale)
+	}
+	if refusal != nil {
+		s.logger.Info("change refused before it ran", "reason", string(refusal.Error), "dn", record.DN.String())
+		return c.Status(status).JSON(refusal)
 	}
 
 	caps := sess.Conn.Capabilities()
@@ -1179,7 +1187,7 @@ func (s *Server) ApplyChange(c *fiber.Ctx) error {
 		Applied: true,
 		Dn:      target.String(),
 		Summary: ptr(record.Summary()),
-		Ldif:    ptr(record.LDIF()),
+		Ldif:    ptr(withholdSensitive(record).LDIF()),
 	}
 	// An added entry is not always stored under the name it was given, so where
 	// it actually went is looked up rather than assumed.
@@ -1456,42 +1464,66 @@ func (s *Server) ParseLdif(c *fiber.Ctx) error {
 
 	wantReconcile := body.Reconcile != nil && *body.Reconcile
 
+	proposals, err := ldifProposals(records, false)
+	if err != nil {
+		return writeLdifError(c, err)
+	}
+
+	// Without reconcile this endpoint parses and previews; it does not look at
+	// the directory, and 1.5 does not change that.
+	//
+	// With it, only the desired-state records -- content records, no
+	// changetype -- go through the planner, which is the same reconcile the
+	// plan endpoint runs rather than the private loop this handler used to
+	// have. That loop also reconciled `changetype: add` records, which its own
+	// comment and the API description both said it did not: an explicit add
+	// was quietly rewritten into a modification. It is now left as the add it
+	// states, and fails at apply exactly as the document asks it to if the
+	// entry exists.
+	outcomes := make([]*plan.Item, len(proposals))
+	reconciled := 0
+	var unchanged, skippedAttrs []string
+	if wantReconcile {
+		var desired []plan.Proposal
+		var at []int
+		for i, prop := range proposals {
+			if records[i].Change == ldif.ChangeNone {
+				desired = append(desired, plan.Proposal{Record: prop.Record, Intent: plan.IntentDesired})
+				at = append(at, i)
+			}
+		}
+		if len(desired) > 0 {
+			computed, planErr := s.planner.ComputeProposals(ctx, planReader{sess.Conn}, sch,
+				desired, plan.Options{})
+			if planErr != nil {
+				return s.fail(c, planErr)
+			}
+			for j := range computed.Items {
+				item := computed.Items[j]
+				outcomes[at[j]] = &item
+			}
+		}
+	}
+
 	result := ImportResult{Changes: make([]ChangePreview, 0, len(records))}
 	requests := make([]ChangeRequest, 0, len(records))
-	var unchanged, skippedAttrs []string
-	reconciled := 0
 
-	for i, rec := range records {
-		change, convErr := recordToChange(rec)
-		if convErr != nil {
-			return badRequest(c, fmt.Sprintf("Record %d (%s) cannot be applied.", i+1, rec.DN), convErr.Error())
-		}
-		if err := change.Validate(); err != nil {
-			return badRequest(c, fmt.Sprintf("Record %d (%s) is not usable.", i+1, rec.DN), err.Error())
-		}
-
-		// Only a content record can be reconciled. A changetype record already
-		// says what it wants done, and second-guessing it would be inventing an
-		// intent the document does not carry.
-		if wantReconcile && change.Type == directory.ChangeAdd {
-			live, readErr := sess.Conn.Read(ctx, change.DN, []string{"*", "+"})
-			switch {
-			case readErr != nil && !isNoSuchObject(readErr):
-				// An entry that is absent is the ordinary case — the record
-				// stays an add. Anything else is a real failure and saying so
-				// beats silently importing half a document.
-				return s.fail(c, readErr)
-			case readErr == nil && live != nil:
-				outcome := plan.Reconcile(change, live, sch)
-				skippedAttrs = plan.AppendNew(skippedAttrs, outcome.Skipped)
-				if !outcome.Changed {
-					// Nothing to confirm, so nothing is offered to confirm.
-					unchanged = append(unchanged, change.DN.String())
-					continue
-				}
-				change = outcome.Change
+	for i, prop := range proposals {
+		change := prop.Record
+		if item := outcomes[i]; item != nil {
+			skippedAttrs = plan.AppendNew(skippedAttrs, item.SkippedAttributes)
+			switch item.Action {
+			case plan.ActionUnchanged:
+				// Nothing to confirm, so nothing is offered to confirm.
+				unchanged = append(unchanged, change.DN.String())
+				continue
+			case plan.ActionModify:
+				change = item.Record
 				reconciled++
 			}
+			// An add of an absent entry stays the add it was. A schema problem
+			// is left for the preview and the directory to report, as it always
+			// has been on this endpoint: it previews, it does not judge.
 		}
 
 		preview, prevErr := s.renderPreview(change, sch, sess.Conn.Capabilities())
@@ -1513,6 +1545,98 @@ func (s *Server) ParseLdif(c *fiber.Ctx) error {
 		}
 	}
 	return c.JSON(result)
+}
+
+// ldifProposals turns parsed LDIF into proposals, and is where a document's
+// meaning is decided.
+//
+// A content record -- no changetype -- is desired state when the caller asked
+// for desired state, and an add otherwise, which is what ldapadd does with it.
+// A changetype record is always the exact operation it states. In desired mode
+// a changetype record is refused rather than guessed at: "this entry should
+// look like this" and "do this" in one document have no single reading.
+func ldifProposals(records []*ldif.Record, desired bool) ([]plan.Proposal, error) {
+	out := make([]plan.Proposal, 0, len(records))
+	var mixed []ldifRecordRef
+	for i, rec := range records {
+		change, convErr := recordToChange(rec)
+		if convErr != nil {
+			return nil, &ldifRecordError{index: i, dn: rec.DN.String(), what: "cannot be applied", err: convErr}
+		}
+		if err := change.Validate(); err != nil {
+			return nil, &ldifRecordError{index: i, dn: rec.DN.String(), what: "is not usable", err: err}
+		}
+		intent := plan.IntentExact
+		if desired {
+			if rec.Change != ldif.ChangeNone {
+				mixed = append(mixed, ldifRecordRef{index: i, dn: rec.DN.String()})
+				continue
+			}
+			intent = plan.IntentDesired
+		}
+		out = append(out, plan.Proposal{Record: change, Intent: intent})
+	}
+	if len(mixed) > 0 {
+		return nil, &ldifModeError{records: mixed}
+	}
+	return out, nil
+}
+
+type ldifRecordRef struct {
+	index int
+	dn    string
+}
+
+// ldifRecordError is a record that cannot become a change at all.
+type ldifRecordError struct {
+	index int
+	dn    string
+	what  string
+	err   error
+}
+
+func (e *ldifRecordError) Error() string {
+	return fmt.Sprintf("record %d (%s) %s: %v", e.index+1, e.dn, e.what, e.err)
+}
+
+// ldifModeError is a desired-state document carrying changetype records.
+type ldifModeError struct{ records []ldifRecordRef }
+
+func (e *ldifModeError) Error() string {
+	return fmt.Sprintf("%d record(s) carry a changetype in a desired-state document", len(e.records))
+}
+
+// writeLdifError renders either failure in the shape the API uses everywhere.
+func writeLdifError(c *fiber.Ctx, err error) error {
+	var mode *ldifModeError
+	if errors.As(err, &mode) {
+		affected := make([]ErrorAffected, 0, len(mode.records))
+		for _, r := range mode.records {
+			affected = append(affected, ErrorAffected{Index: r.index, Dn: r.dn})
+		}
+		first := mode.records[0]
+		return c.Status(fiber.StatusBadRequest).JSON(Error{
+			Error: ErrorErrorLdifModeMismatch,
+			Message: "A desired-state document may contain only content records, " +
+				"and this one has records with a changetype.",
+			Detail: ptr(fmt.Sprintf(
+				"Record %d (%s) is the first. Plan the document with mode \"changes\" "+
+					"to apply its records as the operations they state, or remove the "+
+					"changetype lines to describe the entries as they should be.",
+				first.index+1, first.dn)),
+			Affected: &affected,
+		})
+	}
+	var rec *ldifRecordError
+	if errors.As(err, &rec) {
+		return c.Status(fiber.StatusBadRequest).JSON(Error{
+			Error:    ErrorErrorBadRequest,
+			Message:  fmt.Sprintf("Record %d (%s) %s.", rec.index+1, rec.dn, rec.what),
+			Detail:   ptr(rec.err.Error()),
+			Affected: &[]ErrorAffected{{Index: rec.index, Dn: rec.dn}},
+		})
+	}
+	return badRequest(c, "The LDIF could not be planned.", err.Error())
 }
 
 // recordToChange maps a parsed LDIF record onto a ChangeRecord.

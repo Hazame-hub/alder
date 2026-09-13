@@ -34,6 +34,19 @@ the deny list in `internal/schema/syntax.go` are withheld from every API
 response, with only a value count reported. They are omitted from LDIF exports
 unless explicitly requested.
 
+**The same holds for changes on their way in.** A plan record, a change preview
+and an apply response show a sensitive value only as its length. Before 1.5 a
+change that set `userPassword` directly had the value echoed back in its preview
+and its apply response — to the browser that had just sent it, but a response is
+not where a password belongs. A withheld value posted back is refused rather
+than written as empty.
+
+**A plan's token is not a function of any secret.** A baseline is an HMAC under
+a per-process random key over the exact operation and the state it depends on.
+A sensitive attribute contributes its name, its operation and its value count,
+never its bytes — so a token cannot be used to test guesses at a password, and
+it means nothing to another process or after a restart.
+
 **DNs and filters are never built by concatenation.** Both are parsed into typed
 values and re-rendered with the correct escaping. `internal/dn` has no exported
 way to build a DN from text, and a filter typed by a user is parsed by
