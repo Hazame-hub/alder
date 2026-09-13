@@ -340,6 +340,19 @@ that order, and hands you the list to review as one changeset — rather than
 refusing because the entry has children, which is what it used to do while
 offering no way to do the thing it was suggesting.
 
+**Snapshot a subtree, and compare it later.** A snapshot is a versioned JSON
+document you download and keep: canonical, so the same state produces the same
+file; checksummed; and holding no password, only a count of how many there were.
+Compare it with another snapshot or with the directory as it is now. Every
+difference is `added`, `removed`, `modified`, `renamed` (only when the entry's
+`entryUUID` or `nsUniqueId` proves it) or `unknown`, and a comparison that could
+not see everything says so rather than calling what it missed deleted. Values
+compare by the attribute's matching rule, so a DN spelled differently is not a
+change. When the directory is the source, pick the differences to undo and stage
+them: they go through the same plan and review as every other write. Deleting an
+entry is never selected for you. Details in
+[`docs/SNAPSHOTS.md`](docs/SNAPSHOTS.md).
+
 ## Two servers, one behaviour
 
 OpenLDAP and 389 Directory Server are both first-class, and that is enforced by

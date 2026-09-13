@@ -113,6 +113,24 @@ contract changed only by tightening what a token proves:
   session that planned it, where 1.5's would verify in any session of the same
   process.
 
+1.7 added snapshots and comparisons, only by adding:
+
+- **New endpoints:** `POST /snapshots/capture`, `POST /snapshots/inspect` and
+  `POST /diff`, and the error identifiers `snapshot_invalid`,
+  `snapshot_unsupported_version`, `snapshot_checksum_mismatch`,
+  `snapshot_too_large` and `snapshot_scope_unsupported`.
+- **The snapshot document is covered like the API.** A version 1 snapshot, as
+  described in [SNAPSHOTS.md](SNAPSHOTS.md), is readable by every 1.x release, and
+  two captures of the same state produce the same document apart from
+  `createdAt`. A later 1.x may write a new version, or a new `kind`, and will
+  still read version 1. Readers refuse unknown fields rather than ignore them, so
+  a document that uses a field an older release does not know is refused by that
+  release with `snapshot_invalid`. That is deliberate: a field the reader skipped
+  could change what the comparison means.
+- **Comparison enums may grow.** New values in `DiffKind`, `DiffReasonCode` and
+  `DiffCandidateBlocked` follow the enum rule above. A client that does not
+  recognise a `blocked` value should treat the item as offering no change.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —

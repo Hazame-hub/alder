@@ -66,6 +66,22 @@ server-side request forgery via `http://` in a single feature. LDAP controls in
 LDIF are refused too: silently ignoring one would apply a different change than
 the document describes.
 
+**Snapshots hold no secrets Alder can recognise, and are read as untrusted.** A
+snapshot records a deny-listed attribute as a count of values. It holds no value,
+no hash and no other digest, so it is not an offline guessing oracle. It carries
+no bind DN, credential, server address or local path. It does carry every other
+value the bind DN could read, which may include secrets your directory stores
+under attribute names Alder does not know are sensitive. Reading a snapshot, for
+inspection or comparison, is read-only: it fetches nothing and writes nothing.
+The JSON is decoded strictly: unknown fields, trailing content, invalid DNs,
+entries outside the stated scope and sensitive attributes carrying values are
+all refused. It is bounded at 50,000 entries within the server's 16 MB request
+limit. A download's filename is built by the server from a sanitised base DN and
+a timestamp, and nothing in a document becomes a path. The interface renders
+every value as text. The checksum detects accidental damage and is not a
+signature. A comparison proposes changes but never applies them: its candidates
+are staged and go through the plan like any other write.
+
 **TLS is on by default in both directions.** The server refuses to start without
 a certificate unless `--allow-http` says a reverse proxy terminates TLS.
 Connecting to a directory over plaintext LDAP requires
