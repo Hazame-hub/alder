@@ -300,9 +300,10 @@ shows the second.
 Each planned change carries a fingerprint of the state it was planned against.
 Send it back when applying and the server re-reads the entry and refuses the
 whole set if anything it depended on has moved. It is a keyed hash rather than
-a snapshot, it holds no attribute values, and a password contributes only
-whether it is set — the same rule as everywhere else. Applying without one
-behaves exactly as it did before.
+a snapshot and holds no attribute values; a password being set is bound by a
+session-keyed MAC, so a different password is refused without the token ever
+revealing anything about either. Applying without one behaves exactly as it did
+before.
 
 **Plan an LDIF document, and say how to read it.** The plan takes an LDIF
 document as well as staged changes, read one of two ways and never guessed. As
@@ -322,6 +323,15 @@ the operation its plan was issued for, refuses a plan the directory has moved
 away from, names every change affected either way, and never replans on your
 behalf. Passwords are withheld from plans, previews and apply responses alike.
 [docs/PLAN.md](docs/PLAN.md) is the reference.
+
+**One change goes through the same plan as a thousand.** Editing an entry,
+creating, renaming, moving or deleting one, setting a password, changing a group,
+adding a schema definition or a configuration setting: the confirmation dialog
+plans the change against the directory, shows what it does and what it touches
+beside the exact LDIF, and applies what was reviewed with the plan's token. If
+somebody else changed the entry in the meantime nothing is written, and the
+dialog asks you to recompute the plan and look again. A change that would do
+nothing says so and offers nothing to apply.
 
 **Delete a container** by staging what is under it. LDAP deletes one leaf at a
 time, so removing an organisational unit means removing everything below it

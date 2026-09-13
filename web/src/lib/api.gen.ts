@@ -447,9 +447,15 @@ export interface paths {
         put?: never;
         /**
          * Render a change as LDIF and as an Ansible task
-         * @description Renders without applying. This is what the confirmation modal shows,
-         *     and the same ChangeRecord that produced it is what `/changes/apply`
-         *     sends to the server.
+         * @deprecated
+         * @description Renders without applying and without reading the directory.
+         *
+         *     Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+         *     calls it: its confirmation dialog plans the change with `POST /plan`,
+         *     which returns the same rendering inside the plan item together with
+         *     what the change would do against the directory as it is, and a token
+         *     that `/changes/apply` holds the change to. A rendering alone says
+         *     nothing about whether the change still applies.
          */
         post: operations["previewChange"];
         delete?: never;
@@ -469,8 +475,15 @@ export interface paths {
         put?: never;
         /**
          * Apply a change
-         * @description The only endpoint that modifies the directory. It takes the same
-         *     ChangeRequest that `/changes/preview` rendered.
+         * @description Applies one change. With the `baseline` a plan returned, the server first
+         *     re-reads the entry and refuses the change if it is not the operation the
+         *     plan was issued for (`400 plan_mismatch`) or the directory has moved
+         *     since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+         *     new password, a sensitive attribute value -- is part of that operation:
+         *     a different value than the one planned is a mismatch.
+         *
+         *     Without a `baseline` the change is applied as it always was. The
+         *     interface always plans first and always sends one.
          */
         post: operations["applyChange"];
         delete?: never;

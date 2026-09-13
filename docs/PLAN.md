@@ -5,9 +5,12 @@ A plan answers one question before anything is written:
 > Given this proposed change and the directory as it is now, what would Alder
 > actually do?
 
-It is available as `POST /api/v1/plan`, and in the interface as **Check against
-the directory** on the changeset. This document is the reference for what a plan
-means. `api/openapi.yaml` is the reference for its shape.
+It is available as `POST /api/v1/plan`. In the interface every write goes
+through one: the confirmation dialog plans the single change it was handed — an
+entry edit, a creation, a rename or move, a deletion, a password, a membership,
+a schema definition, a configuration setting — and the changeset and the import
+panel plan whole sets and documents. This document is the reference for what a
+plan means. `api/openapi.yaml` is the reference for its shape.
 
 ---
 
@@ -186,6 +189,13 @@ A client applies a plan by sending the planned changes to
 `baseline`. Items that apply nothing — `unchanged`, `conflict`, `invalid` — are
 left out.
 
+The confirmation dialog is the single-change case of exactly this. It plans
+`{"changes": [change]}`, shows the item — what it does, its problems and impact,
+and the LDIF and Ansible the server rendered from the plan — and applies the
+change it reviewed to `POST /changes/apply` with the item's `baseline`. A change
+that plans as `unchanged` offers nothing to apply; a `conflict` or `invalid` one
+is shown and not offered.
+
 - For an **exact** item, send the change as the client staged it. It is the
   operation the plan bound.
 - For a **desired-state** item, send the plan's `record`: the planner rewrote
@@ -225,11 +235,27 @@ plan response, a preview, or an apply response:
 - in `preview`, it is rendered as `withheld (42 bytes)`;
 - a `set_password` change never returns the password.
 
-The baseline binds a sensitive attribute by name, operation and value count,
-never by its bytes — the same way it has always bound a `set_password` change.
-That is what lets a client apply the plan by supplying the value from its own
-copy of the change. It also means a plan does not detect a substituted password
-of the same shape.
+The baseline binds a secret — a `set_password` change's new password, or a
+value of a sensitive attribute in an add or a modify — without carrying it. It
+holds a keyed MAC of the value under a key derived from the server's fingerprint
+key and the session. A client applies the plan by supplying the value from its
+own copy of the change, and a different value, even one of the same length, is
+refused with `400 plan_mismatch`. Before 1.6 these were bound by shape alone and
+a substituted password of the same length was not detected.
+
+Why this is not a guessing oracle:
+
+- the fingerprint key is 32 random bytes held only in the server's memory, so
+  nothing can be computed from a token without the server;
+- the key is also derived per session, so asking the server to plan guesses and
+  comparing tokens only reproduces a token inside the session that planned it,
+  and that session already holds the value it sent;
+- a token never contains the value, or a plain digest of it.
+
+A token that binds a secret therefore verifies only in the session that planned
+it. The *state* half of a token still binds a sensitive attribute already in the
+directory by value count alone: a password rotated underneath a plan that does
+not change it is not reported as drift.
 
 A value sent with a `size` and no content is refused rather than written: a
 client that posts a withheld record straight back is told, instead of having an

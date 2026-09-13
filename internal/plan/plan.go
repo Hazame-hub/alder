@@ -289,6 +289,16 @@ func NewPlanner(notFound func(error) bool) (*Planner, error) {
 
 // Compute plans records with the 1.4 reading: exact, except that an add is
 // desired state when Reconcile is set.
+// ForSession returns a planner whose tokens bind secret values under a key
+// scoped to one session. The API plans and verifies through it with the session
+// ID, so a token carrying a secret is only ever reproducible where that secret
+// was typed. The copy shares everything else, the fingerprint key included.
+func (pl *Planner) ForSession(scope []byte) *Planner {
+	scoped := *pl
+	scoped.fp = pl.fp.Scoped(scope)
+	return &scoped
+}
+
 func (pl *Planner) Compute(
 	ctx context.Context,
 	r Reader,

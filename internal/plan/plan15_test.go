@@ -1,6 +1,9 @@
 package plan
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"strings"
 	"testing"
 
@@ -427,27 +430,82 @@ func TestAReconciledPlanVerifiesAgainstADirectoryThatReturnsOnlyWhatItIsAskedFor
 	}
 }
 
-// A password change binds the entry and the fact of the change. The password is
-// never part of the token, so the same token verifies whatever password the
-// client supplies on apply -- which is the only thing it can honestly bind.
-func TestAPasswordChangeTokenCarriesNoPassword(t *testing.T) {
+// A password change binds the password without carrying it.
+//
+// The token holds a keyed MAC of the new password under a key derived from the
+// process's fingerprint key and the session, so: no plaintext, no digest anyone
+// can recompute, a different password of the same length is a mismatch, and the
+// same password planned in another session does not reproduce the token.
+func TestAPasswordChangeTokenBindsThePasswordWithoutCarryingIt(t *testing.T) {
 	d := &fakeDirectory{}
 	person(t, d, alice, []string{"cn", "a"}, []string{"sn", "a"})
 	pl := newTestPlanner(t)
+	const secret = "correct-horse-battery-staple"
 
 	record := directory.ChangeRecord{DN: mustParse(t, alice), Type: directory.ChangeSetPassword,
-		NewPassword: "correct-horse-battery-staple"}
-	p, err := pl.ComputeProposals(t.Context(), d, testSchema(t), Exact(record), Options{})
+		NewPassword: secret}
+	session := pl.ForSession([]byte("session-a"))
+	p, err := session.ComputeProposals(t.Context(), d, testSchema(t), Exact(record), Options{})
 	if err != nil {
 		t.Fatalf("planning: %v", err)
 	}
 	item := only(t, p)
-	if strings.Contains(string(item.Baseline), "correct-horse") {
-		t.Fatal("the password is in the token")
+	token := string(item.Baseline)
+
+	// Nothing recoverable: not the password, and not an unkeyed digest of it in
+	// any of the encodings a token could plausibly carry.
+	sum := sha256.Sum256([]byte(secret))
+	for _, leak := range []string{secret, hex.EncodeToString(sum[:]),
+		base64.RawURLEncoding.EncodeToString(sum[:]), base64.StdEncoding.EncodeToString(sum[:])} {
+		if strings.Contains(token, leak) {
+			t.Fatalf("the token carries %q", leak)
+		}
 	}
+
+	if err := session.Verify(t.Context(), d, record, item.Baseline); err != nil {
+		t.Errorf("the planned password did not verify: %v", err)
+	}
+
 	other := record
-	other.NewPassword = "a-different-password"
-	if err := pl.Verify(t.Context(), d, other, item.Baseline); err != nil {
-		t.Errorf("the token bound the password value: %v", err)
+	other.NewPassword = "correct-horse-battery-stapl3"
+	if len(other.NewPassword) != len(secret) {
+		t.Fatal("the substitute must have the same length, or this proves nothing")
+	}
+	if err := session.Verify(t.Context(), d, other, item.Baseline); !IsMismatch(err) {
+		t.Errorf("a different password of the same length verified as %v, want a mismatch", err)
+	}
+
+	// The same password, verified from another session, is not the planned
+	// operation: a token is not a guessing oracle outside the session that
+	// typed the value.
+	if err := pl.ForSession([]byte("session-b")).Verify(t.Context(), d, record, item.Baseline); !IsMismatch(err) {
+		t.Errorf("the token verified in another session as %v, want a mismatch", err)
+	}
+}
+
+// A sensitive attribute written by a modify is bound the same way: a different
+// value of the same length is not the planned change.
+func TestASensitiveValueIsBoundWithoutBeingCarried(t *testing.T) {
+	d := &fakeDirectory{}
+	person(t, d, alice, []string{"cn", "a"}, []string{"sn", "a"}, []string{"userPassword", "{SSHA}old"})
+	pl := newTestPlanner(t).ForSession([]byte("session-a"))
+
+	planned := directory.ChangeRecord{DN: mustParse(t, alice), Type: directory.ChangeModify,
+		Mods: []directory.Mod{{Op: directory.ModReplace, Name: "userPassword", Values: [][]byte{[]byte("{SSHA}AAAAAAAA")}}}}
+	p, err := pl.ComputeProposals(t.Context(), d, testSchema(t), Exact(planned), Options{})
+	if err != nil {
+		t.Fatalf("planning: %v", err)
+	}
+	item := only(t, p)
+	if strings.Contains(string(item.Baseline), "AAAAAAAA") {
+		t.Fatal("the token carries the value")
+	}
+	if err := pl.Verify(t.Context(), d, planned, item.Baseline); err != nil {
+		t.Errorf("the planned value did not verify: %v", err)
+	}
+	substituted := planned
+	substituted.Mods = []directory.Mod{{Op: directory.ModReplace, Name: "userPassword", Values: [][]byte{[]byte("{SSHA}BBBBBBBB")}}}
+	if err := pl.Verify(t.Context(), d, substituted, item.Baseline); !IsMismatch(err) {
+		t.Errorf("a substituted value of the same length verified as %v, want a mismatch", err)
 	}
 }

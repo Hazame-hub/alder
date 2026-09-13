@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ListChecks, Loader2, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CircleCheck, ListChecks, Loader2, RefreshCw, ShieldAlert } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { ApplyResult, ChangeRequest } from "@/lib/api";
+import { reviewSingleChange } from "@/lib/single-plan";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,16 +15,22 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { LdifBlock } from "@/components/ldif-block";
+import { PlanImpactList, PlanRow } from "@/components/plan-summary";
 import { changeset } from "@/lib/changeset";
 
 /**
- * ChangeDialog is the confirmation step every write goes through.
+ * ChangeDialog is the confirmation step every single change goes through.
  *
- * There is no path in the application that applies a change without this
- * dialog: the components that build a ChangeRequest hand it here, and only the
- * button in this footer calls /changes/apply. That is what "no modification
- * reaches the server without showing the exact LDIF first" means in code rather
- * than in a README.
+ * The components that build a ChangeRequest — the entry editor, rename, delete,
+ * a password, a membership, a schema definition — hand it here, and this dialog
+ * plans it against the directory before anything else: what the change would
+ * do, the problems and impact that planning finds, and the exact LDIF the
+ * server rendered from that plan. Applying sends the reviewed change with the
+ * plan's token, so the server refuses it if the directory has moved since, or
+ * if it is somehow not the change that was planned.
+ *
+ * A refused plan is never replanned and applied in one step. The operator asks
+ * for a new plan, sees it, and only then can apply it.
  */
 export function ChangeDialog({
   change,
@@ -44,21 +51,35 @@ export function ChangeDialog({
 }) {
   const queryClient = useQueryClient();
 
-  const preview = useQuery({
-    // The preview is rendered by the server from the same ChangeRecord that
-    // /changes/apply will act on, so what is shown and what is sent cannot
-    // disagree. Rendering the LDIF in the browser instead would reintroduce
-    // exactly that gap.
-    queryKey: ["preview", change],
+  const planned = useQuery({
+    queryKey: ["change-plan", change],
     enabled: open && change !== null,
     retry: false,
+    // A plan is replaced only when the operator asks for it. Refetching on
+    // focus or reconnect would swap the plan being reviewed for another one
+    // underneath the Apply button; and nothing is kept once the dialog closes,
+    // so reopening it always plans afresh.
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     queryFn: async () =>
-      unwrap(await api.POST("/changes/preview", { body: change as ChangeRequest })),
+      unwrap(
+        await api.POST("/plan", {
+          body: { changes: [change as ChangeRequest], reconcile: false },
+        }),
+      ),
   });
 
+  const review = planned.data && change ? reviewSingleChange(planned.data, change) : null;
+  const item = review?.item;
+  const preview = item?.preview;
+
   const apply = useMutation({
-    mutationFn: async () =>
-      unwrap(await api.POST("/changes/apply", { body: change as ChangeRequest })),
+    mutationFn: async () => {
+      if (review?.state !== "apply") throw new Error("There is no planned change to apply.");
+      return unwrap(await api.POST("/changes/apply", { body: review.body }));
+    },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ["entry"] });
       void queryClient.invalidateQueries({ queryKey: ["tree"] });
@@ -68,9 +89,13 @@ export function ChangeDialog({
     },
   });
 
-  const previewError = preview.error as ApiFailure | null;
-  const applyError = apply.error as ApiFailure | null;
-  const data = preview.data;
+  const planError = planned.error as ApiFailure | null;
+  const applyError = apply.error instanceof ApiFailure ? apply.error : null;
+  // The server refused the plan: the directory moved, or the request was not
+  // the planned change. Apply stays disabled until a new plan has been shown.
+  const stale = applyError?.isStalePlan ? applyError : null;
+  const replanning = planned.isFetching;
+  const canApply = review?.state === "apply" && !apply.isPending && !replanning && !stale;
 
   return (
     <Dialog
@@ -84,42 +109,68 @@ export function ChangeDialog({
         <DialogHeader>
           <DialogTitle>{title ?? "Review this change"}</DialogTitle>
           <DialogDescription>
-            {data ? (
-              <span className="font-dn">{data.summary}</span>
+            {preview ? (
+              <span className="font-dn">{preview.summary}</span>
+            ) : item ? (
+              <span className="font-dn">{item.dn}</span>
             ) : (
-              "Rendering the change…"
+              "Planning against the directory…"
             )}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {preview.isPending ? (
-            <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {replanning ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              Rendering…
+              Planning against the directory…
             </div>
           ) : null}
 
-          {previewError ? (
-            <ErrorNote title="This change cannot be rendered" error={previewError} />
+          {planError && !replanning ? (
+            <ErrorNote title="This change cannot be planned" error={planError} />
           ) : null}
 
-          {data ? (
+          {planned.data && item && !replanning ? (
             <>
-              {data.warnings?.length ? (
-                <div className="mb-4 rounded-md border border-warning/40 bg-warning/10 p-3">
+              <div className="space-y-2">
+                <ol className="rounded-md border">
+                  <PlanRow item={item} />
+                </ol>
+                <PlanImpactList plan={planned.data} />
+              </div>
+
+              {review?.state === "nothing" ? (
+                <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3 text-sm">
+                  <CircleCheck className="mt-0.5 size-4 shrink-0 text-success" />
+                  <div>
+                    <div className="font-medium">No changes required.</div>
+                    <p className="text-muted-foreground">
+                      The directory already holds what this change describes, so
+                      applying it would write nothing.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {review?.state === "blocked" ? (
+                <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning-tint-foreground">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  <div>
+                    <div className="font-medium">This change would not apply as things stand.</div>
+                    {item.reason ? <p className="text-warning-tint-foreground/90">{item.reason}</p> : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {preview?.warnings?.length ? (
+                <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
                   <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-warning-tint-foreground">
                     <AlertTriangle className="size-4" />
-                    {/*
-                      The list carries two kinds of warning now: what the schema
-                      says an entry may hold, and that a change is addressed into
-                      the server's own configuration. A heading naming only the
-                      schema would make the more serious one read as a schema note.
-                    */}
                     Read this before applying
                   </div>
                   <ul className="ml-5 list-disc space-y-1 text-sm text-warning-tint-foreground/90">
-                    {data.warnings.map((w) => (
+                    {preview.warnings.map((w) => (
                       <li key={w}>{w}</li>
                     ))}
                   </ul>
@@ -130,53 +181,87 @@ export function ChangeDialog({
                 </div>
               ) : null}
 
-              <Tabs defaultValue="ldif">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <TabsList>
-                    <TabsTrigger value="ldif">LDIF</TabsTrigger>
-                    <TabsTrigger value="ansible">Ansible</TabsTrigger>
-                  </TabsList>
-                  {data.affectedAttributes?.length ? (
-                    <div className="flex flex-wrap items-center gap-1">
-                      <span className="text-xs text-muted-foreground">touches</span>
-                      {data.affectedAttributes.map((a) => (
-                        <Badge key={a} variant="outline" className="font-mono">
-                          {a}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+              {preview ? (
+                <Tabs defaultValue="ldif">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <TabsList>
+                      <TabsTrigger value="ldif">LDIF</TabsTrigger>
+                      <TabsTrigger value="ansible">Ansible</TabsTrigger>
+                    </TabsList>
+                    {preview.affectedAttributes?.length ? (
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-xs text-muted-foreground">touches</span>
+                        {preview.affectedAttributes.map((a) => (
+                          <Badge key={a} variant="outline" className="font-mono">
+                            {a}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
 
-                <TabsContent value="ldif">
-                  <LdifBlock text={data.ldif} filename="change.ldif" />
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    This is the exact change record Alder will send. The download
-                    is folded at 76 columns as RFC 2849 asks; what you see here is
-                    not, so it stays readable.
-                  </p>
-                </TabsContent>
+                  <TabsContent value="ldif">
+                    <LdifBlock text={preview.ldif} filename="change.ldif" />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      The exact change record this plan will send, rendered by the
+                      server from the plan itself. The download is folded at 76
+                      columns as RFC 2849 asks; what you see here is not.
+                    </p>
+                  </TabsContent>
 
-                <TabsContent value="ansible">
-                  <LdifBlock
-                    text={data.ansible}
-                    language="yaml"
-                    filename="change.task.yaml"
-                  />
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Rendered from the same change record as the LDIF. The
-                    connection settings are variables on purpose: a bind password
-                    does not belong in a generated file.
-                  </p>
-                </TabsContent>
-              </Tabs>
+                  <TabsContent value="ansible">
+                    <LdifBlock text={preview.ansible} language="yaml" filename="change.task.yaml" />
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Rendered from the same change record as the LDIF. The
+                      connection settings are variables on purpose: a bind password
+                      does not belong in a generated file.
+                    </p>
+                  </TabsContent>
+                </Tabs>
+              ) : null}
             </>
           ) : null}
 
-          {applyError ? (
-            <div className="mt-4">
-              <ErrorNote title="The directory refused this change" error={applyError} />
+          {stale ? (
+            <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
+              <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-warning-tint-foreground">
+                <AlertTriangle className="size-4" />
+                {stale.code === "plan_mismatch"
+                  ? "This is not the change that was planned"
+                  : "The directory has changed since this plan was made"}
+              </div>
+              <p className="text-sm text-warning-tint-foreground/90">{stale.message}</p>
+              {stale.affected?.length ? (
+                <ul className="mt-2 ml-5 list-disc space-y-0.5 text-xs text-warning-tint-foreground/90">
+                  {stale.affected.map((a) => (
+                    <li key={a.index} className="font-dn">
+                      {a.dn}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="mt-3 flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={replanning}
+                  onClick={() => {
+                    apply.reset();
+                    void planned.refetch();
+                  }}
+                >
+                  {replanning ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                  Recompute plan
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Applying stays disabled until you have seen the new plan.
+                </span>
+              </div>
             </div>
+          ) : null}
+
+          {applyError && !stale ? (
+            <ErrorNote title="The directory refused this change" error={applyError} />
           ) : null}
         </div>
 
@@ -185,15 +270,15 @@ export function ChangeDialog({
             Cancel
           </Button>
           {/*
-            Staging queues the same ChangeRequest the Apply button would send,
-            after the same review. The changeset is a different moment to apply
-            it, not a way around confirming it.
+            Staging queues the reviewed ChangeRequest. The changeset plans it
+            again, with everything staged beside it, before it can be applied;
+            a change that would do nothing is not worth queueing.
           */}
           <Button
             variant="outline"
-            disabled={!data || apply.isPending}
+            disabled={!review || review.state === "nothing" || apply.isPending || replanning}
             onClick={() => {
-              changeset.add(change as ChangeRequest, data?.summary ?? "change");
+              changeset.add(change as ChangeRequest, preview?.summary ?? item?.dn ?? "change");
               onOpenChange(false);
               onStaged?.();
             }}
@@ -203,11 +288,15 @@ export function ChangeDialog({
           </Button>
           <Button
             variant={destructive ? "destructive" : "default"}
-            disabled={!data || apply.isPending}
+            disabled={!canApply}
             onClick={() => apply.mutate()}
           >
             {apply.isPending ? <Loader2 className="animate-spin" /> : null}
-            {destructive ? "Apply and delete" : "Apply to the directory"}
+            {review?.state === "nothing"
+              ? "Nothing to apply"
+              : destructive
+                ? "Apply and delete"
+                : "Apply to the directory"}
           </Button>
         </DialogFooter>
       </DialogContent>

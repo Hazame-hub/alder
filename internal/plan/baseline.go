@@ -46,6 +46,42 @@ type Baseline string
 // belongs to a session.
 type Fingerprinter struct {
 	key []byte
+	// scope separates the secret bindings of one session from another's. See
+	// secretDigest.
+	scope []byte
+}
+
+// Scoped returns a fingerprinter that binds secret values under a key derived
+// for scope, which the API sets to the session. Everything else a token binds
+// is unchanged, so a plan made in one session still verifies in another unless
+// it carries a secret.
+func (f *Fingerprinter) Scoped(scope []byte) *Fingerprinter {
+	return &Fingerprinter{key: f.key, scope: append([]byte(nil), scope...)}
+}
+
+// secretDigest is what a token binds in place of a secret value.
+//
+// A keyed MAC, never a plain digest: the token travels to the browser, and
+// SHA-256 of a password would let anyone holding a token test guesses against
+// it offline. The key is derived from the process key, which is 32 random bytes
+// that exist only in this process's memory, and from the scope, so:
+//
+//   - without the process key nothing can be computed from a token at all;
+//   - with the process's help -- asking this server to plan guesses and
+//     comparing tokens -- a guess only reproduces a token inside the session
+//     that made it, and that session already holds the value it sent.
+//
+// What it buys is that applying a different secret than the one planned is a
+// mismatch, like any other change to the operation, where before 1.6 two
+// passwords of the same length were indistinguishable.
+func (f *Fingerprinter) secretDigest(value []byte) []byte {
+	derive := hmac.New(sha256.New, f.key)
+	w := framer{w: derive}
+	w.field("", []byte("secret-binding"))
+	w.field("", f.scope)
+	mac := hmac.New(sha256.New, derive.Sum(nil))
+	_, _ = mac.Write(value)
+	return mac.Sum(nil)
 }
 
 // NewFingerprinter returns one with a fresh key.
@@ -230,18 +266,12 @@ func (f *Fingerprinter) stateMAC(target string, deps []string, live *directory.E
 // sorted: this is not "the same set of changes", it is "the change that was
 // planned", and a modify is a sequence.
 //
-// A password change contributes its type and DN and never the password. The
-// plan never returned the password to begin with -- it is write-only on the way
-// in -- so the client supplies it again on apply, and what the token can
-// honestly bind is that this entry's password is being set, not to what.
-//
-// A sensitive attribute in an add or a modify is bound the same way the state
-// MAC binds one: by name, operation and how many values, never the bytes. The
-// plan withholds those values from its response, so no client can send back
-// bytes it was never shown; and a keyed hash over a password hash would be the
-// one place in Alder a password's bytes influenced something that reaches the
-// browser. What is given up is detecting a substituted password of the same
-// shape, which is exactly what set_password has always given up too.
+// A secret -- the new password of a password change, or a value of a sensitive
+// attribute in an add or a modify -- is bound through secretDigest, never as
+// its bytes. The plan never returns it, so the client supplies it again on
+// apply, and a different value is then a mismatch like any other change to the
+// operation. Before 1.6 these were bound by shape alone (name, operation, value
+// count), which could not tell two passwords of the same length apart.
 func (f *Fingerprinter) operationMAC(op directory.ChangeRecord) []byte {
 	mac := hmac.New(sha256.New, f.key)
 	w := framer{w: mac}
@@ -258,7 +288,10 @@ func (f *Fingerprinter) operationMAC(op directory.ChangeRecord) []byte {
 			field(strings.ToLower(a.Name))
 			field(strconv.Itoa(len(a.Values)))
 			if schema.IsSensitive(a.Name) {
-				field("withheld")
+				field("secret")
+				for _, v := range a.Values {
+					bytesField(f.secretDigest(v))
+				}
 				continue
 			}
 			for _, v := range a.Values {
@@ -272,7 +305,10 @@ func (f *Fingerprinter) operationMAC(op directory.ChangeRecord) []byte {
 			field(strings.ToLower(m.Name))
 			field(strconv.Itoa(len(m.Values)))
 			if schema.IsSensitive(m.Name) {
-				field("withheld")
+				field("secret")
+				for _, v := range m.Values {
+					bytesField(f.secretDigest(v))
+				}
 				continue
 			}
 			for _, v := range m.Values {
@@ -283,7 +319,9 @@ func (f *Fingerprinter) operationMAC(op directory.ChangeRecord) []byte {
 		field(op.NewRDN)
 		field(strconv.FormatBool(op.DeleteOldRDN))
 		field(strings.ToLower(op.NewSuperior.String()))
-	case directory.ChangeDelete, directory.ChangeSetPassword:
+	case directory.ChangeSetPassword:
+		field(string(f.secretDigest([]byte(op.NewPassword))))
+	case directory.ChangeDelete:
 		// The type and the DN are the whole of it.
 	}
 	return mac.Sum(nil)

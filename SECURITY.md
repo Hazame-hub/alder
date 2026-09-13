@@ -41,11 +41,17 @@ and its apply response — to the browser that had just sent it, but a response 
 not where a password belongs. A withheld value posted back is refused rather
 than written as empty.
 
-**A plan's token is not a function of any secret.** A baseline is an HMAC under
-a per-process random key over the exact operation and the state it depends on.
-A sensitive attribute contributes its name, its operation and its value count,
-never its bytes — so a token cannot be used to test guesses at a password, and
-it means nothing to another process or after a restart.
+**A plan's token binds a secret without exposing it.** A baseline is an HMAC
+under a per-process random key over the exact operation and the state it
+depends on. Since 1.6 a secret in the operation — a new password, or a value of
+a sensitive attribute being written — contributes an HMAC of the value under a
+key derived from that process key and the session, so applying a different
+password than the one planned is refused. It is never a plain digest: without
+the process key, which never leaves memory, nothing can be tested against a
+token, and with the server's help a guess only reproduces a token inside the
+session that planned it. Tokens mean nothing to another process or after a
+restart. Secrets already stored in the directory are still bound by value count
+only.
 
 **DNs and filters are never built by concatenation.** Both are parsed into typed
 values and re-rendered with the correct escaping. `internal/dn` has no exported

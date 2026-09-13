@@ -2073,3 +2073,52 @@ to contradict the plan — add an entry.
   by a test) bring it to roughly 75–110 ms and 33 MB; framing token fields
   without `fmt` took classification alone to 34 ms for the add and 24 ms for a
   replace, against 25 and 38 in 1.4.
+
+### 2026-09-13 — one plan for every write
+
+- **A single change is a plan of one.** The confirmation dialog that every
+  single write in the interface goes through -- entry edits, creation, rename
+  and move, deletion, passwords, memberships, schema definitions, configuration
+  settings, and each record applied from the import panel -- now plans the
+  change with `POST /plan` and applies it to `POST /changes/apply` with the
+  plan's token. Rejected: a separate single-entry planner, or a dedicated
+  "plan one change" endpoint. The planner already takes a list; a second
+  representation of "what will happen" is exactly what 1.5 set out to remove.
+- **Preview is something a plan contains, not a second model.** The dialog shows
+  the LDIF and Ansible rendered inside the plan item. `POST /changes/preview`,
+  which renders without reading the directory, is kept and marked deprecated
+  rather than removed: it is a documented 1.x endpoint, and deleting it buys
+  nothing the interface still needs. It is no longer called by the interface.
+- **The dialog applies the change it reviewed, not the plan's record.** A single
+  change is always planned as exactly itself, so the two describe one operation
+  -- and only the staged copy still holds a password or a withheld sensitive
+  value. The token holds the server to that equivalence.
+- **A plan under review is never replaced silently.** The dialog's plan query
+  does not refetch on focus or reconnect and is discarded when the dialog closes.
+  A refused apply leaves the dialog showing the refusal with Apply disabled; the
+  operator asks for a new plan, sees it, and only then can apply.
+- **Nothing to do offers nothing to do.** An `unchanged` plan disables both Apply
+  and staging. A `conflict` or `invalid` plan is shown and not offered for
+  applying, but can still be staged, because a later change in a set may be what
+  makes it apply.
+- **Secrets are bound by a session-scoped keyed MAC.** 1.5 bound a password
+  change by its type and DN and a sensitive value by its count, so a different
+  password of the same length verified. The operation MAC now includes an HMAC
+  of each secret under a key derived from the process's random fingerprint key
+  and the session ID. Rejected: an unkeyed digest (SHA-256 of a password in a
+  token is an offline guessing oracle); a stable server secret (a new
+  configuration value to generate, protect and rotate, for a guarantee the
+  per-process key already gives); binding under the process key alone (any
+  session on the server could then test guesses by planning them and comparing
+  tokens). The cost is that a token carrying a secret only verifies in the
+  session that planned it. The state half still binds stored secrets by count.
+- **Configuration is where the server keeps it, announced or found.** 389 DS
+  announces no `configContext`, so its `cn=config` was being classified as data.
+  A change is `config` if it is under the announced context or under the
+  configuration tree Alder found answering at connect time -- both locations the
+  server itself established, neither a guess from the DN's spelling.
+- **The equivalence proof covers every family the dialog builds.** Create,
+  multi-attribute modify, rename, move, delete, a schema write, a configuration
+  write and a password are each planned and applied over HTTP and compared
+  operation for operation with what the plan showed. Eight deliberate breaks
+  on the apply path -- one or more per family -- each fail it.

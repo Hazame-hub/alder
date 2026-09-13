@@ -39,6 +39,14 @@ import (
 // already holding a session.
 func alder(t *testing.T, s server) (*http.Client, string) {
 	t.Helper()
+	return alderSession(t, s, false)
+}
+
+// alderSession connects the way the connection screen does, optionally with the
+// configuration identity as well, which schema and configuration writes need on
+// a server that keeps them apart from the data.
+func alderSession(t *testing.T, s server, withConfig bool) (*http.Client, string) {
+	t.Helper()
 
 	// No AllowPlaintextLDAP: this connects over LDAPS with the harness CA, the
 	// same way every other case in this suite does, so the TLS path is under
@@ -70,7 +78,7 @@ func alder(t *testing.T, s server) (*http.Client, string) {
 	if err != nil {
 		t.Fatalf("reading the harness CA: %v (run \"task compose:up\" first)", err)
 	}
-	connect, err := json.Marshal(map[string]any{
+	fields := map[string]any{
 		"host":          s.host,
 		"port":          s.port,
 		"tls":           "ldaps",
@@ -78,7 +86,12 @@ func alder(t *testing.T, s server) (*http.Client, string) {
 		"serverName":    "localhost",
 		"bindDn":        s.bindDN,
 		"bindPassword":  s.bindPW,
-	})
+	}
+	if withConfig && s.schemaBindDN != "" {
+		fields["configBindDn"] = s.schemaBindDN
+		fields["configBindPassword"] = s.schemaBindPW
+	}
+	connect, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatalf("encoding the connect request: %v", err)
 	}
