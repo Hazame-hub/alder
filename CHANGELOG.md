@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.6.0](https://github.com/Hazame-hub/alder/compare/v1.5.0...v1.6.0) (2026-09-13)
+
+
+### Features
+
+* a change that would do nothing plans as unchanged and writes nothing ([fc2e3e0](https://github.com/Hazame-hub/alder/commit/fc2e3e027ad4dcb6c4552e78b04146e911c80441))
+* a reviewed change is refused when the directory changed after it was planned (409 conflict with cause plan_stale) or when it is not the operation that was planned (400 plan_mismatch); the interface offers Recompute plan and never replans and applies on its own ([fc2e3e0](https://github.com/Hazame-hub/alder/commit/fc2e3e027ad4dcb6c4552e78b04146e911c80441))
+* every write made through the Alder interface goes through a plan; a single change is a plan of one, covering entry edits, creation, rename and move, deletion, memberships, passwords, schema definitions and configuration settings ([fc2e3e0](https://github.com/Hazame-hub/alder/commit/fc2e3e027ad4dcb6c4552e78b04146e911c80441))
+* password and sensitive values are withheld from plans, previews and apply responses, and are bound to their plan with a session-scoped keyed MAC, so a different secret of the same length is refused ([fc2e3e0](https://github.com/Hazame-hub/alder/commit/fc2e3e027ad4dcb6c4552e78b04146e911c80441))
+* POST /changes/preview is deprecated but still available, and POST /changes/apply without a plan token keeps working for external 1.x API clients ([fc2e3e0](https://github.com/Hazame-hub/alder/commit/fc2e3e027ad4dcb6c4552e78b04146e911c80441))
+
+
+### Fixes
+
+* a change under the configuration tree found at connect time, such as cn=config on 389 DS, is classified as configuration ([fc2e3e0](https://github.com/Hazame-hub/alder/commit/fc2e3e027ad4dcb6c4552e78b04146e911c80441))
+
 ## [1.5.0](https://github.com/Hazame-hub/alder/compare/v1.4.0...v1.5.0) (2026-09-13)
 
 
