@@ -67,6 +67,15 @@ func decodeValue(v AttributeValue) ([]byte, error) {
 		return b, nil
 	case v.Text != nil:
 		return []byte(*v.Text), nil
+	case v.Size != nil && *v.Size != 0:
+		// A length with no bytes is a value that was withheld, not an empty
+		// one. Plan responses withhold sensitive values this way, and a client
+		// that posted such a record straight back would otherwise have had it
+		// read as an explicitly empty value -- writing an empty userPassword in
+		// place of the one it never saw. Refused, so the only way to send a
+		// sensitive value is to send it.
+		return nil, fmt.Errorf("a value was withheld (it carries a size of %d bytes and no content); "+
+			"supply the value itself", *v.Size)
 	default:
 		// An explicitly empty value is legal in LDAP and is not the same as an
 		// absent one.

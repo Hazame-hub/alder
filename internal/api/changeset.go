@@ -94,14 +94,15 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 	// twelve that the directory has moved would leave eleven applied against
 	// assumptions nobody rechecked -- and this is knowable in advance, which is
 	// the same reason changeRecords validates the whole set up front.
-	stale, verifyErr := s.verifyBaselines(ctx, sess, body.Changes, records)
+	refusal, status, verifyErr := s.checkPlannedChanges(ctx, sess, body.Changes, records)
 	if verifyErr != nil {
 		return s.fail(c, verifyErr)
 	}
-	if stale != nil {
-		s.logger.Info("changeset refused: the directory moved since it was planned",
-			"dn", stale.String(), "changes", len(records))
-		return refuseStale(c, *stale)
+	if refusal != nil {
+		s.logger.Info("changeset refused before anything ran",
+			"reason", string(refusal.Error), "changes", len(records),
+			"affected", len(*refusal.Affected))
+		return c.Status(status).JSON(refusal)
 	}
 
 	result := ChangesetResult{Outcomes: make([]ChangesetOutcome, 0, len(records))}
@@ -231,7 +232,7 @@ func changesetLDIF(records []directory.ChangeRecord) string {
 		b.WriteString("\n")
 		// LDIFFolded already yields the notice for a password change, so a
 		// changeset containing one still describes every step it performs.
-		b.WriteString(record.LDIFFolded())
+		b.WriteString(withholdSensitive(record).LDIFFolded())
 	}
 	return b.String()
 }

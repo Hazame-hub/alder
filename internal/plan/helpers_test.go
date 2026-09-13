@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"context"
 	"testing"
 
 	"github.com/hazame-hub/alder/internal/dn"
@@ -54,6 +55,35 @@ func testSchema(t testing.TB) *schema.Schema {
 	})
 	if len(sch.Errors) != 0 {
 		t.Fatalf("the test schema does not parse: %v", sch.Errors)
+	}
+	return sch
+}
+
+// Aliases so a test type can satisfy Reader without importing context and dn
+// into every file that needs one.
+type (
+	contextT = context.Context
+	dnT      = dn.DN
+)
+
+// testSchemaWithGroups is the miniature schema plus a group class, for the
+// membership cases.
+func testSchemaWithGroups(t testing.TB) *schema.Schema {
+	t.Helper()
+	sch := schema.Load("cn=subschema", map[string][]string{
+		schema.AttrObjectClasses: {
+			"( 2.5.6.0 NAME 'top' ABSTRACT MUST objectClass )",
+			"( 2.5.6.9 NAME 'groupOfNames' SUP top STRUCTURAL MUST ( member $ cn ) MAY description )",
+		},
+		schema.AttrAttributeTypes: {
+			"( 2.5.4.0 NAME 'objectClass' SYNTAX 1.3.6.1.4.1.1466.115.121.1.38 )",
+			"( 2.5.4.3 NAME 'cn' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
+			"( 2.5.4.13 NAME 'description' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
+			"( 2.5.4.31 NAME 'member' SYNTAX 1.3.6.1.4.1.1466.115.121.1.12 )",
+		},
+	})
+	if len(sch.Errors) != 0 {
+		t.Fatalf("the group schema does not parse: %v", sch.Errors)
 	}
 	return sch
 }
