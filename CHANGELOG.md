@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.7.0](https://github.com/Hazame-hub/alder/compare/v1.6.0...v1.7.0) (2026-09-13)
+
+
+### Features
+
+* capture versioned, deterministic Alder data snapshots (alder-snapshot format version 1) that record sensitive attributes as a value count only, never a value or a hash ([005da76](https://github.com/Hazame-hub/alder/commit/005da76bbbe2acf7aff9f90b5d7055b5a02f1447))
+* compare a snapshot with another snapshot or with the live directory, in an explicit source → target direction, using LDAP-aware equality by matching rule ([005da76](https://github.com/Hazame-hub/alder/commit/005da76bbbe2acf7aff9f90b5d7055b5a02f1447))
+* detect renames only through a shared entryUUID or nsUniqueId, and report what a partial comparison could not see as unknown rather than absent ([005da76](https://github.com/Hazame-hub/alder/commit/005da76bbbe2acf7aff9f90b5d7055b5a02f1447))
+* stage selected differences into the existing plan and changeset review, with deletions only by explicit opt-in, on OpenLDAP and 389 Directory Server ([005da76](https://github.com/Hazame-hub/alder/commit/005da76bbbe2acf7aff9f90b5d7055b5a02f1447))
+
+
+### Documentation
+
+* state snapshot format version 1 compatibility and exactly what the snapshot checksum covers ([005da76](https://github.com/Hazame-hub/alder/commit/005da76bbbe2acf7aff9f90b5d7055b5a02f1447))
+
 ## [1.6.0](https://github.com/Hazame-hub/alder/compare/v1.5.0...v1.6.0) (2026-09-13)
 
 
