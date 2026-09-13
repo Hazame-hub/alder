@@ -22,7 +22,8 @@ export type AppView =
   | "search"
   | "schema"
   | "changeset"
-  | "import";
+  | "import"
+  | "snapshots";
 
 const views: AppView[] = [
   "overview",
@@ -34,6 +35,7 @@ const views: AppView[] = [
   "schema",
   "changeset",
   "import",
+  "snapshots",
 ];
 
 export type SearchScope = "base" | "one" | "sub";
