@@ -225,6 +225,31 @@ baseline is applied exactly as it was before plans existed.
 
 ---
 
+## Changes from a comparison
+
+A comparison between the live directory (as source) and a snapshot (as target)
+proposes, for each difference, the change requests that would move the
+directory toward the snapshot. See [SNAPSHOTS.md](SNAPSHOTS.md). They are
+inputs to a plan and nothing else. Nothing applies a comparison directly.
+
+- The interface stages the differences an operator selects into the changeset,
+  which plans them as ordinary **exact** changes. The planner reads the
+  directory as it is at that moment, not as it was when the comparison ran. A
+  change the directory has since made unnecessary plans as `unchanged`, and one
+  it has made impossible plans as `conflict` or `invalid`.
+- A deletion is proposed only by a complete comparison, is marked
+  `destructive`, and is staged only when selected on its own. Once staged it is
+  an ordinary `delete`, and its plan shows its impact.
+- No proposal ever carries a sensitive value, because a snapshot has none to
+  offer.
+
+The end-to-end test captures a snapshot, changes the directory, compares,
+stages every proposal including an explicit deletion, plans, applies with the
+plan's baselines, and compares again. It must find no difference, and the
+operations the directory received must be exactly the planned ones.
+
+---
+
 ## Passwords and other sensitive values
 
 `userPassword` and the rest of the sensitive attribute list never appear in a

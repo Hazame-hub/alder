@@ -2122,3 +2122,78 @@ to contradict the plan — add an entry.
   write and a password are each planned and applied over HTTP and compared
   operation for operation with what the plan showed. Eight deliberate breaks
   on the apply path -- one or more per family -- each fail it.
+
+### 2026-09-13 — snapshots, comparisons, and the one write path
+
+- **A snapshot is its own format, not LDIF.** It has to say things LDIF cannot:
+  that a value was withheld and how many there were, what was excluded, what
+  the schema said about each attribute, whether the capture was whole, and
+  where it came from. Written into LDIF, those would be comments nothing reads
+  back, and an LDIF content record is also something the import panel would
+  happily apply. A JSON document with `format`, `version` and `kind` cannot be
+  mistaken for a change. LDIF export is unchanged and remains the format for
+  moving entries.
+- **Canonical, and checksummed without the time.** Entries parent-first, attributes
+  `objectClass`-first then by name, values by their matching-rule key. SHA-256
+  over everything but `createdAt`, so an unchanged directory produces the same
+  checksum twice. A change to the captured content or the covered metadata
+  invalidates it; a change to `createdAt` does not, by design. It is an integrity
+  check against corruption, described everywhere as neither authentication nor
+  a signature. Rejected: signing, which needs a key to
+  manage and would suggest an authenticity nobody can check.
+- **Sensitive attributes are a count, never a digest.** A hash of a password in
+  a file people share is an offline guessing oracle. The consequence, stated in
+  the documentation: a password changed to another password is invisible to a
+  comparison, and a restore from a snapshot never writes one.
+- **Never partial.** A size limit, a referral or more than 50,000 entries makes
+  capture fail with `snapshot_too_large`. `completeness` exists as a field with a
+  single value, so a future partial kind would be a new value an old reader
+  refuses, not a document it misreads.
+- **Unknown fields are refused.** A 1.x reader that skipped a field a later
+  writer relied on would compare wrongly without saying so. Snapshot format
+  version 1 was introduced in 1.7, and every later 1.x release will continue to
+  read it.
+- **Direction is explicit, and only a live source proposes changes.** `added` means
+  in the target and not in the source, always. Candidates exist only when the
+  source is the directory, because that is the only side a change can be made
+  to, and they move it toward the target. Rejected: proposing changes for two
+  snapshots "to apply somewhere", which is a plan without a directory to plan
+  against.
+- **A candidate is a list of change requests, and nothing more.** The interface
+  stages the selected ones into the changeset, which plans them against the
+  directory as it is then. There is no "apply this diff" endpoint. The mapping
+  is proven the way 1.6's dialog was: capture, drift, compare, select everything
+  including an explicit delete, plan, apply, compare again, and find nothing.
+  Four deliberate breaks of the mapping each fail it: removed values not
+  deleted, an attribute dropped from an add, an absent attribute not deleted, a
+  delete not produced.
+- **Deletion is never inferred.** A partial comparison produces no delete at all
+  (`incomplete_comparison`). A complete one produces deletes marked
+  `destructive`, which "select all" skips and which each need their own
+  checkbox. "Could not read" is `unknown` and never `removed`: a truncated live
+  read, a scope that differs, or an attribute the live directory says the bind
+  DN cannot read. Checking access costs one request per attribute, capped at 500
+  per comparison, after which the rest are `access_not_verified`.
+- **Renames only by a shared identity.** `entryUUID` or `nsUniqueId`, recorded as
+  the entry's `id`. Rejected: matching entries by similar attributes. A wrong
+  guess turns into a `modrdn` of the wrong entry.
+- **Equality follows the matching rule, conservatively.** A rule Alder implements,
+  named the same on both sides, decides equality. Anything else compares bytes
+  and is listed as such. Byte comparison can over-report a difference; it
+  cannot hide one.
+- **Cross-vendor means the announced vendors differ, including one that announces
+  none.** OpenLDAP announces no vendor, so a rule requiring both to be named would
+  never have fired for the pairing the harness exists to test.
+- **Data only.** A base in the schema or configuration tree is refused with
+  `snapshot_scope_unsupported`. Their identity and value ordering are different
+  problems, and 1.7 does not pretend to solve them.
+- **The request limit stays at 16 MB.** Measured: 10,000 people and a group of all
+  of them come to 5.0 MB compact (12.4 MB indented). That covers a comparison of
+  one ~30,000-entry snapshot with the directory or two ~15,000-entry snapshots.
+  Raising the limit globally would raise it for every endpoint. Instead the
+  interface measures what it would send and refuses with the reason, and a
+  larger capture can still be downloaded. Build, decode and diff each grow
+  about 12× from 1,000 to 10,000 entries (0.20 s, 0.40 s and 0.31 s at 10,000),
+  so none of them is quadratic in entries or in group size.
+- **Stateless, still.** Snapshots are downloaded and uploaded. The server keeps
+  no copy, no history and no schedule.

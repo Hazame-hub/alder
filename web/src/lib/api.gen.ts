@@ -617,6 +617,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/snapshots/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Capture a subtree as a versioned snapshot
+         * @description Reads the subtree as the session's own identity and returns it as an
+         *     Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+         *     repository. See `docs/SNAPSHOTS.md`.
+         *
+         *     - Entries, attribute names and values are in one defined order, so two
+         *       captures of an unchanged subtree differ only in `createdAt`, and have
+         *       the same `checksum`.
+         *     - Operational attributes are left out unless
+         *       `operationalAttributes` is set. Each entry's stable identity
+         *       (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+         *     - Sensitive attributes are recorded as a `withheld` count, never as a
+         *       value or anything derived from one.
+         *     - A capture that cannot finish -- more than 50,000 entries, a search
+         *       limit, a failure part way -- is an error. There is no partial
+         *       snapshot.
+         *     - Only data snapshots exist in 1.x so far: a base inside the schema or
+         *       the server's configuration is refused with
+         *       `snapshot_scope_unsupported`.
+         *
+         *     Nothing is kept on the server. The snapshot is returned and belongs to
+         *     the caller.
+         */
+        post: operations["captureSnapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/snapshots/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate a snapshot and describe it
+         * @description Validates an uploaded snapshot exactly as a comparison would and
+         *     describes what it covers. Read-only: nothing is kept and nothing is
+         *     applied.
+         *
+         *     A snapshot is refused when its format or version is not one this Alder
+         *     reads (`snapshot_unsupported_version` for a newer version), when any DN,
+         *     value or field is malformed or unknown (`snapshot_invalid`), when a
+         *     sensitive attribute carries a value, or when a checksum is present and
+         *     does not match (`snapshot_checksum_mismatch`). A snapshot without a
+         *     checksum is accepted and described as `integrity: unverified`.
+         */
+        post: operations["inspectSnapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compare two directory states
+         * @description Compares `source` with `target`, each a snapshot or the live directory
+         *     this session is bound to. The direction is explicit: `added` means in
+         *     the target and not in the source. See `docs/SNAPSHOTS.md`.
+         *
+         *     - Values compare by the equality rule both sides recorded for the
+         *       attribute where Alder models it, and byte for byte otherwise; the
+         *       attributes compared by bytes are listed.
+         *     - A rename is only reported when both sides share an entry's stable
+         *       identity. Otherwise a moved entry is removed and added.
+         *     - What could not be seen is `unknown`, never `removed` or `added`: an
+         *       entry beyond a live search's bound, outside the other side's scope, or
+         *       an attribute the live directory will not show. Any of those makes the
+         *       comparison `complete: false`, with `reasons`.
+         *     - A live side reads as the session's identity. An entry the access
+         *       rules hide is indistinguishable from one that does not exist; see the
+         *       limits in `docs/SNAPSHOTS.md`.
+         *
+         *     When the source is live, each item carries a `candidate`: change
+         *     requests that would move the live directory toward the target. They are
+         *     input for `POST /plan`, never applied from here. Deleting an entry is a
+         *     `destructive` candidate, is never selected for the caller, and is
+         *     withheld entirely when the comparison is partial. A missing entry in the
+         *     target is never, by itself, a reason to delete.
+         */
+        post: operations["diffStates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/export/ldif": {
         parameters: {
             query?: never;
@@ -812,7 +923,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -1008,6 +1119,191 @@ export interface components {
             capabilities?: components["schemas"]["Capabilities"];
             /** @description True when the server was started with --read-only. */
             readOnly?: boolean;
+        };
+        /** @enum {string} */
+        SnapshotScope: "base" | "one" | "sub";
+        /** @description Exactly one of `text` or `base64`. */
+        SnapshotValue: {
+            text?: string;
+            base64?: string;
+        };
+        SnapshotAttribute: {
+            name: string;
+            values?: components["schemas"]["SnapshotValue"][];
+            /** @description For a sensitive attribute, how many values it held. It never has values. */
+            withheld?: number;
+        };
+        SnapshotEntry: {
+            dn: string;
+            /** @description The server's stable identity for the entry, as `entryUUID=...` or `nsUniqueId=...`. */
+            id?: string;
+            attributes: components["schemas"]["SnapshotAttribute"][];
+        };
+        SnapshotAttributeInfo: {
+            name: string;
+            equality?: string;
+            syntax?: string;
+            singleValue?: boolean;
+            operational?: boolean;
+            sensitive?: boolean;
+        };
+        SnapshotSource: {
+            vendor?: string;
+            vendorVersion?: string;
+            base: string;
+            scope: components["schemas"]["SnapshotScope"];
+            filter: string;
+        };
+        /** @enum {string} */
+        SnapshotExcluded: "operational-attributes" | "sensitive-values";
+        /**
+         * @description An Alder snapshot, format version 1. The document is canonical: see
+         *     `docs/SNAPSHOTS.md` for its ordering and what `checksum` covers.
+         */
+        Snapshot: {
+            /** @enum {string} */
+            format: "alder-snapshot";
+            /** @description The snapshot format version. This Alder reads 1. */
+            version: number;
+            /** @enum {string} */
+            kind: "data";
+            /** Format: date-time */
+            createdAt: string;
+            source: components["schemas"]["SnapshotSource"];
+            operationalAttributes: boolean;
+            schemaAvailable: boolean;
+            excluded: components["schemas"]["SnapshotExcluded"][];
+            /** @enum {string} */
+            completeness: "complete";
+            entryCount: number;
+            attributes: components["schemas"]["SnapshotAttributeInfo"][];
+            /** @description `sha256:<hex>` over the canonical content: every field except `createdAt` and `checksum`. A change to the captured entries or to the covered metadata invalidates it; a change to `createdAt` does not. An integrity check against corruption, not authentication or a signature. */
+            checksum?: string;
+            entries: components["schemas"]["SnapshotEntry"][];
+        };
+        SnapshotCaptureRequest: {
+            base: string;
+            scope?: components["schemas"]["SnapshotScope"];
+            /** @description An RFC 4515 filter, defaulting to `(objectClass=*)`. Parsed, never pasted. */
+            filter?: string;
+            /** @description Capture operational attributes too. Off by default. */
+            operationalAttributes?: boolean;
+        };
+        /** @enum {string} */
+        SnapshotIntegrity: "verified" | "unverified";
+        SnapshotInspection: {
+            version: number;
+            kind: string;
+            createdAt: string;
+            source: components["schemas"]["SnapshotSource"];
+            operationalAttributes: boolean;
+            schemaAvailable: boolean;
+            excluded: components["schemas"]["SnapshotExcluded"][];
+            entryCount: number;
+            /** @description The checksum of the canonical content, whether or not the document carried one. */
+            checksum: string;
+            integrity: components["schemas"]["SnapshotIntegrity"];
+        };
+        /**
+         * @description The live directory. Omitted fields are taken from the other side's
+         *     snapshot, so `{}` means "the same subtree, as it is now".
+         */
+        DiffLiveSide: {
+            base?: string;
+            scope?: components["schemas"]["SnapshotScope"];
+            filter?: string;
+            operationalAttributes?: boolean;
+        };
+        /** @description Exactly one of `snapshot` or `live`. */
+        DiffSide: {
+            snapshot?: components["schemas"]["Snapshot"];
+            live?: components["schemas"]["DiffLiveSide"];
+        };
+        DiffRequest: {
+            source: components["schemas"]["DiffSide"];
+            target: components["schemas"]["DiffSide"];
+            /** @description List unchanged entries as items rather than only counting them. */
+            includeUnchanged?: boolean;
+        };
+        /** @enum {string} */
+        DiffSideKind: "snapshot" | "live";
+        DiffSideSummary: {
+            kind: components["schemas"]["DiffSideKind"];
+            vendor?: string;
+            base: string;
+            scope: components["schemas"]["SnapshotScope"];
+            filter: string;
+            createdAt?: string;
+            checksum?: string;
+            integrity?: components["schemas"]["SnapshotIntegrity"];
+            operationalAttributes: boolean;
+            entryCount: number;
+        };
+        /** @enum {string} */
+        DiffKind: "added" | "removed" | "modified" | "renamed" | "unchanged" | "unknown";
+        /** @enum {string} */
+        DiffReasonCode: "search_limit_reached" | "scope_mismatch" | "insufficient_access" | "access_not_verified" | "schema_unavailable";
+        DiffReason: {
+            code: components["schemas"]["DiffReasonCode"];
+            detail: string;
+        };
+        DiffCounts: {
+            compared: number;
+            added: number;
+            removed: number;
+            modified: number;
+            renamed: number;
+            unchanged: number;
+            unknown: number;
+        };
+        DiffAttributeChange: {
+            name: string;
+            kind: components["schemas"]["DiffKind"];
+            added?: components["schemas"]["SnapshotValue"][];
+            removed?: components["schemas"]["SnapshotValue"][];
+            /** @description Values in the target and not the source beyond the 1 */
+            addedOmitted?: number;
+            /** @description Values in the source and not the target beyond the 1 */
+            removedOmitted?: number;
+            operational?: boolean;
+            /** @description Compared by withheld count only; no values are ever listed. */
+            sensitive?: boolean;
+            comparedByBytes?: boolean;
+            withheldSource?: number;
+            withheldTarget?: number;
+            unknownReason?: components["schemas"]["DiffReasonCode"];
+        };
+        /** @enum {string} */
+        DiffCandidateBlocked: "source_not_live" | "incomplete_comparison" | "nothing_to_change" | "unknown_difference" | "only_unchangeable_attributes" | "unresolvable_rename";
+        /**
+         * @description Change requests that would move the live source toward the target: input
+         *     for `POST /plan`, never applied from here.
+         */
+        DiffCandidate: {
+            changes: components["schemas"]["ChangeRequest"][];
+            /** @description The candidate deletes an entry. Never selected for the caller. */
+            destructive: boolean;
+            blocked?: components["schemas"]["DiffCandidateBlocked"];
+        };
+        DiffItem: {
+            kind: components["schemas"]["DiffKind"];
+            sourceDn?: string;
+            targetDn?: string;
+            attributes?: components["schemas"]["DiffAttributeChange"][];
+            reason?: components["schemas"]["DiffReasonCode"];
+            candidate?: components["schemas"]["DiffCandidate"];
+        };
+        Diff: {
+            source: components["schemas"]["DiffSideSummary"];
+            target: components["schemas"]["DiffSideSummary"];
+            complete: boolean;
+            reasons?: components["schemas"]["DiffReason"][];
+            counts: components["schemas"]["DiffCounts"];
+            crossVendor: boolean;
+            comparedByBytes?: string[];
+            ruleDifferences?: string[];
+            operationalIgnored: boolean;
+            items: components["schemas"]["DiffItem"][];
         };
         /**
          * @description Exactly one of `text` or `base64` is present. `text` carries a value
@@ -2919,6 +3215,85 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    captureSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SnapshotCaptureRequest"];
+            };
+        };
+        responses: {
+            /** @description The snapshot document, with a download filename. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    inspectSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Snapshot"];
+            };
+        };
+        responses: {
+            /** @description What the snapshot covers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotInspection"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    diffStates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiffRequest"];
+            };
+        };
+        responses: {
+            /** @description The comparison. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Diff"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     exportLdif: {
