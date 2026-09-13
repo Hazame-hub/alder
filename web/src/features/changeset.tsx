@@ -322,7 +322,7 @@ export function ChangesetView({
               : "The directory has changed since this plan was made"}
           </div>
           <p className="text-sm text-warning-tint-foreground/90">
-            Nothing was applied. {stalePlan.message}
+            {stalePlan.message}
           </p>
           {stalePlan.affected?.length ? (
             <ul className="mt-2 ml-5 list-disc space-y-0.5 text-xs text-warning-tint-foreground/90">

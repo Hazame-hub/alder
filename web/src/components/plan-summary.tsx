@@ -124,7 +124,7 @@ export function PlanSummary({ plan }: { plan: Plan }) {
         </span>
       </div>
 
-      <Impact plan={plan} />
+      <PlanImpactList plan={plan} />
 
       <ol className="divide-y rounded border">
         {plan.items.map((item) => (
@@ -142,8 +142,11 @@ export function PlanSummary({ plan }: { plan: Plan }) {
   );
 }
 
-/** The facts a plan establishes beyond the entries it names. */
-function Impact({ plan }: { plan: Plan }) {
+/**
+ * The facts a plan establishes beyond the entries it names. Shared with the
+ * single-change dialog, which shows the same facts for its one change.
+ */
+export function PlanImpactList({ plan }: { plan: Plan }) {
   const impact = plan.impact;
   const lines: Array<{ icon: typeof Pencil; tone?: string; text: string }> = [];
 
@@ -225,7 +228,7 @@ function Impact({ plan }: { plan: Plan }) {
   );
 }
 
-function PlanRow({ item }: { item: PlanItem }) {
+export function PlanRow({ item }: { item: PlanItem }) {
   const look = LOOK[item.action] ?? LOOK.conflict;
   const Icon = look.icon;
   const kind = item.kind && item.kind !== "data" ? item.kind : null;
