@@ -83,6 +83,42 @@ corruption of that content; it is not authentication or a signature, since
 anyone who edits a file can recompute it. A comparison proposes changes but never applies them: its candidates
 are staged and go through the plan like any other write.
 
+**Recovery bundles hold no secret, and are never executed.** A recovery bundle
+(1.9) is derived from entries as they were read immediately before a change.
+- **What it holds:** the earlier values of the ordinary attributes a change
+  touched, and a deleted entry's ordinary attributes.
+- **What it never holds:**
+  - a password, or any value or hash of a deny-listed attribute;
+  - a bind DN or credential;
+  - a session or plan token;
+  - a server address.
+
+  A modified sensitive attribute is recorded by name only, a deleted entry's
+  sensitive attributes are left out and the step says so, and a password change
+  records only that it happened.
+- **Reading a bundle** is read-only and strict, within the server's request
+  limit. It refuses:
+  - unknown fields and trailing content;
+  - invalid DNs and attribute names;
+  - a sensitive attribute carrying values;
+  - a password change as a compensation;
+  - recoverability its steps do not support;
+  - more than 2,000 steps.
+
+  The client sends the file exactly as it read it, so a field it does not know
+  reaches the server and is refused there.
+- **Using a bundle** turns it into ordinary change requests. Each carries the
+  state its entry must still be in, and goes through a plan, a review and the
+  plan's tokens. A compensation whose entry has changed since is a conflict.
+  There is no endpoint that applies a bundle.
+- **The checksum** detects corruption and is not a signature.
+- **Origin** metadata is what the directory announced and proves nothing.
+  Staging or applying a bundle whose origin differs needs explicit confirmation.
+- **Files and display.** The client writes a bundle with mode 0600 on Unix.
+  Every string from a bundle is displayed with control and bidirectional
+  characters escaped. A bundle holds directory data, so keep it as you would
+  that data.
+
 **TLS is on by default in both directions.** The server refuses to start without
 a certificate unless `--allow-http` says a reverse proxy terminates TLS.
 Connecting to a directory over plaintext LDAP requires
