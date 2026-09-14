@@ -6,8 +6,12 @@ package api
 import (
 	"bytes"
 	"compress/flate"
+	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"path"
 	"strings"
@@ -2883,6 +2887,9081 @@ type CaptureSnapshotJSONRequestBody = SnapshotCaptureRequest
 
 // InspectSnapshotJSONRequestBody defines body for InspectSnapshot for application/json ContentType.
 type InspectSnapshotJSONRequestBody = Snapshot
+
+// RequestEditorFn is the function signature for the RequestEditor callback function
+type RequestEditorFn func(ctx context.Context, req *http.Request) error
+
+// Doer performs HTTP requests.
+//
+// The standard http.Client implements this interface.
+type HttpRequestDoer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// Client which conforms to the OpenAPI3 specification for this service.
+type Client struct {
+	// The endpoint of the server conforming to this interface, with scheme,
+	// https://api.deepmap.com for example. This can contain a path relative
+	// to the server, such as https://api.deepmap.com/dev-test, and all the
+	// paths in the swagger spec will be appended to the server.
+	Server string
+
+	// Doer for performing requests, typically a *http.Client with any
+	// customized settings, such as certificate chains.
+	Client HttpRequestDoer
+
+	// A list of callbacks for modifying requests which are generated before sending over
+	// the network.
+	RequestEditors []RequestEditorFn
+}
+
+// ClientOption allows setting custom parameters during construction
+type ClientOption func(*Client) error
+
+// Creates a new Client, with reasonable defaults
+func NewClient(server string, opts ...ClientOption) (*Client, error) {
+	// create a client with sane default values
+	client := Client{
+		Server: server,
+	}
+	// mutate client and add all optional params
+	for _, o := range opts {
+		if err := o(&client); err != nil {
+			return nil, err
+		}
+	}
+	// ensure the server URL always has a trailing slash
+	if !strings.HasSuffix(client.Server, "/") {
+		client.Server += "/"
+	}
+	// create httpClient, if not already present
+	if client.Client == nil {
+		client.Client = &http.Client{}
+	}
+	return &client, nil
+}
+
+// WithHTTPClient allows overriding the default Doer, which is
+// automatically created using http.Client. This is useful for tests.
+func WithHTTPClient(doer HttpRequestDoer) ClientOption {
+	return func(c *Client) error {
+		c.Client = doer
+		return nil
+	}
+}
+
+// WithRequestEditorFn allows setting up a callback function, which will be
+// called right before sending the request. This can be used to mutate the request.
+func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
+	return func(c *Client) error {
+		c.RequestEditors = append(c.RequestEditors, fn)
+		return nil
+	}
+}
+
+// The interface specification for the client above.
+type ClientInterface interface {
+
+	// ApplyChangeWithBody Apply a change
+	//
+	// Applies one change. With the `baseline` a plan returned, the server first
+	// re-reads the entry and refuses the change if it is not the operation the
+	// plan was issued for (`400 plan_mismatch`) or the directory has moved
+	// since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+	// new password, a sensitive attribute value -- is part of that operation:
+	// a different value than the one planned is a mismatch.
+	//
+	// Without a `baseline` the change is applied as it always was. The
+	// interface always plans first and always sends one.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /changes/apply (the `ApplyChange` operationId).
+	ApplyChangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApplyChange Apply a change
+	//
+	// Applies one change. With the `baseline` a plan returned, the server first
+	// re-reads the entry and refuses the change if it is not the operation the
+	// plan was issued for (`400 plan_mismatch`) or the directory has moved
+	// since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+	// new password, a sensitive attribute value -- is part of that operation:
+	// a different value than the one planned is a mismatch.
+	//
+	// Without a `baseline` the change is applied as it always was. The
+	// interface always plans first and always sends one.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /changes/apply (the `ApplyChange` operationId).
+	ApplyChange(ctx context.Context, body ApplyChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewChangeWithBody Render a change as LDIF and as an Ansible task
+	//
+	// Renders without applying and without reading the directory.
+	//
+	// Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+	// calls it: its confirmation dialog plans the change with `POST /plan`,
+	// which returns the same rendering inside the plan item together with
+	// what the change would do against the directory as it is, and a token
+	// that `/changes/apply` holds the change to. A rendering alone says
+	// nothing about whether the change still applies.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /changes/preview (the `PreviewChange` operationId).
+	//
+	// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	PreviewChangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewChange Render a change as LDIF and as an Ansible task
+	//
+	// Renders without applying and without reading the directory.
+	//
+	// Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+	// calls it: its confirmation dialog plans the change with `POST /plan`,
+	// which returns the same rendering inside the plan item together with
+	// what the change would do against the directory as it is, and a token
+	// that `/changes/apply` holds the change to. A rendering alone says
+	// nothing about whether the change still applies.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /changes/preview (the `PreviewChange` operationId).
+	//
+	// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	PreviewChange(ctx context.Context, body PreviewChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApplyChangesetWithBody Apply several changes in order
+	//
+	// Applies each change in the order given and stops at the first failure.
+	//
+	// A directory has no transaction spanning entries, so a changeset is not
+	// atomic and does not pretend to be. The response says exactly which
+	// changes were applied and which was not, so the caller can fix the one
+	// that failed and resume from there rather than starting again and
+	// re-applying what already succeeded.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /changeset/apply (the `ApplyChangeset` operationId).
+	ApplyChangesetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApplyChangeset Apply several changes in order
+	//
+	// Applies each change in the order given and stops at the first failure.
+	//
+	// A directory has no transaction spanning entries, so a changeset is not
+	// atomic and does not pretend to be. The response says exactly which
+	// changes were applied and which was not, so the caller can fix the one
+	// that failed and resume from there rather than starting again and
+	// re-applying what already succeeded.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /changeset/apply (the `ApplyChangeset` operationId).
+	ApplyChangeset(ctx context.Context, body ApplyChangesetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewChangesetWithBody Render several changes as one LDIF document and one playbook
+	//
+	// A changeset is an ordered list of changes reviewed and applied together.
+	// It is held by the client, not the server: Alder keeps no per-session
+	// state beyond the connection itself, so this endpoint is a pure
+	// rendering of whatever it is given.
+	//
+	// The order is the caller's and is preserved exactly. Alder does not sort
+	// the changes to make them work -- an entry created before its parent is
+	// reported as a warning so it can be reordered, because guessing the
+	// intended order silently is worse than saying what is wrong.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /changeset/preview (the `PreviewChangeset` operationId).
+	PreviewChangesetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewChangeset Render several changes as one LDIF document and one playbook
+	//
+	// A changeset is an ordered list of changes reviewed and applied together.
+	// It is held by the client, not the server: Alder keeps no per-session
+	// state beyond the connection itself, so this endpoint is a pure
+	// rendering of whatever it is given.
+	//
+	// The order is the caller's and is preserved exactly. Alder does not sort
+	// the changes to make them work -- an entry created before its parent is
+	// reported as a warning so it can be reordered, because guessing the
+	// intended order silently is worse than saying what is wrong.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /changeset/preview (the `PreviewChangeset` operationId).
+	PreviewChangeset(ctx context.Context, body PreviewChangesetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CompareEntries What differs between two entries
+	//
+	// Answers "why does this account work and that one not".
+	//
+	// A naive diff answers it badly in three ways, and avoiding those is most
+	// of what this endpoint is. It compares what is *present*, so an attribute
+	// one entry's classes require and it does not hold is invisible — and that
+	// absence is frequently the whole answer. It compares bytes, so two DNs
+	// naming the same entry in different case read as a difference the
+	// directory does not agree with. And its instinct is to show both sides of
+	// everything, which for `userPassword` is what rule 6 forbids.
+	//
+	// So each side is annotated from its *own* object classes, which the two
+	// entries need not share; DN-valued attributes are compared as DNs; and a
+	// sensitive attribute is compared on presence alone.
+	//
+	// Corresponds with GET /compare (the `CompareEntries` operationId).
+	CompareEntries(ctx context.Context, params *CompareEntriesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CountEntries Count the entries under a base, up to a limit
+	//
+	// A subtree count, bounded like every other search. It asks the server for
+	// no attributes at all, so the cost is the search rather than the values.
+	//
+	// `truncated` is the important half of the answer: it means the count
+	// reached the limit and the real number is higher. The UI reports "at
+	// least N" in that case rather than a number that is simply wrong, which
+	// is why this is an action somebody asks for rather than something a
+	// landing page does to every naming context on load.
+	//
+	// Corresponds with GET /count (the `CountEntries` operationId).
+	CountEntries(ctx context.Context, params *CountEntriesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DiffStatesWithBody Compare two directory states
+	//
+	// Compares `source` with `target`, each a snapshot or the live directory
+	// this session is bound to. The direction is explicit: `added` means in
+	// the target and not in the source. See `docs/SNAPSHOTS.md`.
+	//
+	// - Values compare by the equality rule both sides recorded for the
+	//   attribute where Alder models it, and byte for byte otherwise; the
+	//   attributes compared by bytes are listed.
+	// - A rename is only reported when both sides share an entry's stable
+	//   identity. Otherwise a moved entry is removed and added.
+	// - What could not be seen is `unknown`, never `removed` or `added`: an
+	//   entry beyond a live search's bound, outside the other side's scope, or
+	//   an attribute the live directory will not show. Any of those makes the
+	//   comparison `complete: false`, with `reasons`.
+	// - A live side reads as the session's identity. An entry the access
+	//   rules hide is indistinguishable from one that does not exist; see the
+	//   limits in `docs/SNAPSHOTS.md`.
+	//
+	// When the source is live, each item carries a `candidate`: change
+	// requests that would move the live directory toward the target. They are
+	// input for `POST /plan`, never applied from here. Deleting an entry is a
+	// `destructive` candidate, is never selected for the caller, and is
+	// withheld entirely when the comparison is partial. A missing entry in the
+	// target is never, by itself, a reason to delete.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /diff (the `DiffStates` operationId).
+	DiffStatesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DiffStates Compare two directory states
+	//
+	// Compares `source` with `target`, each a snapshot or the live directory
+	// this session is bound to. The direction is explicit: `added` means in
+	// the target and not in the source. See `docs/SNAPSHOTS.md`.
+	//
+	// - Values compare by the equality rule both sides recorded for the
+	//   attribute where Alder models it, and byte for byte otherwise; the
+	//   attributes compared by bytes are listed.
+	// - A rename is only reported when both sides share an entry's stable
+	//   identity. Otherwise a moved entry is removed and added.
+	// - What could not be seen is `unknown`, never `removed` or `added`: an
+	//   entry beyond a live search's bound, outside the other side's scope, or
+	//   an attribute the live directory will not show. Any of those makes the
+	//   comparison `complete: false`, with `reasons`.
+	// - A live side reads as the session's identity. An entry the access
+	//   rules hide is indistinguishable from one that does not exist; see the
+	//   limits in `docs/SNAPSHOTS.md`.
+	//
+	// When the source is live, each item carries a `candidate`: change
+	// requests that would move the live directory toward the target. They are
+	// input for `POST /plan`, never applied from here. Deleting an entry is a
+	// `destructive` candidate, is never selected for the caller, and is
+	// withheld entirely when the comparison is partial. A missing entry in the
+	// target is never, by itself, a reason to delete.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /diff (the `DiffStates` operationId).
+	DiffStates(ctx context.Context, body DiffStatesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetEntry Read one entry
+	//
+	// Returns the entry with every attribute annotated from the schema: its
+	// syntax, whether it is single-valued, whether the server owns it, and
+	// which input control the editor should offer. Also returns the MUST and
+	// MAY sets computed from the entry's object classes.
+	//
+	// Corresponds with GET /entry (the `GetEntry` operationId).
+	GetEntry(ctx context.Context, params *GetEntryParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExportAnsible Export an entry or a subtree as a playbook that enforces it
+	//
+	// A playbook that makes a directory match what is here, rather than one
+	// that merely reports on it.
+	//
+	// This is a separate path from `/export/ldif` on purpose. The obvious
+	// alternative was `format=ansible` on that operation, which would leave
+	// the URL saying "ldif" while returning YAML — and the two differ in more
+	// than serialisation. An LDIF export is a transcription of entries; this
+	// is an assertion about what they should be, and it is ordered parent
+	// first because `ldap_entry` cannot create a child under a parent that
+	// does not exist yet.
+	//
+	// Each entry becomes two tasks: `community.general.ldap_entry` to create
+	// it if it is missing, and `community.general.ldap_attrs` with
+	// `state: exact` to bring the listed attributes to exactly these values.
+	// `ldap_entry` with `state: present` alone would report success against
+	// an entry that exists with entirely different attributes, which is the
+	// failure this endpoint exists to avoid.
+	//
+	// Attributes the directory owns — operational, `NO-USER-MODIFICATION` —
+	// are omitted, because enforcing them would produce a task that fails on
+	// every run against a server doing its job. Sensitive attributes are
+	// omitted with no option to include them: a playbook is a file destined
+	// for a repository.
+	//
+	// Corresponds with GET /export/ansible (the `ExportAnsible` operationId).
+	ExportAnsible(ctx context.Context, params *ExportAnsibleParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExportLdif Export an entry or a subtree as LDIF
+	//
+	// Corresponds with GET /export/ldif (the `ExportLdif` operationId).
+	ExportLdif(ctx context.Context, params *ExportLdifParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExportOutline The shape of a subtree, as a tree
+	//
+	// The same entries an LDIF export would give, drawn as the hierarchy they
+	// form rather than listed one after another.
+	//
+	// Asked for by an operator testing Alder: an LDIF export is flat, and a
+	// flat list of three hundred records does not tell you the shape of what
+	// you exported.
+	//
+	// **This is not LDIF and cannot be applied.** It could not be: RFC 2849
+	// gives a leading space its own meaning -- it continues the line above --
+	// so a tree drawn with indentation would stop being a document you can
+	// import. Rather than a format that is almost LDIF and quietly broken,
+	// this is plainly something else, and says so on its first line.
+	//
+	// Bounded rather than streamed, unlike the LDIF export: a tree cannot be
+	// drawn until its last entry has arrived, because the entry that decides
+	// whether a node is a leaf may be the final one to come back.
+	//
+	// Corresponds with GET /export/outline (the `ExportOutline` operationId).
+	ExportOutline(ctx context.Context, params *ExportOutlineParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExportYaml The subtree as nested YAML
+	//
+	// The entries and what they hold, nested as the tree they form, in a
+	// format an editor folds and colours. Asked for so that a subtree can be
+	// opened in an editor and read: LDIF is flat and YAML is not.
+	//
+	// Every attribute is a list, even where the schema says one value. An LDAP
+	// attribute holds a set, and a document whose shape changed with the data
+	// would make a second value look like a type change in the diff.
+	//
+	// A value that is not valid printable UTF-8 is written with YAML's own
+	// `!!binary` tag rather than passed off as a string.
+	//
+	// **Nothing reads this back.** Alder imports LDIF, which is the format with
+	// a specification and a changetype; this is for looking at. It is bounded
+	// rather than streamed for the same reason the outline is: a tree cannot be
+	// nested until its last entry has arrived.
+	//
+	// Corresponds with GET /export/yaml (the `ExportYaml` operationId).
+	ExportYaml(ctx context.Context, params *ExportYamlParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ParseLdifWithBody Parse an LDIF document into change records
+	//
+	// Parses and validates without applying anything. The response is the
+	// list of changes the document describes, each rendered back as LDIF, for
+	// the user to review and confirm one at a time or all at once.
+	//
+	// URL-valued attributes (`attr:< url`) are refused: following one from a
+	// process holding a privileged bind would be file disclosure and request
+	// forgery. So are LDAP controls, which would change what the server does
+	// with a record.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /import/ldif (the `ParseLdif` operationId).
+	ParseLdifWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ParseLdif Parse an LDIF document into change records
+	//
+	// Parses and validates without applying anything. The response is the
+	// list of changes the document describes, each rendered back as LDIF, for
+	// the user to review and confirm one at a time or all at once.
+	//
+	// URL-valued attributes (`attr:< url`) are refused: following one from a
+	// process holding a privileged bind would be file disclosure and request
+	// forgery. So are LDAP controls, which would change what the server does
+	// with a record.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /import/ldif (the `ParseLdif` operationId).
+	ParseLdif(ctx context.Context, body ParseLdifJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InventoryValuesWithBody What values one attribute holds, and how many entries carry each
+	//
+	// The question that finds a team name spelled "platfrm" with four people
+	// on it, a cost centre nobody has used since a reorganisation, or the
+	// accounts still pointing at a decommissioned site.
+	//
+	// It is a tally over a **bounded** search, so it never claims to describe
+	// the directory — only the entries it examined. Every number is scoped
+	// that way and `truncated` says the bound was reached. A tally that
+	// quietly summarises a truncated result set is not a weaker answer than
+	// the truth; it is a confident wrong one.
+	//
+	// Sensitive attributes are refused before the search runs rather than
+	// filtered out of the result, which is the difference between never
+	// reading a password and reading every password and choosing not to say.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inventory (the `InventoryValues` operationId).
+	InventoryValuesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InventoryValues What values one attribute holds, and how many entries carry each
+	//
+	// The question that finds a team name spelled "platfrm" with four people
+	// on it, a cost centre nobody has used since a reorganisation, or the
+	// accounts still pointing at a decommissioned site.
+	//
+	// It is a tally over a **bounded** search, so it never claims to describe
+	// the directory — only the entries it examined. Every number is scoped
+	// that way and `truncated` says the bound was reached. A tally that
+	// quietly summarises a truncated result set is not a weaker answer than
+	// the truth; it is a confident wrong one.
+	//
+	// Sensitive attributes are refused before the search runs rather than
+	// filtered out of the result, which is the difference between never
+	// reading a password and reading every password and choosing not to say.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inventory (the `InventoryValues` operationId).
+	InventoryValues(ctx context.Context, body InventoryValuesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExpandMembers Who is in this group, following nested groups
+	//
+	// The entry view lists a group's `member` values, which is the whole
+	// answer for a flat group and no answer at all for a nested one:
+	// `cn=everyone` in the test harness lists five members and contains no
+	// people, because all five are themselves groups.
+	//
+	// This walks that structure and says, for each person reached, which
+	// chain of groups brought them in.
+	//
+	// What it finds on the way is reported rather than dropped: a group that
+	// contains itself, a member DN whose entry cannot be read — the dangling
+	// reference the referenced-by panel exists to prevent, seen from the
+	// other side — and membership values that are not DNs at all, since
+	// `memberUid` holds a login name and `memberURL` a search.
+	//
+	// Corresponds with GET /members (the `ExpandMembers` operationId).
+	ExpandMembers(ctx context.Context, params *ExpandMembersParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanChangesWithBody What a set of changes would do, without doing it
+	//
+	// Answers the question one level above the preview: given these proposed
+	// changes and the directory as it is, which are additions, which are
+	// modifications, which would do nothing at all, and which cannot be
+	// applied as written.
+	//
+	// Nothing is written. Every entry named is read, each change is
+	// classified, and the records that would run come back in `items[].record`
+	// — the same values `POST /changeset/apply` takes, not a description of
+	// them. That is what stops a plan from promising one thing and an apply
+	// doing another.
+	//
+	// `action` is a stable identifier and is what a client should switch on.
+	// `reason` is prose for a person and may be reworded in any release.
+	//
+	// Each applicable item carries a `baseline`: an opaque token binding two
+	// things — the exact operation in `record`, and the state of the directory
+	// that operation was planned against. Hand it back on the corresponding
+	// change when applying. The server re-reads the entry and refuses the
+	// whole set before anything runs: `400 plan_mismatch` if a change is not
+	// the operation its baseline was issued for, `409 conflict` with
+	// `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+	// holds no attribute values; a sensitive attribute contributes only
+	// whether it is set and how many values it has, and a password change
+	// binds the entry and the fact of the change, never the password.
+	// Baselines are meaningless to any other Alder process and do not survive
+	// a restart.
+	//
+	// The input is either `changes` or `ldif`, never both.
+	//
+	// **`ldif` with `mode: changes`** (the default) plans every record as the
+	// exact operation it states. A record with no `changetype` is an add,
+	// which is what `ldapadd` does with it. An add of an entry that already
+	// exists is a conflict (`entry_exists`); it is never turned into a
+	// modification nobody asked for.
+	//
+	// **`ldif` with `mode: desired`** reads the document as the state entries
+	// should be in. Only content records — no `changetype` — are accepted; a
+	// record with one is refused with `400 ldif_mode_mismatch`, because a
+	// document mixing "this entry looks like this" with "do this" has no
+	// single meaning. Each record is reconciled: created if the entry is
+	// absent, turned into the modification of the attributes it names if
+	// present, reported `unchanged` if it already matches. Attributes a record
+	// does not name are left alone. **An entry the document does not mention
+	// is not deleted**; there is no mode in which absence means deletion.
+	//
+	// `impact` reports facts, not a risk score: which target area each change
+	// touches (ordinary data, schema, server configuration), memberships
+	// gained and lost, deletions grouped into the branches they remove, and —
+	// for deletions and renames — the entries that name the affected DN and
+	// how many of those references the plan would leave dangling. Reference
+	// search runs as the session's own bind, so it reports what that bind can
+	// see; see `impact.references`.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /plan (the `PlanChanges` operationId).
+	PlanChangesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanChanges What a set of changes would do, without doing it
+	//
+	// Answers the question one level above the preview: given these proposed
+	// changes and the directory as it is, which are additions, which are
+	// modifications, which would do nothing at all, and which cannot be
+	// applied as written.
+	//
+	// Nothing is written. Every entry named is read, each change is
+	// classified, and the records that would run come back in `items[].record`
+	// — the same values `POST /changeset/apply` takes, not a description of
+	// them. That is what stops a plan from promising one thing and an apply
+	// doing another.
+	//
+	// `action` is a stable identifier and is what a client should switch on.
+	// `reason` is prose for a person and may be reworded in any release.
+	//
+	// Each applicable item carries a `baseline`: an opaque token binding two
+	// things — the exact operation in `record`, and the state of the directory
+	// that operation was planned against. Hand it back on the corresponding
+	// change when applying. The server re-reads the entry and refuses the
+	// whole set before anything runs: `400 plan_mismatch` if a change is not
+	// the operation its baseline was issued for, `409 conflict` with
+	// `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+	// holds no attribute values; a sensitive attribute contributes only
+	// whether it is set and how many values it has, and a password change
+	// binds the entry and the fact of the change, never the password.
+	// Baselines are meaningless to any other Alder process and do not survive
+	// a restart.
+	//
+	// The input is either `changes` or `ldif`, never both.
+	//
+	// **`ldif` with `mode: changes`** (the default) plans every record as the
+	// exact operation it states. A record with no `changetype` is an add,
+	// which is what `ldapadd` does with it. An add of an entry that already
+	// exists is a conflict (`entry_exists`); it is never turned into a
+	// modification nobody asked for.
+	//
+	// **`ldif` with `mode: desired`** reads the document as the state entries
+	// should be in. Only content records — no `changetype` — are accepted; a
+	// record with one is refused with `400 ldif_mode_mismatch`, because a
+	// document mixing "this entry looks like this" with "do this" has no
+	// single meaning. Each record is reconciled: created if the entry is
+	// absent, turned into the modification of the attributes it names if
+	// present, reported `unchanged` if it already matches. Attributes a record
+	// does not name are left alone. **An entry the document does not mention
+	// is not deleted**; there is no mode in which absence means deletion.
+	//
+	// `impact` reports facts, not a risk score: which target area each change
+	// touches (ordinary data, schema, server configuration), memberships
+	// gained and lost, deletions grouped into the branches they remove, and —
+	// for deletions and renames — the entries that name the affected DN and
+	// how many of those references the plan would leave dangling. Reference
+	// search runs as the session's own bind, so it reports what that bind can
+	// see; see `impact.references`.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /plan (the `PlanChanges` operationId).
+	PlanChanges(ctx context.Context, body PlanChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListReferences The entries that name this one, and the attribute each names it by
+	//
+	// Answers "which groups is this in, and what else points at it" — and,
+	// unlike the filter on the entry itself, says *how* each one points.
+	//
+	// That is the part a link cannot give you. A search returns the entries
+	// matching the filter but not which term matched, and removing a
+	// reference means modifying a named attribute on the referencing entry:
+	// without knowing whether a group holds this DN in `member` or in `owner`,
+	// there is nothing safe to offer.
+	//
+	// It is one bounded search. The reference attributes are requested and
+	// matched here rather than in the browser, so a group's five hundred
+	// members are compared where they already are instead of being sent
+	// across to be compared and discarded.
+	//
+	// Corresponds with GET /references (the `ListReferences` operationId).
+	ListReferences(ctx context.Context, params *ListReferencesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// Resolve What could this input be — an entry, or a search
+	//
+	// Backs one box that takes a DN, an RFC 4515 filter, or a name.
+	//
+	// It parses and never searches. `internal/dn` and `internal/filter` are
+	// the authorities on what these strings are, and a regex in the browser
+	// would drift from them the first time either grew a case — but probing
+	// the directory to see whether an entry exists would turn every keystroke
+	// into a read, to answer a question the operator is about to answer by
+	// pressing enter.
+	//
+	// The three kinds overlap. `cn=platform` is a valid one-component DN
+	// *and* almost certainly a request to find something called platform, so
+	// an ambiguous input returns both destinations and the operator picks.
+	// Guessing would be wrong about half the time.
+	//
+	// Corresponds with GET /resolve (the `Resolve` operationId).
+	Resolve(ctx context.Context, params *ResolveParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSchema The whole schema, indexed for browsing
+	//
+	// Corresponds with GET /schema (the `GetSchema` operationId).
+	GetSchema(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetAttributeType One attribute type, with its cross-links resolved
+	//
+	// Corresponds with GET /schema/attributetypes/{name} (the `GetAttributeType` operationId).
+	GetAttributeType(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BuildSchemaChangeWithBody Build the modification that installs, replaces or removes a definition
+	//
+	// Renders a definition and returns the change that would apply it, without
+	// applying anything.
+	//
+	// A schema definition is a value of an attribute on an ordinary entry, so
+	// the change this returns is an ordinary modify, and it goes on to the
+	// same preview, the same confirmation and the same changeset as every
+	// other write. There is still exactly one path that writes.
+	//
+	// The definition text is built here rather than in the browser, for the
+	// same reason the LDIF preview is: what the person confirms and what the
+	// directory receives have to be the same bytes.
+	//
+	// A replace or a delete needs the value the server actually stores, which
+	// is not always the value the schema browser displays — a server keeping
+	// its schema in configuration prefixes each stored definition with its
+	// load order and strips that prefix from what it publishes. This reads the
+	// target to find it, which is why the request names an OID rather than
+	// carrying a definition to remove.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /schema/change (the `BuildSchemaChange` operationId).
+	BuildSchemaChangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BuildSchemaChange Build the modification that installs, replaces or removes a definition
+	//
+	// Renders a definition and returns the change that would apply it, without
+	// applying anything.
+	//
+	// A schema definition is a value of an attribute on an ordinary entry, so
+	// the change this returns is an ordinary modify, and it goes on to the
+	// same preview, the same confirmation and the same changeset as every
+	// other write. There is still exactly one path that writes.
+	//
+	// The definition text is built here rather than in the browser, for the
+	// same reason the LDIF preview is: what the person confirms and what the
+	// directory receives have to be the same bytes.
+	//
+	// A replace or a delete needs the value the server actually stores, which
+	// is not always the value the schema browser displays — a server keeping
+	// its schema in configuration prefixes each stored definition with its
+	// load order and strips that prefix from what it publishes. This reads the
+	// target to find it, which is why the request names an OID rather than
+	// carrying a definition to remove.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /schema/change (the `BuildSchemaChange` operationId).
+	BuildSchemaChange(ctx context.Context, body BuildSchemaChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetObjectClass One object class, with its cross-links resolved
+	//
+	// Corresponds with GET /schema/objectclasses/{name} (the `GetObjectClass` operationId).
+	GetObjectClass(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetRequirements What an entry of these object classes must and may hold
+	//
+	// The MUST and MAY sets for a set of object classes, with the schema's
+	// opinion about each attribute — syntax, single-valuedness, description,
+	// which control to offer.
+	//
+	// It exists so a creation form is generated from the schema rather than
+	// from a template. Without it the form has attribute names and nothing
+	// else, which is how creating an entry ended up with a plain text box for
+	// every field while editing the same entry a moment later offered a
+	// Boolean control, an entry picker and the attribute's description.
+	//
+	// Corresponds with GET /schema/requirements (the `GetRequirements` operationId).
+	GetRequirements(ctx context.Context, params *GetRequirementsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SearchWithBody Search the directory
+	//
+	// Every search is paged and bounded. `filter` is a raw RFC 4515 string
+	// which is parsed, not interpolated: a value containing filter
+	// metacharacters cannot escape into the filter structure.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /search (the `Search` operationId).
+	SearchWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// Search Search the directory
+	//
+	// Every search is paged and bounded. `filter` is a raw RFC 4515 string
+	// which is parsed, not interpolated: a value containing filter
+	// metacharacters cannot escape into the filter structure.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /search (the `Search` operationId).
+	Search(ctx context.Context, body SearchJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteSession Disconnect
+	//
+	// Closes the connection and discards the credentials.
+	//
+	// Corresponds with DELETE /session (the `DeleteSession` operationId).
+	DeleteSession(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSession Describe the current session
+	//
+	// Corresponds with GET /session (the `GetSession` operationId).
+	GetSession(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateSessionWithBody Connect and bind to a directory
+	//
+	// Opens a connection, binds, and reads the RootDSE. On success the
+	// response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+	// in-memory session. The bind password is held in that in-memory session
+	// and is never written to disk, never placed in a token, and never
+	// returned by any endpoint.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /session (the `CreateSession` operationId).
+	CreateSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateSession Connect and bind to a directory
+	//
+	// Opens a connection, binds, and reads the RootDSE. On success the
+	// response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+	// in-memory session. The bind password is held in that in-memory session
+	// and is never written to disk, never placed in a token, and never
+	// returned by any endpoint.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /session (the `CreateSession` operationId).
+	CreateSession(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CaptureSnapshotWithBody Capture a subtree as a versioned snapshot
+	//
+	// Reads the subtree as the session's own identity and returns it as an
+	// Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+	// repository. See `docs/SNAPSHOTS.md`.
+	//
+	// - Entries, attribute names and values are in one defined order, so two
+	//   captures of an unchanged subtree differ only in `createdAt`, and have
+	//   the same `checksum`.
+	// - Operational attributes are left out unless
+	//   `operationalAttributes` is set. Each entry's stable identity
+	//   (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+	// - Sensitive attributes are recorded as a `withheld` count, never as a
+	//   value or anything derived from one.
+	// - A capture that cannot finish -- more than 50,000 entries, a search
+	//   limit, a failure part way -- is an error. There is no partial
+	//   snapshot.
+	// - Only data snapshots exist in 1.x so far: a base inside the schema or
+	//   the server's configuration is refused with
+	//   `snapshot_scope_unsupported`.
+	//
+	// Nothing is kept on the server. The snapshot is returned and belongs to
+	// the caller.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /snapshots/capture (the `CaptureSnapshot` operationId).
+	CaptureSnapshotWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CaptureSnapshot Capture a subtree as a versioned snapshot
+	//
+	// Reads the subtree as the session's own identity and returns it as an
+	// Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+	// repository. See `docs/SNAPSHOTS.md`.
+	//
+	// - Entries, attribute names and values are in one defined order, so two
+	//   captures of an unchanged subtree differ only in `createdAt`, and have
+	//   the same `checksum`.
+	// - Operational attributes are left out unless
+	//   `operationalAttributes` is set. Each entry's stable identity
+	//   (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+	// - Sensitive attributes are recorded as a `withheld` count, never as a
+	//   value or anything derived from one.
+	// - A capture that cannot finish -- more than 50,000 entries, a search
+	//   limit, a failure part way -- is an error. There is no partial
+	//   snapshot.
+	// - Only data snapshots exist in 1.x so far: a base inside the schema or
+	//   the server's configuration is refused with
+	//   `snapshot_scope_unsupported`.
+	//
+	// Nothing is kept on the server. The snapshot is returned and belongs to
+	// the caller.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /snapshots/capture (the `CaptureSnapshot` operationId).
+	CaptureSnapshot(ctx context.Context, body CaptureSnapshotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InspectSnapshotWithBody Validate a snapshot and describe it
+	//
+	// Validates an uploaded snapshot exactly as a comparison would and
+	// describes what it covers. Read-only: nothing is kept and nothing is
+	// applied.
+	//
+	// A snapshot is refused when its format or version is not one this Alder
+	// reads (`snapshot_unsupported_version` for a newer version), when any DN,
+	// value or field is malformed or unknown (`snapshot_invalid`), when a
+	// sensitive attribute carries a value, or when a checksum is present and
+	// does not match (`snapshot_checksum_mismatch`). A snapshot without a
+	// checksum is accepted and described as `integrity: unverified`.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /snapshots/inspect (the `InspectSnapshot` operationId).
+	InspectSnapshotWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InspectSnapshot Validate a snapshot and describe it
+	//
+	// Validates an uploaded snapshot exactly as a comparison would and
+	// describes what it covers. Read-only: nothing is kept and nothing is
+	// applied.
+	//
+	// A snapshot is refused when its format or version is not one this Alder
+	// reads (`snapshot_unsupported_version` for a newer version), when any DN,
+	// value or field is malformed or unknown (`snapshot_invalid`), when a
+	// sensitive attribute carries a value, or when a checksum is present and
+	// does not match (`snapshot_checksum_mismatch`). A snapshot without a
+	// checksum is accepted and described as `integrity: unverified`.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /snapshots/inspect (the `InspectSnapshot` operationId).
+	InspectSnapshot(ctx context.Context, body InspectSnapshotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSourceOffer Where to get the source of this running instance
+	//
+	// AGPL-3.0 section 13: someone using a modified Alder over a network is
+	// entitled to its Corresponding Source. The offer is served rather than
+	// written in a README because the obligation runs to the person using the
+	// running instance, and the user of a modified instance has no reason to
+	// know where its source went.
+	//
+	// **This is the one endpoint that answers without a session,** and it has
+	// no 401 for that reason: an offer only the already-connected can read
+	// would not discharge the obligation. It is described here so that the
+	// contract in this document is the whole contract -- it was served outside
+	// it until 1.0, which made `openapi.yaml` quietly incomplete about the one
+	// endpoint a licence requires.
+	//
+	// Corresponds with GET /source (the `GetSourceOffer` operationId).
+	GetSourceOffer(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListChildren List the children of an entry
+	//
+	// With no `dn`, returns the naming contexts the server holds, which are
+	// the roots of the tree. With a `dn`, returns that entry's immediate
+	// children. This is the lazy-loading tree browser's only endpoint.
+	//
+	// Corresponds with GET /tree (the `ListChildren` operationId).
+	ListChildren(ctx context.Context, params *ListChildrenParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListObjectViews The object-aware views this directory supports
+	//
+	// Users, groups and organizational units, expressed as saved searches
+	// derived from the schema the connected server published.
+	//
+	// A view is offered only where the server defines a class to anchor it
+	// on, so a directory holding no person class has no Users view rather
+	// than an empty one. The anchors are standards-track classes — RFC 4519,
+	// RFC 4524, RFC 2307 — never vendor names, and a site class inheriting
+	// from one of them is matched without being named, because an entry
+	// carries its superclasses in its own `objectClass` attribute.
+	//
+	// The filter is built here and goes back to `/search` unmodified. The
+	// columns are the attributes the anchor classes actually permit, so a
+	// directory without `inetOrgPerson` gets no mail column instead of an
+	// empty one.
+	//
+	// Corresponds with GET /views (the `ListObjectViews` operationId).
+	ListObjectViews(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// ApplyChangeWithBody Apply a change
+//
+// Applies one change. With the `baseline` a plan returned, the server first
+// re-reads the entry and refuses the change if it is not the operation the
+// plan was issued for (`400 plan_mismatch`) or the directory has moved
+// since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+// new password, a sensitive attribute value -- is part of that operation:
+// a different value than the one planned is a mismatch.
+//
+// Without a `baseline` the change is applied as it always was. The
+// interface always plans first and always sends one.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /changes/apply (the `ApplyChange` operationId).
+func (c *Client) ApplyChangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyChangeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ApplyChange Apply a change
+//
+// Applies one change. With the `baseline` a plan returned, the server first
+// re-reads the entry and refuses the change if it is not the operation the
+// plan was issued for (`400 plan_mismatch`) or the directory has moved
+// since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+// new password, a sensitive attribute value -- is part of that operation:
+// a different value than the one planned is a mismatch.
+//
+// Without a `baseline` the change is applied as it always was. The
+// interface always plans first and always sends one.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /changes/apply (the `ApplyChange` operationId).
+func (c *Client) ApplyChange(ctx context.Context, body ApplyChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyChangeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewChangeWithBody Render a change as LDIF and as an Ansible task
+//
+// Renders without applying and without reading the directory.
+//
+// Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+// calls it: its confirmation dialog plans the change with `POST /plan`,
+// which returns the same rendering inside the plan item together with
+// what the change would do against the directory as it is, and a token
+// that `/changes/apply` holds the change to. A rendering alone says
+// nothing about whether the change still applies.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /changes/preview (the `PreviewChange` operationId).
+// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+func (c *Client) PreviewChangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewChangeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewChange Render a change as LDIF and as an Ansible task
+//
+// Renders without applying and without reading the directory.
+//
+// Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+// calls it: its confirmation dialog plans the change with `POST /plan`,
+// which returns the same rendering inside the plan item together with
+// what the change would do against the directory as it is, and a token
+// that `/changes/apply` holds the change to. A rendering alone says
+// nothing about whether the change still applies.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /changes/preview (the `PreviewChange` operationId).
+// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+func (c *Client) PreviewChange(ctx context.Context, body PreviewChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewChangeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ApplyChangesetWithBody Apply several changes in order
+//
+// Applies each change in the order given and stops at the first failure.
+//
+// A directory has no transaction spanning entries, so a changeset is not
+// atomic and does not pretend to be. The response says exactly which
+// changes were applied and which was not, so the caller can fix the one
+// that failed and resume from there rather than starting again and
+// re-applying what already succeeded.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /changeset/apply (the `ApplyChangeset` operationId).
+func (c *Client) ApplyChangesetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyChangesetRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ApplyChangeset Apply several changes in order
+//
+// Applies each change in the order given and stops at the first failure.
+//
+// A directory has no transaction spanning entries, so a changeset is not
+// atomic and does not pretend to be. The response says exactly which
+// changes were applied and which was not, so the caller can fix the one
+// that failed and resume from there rather than starting again and
+// re-applying what already succeeded.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /changeset/apply (the `ApplyChangeset` operationId).
+func (c *Client) ApplyChangeset(ctx context.Context, body ApplyChangesetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyChangesetRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewChangesetWithBody Render several changes as one LDIF document and one playbook
+//
+// A changeset is an ordered list of changes reviewed and applied together.
+// It is held by the client, not the server: Alder keeps no per-session
+// state beyond the connection itself, so this endpoint is a pure
+// rendering of whatever it is given.
+//
+// The order is the caller's and is preserved exactly. Alder does not sort
+// the changes to make them work -- an entry created before its parent is
+// reported as a warning so it can be reordered, because guessing the
+// intended order silently is worse than saying what is wrong.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /changeset/preview (the `PreviewChangeset` operationId).
+func (c *Client) PreviewChangesetWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewChangesetRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewChangeset Render several changes as one LDIF document and one playbook
+//
+// A changeset is an ordered list of changes reviewed and applied together.
+// It is held by the client, not the server: Alder keeps no per-session
+// state beyond the connection itself, so this endpoint is a pure
+// rendering of whatever it is given.
+//
+// The order is the caller's and is preserved exactly. Alder does not sort
+// the changes to make them work -- an entry created before its parent is
+// reported as a warning so it can be reordered, because guessing the
+// intended order silently is worse than saying what is wrong.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /changeset/preview (the `PreviewChangeset` operationId).
+func (c *Client) PreviewChangeset(ctx context.Context, body PreviewChangesetJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewChangesetRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CompareEntries What differs between two entries
+//
+// Answers "why does this account work and that one not".
+//
+// A naive diff answers it badly in three ways, and avoiding those is most
+// of what this endpoint is. It compares what is *present*, so an attribute
+// one entry's classes require and it does not hold is invisible — and that
+// absence is frequently the whole answer. It compares bytes, so two DNs
+// naming the same entry in different case read as a difference the
+// directory does not agree with. And its instinct is to show both sides of
+// everything, which for `userPassword` is what rule 6 forbids.
+//
+// So each side is annotated from its *own* object classes, which the two
+// entries need not share; DN-valued attributes are compared as DNs; and a
+// sensitive attribute is compared on presence alone.
+//
+// Corresponds with GET /compare (the `CompareEntries` operationId).
+func (c *Client) CompareEntries(ctx context.Context, params *CompareEntriesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompareEntriesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CountEntries Count the entries under a base, up to a limit
+//
+// A subtree count, bounded like every other search. It asks the server for
+// no attributes at all, so the cost is the search rather than the values.
+//
+// `truncated` is the important half of the answer: it means the count
+// reached the limit and the real number is higher. The UI reports "at
+// least N" in that case rather than a number that is simply wrong, which
+// is why this is an action somebody asks for rather than something a
+// landing page does to every naming context on load.
+//
+// Corresponds with GET /count (the `CountEntries` operationId).
+func (c *Client) CountEntries(ctx context.Context, params *CountEntriesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCountEntriesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DiffStatesWithBody Compare two directory states
+//
+// Compares `source` with `target`, each a snapshot or the live directory
+// this session is bound to. The direction is explicit: `added` means in
+// the target and not in the source. See `docs/SNAPSHOTS.md`.
+//
+//   - Values compare by the equality rule both sides recorded for the
+//     attribute where Alder models it, and byte for byte otherwise; the
+//     attributes compared by bytes are listed.
+//   - A rename is only reported when both sides share an entry's stable
+//     identity. Otherwise a moved entry is removed and added.
+//   - What could not be seen is `unknown`, never `removed` or `added`: an
+//     entry beyond a live search's bound, outside the other side's scope, or
+//     an attribute the live directory will not show. Any of those makes the
+//     comparison `complete: false`, with `reasons`.
+//   - A live side reads as the session's identity. An entry the access
+//     rules hide is indistinguishable from one that does not exist; see the
+//     limits in `docs/SNAPSHOTS.md`.
+//
+// When the source is live, each item carries a `candidate`: change
+// requests that would move the live directory toward the target. They are
+// input for `POST /plan`, never applied from here. Deleting an entry is a
+// `destructive` candidate, is never selected for the caller, and is
+// withheld entirely when the comparison is partial. A missing entry in the
+// target is never, by itself, a reason to delete.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /diff (the `DiffStates` operationId).
+func (c *Client) DiffStatesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDiffStatesRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DiffStates Compare two directory states
+//
+// Compares `source` with `target`, each a snapshot or the live directory
+// this session is bound to. The direction is explicit: `added` means in
+// the target and not in the source. See `docs/SNAPSHOTS.md`.
+//
+//   - Values compare by the equality rule both sides recorded for the
+//     attribute where Alder models it, and byte for byte otherwise; the
+//     attributes compared by bytes are listed.
+//   - A rename is only reported when both sides share an entry's stable
+//     identity. Otherwise a moved entry is removed and added.
+//   - What could not be seen is `unknown`, never `removed` or `added`: an
+//     entry beyond a live search's bound, outside the other side's scope, or
+//     an attribute the live directory will not show. Any of those makes the
+//     comparison `complete: false`, with `reasons`.
+//   - A live side reads as the session's identity. An entry the access
+//     rules hide is indistinguishable from one that does not exist; see the
+//     limits in `docs/SNAPSHOTS.md`.
+//
+// When the source is live, each item carries a `candidate`: change
+// requests that would move the live directory toward the target. They are
+// input for `POST /plan`, never applied from here. Deleting an entry is a
+// `destructive` candidate, is never selected for the caller, and is
+// withheld entirely when the comparison is partial. A missing entry in the
+// target is never, by itself, a reason to delete.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /diff (the `DiffStates` operationId).
+func (c *Client) DiffStates(ctx context.Context, body DiffStatesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDiffStatesRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetEntry Read one entry
+//
+// Returns the entry with every attribute annotated from the schema: its
+// syntax, whether it is single-valued, whether the server owns it, and
+// which input control the editor should offer. Also returns the MUST and
+// MAY sets computed from the entry's object classes.
+//
+// Corresponds with GET /entry (the `GetEntry` operationId).
+func (c *Client) GetEntry(ctx context.Context, params *GetEntryParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetEntryRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExportAnsible Export an entry or a subtree as a playbook that enforces it
+//
+// A playbook that makes a directory match what is here, rather than one
+// that merely reports on it.
+//
+// This is a separate path from `/export/ldif` on purpose. The obvious
+// alternative was `format=ansible` on that operation, which would leave
+// the URL saying "ldif" while returning YAML — and the two differ in more
+// than serialisation. An LDIF export is a transcription of entries; this
+// is an assertion about what they should be, and it is ordered parent
+// first because `ldap_entry` cannot create a child under a parent that
+// does not exist yet.
+//
+// Each entry becomes two tasks: `community.general.ldap_entry` to create
+// it if it is missing, and `community.general.ldap_attrs` with
+// `state: exact` to bring the listed attributes to exactly these values.
+// `ldap_entry` with `state: present` alone would report success against
+// an entry that exists with entirely different attributes, which is the
+// failure this endpoint exists to avoid.
+//
+// Attributes the directory owns — operational, `NO-USER-MODIFICATION` —
+// are omitted, because enforcing them would produce a task that fails on
+// every run against a server doing its job. Sensitive attributes are
+// omitted with no option to include them: a playbook is a file destined
+// for a repository.
+//
+// Corresponds with GET /export/ansible (the `ExportAnsible` operationId).
+func (c *Client) ExportAnsible(ctx context.Context, params *ExportAnsibleParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExportAnsibleRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExportLdif Export an entry or a subtree as LDIF
+//
+// Corresponds with GET /export/ldif (the `ExportLdif` operationId).
+func (c *Client) ExportLdif(ctx context.Context, params *ExportLdifParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExportLdifRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExportOutline The shape of a subtree, as a tree
+//
+// The same entries an LDIF export would give, drawn as the hierarchy they
+// form rather than listed one after another.
+//
+// Asked for by an operator testing Alder: an LDIF export is flat, and a
+// flat list of three hundred records does not tell you the shape of what
+// you exported.
+//
+// **This is not LDIF and cannot be applied.** It could not be: RFC 2849
+// gives a leading space its own meaning -- it continues the line above --
+// so a tree drawn with indentation would stop being a document you can
+// import. Rather than a format that is almost LDIF and quietly broken,
+// this is plainly something else, and says so on its first line.
+//
+// Bounded rather than streamed, unlike the LDIF export: a tree cannot be
+// drawn until its last entry has arrived, because the entry that decides
+// whether a node is a leaf may be the final one to come back.
+//
+// Corresponds with GET /export/outline (the `ExportOutline` operationId).
+func (c *Client) ExportOutline(ctx context.Context, params *ExportOutlineParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExportOutlineRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExportYaml The subtree as nested YAML
+//
+// The entries and what they hold, nested as the tree they form, in a
+// format an editor folds and colours. Asked for so that a subtree can be
+// opened in an editor and read: LDIF is flat and YAML is not.
+//
+// Every attribute is a list, even where the schema says one value. An LDAP
+// attribute holds a set, and a document whose shape changed with the data
+// would make a second value look like a type change in the diff.
+//
+// A value that is not valid printable UTF-8 is written with YAML's own
+// `!!binary` tag rather than passed off as a string.
+//
+// **Nothing reads this back.** Alder imports LDIF, which is the format with
+// a specification and a changetype; this is for looking at. It is bounded
+// rather than streamed for the same reason the outline is: a tree cannot be
+// nested until its last entry has arrived.
+//
+// Corresponds with GET /export/yaml (the `ExportYaml` operationId).
+func (c *Client) ExportYaml(ctx context.Context, params *ExportYamlParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExportYamlRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ParseLdifWithBody Parse an LDIF document into change records
+//
+// Parses and validates without applying anything. The response is the
+// list of changes the document describes, each rendered back as LDIF, for
+// the user to review and confirm one at a time or all at once.
+//
+// URL-valued attributes (`attr:< url`) are refused: following one from a
+// process holding a privileged bind would be file disclosure and request
+// forgery. So are LDAP controls, which would change what the server does
+// with a record.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /import/ldif (the `ParseLdif` operationId).
+func (c *Client) ParseLdifWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewParseLdifRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ParseLdif Parse an LDIF document into change records
+//
+// Parses and validates without applying anything. The response is the
+// list of changes the document describes, each rendered back as LDIF, for
+// the user to review and confirm one at a time or all at once.
+//
+// URL-valued attributes (`attr:< url`) are refused: following one from a
+// process holding a privileged bind would be file disclosure and request
+// forgery. So are LDAP controls, which would change what the server does
+// with a record.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /import/ldif (the `ParseLdif` operationId).
+func (c *Client) ParseLdif(ctx context.Context, body ParseLdifJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewParseLdifRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// InventoryValuesWithBody What values one attribute holds, and how many entries carry each
+//
+// The question that finds a team name spelled "platfrm" with four people
+// on it, a cost centre nobody has used since a reorganisation, or the
+// accounts still pointing at a decommissioned site.
+//
+// It is a tally over a **bounded** search, so it never claims to describe
+// the directory — only the entries it examined. Every number is scoped
+// that way and `truncated` says the bound was reached. A tally that
+// quietly summarises a truncated result set is not a weaker answer than
+// the truth; it is a confident wrong one.
+//
+// Sensitive attributes are refused before the search runs rather than
+// filtered out of the result, which is the difference between never
+// reading a password and reading every password and choosing not to say.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inventory (the `InventoryValues` operationId).
+func (c *Client) InventoryValuesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInventoryValuesRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// InventoryValues What values one attribute holds, and how many entries carry each
+//
+// The question that finds a team name spelled "platfrm" with four people
+// on it, a cost centre nobody has used since a reorganisation, or the
+// accounts still pointing at a decommissioned site.
+//
+// It is a tally over a **bounded** search, so it never claims to describe
+// the directory — only the entries it examined. Every number is scoped
+// that way and `truncated` says the bound was reached. A tally that
+// quietly summarises a truncated result set is not a weaker answer than
+// the truth; it is a confident wrong one.
+//
+// Sensitive attributes are refused before the search runs rather than
+// filtered out of the result, which is the difference between never
+// reading a password and reading every password and choosing not to say.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inventory (the `InventoryValues` operationId).
+func (c *Client) InventoryValues(ctx context.Context, body InventoryValuesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInventoryValuesRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExpandMembers Who is in this group, following nested groups
+//
+// The entry view lists a group's `member` values, which is the whole
+// answer for a flat group and no answer at all for a nested one:
+// `cn=everyone` in the test harness lists five members and contains no
+// people, because all five are themselves groups.
+//
+// This walks that structure and says, for each person reached, which
+// chain of groups brought them in.
+//
+// What it finds on the way is reported rather than dropped: a group that
+// contains itself, a member DN whose entry cannot be read — the dangling
+// reference the referenced-by panel exists to prevent, seen from the
+// other side — and membership values that are not DNs at all, since
+// `memberUid` holds a login name and `memberURL` a search.
+//
+// Corresponds with GET /members (the `ExpandMembers` operationId).
+func (c *Client) ExpandMembers(ctx context.Context, params *ExpandMembersParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExpandMembersRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PlanChangesWithBody What a set of changes would do, without doing it
+//
+// Answers the question one level above the preview: given these proposed
+// changes and the directory as it is, which are additions, which are
+// modifications, which would do nothing at all, and which cannot be
+// applied as written.
+//
+// Nothing is written. Every entry named is read, each change is
+// classified, and the records that would run come back in `items[].record`
+// — the same values `POST /changeset/apply` takes, not a description of
+// them. That is what stops a plan from promising one thing and an apply
+// doing another.
+//
+// `action` is a stable identifier and is what a client should switch on.
+// `reason` is prose for a person and may be reworded in any release.
+//
+// Each applicable item carries a `baseline`: an opaque token binding two
+// things — the exact operation in `record`, and the state of the directory
+// that operation was planned against. Hand it back on the corresponding
+// change when applying. The server re-reads the entry and refuses the
+// whole set before anything runs: `400 plan_mismatch` if a change is not
+// the operation its baseline was issued for, `409 conflict` with
+// `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+// holds no attribute values; a sensitive attribute contributes only
+// whether it is set and how many values it has, and a password change
+// binds the entry and the fact of the change, never the password.
+// Baselines are meaningless to any other Alder process and do not survive
+// a restart.
+//
+// The input is either `changes` or `ldif`, never both.
+//
+// **`ldif` with `mode: changes`** (the default) plans every record as the
+// exact operation it states. A record with no `changetype` is an add,
+// which is what `ldapadd` does with it. An add of an entry that already
+// exists is a conflict (`entry_exists`); it is never turned into a
+// modification nobody asked for.
+//
+// **`ldif` with `mode: desired`** reads the document as the state entries
+// should be in. Only content records — no `changetype` — are accepted; a
+// record with one is refused with `400 ldif_mode_mismatch`, because a
+// document mixing "this entry looks like this" with "do this" has no
+// single meaning. Each record is reconciled: created if the entry is
+// absent, turned into the modification of the attributes it names if
+// present, reported `unchanged` if it already matches. Attributes a record
+// does not name are left alone. **An entry the document does not mention
+// is not deleted**; there is no mode in which absence means deletion.
+//
+// `impact` reports facts, not a risk score: which target area each change
+// touches (ordinary data, schema, server configuration), memberships
+// gained and lost, deletions grouped into the branches they remove, and —
+// for deletions and renames — the entries that name the affected DN and
+// how many of those references the plan would leave dangling. Reference
+// search runs as the session's own bind, so it reports what that bind can
+// see; see `impact.references`.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /plan (the `PlanChanges` operationId).
+func (c *Client) PlanChangesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanChangesRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PlanChanges What a set of changes would do, without doing it
+//
+// Answers the question one level above the preview: given these proposed
+// changes and the directory as it is, which are additions, which are
+// modifications, which would do nothing at all, and which cannot be
+// applied as written.
+//
+// Nothing is written. Every entry named is read, each change is
+// classified, and the records that would run come back in `items[].record`
+// — the same values `POST /changeset/apply` takes, not a description of
+// them. That is what stops a plan from promising one thing and an apply
+// doing another.
+//
+// `action` is a stable identifier and is what a client should switch on.
+// `reason` is prose for a person and may be reworded in any release.
+//
+// Each applicable item carries a `baseline`: an opaque token binding two
+// things — the exact operation in `record`, and the state of the directory
+// that operation was planned against. Hand it back on the corresponding
+// change when applying. The server re-reads the entry and refuses the
+// whole set before anything runs: `400 plan_mismatch` if a change is not
+// the operation its baseline was issued for, `409 conflict` with
+// `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+// holds no attribute values; a sensitive attribute contributes only
+// whether it is set and how many values it has, and a password change
+// binds the entry and the fact of the change, never the password.
+// Baselines are meaningless to any other Alder process and do not survive
+// a restart.
+//
+// The input is either `changes` or `ldif`, never both.
+//
+// **`ldif` with `mode: changes`** (the default) plans every record as the
+// exact operation it states. A record with no `changetype` is an add,
+// which is what `ldapadd` does with it. An add of an entry that already
+// exists is a conflict (`entry_exists`); it is never turned into a
+// modification nobody asked for.
+//
+// **`ldif` with `mode: desired`** reads the document as the state entries
+// should be in. Only content records — no `changetype` — are accepted; a
+// record with one is refused with `400 ldif_mode_mismatch`, because a
+// document mixing "this entry looks like this" with "do this" has no
+// single meaning. Each record is reconciled: created if the entry is
+// absent, turned into the modification of the attributes it names if
+// present, reported `unchanged` if it already matches. Attributes a record
+// does not name are left alone. **An entry the document does not mention
+// is not deleted**; there is no mode in which absence means deletion.
+//
+// `impact` reports facts, not a risk score: which target area each change
+// touches (ordinary data, schema, server configuration), memberships
+// gained and lost, deletions grouped into the branches they remove, and —
+// for deletions and renames — the entries that name the affected DN and
+// how many of those references the plan would leave dangling. Reference
+// search runs as the session's own bind, so it reports what that bind can
+// see; see `impact.references`.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /plan (the `PlanChanges` operationId).
+func (c *Client) PlanChanges(ctx context.Context, body PlanChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanChangesRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListReferences The entries that name this one, and the attribute each names it by
+//
+// Answers "which groups is this in, and what else points at it" — and,
+// unlike the filter on the entry itself, says *how* each one points.
+//
+// That is the part a link cannot give you. A search returns the entries
+// matching the filter but not which term matched, and removing a
+// reference means modifying a named attribute on the referencing entry:
+// without knowing whether a group holds this DN in `member` or in `owner`,
+// there is nothing safe to offer.
+//
+// It is one bounded search. The reference attributes are requested and
+// matched here rather than in the browser, so a group's five hundred
+// members are compared where they already are instead of being sent
+// across to be compared and discarded.
+//
+// Corresponds with GET /references (the `ListReferences` operationId).
+func (c *Client) ListReferences(ctx context.Context, params *ListReferencesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListReferencesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// Resolve What could this input be — an entry, or a search
+//
+// Backs one box that takes a DN, an RFC 4515 filter, or a name.
+//
+// It parses and never searches. `internal/dn` and `internal/filter` are
+// the authorities on what these strings are, and a regex in the browser
+// would drift from them the first time either grew a case — but probing
+// the directory to see whether an entry exists would turn every keystroke
+// into a read, to answer a question the operator is about to answer by
+// pressing enter.
+//
+// The three kinds overlap. `cn=platform` is a valid one-component DN
+// *and* almost certainly a request to find something called platform, so
+// an ambiguous input returns both destinations and the operator picks.
+// Guessing would be wrong about half the time.
+//
+// Corresponds with GET /resolve (the `Resolve` operationId).
+func (c *Client) Resolve(ctx context.Context, params *ResolveParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResolveRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSchema The whole schema, indexed for browsing
+//
+// Corresponds with GET /schema (the `GetSchema` operationId).
+func (c *Client) GetSchema(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSchemaRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetAttributeType One attribute type, with its cross-links resolved
+//
+// Corresponds with GET /schema/attributetypes/{name} (the `GetAttributeType` operationId).
+func (c *Client) GetAttributeType(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAttributeTypeRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BuildSchemaChangeWithBody Build the modification that installs, replaces or removes a definition
+//
+// Renders a definition and returns the change that would apply it, without
+// applying anything.
+//
+// A schema definition is a value of an attribute on an ordinary entry, so
+// the change this returns is an ordinary modify, and it goes on to the
+// same preview, the same confirmation and the same changeset as every
+// other write. There is still exactly one path that writes.
+//
+// The definition text is built here rather than in the browser, for the
+// same reason the LDIF preview is: what the person confirms and what the
+// directory receives have to be the same bytes.
+//
+// A replace or a delete needs the value the server actually stores, which
+// is not always the value the schema browser displays — a server keeping
+// its schema in configuration prefixes each stored definition with its
+// load order and strips that prefix from what it publishes. This reads the
+// target to find it, which is why the request names an OID rather than
+// carrying a definition to remove.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /schema/change (the `BuildSchemaChange` operationId).
+func (c *Client) BuildSchemaChangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBuildSchemaChangeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BuildSchemaChange Build the modification that installs, replaces or removes a definition
+//
+// Renders a definition and returns the change that would apply it, without
+// applying anything.
+//
+// A schema definition is a value of an attribute on an ordinary entry, so
+// the change this returns is an ordinary modify, and it goes on to the
+// same preview, the same confirmation and the same changeset as every
+// other write. There is still exactly one path that writes.
+//
+// The definition text is built here rather than in the browser, for the
+// same reason the LDIF preview is: what the person confirms and what the
+// directory receives have to be the same bytes.
+//
+// A replace or a delete needs the value the server actually stores, which
+// is not always the value the schema browser displays — a server keeping
+// its schema in configuration prefixes each stored definition with its
+// load order and strips that prefix from what it publishes. This reads the
+// target to find it, which is why the request names an OID rather than
+// carrying a definition to remove.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /schema/change (the `BuildSchemaChange` operationId).
+func (c *Client) BuildSchemaChange(ctx context.Context, body BuildSchemaChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBuildSchemaChangeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetObjectClass One object class, with its cross-links resolved
+//
+// Corresponds with GET /schema/objectclasses/{name} (the `GetObjectClass` operationId).
+func (c *Client) GetObjectClass(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetObjectClassRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetRequirements What an entry of these object classes must and may hold
+//
+// The MUST and MAY sets for a set of object classes, with the schema's
+// opinion about each attribute — syntax, single-valuedness, description,
+// which control to offer.
+//
+// It exists so a creation form is generated from the schema rather than
+// from a template. Without it the form has attribute names and nothing
+// else, which is how creating an entry ended up with a plain text box for
+// every field while editing the same entry a moment later offered a
+// Boolean control, an entry picker and the attribute's description.
+//
+// Corresponds with GET /schema/requirements (the `GetRequirements` operationId).
+func (c *Client) GetRequirements(ctx context.Context, params *GetRequirementsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRequirementsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SearchWithBody Search the directory
+//
+// Every search is paged and bounded. `filter` is a raw RFC 4515 string
+// which is parsed, not interpolated: a value containing filter
+// metacharacters cannot escape into the filter structure.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /search (the `Search` operationId).
+func (c *Client) SearchWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSearchRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// Search Search the directory
+//
+// Every search is paged and bounded. `filter` is a raw RFC 4515 string
+// which is parsed, not interpolated: a value containing filter
+// metacharacters cannot escape into the filter structure.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /search (the `Search` operationId).
+func (c *Client) Search(ctx context.Context, body SearchJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSearchRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteSession Disconnect
+//
+// Closes the connection and discards the credentials.
+//
+// Corresponds with DELETE /session (the `DeleteSession` operationId).
+func (c *Client) DeleteSession(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteSessionRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSession Describe the current session
+//
+// Corresponds with GET /session (the `GetSession` operationId).
+func (c *Client) GetSession(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateSessionWithBody Connect and bind to a directory
+//
+// Opens a connection, binds, and reads the RootDSE. On success the
+// response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+// in-memory session. The bind password is held in that in-memory session
+// and is never written to disk, never placed in a token, and never
+// returned by any endpoint.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /session (the `CreateSession` operationId).
+func (c *Client) CreateSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSessionRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateSession Connect and bind to a directory
+//
+// Opens a connection, binds, and reads the RootDSE. On success the
+// response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+// in-memory session. The bind password is held in that in-memory session
+// and is never written to disk, never placed in a token, and never
+// returned by any endpoint.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /session (the `CreateSession` operationId).
+func (c *Client) CreateSession(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSessionRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CaptureSnapshotWithBody Capture a subtree as a versioned snapshot
+//
+// Reads the subtree as the session's own identity and returns it as an
+// Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+// repository. See `docs/SNAPSHOTS.md`.
+//
+//   - Entries, attribute names and values are in one defined order, so two
+//     captures of an unchanged subtree differ only in `createdAt`, and have
+//     the same `checksum`.
+//   - Operational attributes are left out unless
+//     `operationalAttributes` is set. Each entry's stable identity
+//     (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+//   - Sensitive attributes are recorded as a `withheld` count, never as a
+//     value or anything derived from one.
+//   - A capture that cannot finish -- more than 50,000 entries, a search
+//     limit, a failure part way -- is an error. There is no partial
+//     snapshot.
+//   - Only data snapshots exist in 1.x so far: a base inside the schema or
+//     the server's configuration is refused with
+//     `snapshot_scope_unsupported`.
+//
+// Nothing is kept on the server. The snapshot is returned and belongs to
+// the caller.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /snapshots/capture (the `CaptureSnapshot` operationId).
+func (c *Client) CaptureSnapshotWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCaptureSnapshotRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CaptureSnapshot Capture a subtree as a versioned snapshot
+//
+// Reads the subtree as the session's own identity and returns it as an
+// Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+// repository. See `docs/SNAPSHOTS.md`.
+//
+//   - Entries, attribute names and values are in one defined order, so two
+//     captures of an unchanged subtree differ only in `createdAt`, and have
+//     the same `checksum`.
+//   - Operational attributes are left out unless
+//     `operationalAttributes` is set. Each entry's stable identity
+//     (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+//   - Sensitive attributes are recorded as a `withheld` count, never as a
+//     value or anything derived from one.
+//   - A capture that cannot finish -- more than 50,000 entries, a search
+//     limit, a failure part way -- is an error. There is no partial
+//     snapshot.
+//   - Only data snapshots exist in 1.x so far: a base inside the schema or
+//     the server's configuration is refused with
+//     `snapshot_scope_unsupported`.
+//
+// Nothing is kept on the server. The snapshot is returned and belongs to
+// the caller.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /snapshots/capture (the `CaptureSnapshot` operationId).
+func (c *Client) CaptureSnapshot(ctx context.Context, body CaptureSnapshotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCaptureSnapshotRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// InspectSnapshotWithBody Validate a snapshot and describe it
+//
+// Validates an uploaded snapshot exactly as a comparison would and
+// describes what it covers. Read-only: nothing is kept and nothing is
+// applied.
+//
+// A snapshot is refused when its format or version is not one this Alder
+// reads (`snapshot_unsupported_version` for a newer version), when any DN,
+// value or field is malformed or unknown (`snapshot_invalid`), when a
+// sensitive attribute carries a value, or when a checksum is present and
+// does not match (`snapshot_checksum_mismatch`). A snapshot without a
+// checksum is accepted and described as `integrity: unverified`.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /snapshots/inspect (the `InspectSnapshot` operationId).
+func (c *Client) InspectSnapshotWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectSnapshotRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// InspectSnapshot Validate a snapshot and describe it
+//
+// Validates an uploaded snapshot exactly as a comparison would and
+// describes what it covers. Read-only: nothing is kept and nothing is
+// applied.
+//
+// A snapshot is refused when its format or version is not one this Alder
+// reads (`snapshot_unsupported_version` for a newer version), when any DN,
+// value or field is malformed or unknown (`snapshot_invalid`), when a
+// sensitive attribute carries a value, or when a checksum is present and
+// does not match (`snapshot_checksum_mismatch`). A snapshot without a
+// checksum is accepted and described as `integrity: unverified`.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /snapshots/inspect (the `InspectSnapshot` operationId).
+func (c *Client) InspectSnapshot(ctx context.Context, body InspectSnapshotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectSnapshotRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSourceOffer Where to get the source of this running instance
+//
+// AGPL-3.0 section 13: someone using a modified Alder over a network is
+// entitled to its Corresponding Source. The offer is served rather than
+// written in a README because the obligation runs to the person using the
+// running instance, and the user of a modified instance has no reason to
+// know where its source went.
+//
+// **This is the one endpoint that answers without a session,** and it has
+// no 401 for that reason: an offer only the already-connected can read
+// would not discharge the obligation. It is described here so that the
+// contract in this document is the whole contract -- it was served outside
+// it until 1.0, which made `openapi.yaml` quietly incomplete about the one
+// endpoint a licence requires.
+//
+// Corresponds with GET /source (the `GetSourceOffer` operationId).
+func (c *Client) GetSourceOffer(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSourceOfferRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListChildren List the children of an entry
+//
+// With no `dn`, returns the naming contexts the server holds, which are
+// the roots of the tree. With a `dn`, returns that entry's immediate
+// children. This is the lazy-loading tree browser's only endpoint.
+//
+// Corresponds with GET /tree (the `ListChildren` operationId).
+func (c *Client) ListChildren(ctx context.Context, params *ListChildrenParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListChildrenRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListObjectViews The object-aware views this directory supports
+//
+// Users, groups and organizational units, expressed as saved searches
+// derived from the schema the connected server published.
+//
+// A view is offered only where the server defines a class to anchor it
+// on, so a directory holding no person class has no Users view rather
+// than an empty one. The anchors are standards-track classes — RFC 4519,
+// RFC 4524, RFC 2307 — never vendor names, and a site class inheriting
+// from one of them is matched without being named, because an entry
+// carries its superclasses in its own `objectClass` attribute.
+//
+// The filter is built here and goes back to `/search` unmodified. The
+// columns are the attributes the anchor classes actually permit, so a
+// directory without `inetOrgPerson` gets no mail column instead of an
+// empty one.
+//
+// Corresponds with GET /views (the `ListObjectViews` operationId).
+func (c *Client) ListObjectViews(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListObjectViewsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewApplyChangeRequest calls the generic ApplyChange builder with application/json body
+func NewApplyChangeRequest(server string, body ApplyChangeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewApplyChangeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewApplyChangeRequestWithBody constructs an http.Request for the ApplyChange method, with any body, and a specified content type
+func NewApplyChangeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/changes/apply")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPreviewChangeRequest calls the generic PreviewChange builder with application/json body
+func NewPreviewChangeRequest(server string, body PreviewChangeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPreviewChangeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPreviewChangeRequestWithBody constructs an http.Request for the PreviewChange method, with any body, and a specified content type
+func NewPreviewChangeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/changes/preview")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewApplyChangesetRequest calls the generic ApplyChangeset builder with application/json body
+func NewApplyChangesetRequest(server string, body ApplyChangesetJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewApplyChangesetRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewApplyChangesetRequestWithBody constructs an http.Request for the ApplyChangeset method, with any body, and a specified content type
+func NewApplyChangesetRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/changeset/apply")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPreviewChangesetRequest calls the generic PreviewChangeset builder with application/json body
+func NewPreviewChangesetRequest(server string, body PreviewChangesetJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPreviewChangesetRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPreviewChangesetRequestWithBody constructs an http.Request for the PreviewChangeset method, with any body, and a specified content type
+func NewPreviewChangesetRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/changeset/preview")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCompareEntriesRequest constructs an http.Request for the CompareEntries method
+func NewCompareEntriesRequest(server string, params *CompareEntriesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/compare")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "left", params.Left, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "right", params.Right, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.IncludeOperational != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeOperational", *params.IncludeOperational, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCountEntriesRequest constructs an http.Request for the CountEntries method
+func NewCountEntriesRequest(server string, params *CountEntriesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/count")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDiffStatesRequest calls the generic DiffStates builder with application/json body
+func NewDiffStatesRequest(server string, body DiffStatesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDiffStatesRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewDiffStatesRequestWithBody constructs an http.Request for the DiffStates method, with any body, and a specified content type
+func NewDiffStatesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/diff")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetEntryRequest constructs an http.Request for the GetEntry method
+func NewGetEntryRequest(server string, params *GetEntryParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/entry")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.IncludeOperational != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeOperational", *params.IncludeOperational, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewExportAnsibleRequest constructs an http.Request for the ExportAnsible method
+func NewExportAnsibleRequest(server string, params *ExportAnsibleParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/export/ansible")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Scope != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "scope", *params.Scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Filter != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "filter", *params.Filter, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewExportLdifRequest constructs an http.Request for the ExportLdif method
+func NewExportLdifRequest(server string, params *ExportLdifParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/export/ldif")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Scope != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "scope", *params.Scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.IncludeOperational != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeOperational", *params.IncludeOperational, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.IncludeSensitive != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeSensitive", *params.IncludeSensitive, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Filter != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "filter", *params.Filter, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewExportOutlineRequest constructs an http.Request for the ExportOutline method
+func NewExportOutlineRequest(server string, params *ExportOutlineParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/export/outline")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Scope != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "scope", *params.Scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Filter != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "filter", *params.Filter, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewExportYamlRequest constructs an http.Request for the ExportYaml method
+func NewExportYamlRequest(server string, params *ExportYamlParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/export/yaml")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Scope != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "scope", *params.Scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Filter != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "filter", *params.Filter, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.IncludeOperational != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeOperational", *params.IncludeOperational, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.IncludeSensitive != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "includeSensitive", *params.IncludeSensitive, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewParseLdifRequest calls the generic ParseLdif builder with application/json body
+func NewParseLdifRequest(server string, body ParseLdifJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewParseLdifRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewParseLdifRequestWithBody constructs an http.Request for the ParseLdif method, with any body, and a specified content type
+func NewParseLdifRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/import/ldif")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewInventoryValuesRequest calls the generic InventoryValues builder with application/json body
+func NewInventoryValuesRequest(server string, body InventoryValuesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewInventoryValuesRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewInventoryValuesRequestWithBody constructs an http.Request for the InventoryValues method, with any body, and a specified content type
+func NewInventoryValuesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inventory")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewExpandMembersRequest constructs an http.Request for the ExpandMembers method
+func NewExpandMembersRequest(server string, params *ExpandMembersParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/members")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPlanChangesRequest calls the generic PlanChanges builder with application/json body
+func NewPlanChangesRequest(server string, body PlanChangesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPlanChangesRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPlanChangesRequestWithBody constructs an http.Request for the PlanChanges method, with any body, and a specified content type
+func NewPlanChangesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/plan")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListReferencesRequest constructs an http.Request for the ListReferences method
+func NewListReferencesRequest(server string, params *ListReferencesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/references")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewResolveRequest constructs an http.Request for the Resolve method
+func NewResolveRequest(server string, params *ResolveParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/resolve")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "q", params.Q, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSchemaRequest constructs an http.Request for the GetSchema method
+func NewGetSchemaRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/schema")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetAttributeTypeRequest constructs an http.Request for the GetAttributeType method
+func NewGetAttributeTypeRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/schema/attributetypes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewBuildSchemaChangeRequest calls the generic BuildSchemaChange builder with application/json body
+func NewBuildSchemaChangeRequest(server string, body BuildSchemaChangeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewBuildSchemaChangeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewBuildSchemaChangeRequestWithBody constructs an http.Request for the BuildSchemaChange method, with any body, and a specified content type
+func NewBuildSchemaChangeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/schema/change")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetObjectClassRequest constructs an http.Request for the GetObjectClass method
+func NewGetObjectClassRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/schema/objectclasses/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetRequirementsRequest constructs an http.Request for the GetRequirements method
+func NewGetRequirementsRequest(server string, params *GetRequirementsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/schema/requirements")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Class != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "class", params.Class, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "array", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSearchRequest calls the generic Search builder with application/json body
+func NewSearchRequest(server string, body SearchJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSearchRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSearchRequestWithBody constructs an http.Request for the Search method, with any body, and a specified content type
+func NewSearchRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/search")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteSessionRequest constructs an http.Request for the DeleteSession method
+func NewDeleteSessionRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSessionRequest constructs an http.Request for the GetSession method
+func NewGetSessionRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateSessionRequest calls the generic CreateSession builder with application/json body
+func NewCreateSessionRequest(server string, body CreateSessionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateSessionRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateSessionRequestWithBody constructs an http.Request for the CreateSession method, with any body, and a specified content type
+func NewCreateSessionRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCaptureSnapshotRequest calls the generic CaptureSnapshot builder with application/json body
+func NewCaptureSnapshotRequest(server string, body CaptureSnapshotJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCaptureSnapshotRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCaptureSnapshotRequestWithBody constructs an http.Request for the CaptureSnapshot method, with any body, and a specified content type
+func NewCaptureSnapshotRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/snapshots/capture")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewInspectSnapshotRequest calls the generic InspectSnapshot builder with application/json body
+func NewInspectSnapshotRequest(server string, body InspectSnapshotJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewInspectSnapshotRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewInspectSnapshotRequestWithBody constructs an http.Request for the InspectSnapshot method, with any body, and a specified content type
+func NewInspectSnapshotRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/snapshots/inspect")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetSourceOfferRequest constructs an http.Request for the GetSourceOffer method
+func NewGetSourceOfferRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/source")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListChildrenRequest constructs an http.Request for the ListChildren method
+func NewListChildrenRequest(server string, params *ListChildrenParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/tree")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Dn != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "dn", *params.Dn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cookie != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cookie", *params.Cookie, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListObjectViewsRequest constructs an http.Request for the ListObjectViews method
+func NewListObjectViewsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/views")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
+	for _, r := range c.RequestEditors {
+		if err := r(ctx, req); err != nil {
+			return err
+		}
+	}
+	for _, r := range additionalEditors {
+		if err := r(ctx, req); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ClientWithResponses builds on ClientInterface to offer response payloads
+type ClientWithResponses struct {
+	ClientInterface
+}
+
+// NewClientWithResponses creates a new ClientWithResponses, which wraps
+// Client with return type handling
+func NewClientWithResponses(server string, opts ...ClientOption) (*ClientWithResponses, error) {
+	client, err := NewClient(server, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &ClientWithResponses{client}, nil
+}
+
+// WithBaseURL overrides the baseURL.
+func WithBaseURL(baseURL string) ClientOption {
+	return func(c *Client) error {
+		newBaseURL, err := url.Parse(baseURL)
+		if err != nil {
+			return err
+		}
+		c.Server = newBaseURL.String()
+		return nil
+	}
+}
+
+// ClientWithResponsesInterface is the interface specification for the client with responses above.
+type ClientWithResponsesInterface interface {
+
+	// ApplyChangeWithBodyWithResponse Apply a change
+	//
+	// Applies one change. With the `baseline` a plan returned, the server first
+	// re-reads the entry and refuses the change if it is not the operation the
+	// plan was issued for (`400 plan_mismatch`) or the directory has moved
+	// since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+	// new password, a sensitive attribute value -- is part of that operation:
+	// a different value than the one planned is a mismatch.
+	//
+	// Without a `baseline` the change is applied as it always was. The
+	// interface always plans first and always sends one.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /changes/apply (the `ApplyChange` operationId).
+	ApplyChangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyChangeReply, error)
+
+	// ApplyChangeWithResponse Apply a change
+	//
+	// Applies one change. With the `baseline` a plan returned, the server first
+	// re-reads the entry and refuses the change if it is not the operation the
+	// plan was issued for (`400 plan_mismatch`) or the directory has moved
+	// since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+	// new password, a sensitive attribute value -- is part of that operation:
+	// a different value than the one planned is a mismatch.
+	//
+	// Without a `baseline` the change is applied as it always was. The
+	// interface always plans first and always sends one.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /changes/apply (the `ApplyChange` operationId).
+	ApplyChangeWithResponse(ctx context.Context, body ApplyChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyChangeReply, error)
+
+	// PreviewChangeWithBodyWithResponse Render a change as LDIF and as an Ansible task
+	//
+	// Renders without applying and without reading the directory.
+	//
+	// Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+	// calls it: its confirmation dialog plans the change with `POST /plan`,
+	// which returns the same rendering inside the plan item together with
+	// what the change would do against the directory as it is, and a token
+	// that `/changes/apply` holds the change to. A rendering alone says
+	// nothing about whether the change still applies.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /changes/preview (the `PreviewChange` operationId).
+	//
+	// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	PreviewChangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewChangeReply, error)
+
+	// PreviewChangeWithResponse Render a change as LDIF and as an Ansible task
+	//
+	// Renders without applying and without reading the directory.
+	//
+	// Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+	// calls it: its confirmation dialog plans the change with `POST /plan`,
+	// which returns the same rendering inside the plan item together with
+	// what the change would do against the directory as it is, and a token
+	// that `/changes/apply` holds the change to. A rendering alone says
+	// nothing about whether the change still applies.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /changes/preview (the `PreviewChange` operationId).
+	//
+	// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	PreviewChangeWithResponse(ctx context.Context, body PreviewChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewChangeReply, error)
+
+	// ApplyChangesetWithBodyWithResponse Apply several changes in order
+	//
+	// Applies each change in the order given and stops at the first failure.
+	//
+	// A directory has no transaction spanning entries, so a changeset is not
+	// atomic and does not pretend to be. The response says exactly which
+	// changes were applied and which was not, so the caller can fix the one
+	// that failed and resume from there rather than starting again and
+	// re-applying what already succeeded.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /changeset/apply (the `ApplyChangeset` operationId).
+	ApplyChangesetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyChangesetReply, error)
+
+	// ApplyChangesetWithResponse Apply several changes in order
+	//
+	// Applies each change in the order given and stops at the first failure.
+	//
+	// A directory has no transaction spanning entries, so a changeset is not
+	// atomic and does not pretend to be. The response says exactly which
+	// changes were applied and which was not, so the caller can fix the one
+	// that failed and resume from there rather than starting again and
+	// re-applying what already succeeded.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /changeset/apply (the `ApplyChangeset` operationId).
+	ApplyChangesetWithResponse(ctx context.Context, body ApplyChangesetJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyChangesetReply, error)
+
+	// PreviewChangesetWithBodyWithResponse Render several changes as one LDIF document and one playbook
+	//
+	// A changeset is an ordered list of changes reviewed and applied together.
+	// It is held by the client, not the server: Alder keeps no per-session
+	// state beyond the connection itself, so this endpoint is a pure
+	// rendering of whatever it is given.
+	//
+	// The order is the caller's and is preserved exactly. Alder does not sort
+	// the changes to make them work -- an entry created before its parent is
+	// reported as a warning so it can be reordered, because guessing the
+	// intended order silently is worse than saying what is wrong.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /changeset/preview (the `PreviewChangeset` operationId).
+	PreviewChangesetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewChangesetReply, error)
+
+	// PreviewChangesetWithResponse Render several changes as one LDIF document and one playbook
+	//
+	// A changeset is an ordered list of changes reviewed and applied together.
+	// It is held by the client, not the server: Alder keeps no per-session
+	// state beyond the connection itself, so this endpoint is a pure
+	// rendering of whatever it is given.
+	//
+	// The order is the caller's and is preserved exactly. Alder does not sort
+	// the changes to make them work -- an entry created before its parent is
+	// reported as a warning so it can be reordered, because guessing the
+	// intended order silently is worse than saying what is wrong.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /changeset/preview (the `PreviewChangeset` operationId).
+	PreviewChangesetWithResponse(ctx context.Context, body PreviewChangesetJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewChangesetReply, error)
+
+	// CompareEntriesWithResponse What differs between two entries
+	//
+	// Answers "why does this account work and that one not".
+	//
+	// A naive diff answers it badly in three ways, and avoiding those is most
+	// of what this endpoint is. It compares what is *present*, so an attribute
+	// one entry's classes require and it does not hold is invisible — and that
+	// absence is frequently the whole answer. It compares bytes, so two DNs
+	// naming the same entry in different case read as a difference the
+	// directory does not agree with. And its instinct is to show both sides of
+	// everything, which for `userPassword` is what rule 6 forbids.
+	//
+	// So each side is annotated from its *own* object classes, which the two
+	// entries need not share; DN-valued attributes are compared as DNs; and a
+	// sensitive attribute is compared on presence alone.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /compare (the `CompareEntries` operationId).
+	CompareEntriesWithResponse(ctx context.Context, params *CompareEntriesParams, reqEditors ...RequestEditorFn) (*CompareEntriesReply, error)
+
+	// CountEntriesWithResponse Count the entries under a base, up to a limit
+	//
+	// A subtree count, bounded like every other search. It asks the server for
+	// no attributes at all, so the cost is the search rather than the values.
+	//
+	// `truncated` is the important half of the answer: it means the count
+	// reached the limit and the real number is higher. The UI reports "at
+	// least N" in that case rather than a number that is simply wrong, which
+	// is why this is an action somebody asks for rather than something a
+	// landing page does to every naming context on load.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /count (the `CountEntries` operationId).
+	CountEntriesWithResponse(ctx context.Context, params *CountEntriesParams, reqEditors ...RequestEditorFn) (*CountEntriesReply, error)
+
+	// DiffStatesWithBodyWithResponse Compare two directory states
+	//
+	// Compares `source` with `target`, each a snapshot or the live directory
+	// this session is bound to. The direction is explicit: `added` means in
+	// the target and not in the source. See `docs/SNAPSHOTS.md`.
+	//
+	// - Values compare by the equality rule both sides recorded for the
+	//   attribute where Alder models it, and byte for byte otherwise; the
+	//   attributes compared by bytes are listed.
+	// - A rename is only reported when both sides share an entry's stable
+	//   identity. Otherwise a moved entry is removed and added.
+	// - What could not be seen is `unknown`, never `removed` or `added`: an
+	//   entry beyond a live search's bound, outside the other side's scope, or
+	//   an attribute the live directory will not show. Any of those makes the
+	//   comparison `complete: false`, with `reasons`.
+	// - A live side reads as the session's identity. An entry the access
+	//   rules hide is indistinguishable from one that does not exist; see the
+	//   limits in `docs/SNAPSHOTS.md`.
+	//
+	// When the source is live, each item carries a `candidate`: change
+	// requests that would move the live directory toward the target. They are
+	// input for `POST /plan`, never applied from here. Deleting an entry is a
+	// `destructive` candidate, is never selected for the caller, and is
+	// withheld entirely when the comparison is partial. A missing entry in the
+	// target is never, by itself, a reason to delete.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /diff (the `DiffStates` operationId).
+	DiffStatesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DiffStatesReply, error)
+
+	// DiffStatesWithResponse Compare two directory states
+	//
+	// Compares `source` with `target`, each a snapshot or the live directory
+	// this session is bound to. The direction is explicit: `added` means in
+	// the target and not in the source. See `docs/SNAPSHOTS.md`.
+	//
+	// - Values compare by the equality rule both sides recorded for the
+	//   attribute where Alder models it, and byte for byte otherwise; the
+	//   attributes compared by bytes are listed.
+	// - A rename is only reported when both sides share an entry's stable
+	//   identity. Otherwise a moved entry is removed and added.
+	// - What could not be seen is `unknown`, never `removed` or `added`: an
+	//   entry beyond a live search's bound, outside the other side's scope, or
+	//   an attribute the live directory will not show. Any of those makes the
+	//   comparison `complete: false`, with `reasons`.
+	// - A live side reads as the session's identity. An entry the access
+	//   rules hide is indistinguishable from one that does not exist; see the
+	//   limits in `docs/SNAPSHOTS.md`.
+	//
+	// When the source is live, each item carries a `candidate`: change
+	// requests that would move the live directory toward the target. They are
+	// input for `POST /plan`, never applied from here. Deleting an entry is a
+	// `destructive` candidate, is never selected for the caller, and is
+	// withheld entirely when the comparison is partial. A missing entry in the
+	// target is never, by itself, a reason to delete.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /diff (the `DiffStates` operationId).
+	DiffStatesWithResponse(ctx context.Context, body DiffStatesJSONRequestBody, reqEditors ...RequestEditorFn) (*DiffStatesReply, error)
+
+	// GetEntryWithResponse Read one entry
+	//
+	// Returns the entry with every attribute annotated from the schema: its
+	// syntax, whether it is single-valued, whether the server owns it, and
+	// which input control the editor should offer. Also returns the MUST and
+	// MAY sets computed from the entry's object classes.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /entry (the `GetEntry` operationId).
+	GetEntryWithResponse(ctx context.Context, params *GetEntryParams, reqEditors ...RequestEditorFn) (*GetEntryReply, error)
+
+	// ExportAnsibleWithResponse Export an entry or a subtree as a playbook that enforces it
+	//
+	// A playbook that makes a directory match what is here, rather than one
+	// that merely reports on it.
+	//
+	// This is a separate path from `/export/ldif` on purpose. The obvious
+	// alternative was `format=ansible` on that operation, which would leave
+	// the URL saying "ldif" while returning YAML — and the two differ in more
+	// than serialisation. An LDIF export is a transcription of entries; this
+	// is an assertion about what they should be, and it is ordered parent
+	// first because `ldap_entry` cannot create a child under a parent that
+	// does not exist yet.
+	//
+	// Each entry becomes two tasks: `community.general.ldap_entry` to create
+	// it if it is missing, and `community.general.ldap_attrs` with
+	// `state: exact` to bring the listed attributes to exactly these values.
+	// `ldap_entry` with `state: present` alone would report success against
+	// an entry that exists with entirely different attributes, which is the
+	// failure this endpoint exists to avoid.
+	//
+	// Attributes the directory owns — operational, `NO-USER-MODIFICATION` —
+	// are omitted, because enforcing them would produce a task that fails on
+	// every run against a server doing its job. Sensitive attributes are
+	// omitted with no option to include them: a playbook is a file destined
+	// for a repository.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /export/ansible (the `ExportAnsible` operationId).
+	ExportAnsibleWithResponse(ctx context.Context, params *ExportAnsibleParams, reqEditors ...RequestEditorFn) (*ExportAnsibleReply, error)
+
+	// ExportLdifWithResponse Export an entry or a subtree as LDIF
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /export/ldif (the `ExportLdif` operationId).
+	ExportLdifWithResponse(ctx context.Context, params *ExportLdifParams, reqEditors ...RequestEditorFn) (*ExportLdifReply, error)
+
+	// ExportOutlineWithResponse The shape of a subtree, as a tree
+	//
+	// The same entries an LDIF export would give, drawn as the hierarchy they
+	// form rather than listed one after another.
+	//
+	// Asked for by an operator testing Alder: an LDIF export is flat, and a
+	// flat list of three hundred records does not tell you the shape of what
+	// you exported.
+	//
+	// **This is not LDIF and cannot be applied.** It could not be: RFC 2849
+	// gives a leading space its own meaning -- it continues the line above --
+	// so a tree drawn with indentation would stop being a document you can
+	// import. Rather than a format that is almost LDIF and quietly broken,
+	// this is plainly something else, and says so on its first line.
+	//
+	// Bounded rather than streamed, unlike the LDIF export: a tree cannot be
+	// drawn until its last entry has arrived, because the entry that decides
+	// whether a node is a leaf may be the final one to come back.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /export/outline (the `ExportOutline` operationId).
+	ExportOutlineWithResponse(ctx context.Context, params *ExportOutlineParams, reqEditors ...RequestEditorFn) (*ExportOutlineReply, error)
+
+	// ExportYamlWithResponse The subtree as nested YAML
+	//
+	// The entries and what they hold, nested as the tree they form, in a
+	// format an editor folds and colours. Asked for so that a subtree can be
+	// opened in an editor and read: LDIF is flat and YAML is not.
+	//
+	// Every attribute is a list, even where the schema says one value. An LDAP
+	// attribute holds a set, and a document whose shape changed with the data
+	// would make a second value look like a type change in the diff.
+	//
+	// A value that is not valid printable UTF-8 is written with YAML's own
+	// `!!binary` tag rather than passed off as a string.
+	//
+	// **Nothing reads this back.** Alder imports LDIF, which is the format with
+	// a specification and a changetype; this is for looking at. It is bounded
+	// rather than streamed for the same reason the outline is: a tree cannot be
+	// nested until its last entry has arrived.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /export/yaml (the `ExportYaml` operationId).
+	ExportYamlWithResponse(ctx context.Context, params *ExportYamlParams, reqEditors ...RequestEditorFn) (*ExportYamlReply, error)
+
+	// ParseLdifWithBodyWithResponse Parse an LDIF document into change records
+	//
+	// Parses and validates without applying anything. The response is the
+	// list of changes the document describes, each rendered back as LDIF, for
+	// the user to review and confirm one at a time or all at once.
+	//
+	// URL-valued attributes (`attr:< url`) are refused: following one from a
+	// process holding a privileged bind would be file disclosure and request
+	// forgery. So are LDAP controls, which would change what the server does
+	// with a record.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /import/ldif (the `ParseLdif` operationId).
+	ParseLdifWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ParseLdifReply, error)
+
+	// ParseLdifWithResponse Parse an LDIF document into change records
+	//
+	// Parses and validates without applying anything. The response is the
+	// list of changes the document describes, each rendered back as LDIF, for
+	// the user to review and confirm one at a time or all at once.
+	//
+	// URL-valued attributes (`attr:< url`) are refused: following one from a
+	// process holding a privileged bind would be file disclosure and request
+	// forgery. So are LDAP controls, which would change what the server does
+	// with a record.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /import/ldif (the `ParseLdif` operationId).
+	ParseLdifWithResponse(ctx context.Context, body ParseLdifJSONRequestBody, reqEditors ...RequestEditorFn) (*ParseLdifReply, error)
+
+	// InventoryValuesWithBodyWithResponse What values one attribute holds, and how many entries carry each
+	//
+	// The question that finds a team name spelled "platfrm" with four people
+	// on it, a cost centre nobody has used since a reorganisation, or the
+	// accounts still pointing at a decommissioned site.
+	//
+	// It is a tally over a **bounded** search, so it never claims to describe
+	// the directory — only the entries it examined. Every number is scoped
+	// that way and `truncated` says the bound was reached. A tally that
+	// quietly summarises a truncated result set is not a weaker answer than
+	// the truth; it is a confident wrong one.
+	//
+	// Sensitive attributes are refused before the search runs rather than
+	// filtered out of the result, which is the difference between never
+	// reading a password and reading every password and choosing not to say.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inventory (the `InventoryValues` operationId).
+	InventoryValuesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InventoryValuesReply, error)
+
+	// InventoryValuesWithResponse What values one attribute holds, and how many entries carry each
+	//
+	// The question that finds a team name spelled "platfrm" with four people
+	// on it, a cost centre nobody has used since a reorganisation, or the
+	// accounts still pointing at a decommissioned site.
+	//
+	// It is a tally over a **bounded** search, so it never claims to describe
+	// the directory — only the entries it examined. Every number is scoped
+	// that way and `truncated` says the bound was reached. A tally that
+	// quietly summarises a truncated result set is not a weaker answer than
+	// the truth; it is a confident wrong one.
+	//
+	// Sensitive attributes are refused before the search runs rather than
+	// filtered out of the result, which is the difference between never
+	// reading a password and reading every password and choosing not to say.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inventory (the `InventoryValues` operationId).
+	InventoryValuesWithResponse(ctx context.Context, body InventoryValuesJSONRequestBody, reqEditors ...RequestEditorFn) (*InventoryValuesReply, error)
+
+	// ExpandMembersWithResponse Who is in this group, following nested groups
+	//
+	// The entry view lists a group's `member` values, which is the whole
+	// answer for a flat group and no answer at all for a nested one:
+	// `cn=everyone` in the test harness lists five members and contains no
+	// people, because all five are themselves groups.
+	//
+	// This walks that structure and says, for each person reached, which
+	// chain of groups brought them in.
+	//
+	// What it finds on the way is reported rather than dropped: a group that
+	// contains itself, a member DN whose entry cannot be read — the dangling
+	// reference the referenced-by panel exists to prevent, seen from the
+	// other side — and membership values that are not DNs at all, since
+	// `memberUid` holds a login name and `memberURL` a search.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /members (the `ExpandMembers` operationId).
+	ExpandMembersWithResponse(ctx context.Context, params *ExpandMembersParams, reqEditors ...RequestEditorFn) (*ExpandMembersReply, error)
+
+	// PlanChangesWithBodyWithResponse What a set of changes would do, without doing it
+	//
+	// Answers the question one level above the preview: given these proposed
+	// changes and the directory as it is, which are additions, which are
+	// modifications, which would do nothing at all, and which cannot be
+	// applied as written.
+	//
+	// Nothing is written. Every entry named is read, each change is
+	// classified, and the records that would run come back in `items[].record`
+	// — the same values `POST /changeset/apply` takes, not a description of
+	// them. That is what stops a plan from promising one thing and an apply
+	// doing another.
+	//
+	// `action` is a stable identifier and is what a client should switch on.
+	// `reason` is prose for a person and may be reworded in any release.
+	//
+	// Each applicable item carries a `baseline`: an opaque token binding two
+	// things — the exact operation in `record`, and the state of the directory
+	// that operation was planned against. Hand it back on the corresponding
+	// change when applying. The server re-reads the entry and refuses the
+	// whole set before anything runs: `400 plan_mismatch` if a change is not
+	// the operation its baseline was issued for, `409 conflict` with
+	// `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+	// holds no attribute values; a sensitive attribute contributes only
+	// whether it is set and how many values it has, and a password change
+	// binds the entry and the fact of the change, never the password.
+	// Baselines are meaningless to any other Alder process and do not survive
+	// a restart.
+	//
+	// The input is either `changes` or `ldif`, never both.
+	//
+	// **`ldif` with `mode: changes`** (the default) plans every record as the
+	// exact operation it states. A record with no `changetype` is an add,
+	// which is what `ldapadd` does with it. An add of an entry that already
+	// exists is a conflict (`entry_exists`); it is never turned into a
+	// modification nobody asked for.
+	//
+	// **`ldif` with `mode: desired`** reads the document as the state entries
+	// should be in. Only content records — no `changetype` — are accepted; a
+	// record with one is refused with `400 ldif_mode_mismatch`, because a
+	// document mixing "this entry looks like this" with "do this" has no
+	// single meaning. Each record is reconciled: created if the entry is
+	// absent, turned into the modification of the attributes it names if
+	// present, reported `unchanged` if it already matches. Attributes a record
+	// does not name are left alone. **An entry the document does not mention
+	// is not deleted**; there is no mode in which absence means deletion.
+	//
+	// `impact` reports facts, not a risk score: which target area each change
+	// touches (ordinary data, schema, server configuration), memberships
+	// gained and lost, deletions grouped into the branches they remove, and —
+	// for deletions and renames — the entries that name the affected DN and
+	// how many of those references the plan would leave dangling. Reference
+	// search runs as the session's own bind, so it reports what that bind can
+	// see; see `impact.references`.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /plan (the `PlanChanges` operationId).
+	PlanChangesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PlanChangesReply, error)
+
+	// PlanChangesWithResponse What a set of changes would do, without doing it
+	//
+	// Answers the question one level above the preview: given these proposed
+	// changes and the directory as it is, which are additions, which are
+	// modifications, which would do nothing at all, and which cannot be
+	// applied as written.
+	//
+	// Nothing is written. Every entry named is read, each change is
+	// classified, and the records that would run come back in `items[].record`
+	// — the same values `POST /changeset/apply` takes, not a description of
+	// them. That is what stops a plan from promising one thing and an apply
+	// doing another.
+	//
+	// `action` is a stable identifier and is what a client should switch on.
+	// `reason` is prose for a person and may be reworded in any release.
+	//
+	// Each applicable item carries a `baseline`: an opaque token binding two
+	// things — the exact operation in `record`, and the state of the directory
+	// that operation was planned against. Hand it back on the corresponding
+	// change when applying. The server re-reads the entry and refuses the
+	// whole set before anything runs: `400 plan_mismatch` if a change is not
+	// the operation its baseline was issued for, `409 conflict` with
+	// `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+	// holds no attribute values; a sensitive attribute contributes only
+	// whether it is set and how many values it has, and a password change
+	// binds the entry and the fact of the change, never the password.
+	// Baselines are meaningless to any other Alder process and do not survive
+	// a restart.
+	//
+	// The input is either `changes` or `ldif`, never both.
+	//
+	// **`ldif` with `mode: changes`** (the default) plans every record as the
+	// exact operation it states. A record with no `changetype` is an add,
+	// which is what `ldapadd` does with it. An add of an entry that already
+	// exists is a conflict (`entry_exists`); it is never turned into a
+	// modification nobody asked for.
+	//
+	// **`ldif` with `mode: desired`** reads the document as the state entries
+	// should be in. Only content records — no `changetype` — are accepted; a
+	// record with one is refused with `400 ldif_mode_mismatch`, because a
+	// document mixing "this entry looks like this" with "do this" has no
+	// single meaning. Each record is reconciled: created if the entry is
+	// absent, turned into the modification of the attributes it names if
+	// present, reported `unchanged` if it already matches. Attributes a record
+	// does not name are left alone. **An entry the document does not mention
+	// is not deleted**; there is no mode in which absence means deletion.
+	//
+	// `impact` reports facts, not a risk score: which target area each change
+	// touches (ordinary data, schema, server configuration), memberships
+	// gained and lost, deletions grouped into the branches they remove, and —
+	// for deletions and renames — the entries that name the affected DN and
+	// how many of those references the plan would leave dangling. Reference
+	// search runs as the session's own bind, so it reports what that bind can
+	// see; see `impact.references`.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /plan (the `PlanChanges` operationId).
+	PlanChangesWithResponse(ctx context.Context, body PlanChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*PlanChangesReply, error)
+
+	// ListReferencesWithResponse The entries that name this one, and the attribute each names it by
+	//
+	// Answers "which groups is this in, and what else points at it" — and,
+	// unlike the filter on the entry itself, says *how* each one points.
+	//
+	// That is the part a link cannot give you. A search returns the entries
+	// matching the filter but not which term matched, and removing a
+	// reference means modifying a named attribute on the referencing entry:
+	// without knowing whether a group holds this DN in `member` or in `owner`,
+	// there is nothing safe to offer.
+	//
+	// It is one bounded search. The reference attributes are requested and
+	// matched here rather than in the browser, so a group's five hundred
+	// members are compared where they already are instead of being sent
+	// across to be compared and discarded.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /references (the `ListReferences` operationId).
+	ListReferencesWithResponse(ctx context.Context, params *ListReferencesParams, reqEditors ...RequestEditorFn) (*ListReferencesReply, error)
+
+	// ResolveWithResponse What could this input be — an entry, or a search
+	//
+	// Backs one box that takes a DN, an RFC 4515 filter, or a name.
+	//
+	// It parses and never searches. `internal/dn` and `internal/filter` are
+	// the authorities on what these strings are, and a regex in the browser
+	// would drift from them the first time either grew a case — but probing
+	// the directory to see whether an entry exists would turn every keystroke
+	// into a read, to answer a question the operator is about to answer by
+	// pressing enter.
+	//
+	// The three kinds overlap. `cn=platform` is a valid one-component DN
+	// *and* almost certainly a request to find something called platform, so
+	// an ambiguous input returns both destinations and the operator picks.
+	// Guessing would be wrong about half the time.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /resolve (the `Resolve` operationId).
+	ResolveWithResponse(ctx context.Context, params *ResolveParams, reqEditors ...RequestEditorFn) (*ResolveReply, error)
+
+	// GetSchemaWithResponse The whole schema, indexed for browsing
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /schema (the `GetSchema` operationId).
+	GetSchemaWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSchemaReply, error)
+
+	// GetAttributeTypeWithResponse One attribute type, with its cross-links resolved
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /schema/attributetypes/{name} (the `GetAttributeType` operationId).
+	GetAttributeTypeWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetAttributeTypeReply, error)
+
+	// BuildSchemaChangeWithBodyWithResponse Build the modification that installs, replaces or removes a definition
+	//
+	// Renders a definition and returns the change that would apply it, without
+	// applying anything.
+	//
+	// A schema definition is a value of an attribute on an ordinary entry, so
+	// the change this returns is an ordinary modify, and it goes on to the
+	// same preview, the same confirmation and the same changeset as every
+	// other write. There is still exactly one path that writes.
+	//
+	// The definition text is built here rather than in the browser, for the
+	// same reason the LDIF preview is: what the person confirms and what the
+	// directory receives have to be the same bytes.
+	//
+	// A replace or a delete needs the value the server actually stores, which
+	// is not always the value the schema browser displays — a server keeping
+	// its schema in configuration prefixes each stored definition with its
+	// load order and strips that prefix from what it publishes. This reads the
+	// target to find it, which is why the request names an OID rather than
+	// carrying a definition to remove.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /schema/change (the `BuildSchemaChange` operationId).
+	BuildSchemaChangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BuildSchemaChangeReply, error)
+
+	// BuildSchemaChangeWithResponse Build the modification that installs, replaces or removes a definition
+	//
+	// Renders a definition and returns the change that would apply it, without
+	// applying anything.
+	//
+	// A schema definition is a value of an attribute on an ordinary entry, so
+	// the change this returns is an ordinary modify, and it goes on to the
+	// same preview, the same confirmation and the same changeset as every
+	// other write. There is still exactly one path that writes.
+	//
+	// The definition text is built here rather than in the browser, for the
+	// same reason the LDIF preview is: what the person confirms and what the
+	// directory receives have to be the same bytes.
+	//
+	// A replace or a delete needs the value the server actually stores, which
+	// is not always the value the schema browser displays — a server keeping
+	// its schema in configuration prefixes each stored definition with its
+	// load order and strips that prefix from what it publishes. This reads the
+	// target to find it, which is why the request names an OID rather than
+	// carrying a definition to remove.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /schema/change (the `BuildSchemaChange` operationId).
+	BuildSchemaChangeWithResponse(ctx context.Context, body BuildSchemaChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*BuildSchemaChangeReply, error)
+
+	// GetObjectClassWithResponse One object class, with its cross-links resolved
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /schema/objectclasses/{name} (the `GetObjectClass` operationId).
+	GetObjectClassWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetObjectClassReply, error)
+
+	// GetRequirementsWithResponse What an entry of these object classes must and may hold
+	//
+	// The MUST and MAY sets for a set of object classes, with the schema's
+	// opinion about each attribute — syntax, single-valuedness, description,
+	// which control to offer.
+	//
+	// It exists so a creation form is generated from the schema rather than
+	// from a template. Without it the form has attribute names and nothing
+	// else, which is how creating an entry ended up with a plain text box for
+	// every field while editing the same entry a moment later offered a
+	// Boolean control, an entry picker and the attribute's description.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /schema/requirements (the `GetRequirements` operationId).
+	GetRequirementsWithResponse(ctx context.Context, params *GetRequirementsParams, reqEditors ...RequestEditorFn) (*GetRequirementsReply, error)
+
+	// SearchWithBodyWithResponse Search the directory
+	//
+	// Every search is paged and bounded. `filter` is a raw RFC 4515 string
+	// which is parsed, not interpolated: a value containing filter
+	// metacharacters cannot escape into the filter structure.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /search (the `Search` operationId).
+	SearchWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SearchReply, error)
+
+	// SearchWithResponse Search the directory
+	//
+	// Every search is paged and bounded. `filter` is a raw RFC 4515 string
+	// which is parsed, not interpolated: a value containing filter
+	// metacharacters cannot escape into the filter structure.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /search (the `Search` operationId).
+	SearchWithResponse(ctx context.Context, body SearchJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchReply, error)
+
+	// DeleteSessionWithResponse Disconnect
+	//
+	// Closes the connection and discards the credentials.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /session (the `DeleteSession` operationId).
+	DeleteSessionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteSessionReply, error)
+
+	// GetSessionWithResponse Describe the current session
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session (the `GetSession` operationId).
+	GetSessionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSessionReply, error)
+
+	// CreateSessionWithBodyWithResponse Connect and bind to a directory
+	//
+	// Opens a connection, binds, and reads the RootDSE. On success the
+	// response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+	// in-memory session. The bind password is held in that in-memory session
+	// and is never written to disk, never placed in a token, and never
+	// returned by any endpoint.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /session (the `CreateSession` operationId).
+	CreateSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionReply, error)
+
+	// CreateSessionWithResponse Connect and bind to a directory
+	//
+	// Opens a connection, binds, and reads the RootDSE. On success the
+	// response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+	// in-memory session. The bind password is held in that in-memory session
+	// and is never written to disk, never placed in a token, and never
+	// returned by any endpoint.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /session (the `CreateSession` operationId).
+	CreateSessionWithResponse(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionReply, error)
+
+	// CaptureSnapshotWithBodyWithResponse Capture a subtree as a versioned snapshot
+	//
+	// Reads the subtree as the session's own identity and returns it as an
+	// Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+	// repository. See `docs/SNAPSHOTS.md`.
+	//
+	// - Entries, attribute names and values are in one defined order, so two
+	//   captures of an unchanged subtree differ only in `createdAt`, and have
+	//   the same `checksum`.
+	// - Operational attributes are left out unless
+	//   `operationalAttributes` is set. Each entry's stable identity
+	//   (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+	// - Sensitive attributes are recorded as a `withheld` count, never as a
+	//   value or anything derived from one.
+	// - A capture that cannot finish -- more than 50,000 entries, a search
+	//   limit, a failure part way -- is an error. There is no partial
+	//   snapshot.
+	// - Only data snapshots exist in 1.x so far: a base inside the schema or
+	//   the server's configuration is refused with
+	//   `snapshot_scope_unsupported`.
+	//
+	// Nothing is kept on the server. The snapshot is returned and belongs to
+	// the caller.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /snapshots/capture (the `CaptureSnapshot` operationId).
+	CaptureSnapshotWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CaptureSnapshotReply, error)
+
+	// CaptureSnapshotWithResponse Capture a subtree as a versioned snapshot
+	//
+	// Reads the subtree as the session's own identity and returns it as an
+	// Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+	// repository. See `docs/SNAPSHOTS.md`.
+	//
+	// - Entries, attribute names and values are in one defined order, so two
+	//   captures of an unchanged subtree differ only in `createdAt`, and have
+	//   the same `checksum`.
+	// - Operational attributes are left out unless
+	//   `operationalAttributes` is set. Each entry's stable identity
+	//   (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+	// - Sensitive attributes are recorded as a `withheld` count, never as a
+	//   value or anything derived from one.
+	// - A capture that cannot finish -- more than 50,000 entries, a search
+	//   limit, a failure part way -- is an error. There is no partial
+	//   snapshot.
+	// - Only data snapshots exist in 1.x so far: a base inside the schema or
+	//   the server's configuration is refused with
+	//   `snapshot_scope_unsupported`.
+	//
+	// Nothing is kept on the server. The snapshot is returned and belongs to
+	// the caller.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /snapshots/capture (the `CaptureSnapshot` operationId).
+	CaptureSnapshotWithResponse(ctx context.Context, body CaptureSnapshotJSONRequestBody, reqEditors ...RequestEditorFn) (*CaptureSnapshotReply, error)
+
+	// InspectSnapshotWithBodyWithResponse Validate a snapshot and describe it
+	//
+	// Validates an uploaded snapshot exactly as a comparison would and
+	// describes what it covers. Read-only: nothing is kept and nothing is
+	// applied.
+	//
+	// A snapshot is refused when its format or version is not one this Alder
+	// reads (`snapshot_unsupported_version` for a newer version), when any DN,
+	// value or field is malformed or unknown (`snapshot_invalid`), when a
+	// sensitive attribute carries a value, or when a checksum is present and
+	// does not match (`snapshot_checksum_mismatch`). A snapshot without a
+	// checksum is accepted and described as `integrity: unverified`.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /snapshots/inspect (the `InspectSnapshot` operationId).
+	InspectSnapshotWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InspectSnapshotReply, error)
+
+	// InspectSnapshotWithResponse Validate a snapshot and describe it
+	//
+	// Validates an uploaded snapshot exactly as a comparison would and
+	// describes what it covers. Read-only: nothing is kept and nothing is
+	// applied.
+	//
+	// A snapshot is refused when its format or version is not one this Alder
+	// reads (`snapshot_unsupported_version` for a newer version), when any DN,
+	// value or field is malformed or unknown (`snapshot_invalid`), when a
+	// sensitive attribute carries a value, or when a checksum is present and
+	// does not match (`snapshot_checksum_mismatch`). A snapshot without a
+	// checksum is accepted and described as `integrity: unverified`.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /snapshots/inspect (the `InspectSnapshot` operationId).
+	InspectSnapshotWithResponse(ctx context.Context, body InspectSnapshotJSONRequestBody, reqEditors ...RequestEditorFn) (*InspectSnapshotReply, error)
+
+	// GetSourceOfferWithResponse Where to get the source of this running instance
+	//
+	// AGPL-3.0 section 13: someone using a modified Alder over a network is
+	// entitled to its Corresponding Source. The offer is served rather than
+	// written in a README because the obligation runs to the person using the
+	// running instance, and the user of a modified instance has no reason to
+	// know where its source went.
+	//
+	// **This is the one endpoint that answers without a session,** and it has
+	// no 401 for that reason: an offer only the already-connected can read
+	// would not discharge the obligation. It is described here so that the
+	// contract in this document is the whole contract -- it was served outside
+	// it until 1.0, which made `openapi.yaml` quietly incomplete about the one
+	// endpoint a licence requires.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /source (the `GetSourceOffer` operationId).
+	GetSourceOfferWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSourceOfferReply, error)
+
+	// ListChildrenWithResponse List the children of an entry
+	//
+	// With no `dn`, returns the naming contexts the server holds, which are
+	// the roots of the tree. With a `dn`, returns that entry's immediate
+	// children. This is the lazy-loading tree browser's only endpoint.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /tree (the `ListChildren` operationId).
+	ListChildrenWithResponse(ctx context.Context, params *ListChildrenParams, reqEditors ...RequestEditorFn) (*ListChildrenReply, error)
+
+	// ListObjectViewsWithResponse The object-aware views this directory supports
+	//
+	// Users, groups and organizational units, expressed as saved searches
+	// derived from the schema the connected server published.
+	//
+	// A view is offered only where the server defines a class to anchor it
+	// on, so a directory holding no person class has no Users view rather
+	// than an empty one. The anchors are standards-track classes — RFC 4519,
+	// RFC 4524, RFC 2307 — never vendor names, and a site class inheriting
+	// from one of them is matched without being named, because an entry
+	// carries its superclasses in its own `objectClass` attribute.
+	//
+	// The filter is built here and goes back to `/search` unmodified. The
+	// columns are the attributes the anchor classes actually permit, so a
+	// directory without `inetOrgPerson` gets no mail column instead of an
+	// empty one.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /views (the `ListObjectViews` operationId).
+	ListObjectViewsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListObjectViewsReply, error)
+}
+
+type ApplyChangeReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ApplyResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ApplyChangeReply) GetJSON200() *ApplyResult {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ApplyChangeReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ApplyChangeReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ApplyChangeReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ApplyChangeReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ApplyChangeReply) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r ApplyChangeReply) GetJSON422() *Error {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r ApplyChangeReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ApplyChangeReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ApplyChangeReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ApplyChangeReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PreviewChangeReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ChangePreview
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PreviewChangeReply) GetJSON200() *ChangePreview {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r PreviewChangeReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r PreviewChangeReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r PreviewChangeReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PreviewChangeReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PreviewChangeReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PreviewChangeReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ApplyChangesetReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ChangesetResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ApplyChangesetReply) GetJSON200() *ChangesetResult {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ApplyChangesetReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ApplyChangesetReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ApplyChangesetReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ApplyChangesetReply) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r ApplyChangesetReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ApplyChangesetReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ApplyChangesetReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ApplyChangesetReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PreviewChangesetReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ChangesetPreview
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PreviewChangesetReply) GetJSON200() *ChangesetPreview {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r PreviewChangesetReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r PreviewChangesetReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r PreviewChangesetReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PreviewChangesetReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PreviewChangesetReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PreviewChangesetReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CompareEntriesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EntryComparison
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CompareEntriesReply) GetJSON200() *EntryComparison {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CompareEntriesReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CompareEntriesReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CompareEntriesReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r CompareEntriesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CompareEntriesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CompareEntriesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CompareEntriesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CountEntriesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CountResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CountEntriesReply) GetJSON200() *CountResult {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CountEntriesReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CountEntriesReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CountEntriesReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CountEntriesReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r CountEntriesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CountEntriesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CountEntriesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CountEntriesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DiffStatesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Diff
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DiffStatesReply) GetJSON200() *Diff {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DiffStatesReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DiffStatesReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r DiffStatesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DiffStatesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DiffStatesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DiffStatesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetEntryReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EntryView
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetEntryReply) GetJSON200() *EntryView {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetEntryReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetEntryReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetEntryReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r GetEntryReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetEntryReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetEntryReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetEntryReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExportAnsibleReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ExportAnsibleReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ExportAnsibleReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ExportAnsibleReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r ExportAnsibleReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExportAnsibleReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExportAnsibleReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExportAnsibleReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExportLdifReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ExportLdifReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ExportLdifReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r ExportLdifReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExportLdifReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExportLdifReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExportLdifReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExportOutlineReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ExportOutlineReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ExportOutlineReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ExportOutlineReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r ExportOutlineReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExportOutlineReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExportOutlineReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExportOutlineReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExportYamlReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ExportYamlReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ExportYamlReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ExportYamlReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r ExportYamlReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExportYamlReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExportYamlReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExportYamlReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ParseLdifReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ImportResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ParseLdifReply) GetJSON200() *ImportResult {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ParseLdifReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ParseLdifReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r ParseLdifReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ParseLdifReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ParseLdifReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ParseLdifReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type InventoryValuesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InventoryResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r InventoryValuesReply) GetJSON200() *InventoryResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r InventoryValuesReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r InventoryValuesReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r InventoryValuesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r InventoryValuesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InventoryValuesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r InventoryValuesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExpandMembersReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MemberList
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ExpandMembersReply) GetJSON200() *MemberList {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ExpandMembersReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ExpandMembersReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ExpandMembersReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r ExpandMembersReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExpandMembersReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExpandMembersReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExpandMembersReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PlanChangesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Plan
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PlanChangesReply) GetJSON200() *Plan {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r PlanChangesReply) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r PlanChangesReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r PlanChangesReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r PlanChangesReply) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r PlanChangesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PlanChangesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PlanChangesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PlanChangesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListReferencesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ReferenceList
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListReferencesReply) GetJSON200() *ReferenceList {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListReferencesReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListReferencesReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r ListReferencesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListReferencesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListReferencesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListReferencesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ResolveReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ResolveResult
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ResolveReply) GetJSON200() *ResolveResult {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ResolveReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r ResolveReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResolveReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResolveReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResolveReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSchemaReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SchemaView
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSchemaReply) GetJSON200() *SchemaView {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSchemaReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSchemaReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSchemaReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSchemaReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSchemaReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetAttributeTypeReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AttributeTypeDetail
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetAttributeTypeReply) GetJSON200() *AttributeTypeDetail {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetAttributeTypeReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetAttributeTypeReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r GetAttributeTypeReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetAttributeTypeReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetAttributeTypeReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetAttributeTypeReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type BuildSchemaChangeReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SchemaChangeBuild
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r BuildSchemaChangeReply) GetJSON200() *SchemaChangeBuild {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r BuildSchemaChangeReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r BuildSchemaChangeReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r BuildSchemaChangeReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r BuildSchemaChangeReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r BuildSchemaChangeReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r BuildSchemaChangeReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetObjectClassReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ObjectClassDetail
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetObjectClassReply) GetJSON200() *ObjectClassDetail {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetObjectClassReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetObjectClassReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r GetObjectClassReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetObjectClassReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetObjectClassReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetObjectClassReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetRequirementsReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RequirementsView
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetRequirementsReply) GetJSON200() *RequirementsView {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetRequirementsReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetRequirementsReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r GetRequirementsReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetRequirementsReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetRequirementsReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetRequirementsReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SearchReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SearchResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SearchReply) GetJSON200() *SearchResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SearchReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SearchReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SearchReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r SearchReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SearchReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SearchReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SearchReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteSessionReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteSessionReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteSessionReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteSessionReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteSessionReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSessionReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionInfo
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSessionReply) GetJSON200() *SessionInfo {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSessionReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateSessionReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *SessionInfo
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateSessionReply) GetJSON201() *SessionInfo {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateSessionReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateSessionReply) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r CreateSessionReply) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateSessionReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateSessionReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateSessionReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateSessionReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CaptureSnapshotReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Snapshot
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CaptureSnapshotReply) GetJSON200() *Snapshot {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CaptureSnapshotReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CaptureSnapshotReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CaptureSnapshotReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r CaptureSnapshotReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CaptureSnapshotReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CaptureSnapshotReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CaptureSnapshotReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type InspectSnapshotReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SnapshotInspection
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r InspectSnapshotReply) GetJSON200() *SnapshotInspection {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r InspectSnapshotReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r InspectSnapshotReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r InspectSnapshotReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r InspectSnapshotReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InspectSnapshotReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r InspectSnapshotReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSourceOfferReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SourceOffer
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSourceOfferReply) GetJSON200() *SourceOffer {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSourceOfferReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSourceOfferReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSourceOfferReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSourceOfferReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListChildrenReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TreePage
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListChildrenReply) GetJSON200() *TreePage {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListChildrenReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListChildrenReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListChildrenReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r ListChildrenReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListChildrenReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListChildrenReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListChildrenReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListObjectViewsReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ObjectViewList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListObjectViewsReply) GetJSON200() *ObjectViewList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListObjectViewsReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r ListObjectViewsReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListObjectViewsReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListObjectViewsReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListObjectViewsReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ApplyChangeWithBodyWithResponse Apply a change
+//
+// Applies one change. With the `baseline` a plan returned, the server first
+// re-reads the entry and refuses the change if it is not the operation the
+// plan was issued for (`400 plan_mismatch`) or the directory has moved
+// since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+// new password, a sensitive attribute value -- is part of that operation:
+// a different value than the one planned is a mismatch.
+//
+// Without a `baseline` the change is applied as it always was. The
+// interface always plans first and always sends one.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /changes/apply (the `ApplyChange` operationId).
+func (c *ClientWithResponses) ApplyChangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyChangeReply, error) {
+	rsp, err := c.ApplyChangeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyChangeReply(rsp)
+}
+
+// ApplyChangeWithResponse Apply a change
+//
+// Applies one change. With the `baseline` a plan returned, the server first
+// re-reads the entry and refuses the change if it is not the operation the
+// plan was issued for (`400 plan_mismatch`) or the directory has moved
+// since (`409 conflict`, `cause: plan_stale`). A secret in the change -- a
+// new password, a sensitive attribute value -- is part of that operation:
+// a different value than the one planned is a mismatch.
+//
+// Without a `baseline` the change is applied as it always was. The
+// interface always plans first and always sends one.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /changes/apply (the `ApplyChange` operationId).
+func (c *ClientWithResponses) ApplyChangeWithResponse(ctx context.Context, body ApplyChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyChangeReply, error) {
+	rsp, err := c.ApplyChange(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyChangeReply(rsp)
+}
+
+// PreviewChangeWithBodyWithResponse Render a change as LDIF and as an Ansible task
+//
+// Renders without applying and without reading the directory.
+//
+// Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+// calls it: its confirmation dialog plans the change with `POST /plan`,
+// which returns the same rendering inside the plan item together with
+// what the change would do against the directory as it is, and a token
+// that `/changes/apply` holds the change to. A rendering alone says
+// nothing about whether the change still applies.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /changes/preview (the `PreviewChange` operationId).
+//
+// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+func (c *ClientWithResponses) PreviewChangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewChangeReply, error) {
+	rsp, err := c.PreviewChangeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewChangeReply(rsp)
+}
+
+// PreviewChangeWithResponse Render a change as LDIF and as an Ansible task
+//
+// Renders without applying and without reading the directory.
+//
+// Deprecated since 1.6, and kept for 1.x clients. The interface no longer
+// calls it: its confirmation dialog plans the change with `POST /plan`,
+// which returns the same rendering inside the plan item together with
+// what the change would do against the directory as it is, and a token
+// that `/changes/apply` holds the change to. A rendering alone says
+// nothing about whether the change still applies.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /changes/preview (the `PreviewChange` operationId).
+// Deprecated: this operation has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+func (c *ClientWithResponses) PreviewChangeWithResponse(ctx context.Context, body PreviewChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewChangeReply, error) {
+	rsp, err := c.PreviewChange(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewChangeReply(rsp)
+}
+
+// ApplyChangesetWithBodyWithResponse Apply several changes in order
+//
+// Applies each change in the order given and stops at the first failure.
+//
+// A directory has no transaction spanning entries, so a changeset is not
+// atomic and does not pretend to be. The response says exactly which
+// changes were applied and which was not, so the caller can fix the one
+// that failed and resume from there rather than starting again and
+// re-applying what already succeeded.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /changeset/apply (the `ApplyChangeset` operationId).
+func (c *ClientWithResponses) ApplyChangesetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyChangesetReply, error) {
+	rsp, err := c.ApplyChangesetWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyChangesetReply(rsp)
+}
+
+// ApplyChangesetWithResponse Apply several changes in order
+//
+// Applies each change in the order given and stops at the first failure.
+//
+// A directory has no transaction spanning entries, so a changeset is not
+// atomic and does not pretend to be. The response says exactly which
+// changes were applied and which was not, so the caller can fix the one
+// that failed and resume from there rather than starting again and
+// re-applying what already succeeded.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /changeset/apply (the `ApplyChangeset` operationId).
+func (c *ClientWithResponses) ApplyChangesetWithResponse(ctx context.Context, body ApplyChangesetJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyChangesetReply, error) {
+	rsp, err := c.ApplyChangeset(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyChangesetReply(rsp)
+}
+
+// PreviewChangesetWithBodyWithResponse Render several changes as one LDIF document and one playbook
+//
+// A changeset is an ordered list of changes reviewed and applied together.
+// It is held by the client, not the server: Alder keeps no per-session
+// state beyond the connection itself, so this endpoint is a pure
+// rendering of whatever it is given.
+//
+// The order is the caller's and is preserved exactly. Alder does not sort
+// the changes to make them work -- an entry created before its parent is
+// reported as a warning so it can be reordered, because guessing the
+// intended order silently is worse than saying what is wrong.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /changeset/preview (the `PreviewChangeset` operationId).
+func (c *ClientWithResponses) PreviewChangesetWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewChangesetReply, error) {
+	rsp, err := c.PreviewChangesetWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewChangesetReply(rsp)
+}
+
+// PreviewChangesetWithResponse Render several changes as one LDIF document and one playbook
+//
+// A changeset is an ordered list of changes reviewed and applied together.
+// It is held by the client, not the server: Alder keeps no per-session
+// state beyond the connection itself, so this endpoint is a pure
+// rendering of whatever it is given.
+//
+// The order is the caller's and is preserved exactly. Alder does not sort
+// the changes to make them work -- an entry created before its parent is
+// reported as a warning so it can be reordered, because guessing the
+// intended order silently is worse than saying what is wrong.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /changeset/preview (the `PreviewChangeset` operationId).
+func (c *ClientWithResponses) PreviewChangesetWithResponse(ctx context.Context, body PreviewChangesetJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewChangesetReply, error) {
+	rsp, err := c.PreviewChangeset(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewChangesetReply(rsp)
+}
+
+// CompareEntriesWithResponse What differs between two entries
+//
+// Answers "why does this account work and that one not".
+//
+// A naive diff answers it badly in three ways, and avoiding those is most
+// of what this endpoint is. It compares what is *present*, so an attribute
+// one entry's classes require and it does not hold is invisible — and that
+// absence is frequently the whole answer. It compares bytes, so two DNs
+// naming the same entry in different case read as a difference the
+// directory does not agree with. And its instinct is to show both sides of
+// everything, which for `userPassword` is what rule 6 forbids.
+//
+// So each side is annotated from its *own* object classes, which the two
+// entries need not share; DN-valued attributes are compared as DNs; and a
+// sensitive attribute is compared on presence alone.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /compare (the `CompareEntries` operationId).
+func (c *ClientWithResponses) CompareEntriesWithResponse(ctx context.Context, params *CompareEntriesParams, reqEditors ...RequestEditorFn) (*CompareEntriesReply, error) {
+	rsp, err := c.CompareEntries(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCompareEntriesReply(rsp)
+}
+
+// CountEntriesWithResponse Count the entries under a base, up to a limit
+//
+// A subtree count, bounded like every other search. It asks the server for
+// no attributes at all, so the cost is the search rather than the values.
+//
+// `truncated` is the important half of the answer: it means the count
+// reached the limit and the real number is higher. The UI reports "at
+// least N" in that case rather than a number that is simply wrong, which
+// is why this is an action somebody asks for rather than something a
+// landing page does to every naming context on load.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /count (the `CountEntries` operationId).
+func (c *ClientWithResponses) CountEntriesWithResponse(ctx context.Context, params *CountEntriesParams, reqEditors ...RequestEditorFn) (*CountEntriesReply, error) {
+	rsp, err := c.CountEntries(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCountEntriesReply(rsp)
+}
+
+// DiffStatesWithBodyWithResponse Compare two directory states
+//
+// Compares `source` with `target`, each a snapshot or the live directory
+// this session is bound to. The direction is explicit: `added` means in
+// the target and not in the source. See `docs/SNAPSHOTS.md`.
+//
+//   - Values compare by the equality rule both sides recorded for the
+//     attribute where Alder models it, and byte for byte otherwise; the
+//     attributes compared by bytes are listed.
+//   - A rename is only reported when both sides share an entry's stable
+//     identity. Otherwise a moved entry is removed and added.
+//   - What could not be seen is `unknown`, never `removed` or `added`: an
+//     entry beyond a live search's bound, outside the other side's scope, or
+//     an attribute the live directory will not show. Any of those makes the
+//     comparison `complete: false`, with `reasons`.
+//   - A live side reads as the session's identity. An entry the access
+//     rules hide is indistinguishable from one that does not exist; see the
+//     limits in `docs/SNAPSHOTS.md`.
+//
+// When the source is live, each item carries a `candidate`: change
+// requests that would move the live directory toward the target. They are
+// input for `POST /plan`, never applied from here. Deleting an entry is a
+// `destructive` candidate, is never selected for the caller, and is
+// withheld entirely when the comparison is partial. A missing entry in the
+// target is never, by itself, a reason to delete.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /diff (the `DiffStates` operationId).
+func (c *ClientWithResponses) DiffStatesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DiffStatesReply, error) {
+	rsp, err := c.DiffStatesWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDiffStatesReply(rsp)
+}
+
+// DiffStatesWithResponse Compare two directory states
+//
+// Compares `source` with `target`, each a snapshot or the live directory
+// this session is bound to. The direction is explicit: `added` means in
+// the target and not in the source. See `docs/SNAPSHOTS.md`.
+//
+//   - Values compare by the equality rule both sides recorded for the
+//     attribute where Alder models it, and byte for byte otherwise; the
+//     attributes compared by bytes are listed.
+//   - A rename is only reported when both sides share an entry's stable
+//     identity. Otherwise a moved entry is removed and added.
+//   - What could not be seen is `unknown`, never `removed` or `added`: an
+//     entry beyond a live search's bound, outside the other side's scope, or
+//     an attribute the live directory will not show. Any of those makes the
+//     comparison `complete: false`, with `reasons`.
+//   - A live side reads as the session's identity. An entry the access
+//     rules hide is indistinguishable from one that does not exist; see the
+//     limits in `docs/SNAPSHOTS.md`.
+//
+// When the source is live, each item carries a `candidate`: change
+// requests that would move the live directory toward the target. They are
+// input for `POST /plan`, never applied from here. Deleting an entry is a
+// `destructive` candidate, is never selected for the caller, and is
+// withheld entirely when the comparison is partial. A missing entry in the
+// target is never, by itself, a reason to delete.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /diff (the `DiffStates` operationId).
+func (c *ClientWithResponses) DiffStatesWithResponse(ctx context.Context, body DiffStatesJSONRequestBody, reqEditors ...RequestEditorFn) (*DiffStatesReply, error) {
+	rsp, err := c.DiffStates(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDiffStatesReply(rsp)
+}
+
+// GetEntryWithResponse Read one entry
+//
+// Returns the entry with every attribute annotated from the schema: its
+// syntax, whether it is single-valued, whether the server owns it, and
+// which input control the editor should offer. Also returns the MUST and
+// MAY sets computed from the entry's object classes.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /entry (the `GetEntry` operationId).
+func (c *ClientWithResponses) GetEntryWithResponse(ctx context.Context, params *GetEntryParams, reqEditors ...RequestEditorFn) (*GetEntryReply, error) {
+	rsp, err := c.GetEntry(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetEntryReply(rsp)
+}
+
+// ExportAnsibleWithResponse Export an entry or a subtree as a playbook that enforces it
+//
+// A playbook that makes a directory match what is here, rather than one
+// that merely reports on it.
+//
+// This is a separate path from `/export/ldif` on purpose. The obvious
+// alternative was `format=ansible` on that operation, which would leave
+// the URL saying "ldif" while returning YAML — and the two differ in more
+// than serialisation. An LDIF export is a transcription of entries; this
+// is an assertion about what they should be, and it is ordered parent
+// first because `ldap_entry` cannot create a child under a parent that
+// does not exist yet.
+//
+// Each entry becomes two tasks: `community.general.ldap_entry` to create
+// it if it is missing, and `community.general.ldap_attrs` with
+// `state: exact` to bring the listed attributes to exactly these values.
+// `ldap_entry` with `state: present` alone would report success against
+// an entry that exists with entirely different attributes, which is the
+// failure this endpoint exists to avoid.
+//
+// Attributes the directory owns — operational, `NO-USER-MODIFICATION` —
+// are omitted, because enforcing them would produce a task that fails on
+// every run against a server doing its job. Sensitive attributes are
+// omitted with no option to include them: a playbook is a file destined
+// for a repository.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /export/ansible (the `ExportAnsible` operationId).
+func (c *ClientWithResponses) ExportAnsibleWithResponse(ctx context.Context, params *ExportAnsibleParams, reqEditors ...RequestEditorFn) (*ExportAnsibleReply, error) {
+	rsp, err := c.ExportAnsible(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExportAnsibleReply(rsp)
+}
+
+// ExportLdifWithResponse Export an entry or a subtree as LDIF
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /export/ldif (the `ExportLdif` operationId).
+func (c *ClientWithResponses) ExportLdifWithResponse(ctx context.Context, params *ExportLdifParams, reqEditors ...RequestEditorFn) (*ExportLdifReply, error) {
+	rsp, err := c.ExportLdif(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExportLdifReply(rsp)
+}
+
+// ExportOutlineWithResponse The shape of a subtree, as a tree
+//
+// The same entries an LDIF export would give, drawn as the hierarchy they
+// form rather than listed one after another.
+//
+// Asked for by an operator testing Alder: an LDIF export is flat, and a
+// flat list of three hundred records does not tell you the shape of what
+// you exported.
+//
+// **This is not LDIF and cannot be applied.** It could not be: RFC 2849
+// gives a leading space its own meaning -- it continues the line above --
+// so a tree drawn with indentation would stop being a document you can
+// import. Rather than a format that is almost LDIF and quietly broken,
+// this is plainly something else, and says so on its first line.
+//
+// Bounded rather than streamed, unlike the LDIF export: a tree cannot be
+// drawn until its last entry has arrived, because the entry that decides
+// whether a node is a leaf may be the final one to come back.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /export/outline (the `ExportOutline` operationId).
+func (c *ClientWithResponses) ExportOutlineWithResponse(ctx context.Context, params *ExportOutlineParams, reqEditors ...RequestEditorFn) (*ExportOutlineReply, error) {
+	rsp, err := c.ExportOutline(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExportOutlineReply(rsp)
+}
+
+// ExportYamlWithResponse The subtree as nested YAML
+//
+// The entries and what they hold, nested as the tree they form, in a
+// format an editor folds and colours. Asked for so that a subtree can be
+// opened in an editor and read: LDIF is flat and YAML is not.
+//
+// Every attribute is a list, even where the schema says one value. An LDAP
+// attribute holds a set, and a document whose shape changed with the data
+// would make a second value look like a type change in the diff.
+//
+// A value that is not valid printable UTF-8 is written with YAML's own
+// `!!binary` tag rather than passed off as a string.
+//
+// **Nothing reads this back.** Alder imports LDIF, which is the format with
+// a specification and a changetype; this is for looking at. It is bounded
+// rather than streamed for the same reason the outline is: a tree cannot be
+// nested until its last entry has arrived.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /export/yaml (the `ExportYaml` operationId).
+func (c *ClientWithResponses) ExportYamlWithResponse(ctx context.Context, params *ExportYamlParams, reqEditors ...RequestEditorFn) (*ExportYamlReply, error) {
+	rsp, err := c.ExportYaml(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExportYamlReply(rsp)
+}
+
+// ParseLdifWithBodyWithResponse Parse an LDIF document into change records
+//
+// Parses and validates without applying anything. The response is the
+// list of changes the document describes, each rendered back as LDIF, for
+// the user to review and confirm one at a time or all at once.
+//
+// URL-valued attributes (`attr:< url`) are refused: following one from a
+// process holding a privileged bind would be file disclosure and request
+// forgery. So are LDAP controls, which would change what the server does
+// with a record.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /import/ldif (the `ParseLdif` operationId).
+func (c *ClientWithResponses) ParseLdifWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ParseLdifReply, error) {
+	rsp, err := c.ParseLdifWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseParseLdifReply(rsp)
+}
+
+// ParseLdifWithResponse Parse an LDIF document into change records
+//
+// Parses and validates without applying anything. The response is the
+// list of changes the document describes, each rendered back as LDIF, for
+// the user to review and confirm one at a time or all at once.
+//
+// URL-valued attributes (`attr:< url`) are refused: following one from a
+// process holding a privileged bind would be file disclosure and request
+// forgery. So are LDAP controls, which would change what the server does
+// with a record.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /import/ldif (the `ParseLdif` operationId).
+func (c *ClientWithResponses) ParseLdifWithResponse(ctx context.Context, body ParseLdifJSONRequestBody, reqEditors ...RequestEditorFn) (*ParseLdifReply, error) {
+	rsp, err := c.ParseLdif(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseParseLdifReply(rsp)
+}
+
+// InventoryValuesWithBodyWithResponse What values one attribute holds, and how many entries carry each
+//
+// The question that finds a team name spelled "platfrm" with four people
+// on it, a cost centre nobody has used since a reorganisation, or the
+// accounts still pointing at a decommissioned site.
+//
+// It is a tally over a **bounded** search, so it never claims to describe
+// the directory — only the entries it examined. Every number is scoped
+// that way and `truncated` says the bound was reached. A tally that
+// quietly summarises a truncated result set is not a weaker answer than
+// the truth; it is a confident wrong one.
+//
+// Sensitive attributes are refused before the search runs rather than
+// filtered out of the result, which is the difference between never
+// reading a password and reading every password and choosing not to say.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inventory (the `InventoryValues` operationId).
+func (c *ClientWithResponses) InventoryValuesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InventoryValuesReply, error) {
+	rsp, err := c.InventoryValuesWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInventoryValuesReply(rsp)
+}
+
+// InventoryValuesWithResponse What values one attribute holds, and how many entries carry each
+//
+// The question that finds a team name spelled "platfrm" with four people
+// on it, a cost centre nobody has used since a reorganisation, or the
+// accounts still pointing at a decommissioned site.
+//
+// It is a tally over a **bounded** search, so it never claims to describe
+// the directory — only the entries it examined. Every number is scoped
+// that way and `truncated` says the bound was reached. A tally that
+// quietly summarises a truncated result set is not a weaker answer than
+// the truth; it is a confident wrong one.
+//
+// Sensitive attributes are refused before the search runs rather than
+// filtered out of the result, which is the difference between never
+// reading a password and reading every password and choosing not to say.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inventory (the `InventoryValues` operationId).
+func (c *ClientWithResponses) InventoryValuesWithResponse(ctx context.Context, body InventoryValuesJSONRequestBody, reqEditors ...RequestEditorFn) (*InventoryValuesReply, error) {
+	rsp, err := c.InventoryValues(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInventoryValuesReply(rsp)
+}
+
+// ExpandMembersWithResponse Who is in this group, following nested groups
+//
+// The entry view lists a group's `member` values, which is the whole
+// answer for a flat group and no answer at all for a nested one:
+// `cn=everyone` in the test harness lists five members and contains no
+// people, because all five are themselves groups.
+//
+// This walks that structure and says, for each person reached, which
+// chain of groups brought them in.
+//
+// What it finds on the way is reported rather than dropped: a group that
+// contains itself, a member DN whose entry cannot be read — the dangling
+// reference the referenced-by panel exists to prevent, seen from the
+// other side — and membership values that are not DNs at all, since
+// `memberUid` holds a login name and `memberURL` a search.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /members (the `ExpandMembers` operationId).
+func (c *ClientWithResponses) ExpandMembersWithResponse(ctx context.Context, params *ExpandMembersParams, reqEditors ...RequestEditorFn) (*ExpandMembersReply, error) {
+	rsp, err := c.ExpandMembers(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExpandMembersReply(rsp)
+}
+
+// PlanChangesWithBodyWithResponse What a set of changes would do, without doing it
+//
+// Answers the question one level above the preview: given these proposed
+// changes and the directory as it is, which are additions, which are
+// modifications, which would do nothing at all, and which cannot be
+// applied as written.
+//
+// Nothing is written. Every entry named is read, each change is
+// classified, and the records that would run come back in `items[].record`
+// — the same values `POST /changeset/apply` takes, not a description of
+// them. That is what stops a plan from promising one thing and an apply
+// doing another.
+//
+// `action` is a stable identifier and is what a client should switch on.
+// `reason` is prose for a person and may be reworded in any release.
+//
+// Each applicable item carries a `baseline`: an opaque token binding two
+// things — the exact operation in `record`, and the state of the directory
+// that operation was planned against. Hand it back on the corresponding
+// change when applying. The server re-reads the entry and refuses the
+// whole set before anything runs: `400 plan_mismatch` if a change is not
+// the operation its baseline was issued for, `409 conflict` with
+// `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+// holds no attribute values; a sensitive attribute contributes only
+// whether it is set and how many values it has, and a password change
+// binds the entry and the fact of the change, never the password.
+// Baselines are meaningless to any other Alder process and do not survive
+// a restart.
+//
+// The input is either `changes` or `ldif`, never both.
+//
+// **`ldif` with `mode: changes`** (the default) plans every record as the
+// exact operation it states. A record with no `changetype` is an add,
+// which is what `ldapadd` does with it. An add of an entry that already
+// exists is a conflict (`entry_exists`); it is never turned into a
+// modification nobody asked for.
+//
+// **`ldif` with `mode: desired`** reads the document as the state entries
+// should be in. Only content records — no `changetype` — are accepted; a
+// record with one is refused with `400 ldif_mode_mismatch`, because a
+// document mixing "this entry looks like this" with "do this" has no
+// single meaning. Each record is reconciled: created if the entry is
+// absent, turned into the modification of the attributes it names if
+// present, reported `unchanged` if it already matches. Attributes a record
+// does not name are left alone. **An entry the document does not mention
+// is not deleted**; there is no mode in which absence means deletion.
+//
+// `impact` reports facts, not a risk score: which target area each change
+// touches (ordinary data, schema, server configuration), memberships
+// gained and lost, deletions grouped into the branches they remove, and —
+// for deletions and renames — the entries that name the affected DN and
+// how many of those references the plan would leave dangling. Reference
+// search runs as the session's own bind, so it reports what that bind can
+// see; see `impact.references`.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /plan (the `PlanChanges` operationId).
+func (c *ClientWithResponses) PlanChangesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PlanChangesReply, error) {
+	rsp, err := c.PlanChangesWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanChangesReply(rsp)
+}
+
+// PlanChangesWithResponse What a set of changes would do, without doing it
+//
+// Answers the question one level above the preview: given these proposed
+// changes and the directory as it is, which are additions, which are
+// modifications, which would do nothing at all, and which cannot be
+// applied as written.
+//
+// Nothing is written. Every entry named is read, each change is
+// classified, and the records that would run come back in `items[].record`
+// — the same values `POST /changeset/apply` takes, not a description of
+// them. That is what stops a plan from promising one thing and an apply
+// doing another.
+//
+// `action` is a stable identifier and is what a client should switch on.
+// `reason` is prose for a person and may be reworded in any release.
+//
+// Each applicable item carries a `baseline`: an opaque token binding two
+// things — the exact operation in `record`, and the state of the directory
+// that operation was planned against. Hand it back on the corresponding
+// change when applying. The server re-reads the entry and refuses the
+// whole set before anything runs: `400 plan_mismatch` if a change is not
+// the operation its baseline was issued for, `409 conflict` with
+// `cause: plan_stale` if the directory has moved since. Neither is silently replanned. The token
+// holds no attribute values; a sensitive attribute contributes only
+// whether it is set and how many values it has, and a password change
+// binds the entry and the fact of the change, never the password.
+// Baselines are meaningless to any other Alder process and do not survive
+// a restart.
+//
+// The input is either `changes` or `ldif`, never both.
+//
+// **`ldif` with `mode: changes`** (the default) plans every record as the
+// exact operation it states. A record with no `changetype` is an add,
+// which is what `ldapadd` does with it. An add of an entry that already
+// exists is a conflict (`entry_exists`); it is never turned into a
+// modification nobody asked for.
+//
+// **`ldif` with `mode: desired`** reads the document as the state entries
+// should be in. Only content records — no `changetype` — are accepted; a
+// record with one is refused with `400 ldif_mode_mismatch`, because a
+// document mixing "this entry looks like this" with "do this" has no
+// single meaning. Each record is reconciled: created if the entry is
+// absent, turned into the modification of the attributes it names if
+// present, reported `unchanged` if it already matches. Attributes a record
+// does not name are left alone. **An entry the document does not mention
+// is not deleted**; there is no mode in which absence means deletion.
+//
+// `impact` reports facts, not a risk score: which target area each change
+// touches (ordinary data, schema, server configuration), memberships
+// gained and lost, deletions grouped into the branches they remove, and —
+// for deletions and renames — the entries that name the affected DN and
+// how many of those references the plan would leave dangling. Reference
+// search runs as the session's own bind, so it reports what that bind can
+// see; see `impact.references`.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /plan (the `PlanChanges` operationId).
+func (c *ClientWithResponses) PlanChangesWithResponse(ctx context.Context, body PlanChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*PlanChangesReply, error) {
+	rsp, err := c.PlanChanges(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanChangesReply(rsp)
+}
+
+// ListReferencesWithResponse The entries that name this one, and the attribute each names it by
+//
+// Answers "which groups is this in, and what else points at it" — and,
+// unlike the filter on the entry itself, says *how* each one points.
+//
+// That is the part a link cannot give you. A search returns the entries
+// matching the filter but not which term matched, and removing a
+// reference means modifying a named attribute on the referencing entry:
+// without knowing whether a group holds this DN in `member` or in `owner`,
+// there is nothing safe to offer.
+//
+// It is one bounded search. The reference attributes are requested and
+// matched here rather than in the browser, so a group's five hundred
+// members are compared where they already are instead of being sent
+// across to be compared and discarded.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /references (the `ListReferences` operationId).
+func (c *ClientWithResponses) ListReferencesWithResponse(ctx context.Context, params *ListReferencesParams, reqEditors ...RequestEditorFn) (*ListReferencesReply, error) {
+	rsp, err := c.ListReferences(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListReferencesReply(rsp)
+}
+
+// ResolveWithResponse What could this input be — an entry, or a search
+//
+// Backs one box that takes a DN, an RFC 4515 filter, or a name.
+//
+// It parses and never searches. `internal/dn` and `internal/filter` are
+// the authorities on what these strings are, and a regex in the browser
+// would drift from them the first time either grew a case — but probing
+// the directory to see whether an entry exists would turn every keystroke
+// into a read, to answer a question the operator is about to answer by
+// pressing enter.
+//
+// The three kinds overlap. `cn=platform` is a valid one-component DN
+// *and* almost certainly a request to find something called platform, so
+// an ambiguous input returns both destinations and the operator picks.
+// Guessing would be wrong about half the time.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /resolve (the `Resolve` operationId).
+func (c *ClientWithResponses) ResolveWithResponse(ctx context.Context, params *ResolveParams, reqEditors ...RequestEditorFn) (*ResolveReply, error) {
+	rsp, err := c.Resolve(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResolveReply(rsp)
+}
+
+// GetSchemaWithResponse The whole schema, indexed for browsing
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /schema (the `GetSchema` operationId).
+func (c *ClientWithResponses) GetSchemaWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSchemaReply, error) {
+	rsp, err := c.GetSchema(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSchemaReply(rsp)
+}
+
+// GetAttributeTypeWithResponse One attribute type, with its cross-links resolved
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /schema/attributetypes/{name} (the `GetAttributeType` operationId).
+func (c *ClientWithResponses) GetAttributeTypeWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetAttributeTypeReply, error) {
+	rsp, err := c.GetAttributeType(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAttributeTypeReply(rsp)
+}
+
+// BuildSchemaChangeWithBodyWithResponse Build the modification that installs, replaces or removes a definition
+//
+// Renders a definition and returns the change that would apply it, without
+// applying anything.
+//
+// A schema definition is a value of an attribute on an ordinary entry, so
+// the change this returns is an ordinary modify, and it goes on to the
+// same preview, the same confirmation and the same changeset as every
+// other write. There is still exactly one path that writes.
+//
+// The definition text is built here rather than in the browser, for the
+// same reason the LDIF preview is: what the person confirms and what the
+// directory receives have to be the same bytes.
+//
+// A replace or a delete needs the value the server actually stores, which
+// is not always the value the schema browser displays — a server keeping
+// its schema in configuration prefixes each stored definition with its
+// load order and strips that prefix from what it publishes. This reads the
+// target to find it, which is why the request names an OID rather than
+// carrying a definition to remove.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /schema/change (the `BuildSchemaChange` operationId).
+func (c *ClientWithResponses) BuildSchemaChangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BuildSchemaChangeReply, error) {
+	rsp, err := c.BuildSchemaChangeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBuildSchemaChangeReply(rsp)
+}
+
+// BuildSchemaChangeWithResponse Build the modification that installs, replaces or removes a definition
+//
+// Renders a definition and returns the change that would apply it, without
+// applying anything.
+//
+// A schema definition is a value of an attribute on an ordinary entry, so
+// the change this returns is an ordinary modify, and it goes on to the
+// same preview, the same confirmation and the same changeset as every
+// other write. There is still exactly one path that writes.
+//
+// The definition text is built here rather than in the browser, for the
+// same reason the LDIF preview is: what the person confirms and what the
+// directory receives have to be the same bytes.
+//
+// A replace or a delete needs the value the server actually stores, which
+// is not always the value the schema browser displays — a server keeping
+// its schema in configuration prefixes each stored definition with its
+// load order and strips that prefix from what it publishes. This reads the
+// target to find it, which is why the request names an OID rather than
+// carrying a definition to remove.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /schema/change (the `BuildSchemaChange` operationId).
+func (c *ClientWithResponses) BuildSchemaChangeWithResponse(ctx context.Context, body BuildSchemaChangeJSONRequestBody, reqEditors ...RequestEditorFn) (*BuildSchemaChangeReply, error) {
+	rsp, err := c.BuildSchemaChange(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBuildSchemaChangeReply(rsp)
+}
+
+// GetObjectClassWithResponse One object class, with its cross-links resolved
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /schema/objectclasses/{name} (the `GetObjectClass` operationId).
+func (c *ClientWithResponses) GetObjectClassWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetObjectClassReply, error) {
+	rsp, err := c.GetObjectClass(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetObjectClassReply(rsp)
+}
+
+// GetRequirementsWithResponse What an entry of these object classes must and may hold
+//
+// The MUST and MAY sets for a set of object classes, with the schema's
+// opinion about each attribute — syntax, single-valuedness, description,
+// which control to offer.
+//
+// It exists so a creation form is generated from the schema rather than
+// from a template. Without it the form has attribute names and nothing
+// else, which is how creating an entry ended up with a plain text box for
+// every field while editing the same entry a moment later offered a
+// Boolean control, an entry picker and the attribute's description.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /schema/requirements (the `GetRequirements` operationId).
+func (c *ClientWithResponses) GetRequirementsWithResponse(ctx context.Context, params *GetRequirementsParams, reqEditors ...RequestEditorFn) (*GetRequirementsReply, error) {
+	rsp, err := c.GetRequirements(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetRequirementsReply(rsp)
+}
+
+// SearchWithBodyWithResponse Search the directory
+//
+// Every search is paged and bounded. `filter` is a raw RFC 4515 string
+// which is parsed, not interpolated: a value containing filter
+// metacharacters cannot escape into the filter structure.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /search (the `Search` operationId).
+func (c *ClientWithResponses) SearchWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SearchReply, error) {
+	rsp, err := c.SearchWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSearchReply(rsp)
+}
+
+// SearchWithResponse Search the directory
+//
+// Every search is paged and bounded. `filter` is a raw RFC 4515 string
+// which is parsed, not interpolated: a value containing filter
+// metacharacters cannot escape into the filter structure.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /search (the `Search` operationId).
+func (c *ClientWithResponses) SearchWithResponse(ctx context.Context, body SearchJSONRequestBody, reqEditors ...RequestEditorFn) (*SearchReply, error) {
+	rsp, err := c.Search(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSearchReply(rsp)
+}
+
+// DeleteSessionWithResponse Disconnect
+//
+// Closes the connection and discards the credentials.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /session (the `DeleteSession` operationId).
+func (c *ClientWithResponses) DeleteSessionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteSessionReply, error) {
+	rsp, err := c.DeleteSession(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteSessionReply(rsp)
+}
+
+// GetSessionWithResponse Describe the current session
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session (the `GetSession` operationId).
+func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSessionReply, error) {
+	rsp, err := c.GetSession(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionReply(rsp)
+}
+
+// CreateSessionWithBodyWithResponse Connect and bind to a directory
+//
+// Opens a connection, binds, and reads the RootDSE. On success the
+// response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+// in-memory session. The bind password is held in that in-memory session
+// and is never written to disk, never placed in a token, and never
+// returned by any endpoint.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /session (the `CreateSession` operationId).
+func (c *ClientWithResponses) CreateSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSessionReply, error) {
+	rsp, err := c.CreateSessionWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSessionReply(rsp)
+}
+
+// CreateSessionWithResponse Connect and bind to a directory
+//
+// Opens a connection, binds, and reads the RootDSE. On success the
+// response sets an httpOnly, Secure, SameSite=Strict cookie naming an
+// in-memory session. The bind password is held in that in-memory session
+// and is never written to disk, never placed in a token, and never
+// returned by any endpoint.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /session (the `CreateSession` operationId).
+func (c *ClientWithResponses) CreateSessionWithResponse(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionReply, error) {
+	rsp, err := c.CreateSession(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSessionReply(rsp)
+}
+
+// CaptureSnapshotWithBodyWithResponse Capture a subtree as a versioned snapshot
+//
+// Reads the subtree as the session's own identity and returns it as an
+// Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+// repository. See `docs/SNAPSHOTS.md`.
+//
+//   - Entries, attribute names and values are in one defined order, so two
+//     captures of an unchanged subtree differ only in `createdAt`, and have
+//     the same `checksum`.
+//   - Operational attributes are left out unless
+//     `operationalAttributes` is set. Each entry's stable identity
+//     (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+//   - Sensitive attributes are recorded as a `withheld` count, never as a
+//     value or anything derived from one.
+//   - A capture that cannot finish -- more than 50,000 entries, a search
+//     limit, a failure part way -- is an error. There is no partial
+//     snapshot.
+//   - Only data snapshots exist in 1.x so far: a base inside the schema or
+//     the server's configuration is refused with
+//     `snapshot_scope_unsupported`.
+//
+// Nothing is kept on the server. The snapshot is returned and belongs to
+// the caller.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /snapshots/capture (the `CaptureSnapshot` operationId).
+func (c *ClientWithResponses) CaptureSnapshotWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CaptureSnapshotReply, error) {
+	rsp, err := c.CaptureSnapshotWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCaptureSnapshotReply(rsp)
+}
+
+// CaptureSnapshotWithResponse Capture a subtree as a versioned snapshot
+//
+// Reads the subtree as the session's own identity and returns it as an
+// Alder snapshot: a versioned, canonical JSON document, safe to keep in a
+// repository. See `docs/SNAPSHOTS.md`.
+//
+//   - Entries, attribute names and values are in one defined order, so two
+//     captures of an unchanged subtree differ only in `createdAt`, and have
+//     the same `checksum`.
+//   - Operational attributes are left out unless
+//     `operationalAttributes` is set. Each entry's stable identity
+//     (`entryUUID` or `nsUniqueId`) is recorded as its `id` either way.
+//   - Sensitive attributes are recorded as a `withheld` count, never as a
+//     value or anything derived from one.
+//   - A capture that cannot finish -- more than 50,000 entries, a search
+//     limit, a failure part way -- is an error. There is no partial
+//     snapshot.
+//   - Only data snapshots exist in 1.x so far: a base inside the schema or
+//     the server's configuration is refused with
+//     `snapshot_scope_unsupported`.
+//
+// Nothing is kept on the server. The snapshot is returned and belongs to
+// the caller.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /snapshots/capture (the `CaptureSnapshot` operationId).
+func (c *ClientWithResponses) CaptureSnapshotWithResponse(ctx context.Context, body CaptureSnapshotJSONRequestBody, reqEditors ...RequestEditorFn) (*CaptureSnapshotReply, error) {
+	rsp, err := c.CaptureSnapshot(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCaptureSnapshotReply(rsp)
+}
+
+// InspectSnapshotWithBodyWithResponse Validate a snapshot and describe it
+//
+// Validates an uploaded snapshot exactly as a comparison would and
+// describes what it covers. Read-only: nothing is kept and nothing is
+// applied.
+//
+// A snapshot is refused when its format or version is not one this Alder
+// reads (`snapshot_unsupported_version` for a newer version), when any DN,
+// value or field is malformed or unknown (`snapshot_invalid`), when a
+// sensitive attribute carries a value, or when a checksum is present and
+// does not match (`snapshot_checksum_mismatch`). A snapshot without a
+// checksum is accepted and described as `integrity: unverified`.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /snapshots/inspect (the `InspectSnapshot` operationId).
+func (c *ClientWithResponses) InspectSnapshotWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InspectSnapshotReply, error) {
+	rsp, err := c.InspectSnapshotWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectSnapshotReply(rsp)
+}
+
+// InspectSnapshotWithResponse Validate a snapshot and describe it
+//
+// Validates an uploaded snapshot exactly as a comparison would and
+// describes what it covers. Read-only: nothing is kept and nothing is
+// applied.
+//
+// A snapshot is refused when its format or version is not one this Alder
+// reads (`snapshot_unsupported_version` for a newer version), when any DN,
+// value or field is malformed or unknown (`snapshot_invalid`), when a
+// sensitive attribute carries a value, or when a checksum is present and
+// does not match (`snapshot_checksum_mismatch`). A snapshot without a
+// checksum is accepted and described as `integrity: unverified`.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /snapshots/inspect (the `InspectSnapshot` operationId).
+func (c *ClientWithResponses) InspectSnapshotWithResponse(ctx context.Context, body InspectSnapshotJSONRequestBody, reqEditors ...RequestEditorFn) (*InspectSnapshotReply, error) {
+	rsp, err := c.InspectSnapshot(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectSnapshotReply(rsp)
+}
+
+// GetSourceOfferWithResponse Where to get the source of this running instance
+//
+// AGPL-3.0 section 13: someone using a modified Alder over a network is
+// entitled to its Corresponding Source. The offer is served rather than
+// written in a README because the obligation runs to the person using the
+// running instance, and the user of a modified instance has no reason to
+// know where its source went.
+//
+// **This is the one endpoint that answers without a session,** and it has
+// no 401 for that reason: an offer only the already-connected can read
+// would not discharge the obligation. It is described here so that the
+// contract in this document is the whole contract -- it was served outside
+// it until 1.0, which made `openapi.yaml` quietly incomplete about the one
+// endpoint a licence requires.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /source (the `GetSourceOffer` operationId).
+func (c *ClientWithResponses) GetSourceOfferWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSourceOfferReply, error) {
+	rsp, err := c.GetSourceOffer(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSourceOfferReply(rsp)
+}
+
+// ListChildrenWithResponse List the children of an entry
+//
+// With no `dn`, returns the naming contexts the server holds, which are
+// the roots of the tree. With a `dn`, returns that entry's immediate
+// children. This is the lazy-loading tree browser's only endpoint.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /tree (the `ListChildren` operationId).
+func (c *ClientWithResponses) ListChildrenWithResponse(ctx context.Context, params *ListChildrenParams, reqEditors ...RequestEditorFn) (*ListChildrenReply, error) {
+	rsp, err := c.ListChildren(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListChildrenReply(rsp)
+}
+
+// ListObjectViewsWithResponse The object-aware views this directory supports
+//
+// Users, groups and organizational units, expressed as saved searches
+// derived from the schema the connected server published.
+//
+// A view is offered only where the server defines a class to anchor it
+// on, so a directory holding no person class has no Users view rather
+// than an empty one. The anchors are standards-track classes — RFC 4519,
+// RFC 4524, RFC 2307 — never vendor names, and a site class inheriting
+// from one of them is matched without being named, because an entry
+// carries its superclasses in its own `objectClass` attribute.
+//
+// The filter is built here and goes back to `/search` unmodified. The
+// columns are the attributes the anchor classes actually permit, so a
+// directory without `inetOrgPerson` gets no mail column instead of an
+// empty one.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /views (the `ListObjectViews` operationId).
+func (c *ClientWithResponses) ListObjectViewsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListObjectViewsReply, error) {
+	rsp, err := c.ListObjectViews(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListObjectViewsReply(rsp)
+}
+
+// ParseApplyChangeReply parses an HTTP response from a ApplyChangeWithResponse call
+func ParseApplyChangeReply(rsp *http.Response) (*ApplyChangeReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ApplyChangeReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ApplyResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePreviewChangeReply parses an HTTP response from a PreviewChangeWithResponse call
+func ParsePreviewChangeReply(rsp *http.Response) (*PreviewChangeReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PreviewChangeReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ChangePreview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseApplyChangesetReply parses an HTTP response from a ApplyChangesetWithResponse call
+func ParseApplyChangesetReply(rsp *http.Response) (*ApplyChangesetReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ApplyChangesetReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ChangesetResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePreviewChangesetReply parses an HTTP response from a PreviewChangesetWithResponse call
+func ParsePreviewChangesetReply(rsp *http.Response) (*PreviewChangesetReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PreviewChangesetReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ChangesetPreview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCompareEntriesReply parses an HTTP response from a CompareEntriesWithResponse call
+func ParseCompareEntriesReply(rsp *http.Response) (*CompareEntriesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CompareEntriesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EntryComparison
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCountEntriesReply parses an HTTP response from a CountEntriesWithResponse call
+func ParseCountEntriesReply(rsp *http.Response) (*CountEntriesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CountEntriesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CountResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDiffStatesReply parses an HTTP response from a DiffStatesWithResponse call
+func ParseDiffStatesReply(rsp *http.Response) (*DiffStatesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DiffStatesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Diff
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetEntryReply parses an HTTP response from a GetEntryWithResponse call
+func ParseGetEntryReply(rsp *http.Response) (*GetEntryReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetEntryReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EntryView
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExportAnsibleReply parses an HTTP response from a ExportAnsibleWithResponse call
+func ParseExportAnsibleReply(rsp *http.Response) (*ExportAnsibleReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExportAnsibleReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExportLdifReply parses an HTTP response from a ExportLdifWithResponse call
+func ParseExportLdifReply(rsp *http.Response) (*ExportLdifReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExportLdifReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExportOutlineReply parses an HTTP response from a ExportOutlineWithResponse call
+func ParseExportOutlineReply(rsp *http.Response) (*ExportOutlineReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExportOutlineReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExportYamlReply parses an HTTP response from a ExportYamlWithResponse call
+func ParseExportYamlReply(rsp *http.Response) (*ExportYamlReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExportYamlReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseParseLdifReply parses an HTTP response from a ParseLdifWithResponse call
+func ParseParseLdifReply(rsp *http.Response) (*ParseLdifReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ParseLdifReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ImportResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseInventoryValuesReply parses an HTTP response from a InventoryValuesWithResponse call
+func ParseInventoryValuesReply(rsp *http.Response) (*InventoryValuesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InventoryValuesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InventoryResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExpandMembersReply parses an HTTP response from a ExpandMembersWithResponse call
+func ParseExpandMembersReply(rsp *http.Response) (*ExpandMembersReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExpandMembersReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MemberList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePlanChangesReply parses an HTTP response from a PlanChangesWithResponse call
+func ParsePlanChangesReply(rsp *http.Response) (*PlanChangesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PlanChangesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Plan
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListReferencesReply parses an HTTP response from a ListReferencesWithResponse call
+func ParseListReferencesReply(rsp *http.Response) (*ListReferencesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListReferencesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ReferenceList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResolveReply parses an HTTP response from a ResolveWithResponse call
+func ParseResolveReply(rsp *http.Response) (*ResolveReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResolveReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ResolveResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSchemaReply parses an HTTP response from a GetSchemaWithResponse call
+func ParseGetSchemaReply(rsp *http.Response) (*GetSchemaReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSchemaReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SchemaView
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetAttributeTypeReply parses an HTTP response from a GetAttributeTypeWithResponse call
+func ParseGetAttributeTypeReply(rsp *http.Response) (*GetAttributeTypeReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetAttributeTypeReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AttributeTypeDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseBuildSchemaChangeReply parses an HTTP response from a BuildSchemaChangeWithResponse call
+func ParseBuildSchemaChangeReply(rsp *http.Response) (*BuildSchemaChangeReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BuildSchemaChangeReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SchemaChangeBuild
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetObjectClassReply parses an HTTP response from a GetObjectClassWithResponse call
+func ParseGetObjectClassReply(rsp *http.Response) (*GetObjectClassReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetObjectClassReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ObjectClassDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetRequirementsReply parses an HTTP response from a GetRequirementsWithResponse call
+func ParseGetRequirementsReply(rsp *http.Response) (*GetRequirementsReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetRequirementsReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RequirementsView
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSearchReply parses an HTTP response from a SearchWithResponse call
+func ParseSearchReply(rsp *http.Response) (*SearchReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SearchReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SearchResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteSessionReply parses an HTTP response from a DeleteSessionWithResponse call
+func ParseDeleteSessionReply(rsp *http.Response) (*DeleteSessionReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteSessionReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionReply parses an HTTP response from a GetSessionWithResponse call
+func ParseGetSessionReply(rsp *http.Response) (*GetSessionReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateSessionReply parses an HTTP response from a CreateSessionWithResponse call
+func ParseCreateSessionReply(rsp *http.Response) (*CreateSessionReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateSessionReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest SessionInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCaptureSnapshotReply parses an HTTP response from a CaptureSnapshotWithResponse call
+func ParseCaptureSnapshotReply(rsp *http.Response) (*CaptureSnapshotReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CaptureSnapshotReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Snapshot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseInspectSnapshotReply parses an HTTP response from a InspectSnapshotWithResponse call
+func ParseInspectSnapshotReply(rsp *http.Response) (*InspectSnapshotReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InspectSnapshotReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SnapshotInspection
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSourceOfferReply parses an HTTP response from a GetSourceOfferWithResponse call
+func ParseGetSourceOfferReply(rsp *http.Response) (*GetSourceOfferReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSourceOfferReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SourceOffer
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListChildrenReply parses an HTTP response from a ListChildrenWithResponse call
+func ParseListChildrenReply(rsp *http.Response) (*ListChildrenReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListChildrenReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TreePage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListObjectViewsReply parses an HTTP response from a ListObjectViewsWithResponse call
+func ParseListObjectViewsReply(rsp *http.Response) (*ListObjectViewsReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListObjectViewsReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ObjectViewList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
