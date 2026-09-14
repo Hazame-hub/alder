@@ -34,10 +34,13 @@ import (
 type Recoverability string
 
 const (
-	// Exact: applied to the state the original change left, the compensation
-	// returns every user attribute the change touched to its earlier values,
-	// or removes an entry the change created. It still goes through a plan, and
-	// is refused if the directory has moved on.
+	// Exact: the compensation restores the ordinary directory state captured
+	// before the change -- every user attribute it touched back to its earlier
+	// values, an entry it created gone, or an entry back under its former name.
+	// Not byte-identical server state: operational attributes, server-generated
+	// identifiers, replication metadata and unreadable attributes are outside
+	// it. It still goes through a plan, and is refused if the directory has
+	// drifted.
 	Exact Recoverability = "exact"
 	// Partial: some of the effect can be compensated and some cannot; the
 	// reasons say which.

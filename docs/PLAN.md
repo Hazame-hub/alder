@@ -144,8 +144,10 @@ For every item that applies, the plan returns:
 
 For an item that would apply something, how recoverable the change would be if
 it is applied with a recovery bundle requested: `exact`, `partial` or
-`unavailable`, with `reasons` when it is not exact. It is an assessment made
-before anything runs, from the operation alone. The bundle made at apply is
+`unavailable`, with `reasons` when it is not exact. `exact` means the
+ordinary directory data the change touches can be restored: not timestamps,
+server-generated identifiers, replication metadata or attributes the bind cannot
+read. It is an assessment made before anything runs, from the operation alone. The bundle made at apply is
 derived from the entry as it was then, and says more -- whether a deleted entry
 held a password, for instance. See [RECOVERY.md](RECOVERY.md). Added in 1.9.
 

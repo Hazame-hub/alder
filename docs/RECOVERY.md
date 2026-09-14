@@ -52,13 +52,23 @@ something carries the same assessment:
 
 | Recoverability | Meaning |
 |---|---|
-| `exact` | Applied to the state the change left, the compensation returns every user attribute the change touched to its earlier values, or removes the entry the change created. |
+| `exact` | Alder can derive compensating changes that restore the ordinary directory state it captured before the change: every user attribute the change touched back to its earlier values, the entry the change created gone, or the entry back under its former name and parent. They are still planned, and refused if the directory has drifted. |
 | `partial` | Some of the change's effect can be compensated and some cannot. `reasons` say which. |
 | `unavailable` | Nothing about the change can be compensated. |
 
-"Exact" is a statement about user data, not about the server's own
-bookkeeping. `modifyTimestamp`, `entryCSN` and similar attributes change again
-when a compensation is applied, and nothing restores them.
+**What exact does not mean.** It is a statement about the ordinary directory
+data Alder read and can write, not about the server's state byte for byte. A
+compensation does not restore, and no recoverability claims to:
+
+- `modifyTimestamp`, `createTimestamp`, `modifiersName` and the other
+  operational attributes, which change again when the compensation is applied;
+- server-generated identifiers such as `entryUUID` and `nsUniqueId`;
+- replication metadata such as `entryCSN`;
+- attributes the bind could not read, which were never captured.
+
+This is why an add and a rename are exact -- the entry is removed, or is back
+under its former name holding the same user data, still with its own identity
+-- while a delete is partial: the entry that comes back is a new one.
 
 ### Per operation
 

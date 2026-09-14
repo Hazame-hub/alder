@@ -354,7 +354,9 @@ entry is never selected for you. Details in
 [`docs/SNAPSHOTS.md`](docs/SNAPSHOTS.md).
 
 **Prepare a recovery before you apply.** A plan says how recoverable each change
-is -- exact, partial or unavailable -- and why. Ask for a recovery bundle and,
+is -- exact, partial or unavailable -- and why. Exact is about the ordinary
+directory data the change touches, not timestamps, server-generated identifiers
+or replication metadata. Ask for a recovery bundle and,
 once the change has applied, Alder hands you a versioned JSON document: the
 compensating changes it could derive from each entry as it was immediately
 before the change, only for what actually applied, to run in reverse order. It

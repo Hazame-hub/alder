@@ -138,6 +138,17 @@ printed with control characters and bidirectional overrides escaped, so a value
 cannot rewrite the terminal showing it. No flag that confirms a write reads the
 environment.
 
+**Directory text cannot reorder the interface.** A DN, an attribute value, a
+schema name or a server message can hold control characters and bidirectional
+overrides, embeddings, isolates and marks, which would make
+`uid=report<U+202E>txt.exe` display as `uid=reportexe.txt`. Since 1.9 every such
+string is shown with those characters as escapes -- the tree, the entry
+header, values, search results, members and references, plans, comparisons,
+the monitor, the LDIF preview and recovery bundles -- by one helper,
+`web/src/lib/display.ts`, with the same set the command line escapes. Only what
+is displayed changes: navigation, copying and every request use the original
+string.
+
 **Nothing writes without a confirmed ChangeRecord.** There is one code path that
 modifies a directory, and the LDIF the user confirmed is rendered from the same
 record that path receives.

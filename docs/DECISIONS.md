@@ -2425,3 +2425,43 @@ to contradict the plan — add an entry.
   - a password in a recreated entry.
 
   The same round trips run against OpenLDAP and 389 DS.
+
+### 2026-09-14 — 1.9 finalisation: what exact means, and directory text on screen
+
+- **`exact` is about ordinary directory data, and now says so everywhere.**
+  Exact recovery means Alder can derive compensating changes that restore the
+  ordinary directory state it captured before the change: the user attributes a
+  modification touched, an added entry's absence, a renamed entry's former name
+  and parent. All of it is subject to the plan's drift checks. It never meant
+  byte-identical server state, and RECOVERY.md, PLAN.md, the README and the API
+  description now list what is outside it: operational attributes such as
+  `modifyTimestamp` and `createTimestamp`, server-generated identifiers such as
+  `entryUUID` and `nsUniqueId`, replication metadata, and attributes the bind
+  could not read. The model is unchanged: modify, add and rename are exact,
+  delete is partial, password and schema or configuration changes are
+  unavailable.
+- **One display rule for directory strings, in one helper.** The recovery
+  proof showed an entry whose RDN held U+202E rendering reordered in the tree,
+  though the recovery preview and the command line escaped it. The recovery
+  helper moved to `web/src/lib/display.ts` as `safeText`, and every place the
+  interface renders an LDAP-controlled string calls it: the tree, the entry
+  header and dialogs, values, the search table, members, references,
+  membership, plans and changesets, comparisons and snapshots, the overview and
+  monitor, the schema browser, imports, error messages and the LDIF and Ansible
+  preview.
+  - **The set.** C0 controls except tab and line feed; DEL; C1 controls; LRM,
+    RLM and ALM; the embeddings, overrides and isolates U+202A–U+202E and
+    U+2066–U+2069.
+  - **Why tab and line feed stay.** They lay text out and cannot reorder it, so
+    multi-line values keep their lines.
+  - **The command line.** It gained the three marks, so both escape the same
+    set, and it still escapes tab and line feed, which a terminal cannot show
+    otherwise.
+- **Escaped where rendered, never where kept.** `displayText` still returns the
+  value itself, because membership removal and table sorting use it. The
+  helper is applied in JSX and tooltips only, so navigation, copy buttons,
+  keys and API requests carry the original string.
+  - Rejected: escaping in `displayText` or `rdnOf`, which would have sent
+    escaped text to the directory.
+  - Rejected: a CSS isolation rule, which cannot neutralise an explicit
+    override inside the text.
