@@ -16,6 +16,10 @@ import (
 const maxValuesShown = 20
 
 func renderDiff(w io.Writer, d api.Diff, sourceName, targetName string, summaryOnly, sourceLive bool) {
+	if d.Kind == api.StateKindSchema && d.Schema != nil {
+		renderSchemaDiff(w, d, sourceName, targetName, summaryOnly, sourceLive)
+		return
+	}
 	writef(w, "Source: %s\n", sideLabel(sourceName, d.Source))
 	writef(w, "Target: %s\n", sideLabel(targetName, d.Target))
 	writeln(w, "Added means in the target and not in the source; removed, in the source and not in the target.")

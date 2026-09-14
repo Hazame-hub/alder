@@ -44,8 +44,8 @@ const (
 	// Version is the snapshot format version this build writes and the newest
 	// it reads. See docs/COMPATIBILITY.md.
 	Version = 1
-	// KindData is the only kind 1.7 captures: entries of a naming context.
-	// Schema and configuration are deliberately not snapshot kinds yet.
+	// KindData is entries of a naming context. Since 1.10 there is also
+	// KindSchema, in schema.go; configuration is deliberately not a kind.
 	KindData = "data"
 	// Complete is the only completeness a snapshot may have. A capture that
 	// could not finish is an error, never a snapshot.
@@ -459,6 +459,7 @@ func Decode(data []byte) (*Snapshot, Integrity, error) {
 	var probe struct {
 		Format  string `json:"format"`
 		Version int    `json:"version"`
+		Kind    string `json:"kind"`
 	}
 	// Only the first value is probed, so a document with something after the
 	// snapshot is reported as the invalid snapshot it is, not as foreign.
@@ -471,6 +472,11 @@ func Decode(data []byte) (*Snapshot, Integrity, error) {
 	}
 	if probe.Version < 1 {
 		return nil, "", &Error{Code: CodeUnsupportedVersion, Detail: fmt.Sprintf("snapshot version %d does not exist", probe.Version)}
+	}
+	// The kind decides the field set, so it is checked before the fields are:
+	// a schema snapshot is refused as the kind it is, not for its fields.
+	if probe.Kind != KindData {
+		return nil, "", &Error{Code: CodeInvalid, Detail: fmt.Sprintf("kind %q is not a data snapshot; this reader reads kind %q", probe.Kind, KindData)}
 	}
 
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -509,7 +515,7 @@ func (s *Snapshot) validate() error {
 		return &Error{Code: CodeInvalid, Detail: fmt.Sprintf(format, args...)}
 	}
 	if s.Kind != KindData {
-		return invalid("kind %q is not supported; Alder 1.x snapshots are kind %q", s.Kind, KindData)
+		return invalid("kind %q is not a data snapshot; this reader reads kind %q", s.Kind, KindData)
 	}
 	if s.Completeness != Complete {
 		return invalid("completeness %q: only a complete capture is a snapshot", s.Completeness)

@@ -81,6 +81,10 @@ type ObjectClass struct {
 	Must       []string
 	May        []string
 	Extensions Extensions
+	// Unrecognized lists keywords the parser does not know and skipped, other
+	// than X- extensions. A definition with any is not fully understood, so
+	// nothing that compares definitions may call it equal to another.
+	Unrecognized []string
 	// Raw is the definition exactly as the server published it. The schema
 	// browser shows it and the LDIF export writes it, so neither depends on
 	// this package rendering a byte-identical definition back.
@@ -106,7 +110,9 @@ type AttributeType struct {
 	NoUserModification bool
 	Usage              Usage
 	Extensions         Extensions
-	Raw                string
+	// Unrecognized lists keywords the parser skipped; see ObjectClass.
+	Unrecognized []string
+	Raw          string
 }
 
 // Syntax is an RFC 4512 LDAP syntax definition.

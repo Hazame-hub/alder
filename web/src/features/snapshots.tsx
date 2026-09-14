@@ -29,8 +29,12 @@ import {
   type DiffKind,
 } from "@/lib/diff-selection";
 import { safeText } from "@/lib/display";
+import { SCHEMA_KIND_LOOK, SchemaDiffView } from "@/features/schema-diff-view";
 
 type Snapshot = components["schemas"]["Snapshot"];
+type SchemaSnapshot = components["schemas"]["SchemaSnapshot"];
+/** A snapshot of either kind. Its `kind` tells them apart. */
+type AnySnapshot = Snapshot | SchemaSnapshot;
 type Inspection = components["schemas"]["SnapshotInspection"];
 type Diff = components["schemas"]["Diff"];
 type SnapshotValue = components["schemas"]["SnapshotValue"];
@@ -38,7 +42,7 @@ type SnapshotValue = components["schemas"]["SnapshotValue"];
 type Slot = {
   name: "A" | "B";
   raw: string;
-  doc: Snapshot;
+  doc: AnySnapshot;
   inspection: Inspection;
   filename: string;
   origin: "captured" | "uploaded";
@@ -59,7 +63,33 @@ const mb = (bytes: number) => (bytes / (1 << 20)).toFixed(1);
  * What a snapshot too large to send says about itself, unverified. Only a
  * capture the server has just produced is ever described this way.
  */
-function unread(doc: Snapshot): Inspection {
+function unread(doc: AnySnapshot): Inspection {
+  if (doc.kind === "schema") {
+    return {
+      version: doc.version,
+      kind: doc.kind,
+      createdAt: doc.createdAt,
+      source: {
+        base: doc.source.subschemaEntry,
+        scope: "base",
+        filter: "(objectClass=subschema)",
+        vendor: doc.source.vendor,
+        vendorVersion: doc.source.vendorVersion,
+      },
+      operationalAttributes: true,
+      schemaAvailable: true,
+      excluded: [],
+      entryCount: 1,
+      checksum: doc.checksum ?? "",
+      integrity: "unverified",
+      schema: {
+        subschemaEntry: doc.source.subschemaEntry,
+        completeness: doc.completeness,
+        counts: doc.counts,
+        collections: doc.source.collections,
+      },
+    };
+  }
   return {
     version: doc.version,
     kind: doc.kind,
@@ -74,14 +104,7 @@ function unread(doc: Snapshot): Inspection {
   };
 }
 
-const KIND_LOOK: Record<DiffKind, { label: string; variant: "success" | "destructive" | "secondary" | "outline" | "warning" }> = {
-  added: { label: "Added", variant: "success" },
-  removed: { label: "Removed", variant: "destructive" },
-  modified: { label: "Modified", variant: "secondary" },
-  renamed: { label: "Renamed", variant: "secondary" },
-  unchanged: { label: "Unchanged", variant: "outline" },
-  unknown: { label: "Unknown", variant: "warning" },
-};
+const KIND_LOOK = SCHEMA_KIND_LOOK;
 
 /**
  * Snapshots and comparisons.
@@ -104,6 +127,9 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
   const [scope, setScope] = useState<"base" | "one" | "sub">("sub");
   const [filter, setFilter] = useState("");
   const [operational, setOperational] = useState(false);
+  const [captureKind, setCaptureKind] = useState<"data" | "schema">("data");
+  const [schemaTarget, setSchemaTarget] = useState("");
+  const schemaTargets = session.data?.capabilities?.schemaWrite?.targets ?? [];
   const [into, setInto] = useState<"A" | "B">("A");
   const [source, setSource] = useState<SideChoice>("live");
   const [target, setTarget] = useState<SideChoice>("A");
@@ -113,10 +139,10 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
   const inspect = async (
     raw: string,
     captured: boolean,
-  ): Promise<{ doc: Snapshot; inspection: Inspection; bytes: number }> => {
-    let doc: Snapshot;
+  ): Promise<{ doc: AnySnapshot; inspection: Inspection; bytes: number }> => {
+    let doc: AnySnapshot;
     try {
-      doc = JSON.parse(raw) as Snapshot;
+      doc = JSON.parse(raw) as AnySnapshot;
     } catch {
       throw new Error("The file is not JSON, so it is not an Alder snapshot.");
     }
@@ -138,18 +164,21 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
     mutationFn: async () => {
       const raw = unwrap(
         await api.POST("/snapshots/capture", {
-          body: {
-            base: (base ?? defaultBase).trim(),
-            scope,
-            filter: filter.trim() || undefined,
-            operationalAttributes: operational,
-          },
+          body:
+            captureKind === "schema"
+              ? { kind: "schema" }
+              : {
+                  base: (base ?? defaultBase).trim(),
+                  scope,
+                  filter: filter.trim() || undefined,
+                  operationalAttributes: operational,
+                },
           parseAs: "text",
         }),
       ) as unknown as string;
       const { doc, inspection, bytes } = await inspect(raw, true);
       const stamp = inspection.createdAt.replace(/[-:]/g, "").replace(/\.\d+/, "");
-      return { name: into, raw, doc, inspection, bytes, origin: "captured", filename: `alder-snapshot-${stamp}.json` };
+      return { name: into, raw, doc, inspection, bytes, origin: "captured", filename: `${captureKind === "schema" ? "alder-schema-snapshot" : "alder-snapshot"}-${stamp}.json` };
     },
     onSuccess: (slot) => setSlots((s) => ({ ...s, [slot.name]: slot })),
   });
@@ -171,8 +200,15 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
     reader.readAsText(file);
   };
 
+  const kindOf = (choice: SideChoice) => (choice === "live" ? null : (slots[choice]?.doc.kind ?? null));
+  const schemaComparison = kindOf(source) === "schema" || kindOf(target) === "schema";
+  // A live side reads whatever the other side is a snapshot of. Where the
+  // server keeps schema in several entries, a live source also says which one
+  // added definitions go to.
   const sideBody = (choice: SideChoice) =>
-    choice === "live" ? { live: {} } : { snapshot: slots[choice]?.doc as Snapshot };
+    choice === "live"
+      ? { live: schemaComparison && choice === source && schemaTarget ? { schemaTarget } : {} }
+      : { snapshot: slots[choice]?.doc as AnySnapshot };
   const requestBytes = (["A", "B"] as const)
     .filter((n) => n === source || n === target)
     .reduce((sum, n) => sum + (slots[n]?.bytes ?? 0), 0);
@@ -183,7 +219,9 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
         ? `Snapshot ${source} is empty.`
         : target !== "live" && !slots[target]
           ? `Snapshot ${target} is empty.`
-          : requestBytes > MAX_BODY
+          : source !== "live" && target !== "live" && kindOf(source) !== kindOf(target)
+            ? "One snapshot is of the schema and the other of data; schema is compared only with schema."
+            : requestBytes > MAX_BODY
             ? `Together that is ${mb(requestBytes)} MB to send, and the server reads at most ${mb(MAX_BODY)} MB in one request.`
             : null;
 
@@ -199,8 +237,8 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
       <header>
         <h2 className="text-lg font-semibold">Snapshots</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Capture a subtree as a versioned snapshot you keep, compare it with another snapshot or with
-          the directory as it is now, and stage selected differences as changes. Nothing is stored on the
+          Capture a subtree or the schema as a versioned snapshot you keep, compare it with another snapshot
+          or with the directory as it is now, and stage selected differences as changes. Nothing is stored on the
           server, and nothing is applied from here.
         </p>
       </header>
@@ -213,7 +251,15 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
               Snapshot {n}
             </Button>
           ))}
+          <span className="ml-3 font-medium">Capture</span>
+          {(["data", "schema"] as const).map((k) => (
+            <Button key={k} size="sm" variant={captureKind === k ? "default" : "outline"} onClick={() => setCaptureKind(k)}>
+              {k === "data" ? "Directory data" : "Schema"}
+            </Button>
+          ))}
         </div>
+        {captureKind === "data" ? (
+        <>
         <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr]">
           <Input
             value={base ?? defaultBase}
@@ -247,10 +293,20 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
             (they change on every write, so they are left out by default)
           </span>
         </label>
+        </>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Captures the schema the server publishes: attribute types and object classes for comparison, and
+            syntaxes, matching rules and the rest as context. Server configuration is never captured.
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => capture.mutate()} disabled={capture.isPending || !(base ?? defaultBase).trim()}>
+          <Button
+            onClick={() => capture.mutate()}
+            disabled={capture.isPending || (captureKind === "data" && !(base ?? defaultBase).trim())}
+          >
             {capture.isPending ? <Loader2 className="animate-spin" /> : <Camera />}
-            Capture into snapshot {into}
+            Capture {captureKind === "schema" ? "the schema " : ""}into snapshot {into}
           </Button>
           <Button variant="outline" onClick={() => fileInput.current?.click()}>
             <Upload />
@@ -292,18 +348,48 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
           </Button>
           {compareProblem ? <span className="text-xs text-muted-foreground">{compareProblem}</span> : null}
         </div>
+        {schemaComparison && source === "live" && schemaTargets.length > 1 ? (
+          <label className="flex flex-wrap items-center gap-1.5 text-sm">
+            <span className="text-muted-foreground">Add new definitions to</span>
+            <select
+              value={schemaTarget}
+              onChange={(e) => setSchemaTarget(e.target.value)}
+              className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+              aria-label="Schema entry for added definitions"
+            >
+              <option value="">No entry chosen</option>
+              {schemaTargets.map((t) => (
+                <option key={t.dn} value={t.dn}>
+                  {safeText(t.name)}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted-foreground">
+              The server keeps schema in several entries; without a choice, additions are not offered.
+            </span>
+          </label>
+        ) : null}
         <p className="text-xs text-muted-foreground">
           <strong>Added</strong> means in the target and not in the source. Changes can be proposed only when
           the source is the directory now: they move it toward the target.
         </p>
         {compare.isError ? <ErrorNote title="The comparison failed" error={compare.error} /> : null}
         {compare.data ? (
-          <DiffView
-            diff={compare.data}
-            sourceLabel={sideLabel(source)}
-            targetLabel={sideLabel(target)}
-            onReviewChangeset={onReviewChangeset}
-          />
+          compare.data.kind === "schema" ? (
+            <SchemaDiffView
+              diff={compare.data}
+              sourceLabel={sideLabel(source)}
+              targetLabel={sideLabel(target)}
+              onReviewChangeset={onReviewChangeset}
+            />
+          ) : (
+            <DiffView
+              diff={compare.data}
+              sourceLabel={sideLabel(source)}
+              targetLabel={sideLabel(target)}
+              onReviewChangeset={onReviewChangeset}
+            />
+          )
         ) : null}
       </section>
     </div>
@@ -317,6 +403,32 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
     );
   }
   const i = slot.inspection;
+  if (i.schema) {
+    const s = i.schema;
+    return (
+      <div className="space-y-1 rounded-md border p-3 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium">Snapshot {name} · schema</span>
+          <DownloadButton text={slot.raw} filename={slot.filename} label="Download" mime="application/json" />
+        </div>
+        <div className="truncate font-dn text-xs" title={safeText(s.subschemaEntry)}>
+          schema at {safeText(s.subschemaEntry)}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {s.counts.attributeTypes} attribute types · {s.counts.objectClasses} object classes ·{" "}
+          {safeText(i.source.vendor) || "server not identified"} · {slot.origin} {i.createdAt}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <Badge variant={i.integrity === "verified" ? "success" : "warning"}>checksum {i.integrity}</Badge>
+          {s.completeness === "partial" ? (
+            <Badge variant="warning">partial: {s.counts.unparsed} unparsed</Badge>
+          ) : null}
+          {s.collections ? <Badge variant="outline">collections</Badge> : null}
+          {slot.bytes > MAX_BODY ? <Badge variant="warning">too large to compare here</Badge> : null}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="space-y-1 rounded-md border p-3 text-sm">
       <div className="flex items-center justify-between gap-2">
@@ -415,7 +527,7 @@ function DiffView({
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {(["added", "modified", "removed", "renamed", "unknown"] as DiffKind[]).map((k) => {
+        {(["added", "modified", "removed", "renamed", "unknown"] as const).map((k) => {
           const n = c[k];
           const active = kinds.has(k);
           return (

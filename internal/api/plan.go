@@ -86,7 +86,7 @@ func (s *Server) PlanChanges(c *fiber.Ctx) error {
 	sch, _ := sess.Conn.Schema(ctx)
 
 	computed, err := s.planner.ForSession(sessionScope(sess)).ComputeProposals(ctx, planReader{sess.Conn}, sch, proposals,
-		plan.Options{MembershipAttributes: membershipAttrs})
+		plan.Options{MembershipAttributes: membershipAttrs, SchemaLocator: schemaLocator(sess.Conn.Capabilities())})
 	if err != nil {
 		return s.fail(c, err)
 	}
@@ -362,6 +362,26 @@ func planCounts(c plan.Counts) PlanCounts {
 		Unchanged:   c.Unchanged,
 		Conflict:    c.Conflict,
 		Invalid:     ptr(c.Invalid),
+	}
+}
+
+// schemaLocator says which attributes of which entries hold schema definitions,
+// from the targets the server announced as writable.
+func schemaLocator(caps directory.Capabilities) plan.SchemaLocator {
+	w := caps.SchemaWrite
+	if !w.Editable() {
+		return nil
+	}
+	return func(target dn.DN, attribute string) (directory.SchemaDefKind, bool) {
+		if targetKind(caps, target) != PlanTargetSchema {
+			return "", false
+		}
+		for _, kind := range []directory.SchemaDefKind{directory.SchemaDefAttributeType, directory.SchemaDefObjectClass} {
+			if name, err := w.Attribute(kind); err == nil && strings.EqualFold(name, attribute) {
+				return kind, true
+			}
+		}
+		return "", false
 	}
 }
 

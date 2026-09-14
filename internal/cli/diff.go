@@ -30,6 +30,7 @@ type diffOptions struct {
 	operational         bool
 
 	stage, stageDeletion []string
+	schemaTarget         string
 	changesOut           string
 	force                bool
 }
@@ -54,7 +55,14 @@ func diffCmd(env *Env) *cobra.Command {
 			"With @live as SOURCE, --stage and --stage-deletion write the change requests\n" +
 			"Alder derived for the named differences to --changes-out, for alder plan and\n" +
 			"alder apply --changes. Nothing is selected by default, and a deletion is only\n" +
-			"ever selected by --stage-deletion.",
+			"ever selected by --stage-deletion.\n\n" +
+			"A schema snapshot compares with another schema snapshot, or with @live, which\n" +
+			"then reads the published schema whole; --base, --scope, --filter and\n" +
+			"--operational do not apply. Definitions are compared by OID and by meaning. A\n" +
+			"difference only in X- extensions is reported as metadata_only and never counts\n" +
+			"toward exit status 1. Schema differences are selected by OID, or as\n" +
+			"attributeType:OID or objectClass:OID, and written in dependency order; one\n" +
+			"that needs another is refused unless that one is selected too.",
 		Args: argsBetween(2, 2, "SOURCE and TARGET: snapshot files, - for standard input, or @live"),
 	}, func(ctx context.Context, args []string) error {
 		return runDiff(ctx, env, &conn, o, cmd.Flags(), args)
@@ -69,12 +77,13 @@ func diffCmd(env *Env) *cobra.Command {
 	f.StringVar(&o.scope, "scope", "", "the live side's scope: sub, one or base (default: the snapshot's)")
 	f.StringVar(&o.filter, "filter", "", "the live side's filter (default: the snapshot's)")
 	f.BoolVar(&o.operational, "operational", false, "capture operational attributes on the live side (default: as the snapshot did)")
-	f.StringArrayVar(&o.stage, "stage", nil, "select the change Alder derived for this DN (repeatable)")
-	f.StringArrayVar(&o.stageDeletion, "stage-deletion", nil, "select the deletion Alder derived for this DN (repeatable)")
+	f.StringArrayVar(&o.stage, "stage", nil, "select the change Alder derived for this DN, or schema OID (repeatable)")
+	f.StringArrayVar(&o.stageDeletion, "stage-deletion", nil, "select the deletion Alder derived for this DN, or schema OID (repeatable)")
+	f.StringVar(&o.schemaTarget, "schema-target", "", "the schema entry added definitions are written to, where the server has several")
 	f.StringVar(&o.changesOut, "changes-out", "", "the file to write selected change requests to")
 	f.BoolVar(&o.force, "force", false, "replace --changes-out if it already exists")
 	envflags.Exclude(f, "json", "summary", "include-unchanged", "base", "scope", "filter", "operational",
-		"stage", "stage-deletion", "changes-out", "force")
+		"stage", "stage-deletion", "schema-target", "changes-out", "force")
 	return cmd
 }
 
@@ -105,6 +114,9 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 		default:
 			return usagef("--scope must be sub, one or base, not %q", o.scope)
 		}
+	}
+	if flags.Changed("schema-target") && srcArg != liveSide {
+		return usagef("--schema-target names where the live schema would gain definitions, so it needs %s as SOURCE", liveSide)
 	}
 	selecting := len(o.stage)+len(o.stageDeletion) > 0
 	switch {
@@ -240,7 +252,11 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 		renderDiff(env.Stdout, d, sides[0].name, sides[1].name, o.summary, srcArg == liveSide)
 	}
 	if selecting {
-		if err := stageSelected(env, d, res.Body, o); err != nil {
+		stage := stageSelected
+		if d.Kind == api.StateKindSchema {
+			stage = stageSchemaSelected
+		}
+		if err := stage(env, d, res.Body, o); err != nil {
 			// The comparison is already on standard output; the refusal
 			// goes to standard error only.
 			var exit *ExitError
@@ -268,6 +284,9 @@ func liveRequest(o diffOptions, flags *pflag.FlagSet) api.DiffLiveSide {
 	}
 	if flags.Changed("operational") {
 		side.OperationalAttributes = &o.operational
+	}
+	if flags.Changed("schema-target") {
+		side.SchemaTarget = &o.schemaTarget
 	}
 	return side
 }

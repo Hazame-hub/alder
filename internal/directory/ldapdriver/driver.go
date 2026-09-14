@@ -242,6 +242,12 @@ func (s *session) invalidateSchema() {
 	s.schema, s.schemaErr = nil, nil
 }
 
+// RefreshSchema drops the cached schema and reads it again.
+func (s *session) RefreshSchema(ctx context.Context) (*schema.Schema, error) {
+	s.invalidateSchema()
+	return s.Schema(ctx)
+}
+
 func (s *session) Capabilities() directory.Capabilities { return s.caps }
 
 func (s *session) Close() error {

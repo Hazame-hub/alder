@@ -23,6 +23,11 @@ endpoints: `POST /snapshots/capture`, `POST /snapshots/inspect` and `POST /diff`
 `alder snapshot` and `alder diff`, which call those endpoints and write the same
 files; see [CLI.md](CLI.md).
 
+Since 1.10 the same endpoints also capture and compare the **schema** a server
+publishes, as a snapshot of `kind: schema`. That document, its comparison and
+how its differences become changes are described in
+[SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md). This page is about data snapshots.
+
 ---
 
 ## The format
@@ -67,7 +72,7 @@ files; see [CLI.md](CLI.md).
 | Field | Meaning |
 |---|---|
 | `format`, `version` | Always `alder-snapshot` and, for now, `1`. |
-| `kind` | `data`. Schema and configuration are not snapshot kinds in version 1. |
+| `kind` | `data`. A schema snapshot (1.10) is `kind: schema`, a separate document with its own fields; see [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md). Configuration is not a snapshot kind. |
 | `source` | Where it was captured: the server's announced vendor and version (for display, and possibly absent), the base, the scope and the filter. It never contains the bind DN, credentials, the server address or any local path. |
 | `operationalAttributes` | Whether operational attributes were captured. |
 | `schemaAvailable` | Whether the server's schema was readable at capture time. Without it every value compares byte for byte. |
@@ -350,9 +355,11 @@ directory holds now.
 
 ## Not in version 1
 
-- **Schema and configuration.** A base under the schema or configuration tree
-  is refused with `snapshot_scope_unsupported`. Both are data with different
-  identity and ordering rules, and will be separate kinds if they come.
+- **Schema and configuration as data.** A data snapshot whose base is under the
+  schema or configuration tree is refused with `snapshot_scope_unsupported`.
+  Both have different identity and ordering rules. Since 1.10 the schema is
+  captured as its own kind, `schema` (see
+  [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md)); configuration is not captured.
 - **Storage.** Alder keeps no snapshots, no history and no schedule.
 - **Signing, compression, fuzzy rename detection, rollback, inverse LDIF.**
 
@@ -363,4 +370,6 @@ do. See [RECOVERY.md](RECOVERY.md). Restoring a snapshot is still not a feature:
 a comparison proposes changes, and nothing restores a subtree wholesale.
 
 Snapshot format version 1 was introduced in Alder 1.7. Every later 1.x release
-will continue to read it. See [COMPATIBILITY.md](COMPATIBILITY.md).
+will continue to read it. Schema snapshots were introduced in Alder 1.10. Later
+Alder 1.x releases will continue to read schema snapshot kind/version 1. See
+[COMPATIBILITY.md](COMPATIBILITY.md).
