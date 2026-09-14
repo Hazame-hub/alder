@@ -51,26 +51,13 @@ func alderSession(t *testing.T, s server, withConfig bool) (*http.Client, string
 	// No AllowPlaintextLDAP: this connects over LDAPS with the harness CA, the
 	// same way every other case in this suite does, so the TLS path is under
 	// test here too.
-	srv := api.NewServer(slog.New(slog.DiscardHandler), api.Config{})
-	t.Cleanup(srv.Close)
-
-	app := fiber.New(fiber.Config{DisableStartupMessage: true})
-	srv.Register(app)
-
-	var lc net.ListenConfig
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listening: %v", err)
-	}
-	go func() { _ = app.Listener(ln) }()
-	t.Cleanup(func() { _ = app.Shutdown() })
+	base := startAlder(t)
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatalf("building a cookie jar: %v", err)
 	}
 	client := &http.Client{Jar: jar}
-	base := "http://" + ln.Addr().String() + "/api/v1"
 
 	// Connect the way the connection screen does. Everything after this rides
 	// on the session cookie the jar picked up.
@@ -100,6 +87,26 @@ func alderSession(t *testing.T, s server, withConfig bool) (*http.Client, string
 		t.Fatalf("connecting to %s: status %d\n%s", s.name, res.status, res.body)
 	}
 	return client, base
+}
+
+// startAlder runs the real API server on a loopback port and returns its API
+// base address. Nothing is connected: a client opens its own session.
+func startAlder(t *testing.T) string {
+	t.Helper()
+	srv := api.NewServer(slog.New(slog.DiscardHandler), api.Config{})
+	t.Cleanup(srv.Close)
+
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	srv.Register(app)
+
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+	go func() { _ = app.Listener(ln) }()
+	t.Cleanup(func() { _ = app.Shutdown() })
+	return "http://" + ln.Addr().String() + "/api/v1"
 }
 
 type httpResult struct {
