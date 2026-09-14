@@ -18,6 +18,7 @@ import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { LdifBlock } from "@/components/ldif-block";
 import { PlanSummary } from "@/components/plan-summary";
 import { stageChanges, type StageOutcome } from "@/lib/stage-deletes";
+import { safeText } from "@/lib/display";
 
 /**
  * ImportPanel parses an LDIF document and offers two ways to act on it: one
@@ -222,7 +223,7 @@ export function ImportPanel({
             <ul className="ml-5 list-disc space-y-0.5 text-xs text-muted-foreground">
               {plan.error.affected.map((a) => (
                 <li key={a.index}>
-                  Record {a.index + 1}: <span className="font-dn">{a.dn}</span>
+                  Record {a.index + 1}: <span className="font-dn">{safeText(a.dn)}</span>
                 </li>
               ))}
             </ul>
@@ -331,7 +332,7 @@ export function ImportPanel({
                     key={dn}
                     className="truncate font-dn text-xs text-muted-foreground"
                   >
-                    {dn}
+                    {safeText(dn)}
                   </li>
                 ))}
               </ul>
@@ -342,7 +343,7 @@ export function ImportPanel({
             <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
               Left out of the updates because the directory owns them:{" "}
               <span className="font-dn">
-                {parse.data.skippedAttributes.join(", ")}
+                {safeText(parse.data.skippedAttributes.join(", "))}
               </span>
               . Enforcing one fails the whole record, so they are not applied —
               this document was exported with operational attributes.
@@ -363,7 +364,7 @@ export function ImportPanel({
                     {inBasket ? (
                       <ListChecks className="size-4 text-muted-foreground" />
                     ) : null}
-                    <span className="font-dn text-sm">{change.summary}</span>
+                    <span className="font-dn text-sm">{safeText(change.summary)}</span>
                   </div>
                   <Button
                     size="sm"

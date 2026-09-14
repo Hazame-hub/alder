@@ -61,13 +61,17 @@ func (s *Server) PlanChanges(c *fiber.Ctx) error {
 		}
 		// The 1.4 reading, unchanged: exact, except that `reconcile` makes an
 		// add desired state.
+		expects, err := changeExpectations(*body.Changes)
+		if err != nil {
+			return badRequest(c, "The set contains an expectation that is not usable.", err.Error())
+		}
 		reconcile := body.Reconcile != nil && *body.Reconcile
-		for _, rec := range records {
+		for i, rec := range records {
 			intent := plan.IntentExact
 			if reconcile && rec.Type == directory.ChangeAdd {
 				intent = plan.IntentDesired
 			}
-			proposals = append(proposals, plan.Proposal{Record: rec, Intent: intent})
+			proposals = append(proposals, plan.Proposal{Record: rec, Intent: intent, Expect: expects[i]})
 		}
 	} else {
 		var ok bool
@@ -243,6 +247,7 @@ func (s *Server) planItem(item plan.Item, sch *schema.Schema, caps directory.Cap
 	view.Record = &request
 	view.Preview = &preview
 	view.Baseline = ptr(string(item.Baseline))
+	view.Recovery = recoveryAssessment(item.Record, sch, *view.Kind)
 	return view, nil
 }
 
@@ -699,27 +704,80 @@ func sessionScope(sess *session.Session) []byte {
 	return []byte(sess.ID)
 }
 
+// verifiedRead is what checking a change read of its entry, kept so a recovery
+// bundle can be derived from it rather than from a second read.
+type verifiedRead struct {
+	entry *directory.Entry
+	attrs []string
+}
+
+// checkPlannedChanges also re-checks every expectation, refuses one that
+// arrives without a baseline, and returns what it read per change. extra, when
+// set, names attributes to read beyond what checking needs.
 func (s *Server) checkPlannedChanges(
 	ctx context.Context,
 	sess *session.Session,
 	requests []ChangeRequest,
 	records []directory.ChangeRecord,
-) (refusal *Error, status int, err error) {
+	extra func(directory.ChangeRecord) []string,
+) (refusal *Error, status int, reads []*verifiedRead, err error) {
+	expects := make([]*plan.Expectation, len(requests))
+	for i, req := range requests {
+		expect, convErr := changeExpectation(req)
+		if convErr != nil {
+			return &Error{
+				Error:    ErrorErrorBadRequest,
+				Message:  "A change carries an expectation that is not usable, so nothing was applied.",
+				Detail:   ptr(fmt.Sprintf("change %d: %v", i+1, convErr)),
+				Affected: &[]ErrorAffected{{Index: i, Dn: records[i].DN.String()}},
+			}, fiber.StatusBadRequest, nil, nil
+		}
+		expects[i] = expect
+	}
+	var sch *schema.Schema
+	for i, req := range requests {
+		if expects[i] == nil {
+			continue
+		}
+		if req.Baseline == nil || *req.Baseline == "" {
+			// An expectation is checked by a plan. Applied without one it would
+			// be a precondition nobody evaluated, which is worse than none: it
+			// reads as a safety the change never had.
+			return &Error{
+				Error:   ErrorErrorBadRequest,
+				Message: "A change states the state it expects but carries no baseline, so nothing was applied.",
+				Detail: ptr(fmt.Sprintf("Change %d (%s) has an expectation. Plan the changes and apply them "+
+					"with the baselines the plan returns.", i+1, records[i].DN)),
+				Affected: &[]ErrorAffected{{Index: i, Dn: records[i].DN.String()}},
+			}, fiber.StatusBadRequest, nil, nil
+		}
+		if sch == nil {
+			sch, _ = sess.Conn.Schema(ctx)
+		}
+	}
+
 	var stale, mismatched []ErrorAffected
 	planner := s.planner.ForSession(sessionScope(sess))
+	reads = make([]*verifiedRead, len(requests))
 	for i, req := range requests {
 		if req.Baseline == nil || *req.Baseline == "" {
 			continue
 		}
-		verifyErr := planner.Verify(ctx, planReader{sess.Conn}, records[i], plan.Baseline(*req.Baseline))
+		var more []string
+		if extra != nil {
+			more = extra(records[i])
+		}
+		live, read, verifyErr := planner.VerifyRead(ctx, planReader{sess.Conn}, sch, records[i],
+			plan.Baseline(*req.Baseline), expects[i], more)
 		switch {
 		case verifyErr == nil:
+			reads[i] = &verifiedRead{entry: live, attrs: read}
 		case plan.IsMismatch(verifyErr):
 			mismatched = append(mismatched, ErrorAffected{Index: i, Dn: records[i].DN.String()})
 		case plan.IsStale(verifyErr):
 			stale = append(stale, ErrorAffected{Index: i, Dn: records[i].DN.String()})
 		default:
-			return nil, 0, verifyErr
+			return nil, 0, nil, verifyErr
 		}
 	}
 
@@ -733,7 +791,7 @@ func (s *Server) checkPlannedChanges(
 				"starting with change %d (%s). Plan again and apply the records the plan returns.",
 				len(mismatched), mismatched[0].Index+1, mismatched[0].Dn)),
 			Affected: &mismatched,
-		}, fiber.StatusBadRequest, nil
+		}, fiber.StatusBadRequest, nil, nil
 	case len(stale) > 0:
 		return &Error{
 			// conflict, as in 1.4, so a client switching on it keeps working;
@@ -745,7 +803,7 @@ func (s *Server) checkPlannedChanges(
 				"by somebody else, starting with change %d (%s). Plan again to see what these "+
 				"changes would do now.", len(stale), stale[0].Index+1, stale[0].Dn)),
 			Affected: &stale,
-		}, fiber.StatusConflict, nil
+		}, fiber.StatusConflict, nil, nil
 	}
-	return nil, 0, nil
+	return nil, 0, reads, nil
 }

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { ErrorNote } from "@/components/change-dialog";
 import { displayText } from "@/lib/values";
+import { safeText } from "@/lib/display";
 
 /**
  * What values does this attribute actually hold.
@@ -99,7 +100,7 @@ function InventoryDialog({ base, initial, onClose }: {
         <DialogHeader>
           <DialogTitle>Values</DialogTitle>
           <DialogDescription>
-            What one attribute holds under <span className="font-dn">{base}</span>,
+            What one attribute holds under <span className="font-dn">{safeText(base)}</span>,
             and how many entries carry each.
           </DialogDescription>
         </DialogHeader>
@@ -196,7 +197,7 @@ function InventoryDialog({ base, initial, onClose }: {
                 {data.values.map((row, i) => (
                   <li key={i} className="flex items-center gap-3 px-3 py-1.5">
                     <span className="min-w-0 flex-1 truncate font-dn text-sm">
-                      {displayText(row.value)}
+                      {safeText(displayText(row.value))}
                     </span>
                     {row.entries === 1 ? (
                       // The typo signal: one entry among hundreds is usually a

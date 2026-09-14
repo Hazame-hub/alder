@@ -1146,7 +1146,7 @@ func appendUnknownAttrWarning(warnings []string, sch *schema.Schema, name string
 }
 
 // ApplyChange applies a change. It is the only endpoint that writes.
-func (s *Server) ApplyChange(c *fiber.Ctx) error {
+func (s *Server) ApplyChange(c *fiber.Ctx, params ApplyChangeParams) error {
 	sess := s.requireWritable(c)
 	if sess == nil {
 		return nil
@@ -1165,8 +1165,12 @@ func (s *Server) ApplyChange(c *fiber.Ctx) error {
 
 	// A single change carries a baseline for the same reason a set does: the
 	// gap between deciding and applying is where somebody else edits the entry.
-	refusal, status, verifyErr := s.checkPlannedChanges(ctx, sess,
-		[]ChangeRequest{body}, []directory.ChangeRecord{record})
+	var recorder *recoveryRecorder
+	if params.Recovery != nil && *params.Recovery {
+		recorder = newRecoveryRecorder(ctx, sess.Conn)
+	}
+	refusal, status, reads, verifyErr := s.checkPlannedChanges(ctx, sess,
+		[]ChangeRequest{body}, []directory.ChangeRecord{record}, recorder.readAttributes)
 	if verifyErr != nil {
 		return s.fail(c, verifyErr)
 	}
@@ -1176,18 +1180,21 @@ func (s *Server) ApplyChange(c *fiber.Ctx) error {
 	}
 
 	caps := sess.Conn.Capabilities()
+	pre := recorder.before(ctx, record, reads[0])
 	if err := sess.Conn.Apply(ctx, record); err != nil {
 		return s.failChange(c, err, record, caps)
 	}
+	recorder.after(0, record, pre)
 	target, err := record.Target()
 	if err != nil {
 		return s.fail(c, err)
 	}
 	result := ApplyResult{
-		Applied: true,
-		Dn:      target.String(),
-		Summary: ptr(record.Summary()),
-		Ldif:    ptr(withholdSensitive(record).LDIF()),
+		Applied:  true,
+		Dn:       target.String(),
+		Summary:  ptr(record.Summary()),
+		Ldif:     ptr(withholdSensitive(record).LDIF()),
+		Recovery: recorder.bundle(s.logger),
 	}
 	// An added entry is not always stored under the name it was given, so where
 	// it actually went is looked up rather than assumed.

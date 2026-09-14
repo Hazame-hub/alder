@@ -19,13 +19,17 @@ import (
 )
 
 type planOptions struct {
-	mode    string
-	changes string
-	json    bool
-	summary bool
+	mode     string
+	changes  string
+	recovery string
+	json     bool
+	summary  bool
 
-	yes          bool
-	allowDeletes bool
+	yes                 bool
+	allowDeletes        bool
+	recoveryOut         string
+	force               bool
+	allowOriginMismatch bool
 }
 
 func (o *planOptions) register(cmd *cobra.Command) {
@@ -33,9 +37,10 @@ func (o *planOptions) register(cmd *cobra.Command) {
 	f.StringVar(&o.mode, "mode", "changes",
 		"how the LDIF is read: changes (every record is the operation it states) or desired (the state entries should be in)")
 	f.StringVar(&o.changes, "changes", "", "a JSON array of change requests to use instead of LDIF, or - for standard input")
+	f.StringVar(&o.recovery, "recovery", "", "a recovery bundle whose compensating changes to plan instead, or - for standard input")
 	f.BoolVar(&o.json, "json", false, "write JSON to standard output")
 	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
-	envflags.Exclude(f, "mode", "changes", "json", "summary")
+	envflags.Exclude(f, "mode", "changes", "recovery", "json", "summary")
 }
 
 func planCmd(env *Env) *cobra.Command {
@@ -43,7 +48,7 @@ func planCmd(env *Env) *cobra.Command {
 	var o planOptions
 	var cmd *cobra.Command
 	cmd = command(env, &cobra.Command{
-		Use:   "plan [LDIF_FILE | -] | plan --changes FILE",
+		Use:   "plan [LDIF_FILE | -] | plan --changes FILE | plan --recovery FILE",
 		Short: "Show what a set of changes would do, without doing it",
 		Long: "Plans an LDIF document, or a JSON array of change requests, against the\n" +
 			"directory through a running Alder server. It is the plan the web interface\n" +
@@ -52,6 +57,10 @@ func planCmd(env *Env) *cobra.Command {
 			"--mode changes (the default, as in the API) reads every record as the exact\n" +
 			"operation it states. --mode desired reads the document as the state entries\n" +
 			"should be in; an entry it does not mention is never deleted.\n\n" +
+			"--recovery plans the compensating changes in a recovery bundle written by\n" +
+			"alder apply --recovery-out, against the directory as it is now. A change\n" +
+			"whose entry has moved on since the original apply is a conflict, never an\n" +
+			"overwrite.\n\n" +
 			"Exit status: 0 planned, 3 some change cannot be applied as written, 7 usage,\n" +
 			"8 failure.",
 		Args: argsBetween(0, 1, "at most one LDIF file, or - for standard input"),
@@ -69,7 +78,7 @@ func applyCmd(env *Env) *cobra.Command {
 	var o planOptions
 	var cmd *cobra.Command
 	cmd = command(env, &cobra.Command{
-		Use:   "apply [LDIF_FILE | -] | apply --changes FILE",
+		Use:   "apply [LDIF_FILE | -] | apply --changes FILE | apply --recovery FILE",
 		Short: "Plan a set of changes, show the plan, and apply exactly that plan",
 		Long: "Plans the input exactly as alder plan does, shows the plan, and asks before\n" +
 			"applying it. What is applied is the plan that was shown: each change carries\n" +
@@ -81,6 +90,13 @@ func applyCmd(env *Env) *cobra.Command {
 			"is applied unless --yes is given. --yes answers the question and nothing\n" +
 			"else: the plan, its checks and the refusal of a stale plan all still apply.\n" +
 			"A plan that deletes entries also needs --allow-deletes when --yes answers.\n\n" +
+			"--recovery-out FILE asks Alder for a recovery bundle: the compensating changes\n" +
+			"it can derive from each entry as it was immediately before its change. It is\n" +
+			"written only for changes that were applied -- on a run that stops partway,\n" +
+			"for those before the failure -- and never replaces a file without --force.\n" +
+			"It is not a backup, and it holds no password. apply --recovery FILE plans and\n" +
+			"applies a bundle's changes like any other; a bundle made against a directory\n" +
+			"that announces itself differently also needs --allow-origin-mismatch.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 some change cannot be applied\n" +
 			"as written, 4 the plan went stale, 5 not confirmed, 6 stopped partway,\n" +
 			"7 usage, 8 failure.",
@@ -94,7 +110,11 @@ func applyCmd(env *Env) *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVar(&o.yes, "yes", false, "apply without asking; required when no terminal can be asked")
 	f.BoolVar(&o.allowDeletes, "allow-deletes", false, "with --yes, permit a plan that deletes entries")
-	envflags.Exclude(f, "yes", "allow-deletes")
+	f.StringVar(&o.recoveryOut, "recovery-out", "", "write a recovery bundle for the changes that were applied to this file")
+	f.BoolVar(&o.force, "force", false, "replace --recovery-out if it already exists")
+	f.BoolVar(&o.allowOriginMismatch, "allow-origin-mismatch", false,
+		"apply a --recovery bundle made against a directory that announces itself differently")
+	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch")
 	return cmd
 }
 
@@ -106,10 +126,23 @@ type planInput struct {
 	mode       api.PlanLdifMode
 	staged     []api.ChangeRequest
 	readsStdin bool
+	// bundle is a recovery bundle as read, turned into changes once there is
+	// a server to ask.
+	bundle     []byte
+	inspection *api.RecoveryInspection
 }
 
 func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*planInput, error) {
 	hasLDIF := len(args) == 1
+	if o.recovery != "" {
+		if hasLDIF || o.changes != "" {
+			return nil, usagef("--recovery is the input: give no LDIF document and no --changes with it")
+		}
+		if flags.Changed("mode") {
+			return nil, usagef("--mode says how to read LDIF; a recovery bundle holds exact change requests")
+		}
+		return &planInput{mode: api.PlanLdifModeChanges, readsStdin: o.recovery == "-"}, nil
+	}
 	if hasLDIF == (o.changes != "") {
 		return nil, usagef("give an LDIF document or --changes, and only one of them")
 	}
@@ -127,6 +160,14 @@ func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*plan
 // load reads the input. It is separate from input so a command can refuse its
 // command line before it touches standard input.
 func (in *planInput) load(env *Env, o planOptions, args []string) error {
+	if o.recovery != "" {
+		data, _, err := env.readInput(o.recovery, "the recovery bundle", maxRequestBytes)
+		if err != nil {
+			return err
+		}
+		in.bundle = data
+		return nil
+	}
 	if len(args) == 1 {
 		data, _, err := env.readInput(args[0], "the LDIF document", maxLDIFBytes)
 		if err != nil {
@@ -160,6 +201,28 @@ func (in *planInput) load(env *Env, o planOptions, args []string) error {
 	return nil
 }
 
+// resolve turns a recovery bundle into the changes to plan. It reports false
+// when the bundle has nothing that can be compensated, after saying so.
+func (in *planInput) resolve(ctx context.Context, r *remote, w io.Writer) (bool, error) {
+	if in.bundle == nil {
+		return true, nil
+	}
+	inspection, err := inspectRecovery(ctx, r, in.bundle)
+	if err != nil {
+		return false, err
+	}
+	in.inspection = &inspection
+	renderRecovery(w, inspection)
+	if len(inspection.Changes) == 0 {
+		writeln(w, "Nothing in this bundle can be compensated.")
+		return false, nil
+	}
+	changes := inspection.Changes
+	in.staged = changes
+	in.request = api.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
+	return true, nil
+}
+
 func runPlan(ctx context.Context, env *Env, conn *connection, o planOptions, flags *pflag.FlagSet, args []string) (err error) {
 	defer func() { err = asJSON(env, o.json, err) }()
 	in, err := o.input(env, flags, args)
@@ -180,6 +243,24 @@ func runPlan(ctx context.Context, env *Env, conn *connection, o planOptions, fla
 		return err
 	}
 	defer r.close()
+
+	header := env.Stdout
+	if o.json {
+		header = env.Stderr
+	}
+	proceed, err := in.resolve(ctx, r, header)
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		if o.json {
+			empty, _ := json.Marshal(api.Plan{Items: []api.PlanItem{}})
+			if err := writeDocument(env.Stdout, empty); err != nil {
+				return failf("output", "cannot write to standard output: %v", err)
+			}
+		}
+		return nil
+	}
 
 	p, raw, err := requestPlan(ctx, r, in.request)
 	if err != nil {
@@ -234,6 +315,8 @@ type applyEnvelope struct {
 	Plan   json.RawMessage `json:"plan,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  json.RawMessage `json:"error,omitempty"`
+	// RecoveryFile is where the recovery bundle was written, when it was.
+	RecoveryFile string `json:"recoveryFile,omitempty"`
 }
 
 func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, flags *pflag.FlagSet, args []string) (err error) {
@@ -252,6 +335,17 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 
 	in, err := o.input(env, flags, args)
 	if err != nil {
+		return err
+	}
+	switch {
+	case o.recoveryOut == "-":
+		return usagef("--recovery-out needs a file: standard output carries the plan and the result")
+	case o.force && o.recoveryOut == "":
+		return usagef("--force replaces the --recovery-out file, and none was given")
+	case o.allowOriginMismatch && o.recovery == "":
+		return usagef("--allow-origin-mismatch is about a --recovery bundle, and none was given")
+	}
+	if err := refuseExisting(o.recoveryOut, o.force); err != nil {
 		return err
 	}
 	if err := conn.check(in.readsStdin); err != nil {
@@ -294,15 +388,28 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 		in.staged = *parsed.JSON200.Requests
 	}
 
+	out := env.Stdout
+	if o.json {
+		out = env.Stderr
+	}
+	proceed, err := in.resolve(ctx, r, out)
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		return nil
+	}
+	if in.inspection != nil && !in.inspection.OriginMatches && !o.allowOriginMismatch {
+		return &ExitError{Code: ExitNotConfirmed, Local: "origin_mismatch",
+			Message: "not applied: the bundle was made against a directory that announces itself differently. " +
+				"If this is the directory you mean to recover, pass --allow-origin-mismatch"}
+	}
+
 	p, raw, err := requestPlan(ctx, r, in.request)
 	if err != nil {
 		return err
 	}
 	envelope.Plan = compactJSON(raw)
-	out := env.Stdout
-	if o.json {
-		out = env.Stderr
-	}
 	renderPlan(out, p, !o.summary)
 
 	if n := blocked(p); n > 0 {
@@ -331,7 +438,11 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 	}
 
 	changes := changesFromPlan(p, in.staged)
-	res, err := r.api.ApplyChangesetWithResponse(ctx, api.ApplyChangesetJSONRequestBody{Changes: changes})
+	body := api.ApplyChangesetJSONRequestBody{Changes: changes}
+	if o.recoveryOut != "" {
+		body.Recovery = ptr(true)
+	}
+	res, err := r.api.ApplyChangesetWithResponse(ctx, body)
 	if err != nil {
 		why := transportFailure(ctx, "applying", err)
 		return failf("outcome_unknown", "%s. The request was sent and no answer came back, so some changes may "+
@@ -346,6 +457,25 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 	envelope.Result = compactJSON(res.Body)
 	result := *res.JSON200
 	renderApplyResult(out, result, len(changes))
+	if o.recoveryOut != "" {
+		// Written before the exit status is decided, so a run that stopped
+		// partway still leaves the bundle for what it did apply.
+		if result.AppliedCount == 0 {
+			writef(env.Stderr, "alder: no recovery bundle was written: nothing was applied\n")
+		} else if werr := writeRecoveryBundle(o.recoveryOut, o.force, res.Body); werr != nil {
+			var exit *ExitError
+			message := werr.Error()
+			if errors.As(werr, &exit) {
+				message = exit.Message
+			}
+			return failf("recovery_not_written", "%s applied, but the recovery bundle was not written: %s",
+				plural(result.AppliedCount, "change was", "changes were"), message)
+		} else {
+			envelope.RecoveryFile = o.recoveryOut
+			writef(env.Stderr, "alder: recovery bundle for %s written to %s\n",
+				plural(result.AppliedCount, "applied change", "applied changes"), safe(o.recoveryOut))
+		}
+	}
 	if result.FailedIndex == nil {
 		return nil
 	}

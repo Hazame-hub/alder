@@ -28,6 +28,7 @@ import {
   type DiffItem,
   type DiffKind,
 } from "@/lib/diff-selection";
+import { safeText } from "@/lib/display";
 
 type Snapshot = components["schemas"]["Snapshot"];
 type Inspection = components["schemas"]["SnapshotInspection"];
@@ -322,8 +323,8 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
         <span className="font-medium">Snapshot {name}</span>
         <DownloadButton text={slot.raw} filename={slot.filename} label="Download" mime="application/json" />
       </div>
-      <div className="truncate font-dn text-xs" title={i.source.base}>
-        {i.source.scope} of {i.source.base}
+      <div className="truncate font-dn text-xs" title={safeText(i.source.base)}>
+        {i.source.scope} of {safeText(i.source.base)}
       </div>
       <div className="text-xs text-muted-foreground">
         {i.entryCount} entries · {i.source.vendor ?? "server not identified"} · {slot.origin} {i.createdAt}
@@ -567,8 +568,8 @@ function DiffView({
                   <Badge variant={KIND_LOOK[item.kind].variant} className="shrink-0">
                     {KIND_LOOK[item.kind].label}
                   </Badge>
-                  <span className="truncate font-dn" title={itemDn(item)}>
-                    {item.kind === "renamed" ? `${item.sourceDn} → ${item.targetDn}` : itemDn(item)}
+                  <span className="truncate font-dn" title={safeText(itemDn(item))}>
+                    {safeText(item.kind === "renamed" ? `${item.sourceDn} → ${item.targetDn}` : itemDn(item))}
                   </span>
                 </button>
               </div>
@@ -609,7 +610,7 @@ function DiffView({
                   {(item.attributes ?? []).map((a) => (
                     <div key={a.name} className="text-xs">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-mono font-medium">{a.name}</span>
+                        <span className="font-mono font-medium">{safeText(a.name)}</span>
                         <span className="text-muted-foreground">{a.kind}</span>
                         {a.operational ? <Badge variant="outline">operational</Badge> : null}
                         {a.comparedByBytes ? <Badge variant="outline">by bytes</Badge> : null}
@@ -623,7 +624,7 @@ function DiffView({
                       <div className="mt-0.5 space-y-0.5 font-dn [overflow-wrap:anywhere]">
                         {(a.removed ?? []).map((v, i) => (
                           <div key={`r${i}`} className="text-destructive">
-                            − {valueText(v)}
+                            − {safeText(valueText(v))}
                           </div>
                         ))}
                         {a.removedOmitted ? (
@@ -631,7 +632,7 @@ function DiffView({
                         ) : null}
                         {(a.added ?? []).map((v, i) => (
                           <div key={`a${i}`} className="text-emerald-700 dark:text-emerald-400">
-                            + {valueText(v)}
+                            + {safeText(valueText(v))}
                           </div>
                         ))}
                         {a.addedOmitted ? (

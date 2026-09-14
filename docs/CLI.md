@@ -207,7 +207,7 @@ release.
 |---|---|
 | `diff` | Alder's comparison, exactly as `POST /api/v1/diff` returns it |
 | `plan` | Alder's plan, exactly as `POST /api/v1/plan` returns it |
-| `apply` | `{"plan": <the plan>, "result": <POST /api/v1/changeset/apply's result>, "error": …}`, each present when there is one |
+| `apply` | `{"plan": <the plan>, "result": <POST /api/v1/changeset/apply's result>, "error": …, "recoveryFile": …}`, each present when there is one |
 | `version` | `{"client": {"version": …}, "server": <GET /api/v1/source>}` |
 
 The shapes are the API's, documented in `api/openapi.yaml`. When a command fails
@@ -221,12 +221,13 @@ instead:
   by itself. The client's codes are:
   - usage and input: `usage`, `input`, `input_too_large`, `snapshot_not_json`,
     `changes_invalid`, `request_too_large`;
-  - files: `output`, `output_exists`, `incomplete_snapshot`;
+  - files: `output`, `output_exists`, `incomplete_snapshot`, `recovery_missing`,
+    `recovery_invalid`, `recovery_not_written`;
   - reaching the server: `unreachable`, `interrupted`, `timeout`,
     `unsupported_server`, `busy`, `unexpected_response`, `no_session`;
   - confirming and applying: `confirmation_required`, `declined`,
     `deletes_not_allowed`, `plan_not_applicable`, `partially_applied`,
-    `apply_refused`, `outcome_unknown`;
+    `apply_refused`, `outcome_unknown`, `origin_mismatch`;
   - selecting differences: `selection_not_found`, `selection_not_applicable`,
     `selection_blocked`, `deletion_not_selected`, `not_a_deletion`.
 
@@ -343,6 +344,7 @@ alder plan changes.ldif
 alder plan --mode desired people.ldif
 cat changes.ldif | alder plan -
 alder plan --changes restore.json --json
+alder plan --recovery recovery.json
 ```
 
 `plan` shows what the input would do, without doing it. The plan is Alder's:
@@ -363,6 +365,15 @@ The input is one of:
 - **`--changes`: a JSON array of change requests,** the objects
   `POST /api/v1/plan` takes, for example from `diff --changes-out`. Unknown
   fields are refused, not dropped.
+- **`--recovery`: a recovery bundle** written by `alder apply --recovery-out`.
+  The file is sent to Alder exactly as it was read, and Alder validates it and
+  returns its compensating changes, which are planned like `--changes`. The plan
+  is preceded by what the bundle says:
+  - when it was made, and how recoverable it is;
+  - the directory it was made against, with a warning if this one announces
+    itself differently;
+  - each applied change, with its limitations;
+  - how many compensations no longer match the directory.
 
 LDIF with Windows line endings is read as it is. **A plan never shows a
 password or any other sensitive value**: the server withholds it, as
@@ -417,6 +428,40 @@ the whole set: `409 conflict`, `cause: plan_stale`. **Nothing is written, and
 the command exits 4.** The client does not plan again and apply; run the
 command again to review the new plan. A change that is not the operation that
 was planned is refused the same way (`plan_mismatch`, also exit 4).
+
+### Recovery bundles
+
+```sh
+alder apply changes.ldif --yes --recovery-out recovery.json
+alder plan --recovery recovery.json
+alder apply --recovery recovery.json --yes
+```
+
+A recovery bundle describes the compensating changes Alder can derive from each
+entry as it was immediately before its change. It is not a rollback or a
+backup, and it holds no password. See [RECOVERY.md](RECOVERY.md).
+
+- **`--recovery-out FILE` asks Alder for one.**
+  - The file is written only once it has been read back and verified as a
+    bundle, and only when something was applied.
+  - It is created with mode 0600 on Unix.
+  - It never replaces an existing file without `--force`.
+  - `-` is refused, because standard output carries the plan and the result.
+- **After a run that stops partway** (exit 6), the bundle covers the changes
+  before the failure, and standard error says where it went. When nothing was
+  applied, no file is written.
+- **If the bundle does not verify,** no file is written and the command exits 8
+  with `recovery_not_written`. The changes it applied are in the directory.
+- **`--recovery FILE` plans and applies a bundle's changes** like any other
+  input: shown, confirmed, and applied with the plan's tokens.
+  - A compensation whose entry has changed since the original apply is a
+    conflict (exit 3), never an overwrite.
+  - A bundle applied a second time finds conflicts.
+  - A bundle made against a directory that announces a different vendor or
+    naming contexts is refused (exit 5, `origin_mismatch`) unless
+    `--allow-origin-mismatch` is given. What a directory announces is not proof
+    of which one it is.
+- **None of these flags reads the environment.**
 
 ### When an apply stops partway
 
@@ -531,6 +576,12 @@ promise: version 1 is read by every 1.x release from 1.7 on.
   a conflict in it (exit 3) rather than applying only part of it. The changeset
   view in the web interface can apply the applicable part and plan again. From
   the command line, apply the deepest entries first, then their parents.
+- **A recovery that removes an entry and one below it takes two applies.** Both
+  compensations are planned against the directory as it is, so the parent is a
+  `conflict` (`has_children`) until the child is gone, and `apply` refuses a
+  plan with a conflict in it. The changeset view in the web interface applies
+  the applicable part and plans again. The same holds for an entry deleted and
+  added again within one original apply.
 - **Every comparison must fit in one 16 MB request.**
 - No colour, no shell completion, no configuration file, and no YAML or table
   output formats.

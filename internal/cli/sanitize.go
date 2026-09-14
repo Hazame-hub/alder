@@ -45,6 +45,10 @@ func unsafeRune(r rune) bool {
 	case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
 		// Bidirectional embeddings, overrides and isolates.
 		return true
+	case r == 0x200e, r == 0x200f, r == 0x061c:
+		// The implicit directional marks, which reorder what surrounds them.
+		// The same set the web interface escapes (web/src/lib/display.ts).
+		return true
 	}
 	return false
 }

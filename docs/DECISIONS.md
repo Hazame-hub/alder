@@ -2311,3 +2311,157 @@ to contradict the plan — add an entry.
   that already holds a conflict, where the changeset view can apply the
   applicable part. The policy decides whether a request is sent; what is sent
   goes to the same endpoint with the same plan tokens.
+
+### 2026-09-14 — recovery bundles (1.9)
+
+- **Recovery is compensation, derived before an apply and handed over after.**
+  A bundle holds the compensating changes Alder can derive from each entry as
+  it was read immediately before its change, only for the changes that applied,
+  to run in reverse order. It is not a transaction, a rollback, a backup or a
+  restore, and the documentation never calls it one.
+- **There is no second write path.** `POST /recovery/inspect` validates a bundle
+  and returns ordinary change requests. Those are planned, reviewed and applied
+  through `/plan` and `/changeset/apply` like any other change.
+  - Rejected: an endpoint that applies a bundle, and any server-side storage of
+    bundles. The server keeps nothing.
+- **Drift is a general precondition, not a recovery feature.** `ChangeRequest`
+  gained `expect`: attributes that must hold exactly these values, optionally
+  nothing else.
+  - The planner reports a change whose entry does not hold it as `conflict` with
+    `expected_state_differs`.
+  - Its attribute names are folded into the baseline, and it is checked again at
+    apply, because a token cannot see an attribute added after planning.
+  - A change with `expect` and no baseline is refused.
+
+  Rejected: a recovery-specific planner, and relying on the token alone.
+- **An expectation is the whole after-state of each touched attribute.** Values
+  are compared by the attribute's equality rule. A compensating delete
+  expects the entry's user attributes exhaustively, not counting
+  `objectClass`, operational, identity or sensitive ones.
+  - This is what makes a later change to any value visible as drift, rather
+    than a compensation that quietly succeeds around it.
+  - The cost is size. A modification of a 5,000-member group carries 5,000
+    values: a 270 KB bundle, and an in-process apply of 15 ms instead of 1.6 ms.
+  - Rejected for now: expecting only the touched values, which would hide
+    drift in the rest; and a digest form, which would be a second wire shape.
+- **The pre-state comes from the plan check's read where that is safe.**
+  - With recovery asked for, the verification read is widened to what recovery
+    needs, and reused.
+  - The entry is read again once a change other than a modification has run.
+    Adds, deletes and renames are what servers answer with changes elsewhere,
+    such as referential integrity.
+  - It is also read again when an earlier change in the request touched the
+    entry or one above it.
+
+  Measured in-process:
+  - 1 modification: 1 read either way, 69 µs to 103 µs;
+  - 100 modifications: 100 reads either way, 2.5 ms to 5.1 ms.
+
+  A stale read cannot write the wrong thing: its expectation fails and the
+  plan reports drift.
+- **Compensations of one entry are merged when a bundle becomes changes.** A
+  plan reads every change against the directory as it is. Two compensating
+  modifications of one entry would otherwise plan as one that applies and one
+  that reports false drift.
+  - Modifications of one entry within a run of modifications become one, their
+    mods in execution order.
+  - A modification followed by the delete of that entry becomes the delete.
+
+  Still in rounds, and documented: a parent and child both added (the parent
+  is `has_children` until the child is gone), and an entry deleted and added
+  again.
+- **The operation matrix.**
+  - Attribute modifications are exact.
+  - An add is compensated by a guarded delete, never a subtree delete, and is
+    exact.
+  - A delete is always partial: a new identity, unreadable attributes unknown,
+    sensitive values not restored.
+  - A rename or move is compensated by a rename back, and is exact.
+  - A password change is unavailable.
+  - A sensitive or server-owned attribute in a modification makes it partial.
+  - Schema and configuration are unavailable in 1.9.
+- **The format is its own.** It is `alder-recovery` version 1: not a snapshot,
+  not LDIF, not a plan.
+  - It is decoded strictly: unknown fields, trailing content, a sensitive
+    attribute with values, a password change as a compensation, inconsistent
+    recoverability and more than 2,000 steps are all refused.
+  - The checksum covers everything but `createdAt` and `checksum`, and detects
+    corruption only.
+  - Recovery format version 1 was introduced in Alder 1.9, and later 1.x
+    releases will continue to read it.
+- **The origin is announced, not proven.** A bundle records vendor, vendor
+  version and naming contexts, and no host, port or bind DN. When they differ
+  from the session's, the interface asks for confirmation before staging, and
+  `alder apply --recovery` needs `--allow-origin-mismatch`.
+- **The response carries the bundle as the recovery package encoded it.** The
+  result field is `json.RawMessage` in Go (`x-go-type`), and TypeScript keeps
+  the full schema. Rejected: passing the bundle through the generated types,
+  which re-encoded it and cost a third of the time on a large bundle.
+- **Command line.**
+  - `apply --recovery-out FILE` writes the bundle only after reading it back and
+    verifying it, with mode 0600, never over an existing file without
+    `--force`, and never to `-`.
+  - A partial apply writes it and keeps exit 6. Nothing applied writes nothing.
+  - `plan` and `apply` take `--recovery FILE` as a third input and send the file
+    unchanged.
+  - None of these flags reads the environment.
+- **Interface.**
+  - Preparing a bundle is opt-in per apply.
+  - The change dialog stays open after applying so the bundle can be
+    downloaded, and holds `onApplied` back until it closes.
+  - The Changeset view loads a bundle into a preview: the applied changes and
+    their limitations, the origin, the compensations and their drift.
+    "Review plan" stages them into an empty changeset and checks them, and
+    Apply stays disabled until a plan is shown.
+- **Proven by breaking it.** HTTP tests take a changing in-memory directory
+  from S0 through apply, inspect, plan and apply, and back to S0. Seven
+  deliberate breaks each fail tests:
+  - a forgotten removed value;
+  - the wrong RDN;
+  - forward order;
+  - a compensation for a failed change;
+  - an attribute restored that S0 lacked;
+  - derivation from the post-apply state;
+  - a password in a recreated entry.
+
+  The same round trips run against OpenLDAP and 389 DS.
+
+### 2026-09-14 — 1.9 finalisation: what exact means, and directory text on screen
+
+- **`exact` is about ordinary directory data, and now says so everywhere.**
+  Exact recovery means Alder can derive compensating changes that restore the
+  ordinary directory state it captured before the change: the user attributes a
+  modification touched, an added entry's absence, a renamed entry's former name
+  and parent. All of it is subject to the plan's drift checks. It never meant
+  byte-identical server state, and RECOVERY.md, PLAN.md, the README and the API
+  description now list what is outside it: operational attributes such as
+  `modifyTimestamp` and `createTimestamp`, server-generated identifiers such as
+  `entryUUID` and `nsUniqueId`, replication metadata, and attributes the bind
+  could not read. The model is unchanged: modify, add and rename are exact,
+  delete is partial, password and schema or configuration changes are
+  unavailable.
+- **One display rule for directory strings, in one helper.** The recovery
+  proof showed an entry whose RDN held U+202E rendering reordered in the tree,
+  though the recovery preview and the command line escaped it. The recovery
+  helper moved to `web/src/lib/display.ts` as `safeText`, and every place the
+  interface renders an LDAP-controlled string calls it: the tree, the entry
+  header and dialogs, values, the search table, members, references,
+  membership, plans and changesets, comparisons and snapshots, the overview and
+  monitor, the schema browser, imports, error messages and the LDIF and Ansible
+  preview.
+  - **The set.** C0 controls except tab and line feed; DEL; C1 controls; LRM,
+    RLM and ALM; the embeddings, overrides and isolates U+202A–U+202E and
+    U+2066–U+2069.
+  - **Why tab and line feed stay.** They lay text out and cannot reorder it, so
+    multi-line values keep their lines.
+  - **The command line.** It gained the three marks, so both escape the same
+    set, and it still escapes tab and line feed, which a terminal cannot show
+    otherwise.
+- **Escaped where rendered, never where kept.** `displayText` still returns the
+  value itself, because membership removal and table sorting use it. The
+  helper is applied in JSX and tooltips only, so navigation, copy buttons,
+  keys and API requests carry the original string.
+  - Rejected: escaping in `displayText` or `rdnOf`, which would have sent
+    escaped text to the directory.
+  - Rejected: a CSS isolation rule, which cannot neutralise an explicit
+    override inside the text.

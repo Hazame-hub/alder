@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { ChangeDialog } from "@/components/change-dialog";
 import { DnPicker } from "@/components/dn-picker";
 import { displayText, rdnOf } from "@/lib/values";
+import { safeText } from "@/lib/display";
 
 /**
  * Adding and removing a member, as one action rather than an edit.
@@ -165,7 +166,7 @@ function AttributeChoice({
   if (attributes.length < 2) {
     return (
       <p className="text-xs text-muted-foreground">
-        Written to <span className="font-dn">{attribute}</span>.
+        Written to <span className="font-dn">{safeText(attribute)}</span>.
       </p>
     );
   }
@@ -235,7 +236,7 @@ function AddMemberDialog({
         <DialogHeader>
           <DialogTitle>Add a member</DialogTitle>
           <DialogDescription>
-            to <span className="font-dn">{entry.dn}</span>
+            to <span className="font-dn">{safeText(entry.dn)}</span>
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 px-5 py-4">
@@ -254,7 +255,7 @@ function AddMemberDialog({
                 onChange={(e) => setTyped(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                <span className="font-dn">{attribute}</span> holds a login name,
+                <span className="font-dn">{safeText(attribute)}</span> holds a login name,
                 not a distinguished name, so there is nothing to browse to.
               </p>
             </div>
@@ -302,7 +303,7 @@ function RemoveMemberDialog({
         <DialogHeader>
           <DialogTitle>Remove a member</DialogTitle>
           <DialogDescription>
-            from <span className="font-dn">{entry.dn}</span>
+            from <span className="font-dn">{safeText(entry.dn)}</span>
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
@@ -332,8 +333,8 @@ function RemoveMemberDialog({
           <ul className="divide-y divide-border rounded-md border border-border">
             {shown.map((value) => (
               <li key={value} className="flex items-center gap-2 px-3 py-1.5">
-                <span className="min-w-0 flex-1 truncate font-dn text-sm" title={value}>
-                  {value}
+                <span className="min-w-0 flex-1 truncate font-dn text-sm" title={safeText(value)}>
+                  {safeText(value)}
                 </span>
                 <Button
                   variant="ghost"

@@ -94,7 +94,11 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 	// twelve that the directory has moved would leave eleven applied against
 	// assumptions nobody rechecked -- and this is knowable in advance, which is
 	// the same reason changeRecords validates the whole set up front.
-	refusal, status, verifyErr := s.checkPlannedChanges(ctx, sess, body.Changes, records)
+	var recorder *recoveryRecorder
+	if body.Recovery != nil && *body.Recovery {
+		recorder = newRecoveryRecorder(ctx, sess.Conn)
+	}
+	refusal, status, reads, verifyErr := s.checkPlannedChanges(ctx, sess, body.Changes, records, recorder.readAttributes)
 	if verifyErr != nil {
 		return s.fail(c, verifyErr)
 	}
@@ -126,6 +130,10 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 			continue
 		}
 
+		// The state recovery is derived from is read before the change runs,
+		// never after: an entry read once the change has been applied describes
+		// the change, not what it replaced.
+		pre := recorder.before(ctx, record, reads[i])
 		if applyErr := sess.Conn.Apply(ctx, record); applyErr != nil {
 			failed = i
 			result.Outcomes = append(result.Outcomes, ChangesetOutcome{
@@ -137,6 +145,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 			})
 			continue
 		}
+		recorder.after(i, record, pre)
 		result.Outcomes = append(result.Outcomes, ChangesetOutcome{
 			Index:   i,
 			Dn:      record.DN.String(),
@@ -146,6 +155,11 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 		result.AppliedCount++
 	}
 
+	// Only what ran. On a run that stopped, the failed change and everything
+	// after it are not in the bundle, because none of them changed anything.
+	if result.AppliedCount > 0 {
+		result.Recovery = recorder.bundle(s.logger)
+	}
 	if failed >= 0 {
 		result.FailedIndex = ptr(failed)
 		s.logger.Warn("changeset stopped at a failure",

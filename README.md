@@ -353,6 +353,20 @@ them: they go through the same plan and review as every other write. Deleting an
 entry is never selected for you. Details in
 [`docs/SNAPSHOTS.md`](docs/SNAPSHOTS.md).
 
+**Prepare a recovery before you apply.** A plan says how recoverable each change
+is -- exact, partial or unavailable -- and why. Exact is about the ordinary
+directory data the change touches, not timestamps, server-generated identifiers
+or replication metadata. Ask for a recovery bundle and,
+once the change has applied, Alder hands you a versioned JSON document: the
+compensating changes it could derive from each entry as it was immediately
+before the change, only for what actually applied, to run in reverse order. It
+holds no password and Alder keeps no copy. It is not a rollback or a backup.
+Loading it turns it into ordinary changes that go through the same plan and
+review, each carrying the state its entry must still be in, so a compensation
+whose entry has changed since is a conflict and never an overwrite. From a
+shell, `alder apply --recovery-out` writes one and `--recovery` plans one.
+Details in [`docs/RECOVERY.md`](docs/RECOVERY.md).
+
 **Do it from a shell.** `alder snapshot`, `alder diff`, `alder plan` and
 `alder apply` run the same workflow from a terminal or a CI job, through a
 running Alder server: the same snapshot file, the same comparison, the same

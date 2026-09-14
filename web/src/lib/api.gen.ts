@@ -484,6 +484,12 @@ export interface paths {
          *
          *     Without a `baseline` the change is applied as it always was. The
          *     interface always plans first and always sends one.
+         *
+         *     With `recovery=true` the response carries a recovery bundle for the
+         *     change once it has succeeded: the compensating change derived from the
+         *     entry as it was read immediately before the change ran. See
+         *     `docs/RECOVERY.md`. A bundle is never applied from here or anywhere
+         *     else; it becomes ordinary changes through `POST /recovery/inspect`.
          */
         post: operations["applyChange"];
         delete?: never;
@@ -538,8 +544,54 @@ export interface paths {
          *     changes were applied and which was not, so the caller can fix the one
          *     that failed and resume from there rather than starting again and
          *     re-applying what already succeeded.
+         *
+         *     With `recovery: true` the result carries a recovery bundle covering
+         *     exactly the changes that were applied -- on a run that stopped partway,
+         *     only those before the failure -- whose compensations run in the reverse
+         *     order. See `docs/RECOVERY.md`.
          */
         post: operations["applyChangeset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recovery/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate a recovery bundle and turn it into changes to plan
+         * @description Validates an uploaded recovery bundle and returns its compensating
+         *     changes as ordinary change requests, in the order they would have to
+         *     run, each carrying the `expect` precondition that makes it a conflict
+         *     in a plan if the entry is no longer as the original apply left it.
+         *     Added in 1.9; see `docs/RECOVERY.md`.
+         *
+         *     Nothing is applied, and there is no endpoint that applies a bundle.
+         *     The changes go to `POST /plan`, are reviewed, and are applied with
+         *     `POST /changeset/apply` like any other change. `drift` is that plan's
+         *     verdict on each change against the directory as it is now, for the
+         *     preview; the plan made afterwards is the one that counts.
+         *
+         *     A bundle is untrusted input. It is refused when its format or version
+         *     is not one this Alder reads (`recovery_unsupported_version` for another
+         *     version), when any field is malformed or unknown, when a sensitive
+         *     attribute appears with values, when a compensation is a password
+         *     change (`recovery_invalid`), or when a checksum is present and does
+         *     not match (`recovery_checksum_mismatch`).
+         *
+         *     `originMatches` compares the vendor and naming contexts the bundle
+         *     records with this session's directory. Neither is proof of identity:
+         *     two directories can announce the same.
+         */
+        post: operations["inspectRecovery"];
         delete?: never;
         options?: never;
         head?: never;
@@ -931,7 +983,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -2019,6 +2071,35 @@ export interface components {
              *     a client sends is never trusted as a description of anything.
              */
             baseline?: string;
+            /**
+             * @description State the entry must be in for this change to be planned or
+             *     applied. Added in 1.9 for compensating changes from a recovery
+             *     bundle, which are correct only while the entry is still as the
+             *     original change left it.
+             *
+             *     A plan whose entry does not hold it classifies the change as a
+             *     `conflict` with `expected_state_differs`. The attributes it names
+             *     are bound into the plan's `baseline`, and the expectation is
+             *     checked again at apply, so a change after planning is refused as
+             *     `plan_stale`. A change carrying `expect` without a `baseline` is
+             *     refused at apply: an expectation is a plan-time contract.
+             */
+            expect?: components["schemas"]["ChangeExpectation"];
+        };
+        ChangeExpectation: {
+            /**
+             * @description Each attribute must hold exactly these values, compared by its
+             *     equality rule where Alder models it and byte for byte otherwise.
+             *     No values means the attribute must be absent. Sensitive attributes
+             *     are refused.
+             */
+            attributes: components["schemas"]["ChangeAttribute"][];
+            /**
+             * @description Absent means false. The entry must hold no other user attribute. `objectClass`,
+             *     operational and identity attributes, and sensitive attributes are
+             *     not counted.
+             */
+            exhaustive?: boolean;
         };
         /**
          * @description Exactly one of `changes` and `ldif`. `changes` was required in 1.4; it
@@ -2073,7 +2154,10 @@ export interface components {
          *
          *     State conflicts (`action: conflict`), which may resolve when the
          *     directory changes: `entry_missing`, `entry_exists`, `has_children`,
-         *     `rename_target_exists`.
+         *     `rename_target_exists`, and `expected_state_differs` (1.9): the entry
+         *     no longer holds the state a change's `expect` requires -- for a change
+         *     from a recovery bundle, the directory has drifted since the original
+         *     apply.
          *
          *     Schema violations (`action: invalid`), which will not resolve by
          *     waiting: `object_class_undefined`, `attribute_undefined`,
@@ -2083,7 +2167,7 @@ export interface components {
          *     directory to refuse.
          * @enum {string}
          */
-        PlanProblemCode: "entry_missing" | "entry_exists" | "has_children" | "rename_target_exists" | "object_class_undefined" | "attribute_undefined" | "attribute_not_permitted" | "single_value_violation" | "missing_required_attribute";
+        PlanProblemCode: "entry_missing" | "entry_exists" | "has_children" | "rename_target_exists" | "expected_state_differs" | "object_class_undefined" | "attribute_undefined" | "attribute_not_permitted" | "single_value_violation" | "missing_required_attribute";
         PlanProblem: {
             code: components["schemas"]["PlanProblemCode"];
             /** @description The attribute or object class concerned, where there is one. */
@@ -2238,6 +2322,12 @@ export interface components {
              *     being enforced.
              */
             skippedAttributes?: string[];
+            /**
+             * @description How far this change could be compensated if it is applied with a
+             *     recovery bundle requested. Set for items that apply something.
+             *     Added in 1.9.
+             */
+            recovery?: components["schemas"]["RecoveryAssessment"];
         };
         Plan: {
             counts: components["schemas"]["PlanCounts"];
@@ -2291,6 +2381,8 @@ export interface components {
             note?: string;
             summary?: string;
             ldif?: string;
+            /** @description The recovery bundle, when one was asked for. Added in 1.9. */
+            recovery?: components["schemas"]["RecoveryBundle"];
         };
         SchemaChangeRequest: {
             /**
@@ -2380,6 +2472,12 @@ export interface components {
              *     because the whole set is rendered and applied in one request.
              */
             changes: components["schemas"]["ChangeRequest"][];
+            /**
+             * @description Return a recovery bundle for the changes that were applied. Absent
+             *     means false. Read
+             *     by `POST /changeset/apply` only. Added in 1.9.
+             */
+            recovery?: boolean;
         };
         ChangesetPreview: {
             /**
@@ -2415,6 +2513,141 @@ export interface components {
             appliedCount: number;
             /** @description The index that failed, absent when every change succeeded. */
             failedIndex?: number;
+            /**
+             * @description The recovery bundle, when one was asked for and at least one change
+             *     was applied. It covers the applied changes only. Added in 1.9.
+             */
+            recovery?: components["schemas"]["RecoveryBundle"];
+        };
+        /**
+         * @description How far a change can be compensated. `exact`: Alder can derive
+         *     compensating changes that restore the ordinary directory state it
+         *     captured before the change -- the user attributes the change touched,
+         *     an entry's absence, or its former name -- subject to the plan's drift
+         *     checks. It does not cover operational attributes such as
+         *     `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
+         *     replication metadata, or attributes the bind could not read.
+         *     `partial`: some of it; `reasons` say what is not. `unavailable`: none of
+         *     it. Recovery is compensation through a reviewed plan, never a
+         *     transaction or a guaranteed rollback.
+         * @enum {string}
+         */
+        RecoveryRecoverability: "exact" | "partial" | "unavailable";
+        /**
+         * @description Why a change is not exactly recoverable. Stable identifiers; see `docs/RECOVERY.md`.
+         * @enum {string}
+         */
+        RecoveryReasonCode: "password_not_captured" | "sensitive_value_not_captured" | "server_owned_attribute" | "identity_regenerated" | "hidden_attributes_unknown" | "sensitive_values_not_restored" | "schema_or_config_not_supported" | "pre_state_unavailable";
+        RecoveryReason: {
+            code: components["schemas"]["RecoveryReasonCode"];
+            attribute?: string;
+        };
+        RecoveryAssessment: {
+            recoverability: components["schemas"]["RecoveryRecoverability"];
+            reasons?: components["schemas"]["RecoveryReason"][];
+        };
+        RecoveryAttribute: {
+            name: string;
+            values: components["schemas"]["SnapshotValue"][];
+        };
+        RecoveryMod: {
+            /** @enum {string} */
+            op: "add" | "delete" | "replace";
+            name: string;
+            values?: components["schemas"]["SnapshotValue"][];
+        };
+        RecoveryExpect: {
+            attributes: components["schemas"]["RecoveryAttribute"][];
+            exhaustive?: boolean;
+        };
+        /** @description One compensating change. Never a password change. */
+        RecoveryChange: {
+            dn: string;
+            /** @enum {string} */
+            type: "add" | "modify" | "delete" | "modrdn";
+            mods?: components["schemas"]["RecoveryMod"][];
+            attributes?: components["schemas"]["RecoveryAttribute"][];
+            newRdn?: string;
+            deleteOldRdn?: boolean;
+            newSuperior?: string;
+            expect?: components["schemas"]["RecoveryExpect"];
+        };
+        /** @description The change that was applied, by kind, entry and attribute names. Never its values. */
+        RecoveryOriginal: {
+            type: string;
+            dn: string;
+            targetDn?: string;
+            attributes?: string[];
+        };
+        RecoveryStep: {
+            /** @description The change's position in the set that was applied. */
+            index: number;
+            original: components["schemas"]["RecoveryOriginal"];
+            kind: components["schemas"]["PlanTargetKind"];
+            recoverability: components["schemas"]["RecoveryRecoverability"];
+            reasons?: components["schemas"]["RecoveryReason"][];
+            /** @description Runs in this order, after the compensation of every later step. */
+            compensation: components["schemas"]["RecoveryChange"][];
+        };
+        /**
+         * @description What the directory announced about itself. Display, not proof of
+         *     identity. No host, port, bind DN or credential is recorded.
+         */
+        RecoveryOrigin: {
+            vendor?: string;
+            vendorVersion?: string;
+            namingContexts: string[];
+        };
+        /**
+         * @description An Alder recovery bundle, format version 1: a client-held description
+         *     of the compensating changes Alder could derive from the state that
+         *     existed immediately before an apply. Not a transaction, not a rollback,
+         *     not a backup. It holds no credential, password, token or baseline. See
+         *     `docs/RECOVERY.md`.
+         */
+        RecoveryBundle: {
+            /** @enum {string} */
+            format: "alder-recovery";
+            /** @description The recovery format version. This Alder reads 1. */
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            origin: components["schemas"]["RecoveryOrigin"];
+            recoverability: components["schemas"]["RecoveryRecoverability"];
+            /** @description In the order the changes were applied. */
+            steps: components["schemas"]["RecoveryStep"][];
+            /** @description `sha256:<hex>` over every field except `createdAt` and `checksum`. An integrity check against corruption, not authentication or a signature. */
+            checksum?: string;
+        };
+        /**
+         * @description A compensating change against the directory as it is now. `ready`: it
+         *     would apply. `drifted`: the entry is not as the original change left it
+         *     (`problem` says how), so it would not. `already_recovered`: it would do
+         *     nothing. `blocked`: it is not valid against the schema.
+         * @enum {string}
+         */
+        RecoveryDriftState: "ready" | "drifted" | "already_recovered" | "blocked";
+        RecoveryDrift: {
+            /** @description Position in `changes`. */
+            index: number;
+            dn: string;
+            state: components["schemas"]["RecoveryDriftState"];
+            problem?: components["schemas"]["PlanProblem"];
+        };
+        RecoveryInspection: {
+            version: number;
+            createdAt: string;
+            origin: components["schemas"]["RecoveryOrigin"];
+            /** @description Whether the vendor and naming contexts match this session's directory. Not proof either way. */
+            originMatches: boolean;
+            originDifferences?: string[];
+            recoverability: components["schemas"]["RecoveryRecoverability"];
+            integrity: components["schemas"]["SnapshotIntegrity"];
+            checksum: string;
+            steps: components["schemas"]["RecoveryStep"][];
+            /** @description The compensating changes in execution order, each with its `expect`. Input for `POST /plan`. */
+            changes: components["schemas"]["ChangeRequest"][];
+            drift: components["schemas"]["RecoveryDrift"][];
         };
         ImportRequest: {
             ldif: string;
@@ -3037,7 +3270,10 @@ export interface operations {
     };
     applyChange: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Return a recovery bundle for the change once it has been applied. Added in 1.9. */
+                recovery?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3171,6 +3407,32 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    inspectRecovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoveryBundle"];
+            };
+        };
+        responses: {
+            /** @description The bundle, described, and its changes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryInspection"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     planChanges: {

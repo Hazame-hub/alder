@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ChangeDialog } from "@/components/change-dialog";
+import { safeText } from "@/lib/display";
 
 /**
  * SetPasswordDialog changes an entry's password.
@@ -63,7 +64,7 @@ export function SetPasswordDialog({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Set password</DialogTitle>
-            <DialogDescription className="font-dn">{dn}</DialogDescription>
+            <DialogDescription className="font-dn">{safeText(dn)}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 px-5 py-4">
@@ -200,7 +201,7 @@ export function CopyEntryDialog({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Copy this entry</DialogTitle>
-            <DialogDescription className="font-dn">{entry.dn}</DialogDescription>
+            <DialogDescription className="font-dn">{safeText(entry.dn)}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 px-5 py-4">
@@ -226,7 +227,7 @@ export function CopyEntryDialog({
             </div>
             {newRdn.includes("=") ? (
               <p className="font-dn text-xs text-muted-foreground">
-                {newRdn},{parent}
+                {safeText(`${newRdn},${parent}`)}
               </p>
             ) : null}
             {withheld.length ? (

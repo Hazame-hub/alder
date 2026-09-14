@@ -9,6 +9,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { safeText } from "@/lib/display";
 
 /**
  * Choosing what a table shows.
@@ -67,13 +68,13 @@ export function ColumnPicker({
               <button
                 key={c.attribute}
                 type="button"
-                title={c.desc ?? c.attribute}
+                title={safeText(c.desc ?? c.attribute)}
                 onClick={() =>
                   onChange(chosen.filter((k) => k.attribute !== c.attribute))
                 }
                 className="flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-dn text-xs"
               >
-                {c.attribute}
+                {safeText(c.attribute)}
                 <X className="size-3 opacity-60" />
               </button>
             ))}
@@ -112,15 +113,15 @@ export function ColumnPicker({
             >
               <Plus className="size-3 shrink-0 text-muted-foreground" />
               <span className="min-w-0">
-                <span className="block truncate">{c.label}</span>
+                <span className="block truncate">{safeText(c.label)}</span>
                 {/*
                   The real attribute name under the heading, as everywhere else:
                   a picker that offers only "Email" teaches somebody their
                   directory has a field called Email.
                 */}
                 <span className="block truncate font-dn text-[0.68rem] text-muted-foreground">
-                  {c.attribute}
-                  {c.desc ? ` — ${c.desc}` : ""}
+                  {safeText(c.attribute)}
+                  {c.desc ? ` — ${safeText(c.desc)}` : ""}
                 </span>
               </span>
             </button>

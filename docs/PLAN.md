@@ -101,6 +101,7 @@ State conflicts (`conflict`), which may resolve when the directory changes:
 | `entry_exists` | an exact add of an entry that does |
 | `has_children` | a delete of an entry that is not a leaf |
 | `rename_target_exists` | a rename onto a name that is taken |
+| `expected_state_differs` | the entry no longer holds what the change's `expect` requires; for a compensation from a recovery bundle, the directory has drifted since the original apply (1.9) |
 
 Schema violations (`invalid`), which will not resolve by waiting:
 
@@ -138,6 +139,17 @@ For every item that applies, the plan returns:
   rendered from that record.
 - **`baseline`** — a token binding that operation and the state it was planned
   against.
+
+### `recovery`
+
+For an item that would apply something, how recoverable the change would be if
+it is applied with a recovery bundle requested: `exact`, `partial` or
+`unavailable`, with `reasons` when it is not exact. `exact` means the
+ordinary directory data the change touches can be restored: not timestamps,
+server-generated identifiers, replication metadata or attributes the bind cannot
+read. It is an assessment made before anything runs, from the operation alone. The bundle made at apply is
+derived from the entry as it was then, and says more -- whether a deleted entry
+held a password, for instance. See [RECOVERY.md](RECOVERY.md). Added in 1.9.
 
 ### `impact`
 
@@ -224,6 +236,19 @@ A baseline covers only the attributes the change depended on, so an unrelated
 edit to the same entry does not make a plan stale. Baselines are meaningless to
 any other Alder process and do not survive a restart. A change sent without a
 baseline is applied exactly as it was before plans existed.
+
+A change can carry `expect` (1.9): attributes its entry must hold exactly, and
+optionally nothing else. A plan classifies a change whose entry does not hold it
+as `conflict` with `expected_state_differs`. The attributes it names are bound
+into the baseline, and the expectation is checked again at apply, so an
+attribute added between the two is refused as `plan_stale`. A change with
+`expect` and no baseline is refused: only a plan evaluates an expectation. This
+is how a compensating change from a recovery bundle refuses to overwrite a
+later change.
+
+With `recovery: true` on `POST /changeset/apply`, or `?recovery=true` on
+`POST /changes/apply`, the result carries a recovery bundle for the changes that
+were applied. See [RECOVERY.md](RECOVERY.md).
 
 ---
 

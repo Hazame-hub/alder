@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { ErrorNote } from "@/components/change-dialog";
 import { rdnOf } from "@/lib/values";
+import { safeText } from "@/lib/display";
 
 /**
  * Who is actually in this group.
@@ -96,7 +97,7 @@ function MembersDialog({ dn, onClose, onNavigate }: {
         <DialogHeader>
           <DialogTitle>Members</DialogTitle>
           <DialogDescription>
-            Everyone in <span className="font-dn">{dn}</span>, including through
+            Everyone in <span className="font-dn">{safeText(dn)}</span>, including through
             nested groups.
           </DialogDescription>
         </DialogHeader>
@@ -127,7 +128,7 @@ function MembersDialog({ dn, onClose, onNavigate }: {
                 <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
                   These groups contain themselves, directly or through others,
                   so the walk stopped rather than looping:{" "}
-                  <span className="font-dn">{query.data.cycles.join(", ")}</span>
+                  <span className="font-dn">{safeText(query.data.cycles.join(", "))}</span>
                 </p>
               ) : null}
 
@@ -145,7 +146,7 @@ function MembersDialog({ dn, onClose, onNavigate }: {
                   they were deleted while this group went on naming them, or they
                   exist and this session may not see them. The directory answers
                   the same way to both:{" "}
-                  <span className="font-dn">{query.data.dangling.join(", ")}</span>
+                  <span className="font-dn">{safeText(query.data.dangling.join(", "))}</span>
                 </p>
               ) : null}
 
@@ -156,7 +157,7 @@ function MembersDialog({ dn, onClose, onNavigate }: {
                   login name and <span className="font-dn">memberURL</span> a
                   search:{" "}
                   <span className="font-dn">
-                    {query.data.unresolvable.join(", ")}
+                    {safeText(query.data.unresolvable.join(", "))}
                   </span>
                 </p>
               ) : null}
@@ -195,10 +196,10 @@ function MembersDialog({ dn, onClose, onNavigate }: {
                     <button
                       type="button"
                       className="min-w-0 flex-1 truncate text-left font-dn text-sm hover:underline"
-                      title={m.dn}
+                      title={safeText(m.dn)}
                       onClick={() => onNavigate(m.dn)}
                     >
-                      {m.rdn ?? rdnOf(m.dn)}
+                      {safeText(m.rdn ?? rdnOf(m.dn))}
                     </button>
                     {m.direct ? (
                       <Badge variant="outline" className="shrink-0">direct</Badge>
@@ -207,9 +208,9 @@ function MembersDialog({ dn, onClose, onNavigate }: {
                       // one you would edit to remove them.
                       <span
                         className="shrink-0 truncate font-dn text-xs text-muted-foreground"
-                        title={(m.via ?? []).join(" → ")}
+                        title={safeText((m.via ?? []).join(" → "))}
                       >
-                        via {(m.via ?? []).map((v) => rdnOf(v)).join(" → ")}
+                        via {safeText((m.via ?? []).map((v) => rdnOf(v)).join(" → "))}
                       </span>
                     )}
                   </li>

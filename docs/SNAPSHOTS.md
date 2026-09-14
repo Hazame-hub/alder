@@ -356,5 +356,11 @@ directory holds now.
 - **Storage.** Alder keeps no snapshots, no history and no schedule.
 - **Signing, compression, fuzzy rename detection, rollback, inverse LDIF.**
 
+Compensating a change you are about to apply is not a snapshot's job. A
+recovery bundle (1.9) is derived from the entries a change touches, immediately
+before it runs, and its compensations go through the plan like these candidates
+do. See [RECOVERY.md](RECOVERY.md). Restoring a snapshot is still not a feature:
+a comparison proposes changes, and nothing restores a subtree wholesale.
+
 Snapshot format version 1 was introduced in Alder 1.7. Every later 1.x release
 will continue to read it. See [COMPATIBILITY.md](COMPATIBILITY.md).

@@ -100,6 +100,8 @@ func (i Intent) String() string {
 type Proposal struct {
 	Record directory.ChangeRecord
 	Intent Intent
+	// Expect, when set, is state the entry must hold for the change to apply.
+	Expect *Expectation
 }
 
 // Exact wraps records as exact operations.
@@ -380,6 +382,9 @@ func (pl *Planner) classify(
 	if record.Type == directory.ChangeDelete {
 		attrs = append(attrs, sortedKeys(members)...)
 	}
+	if proposal.Expect != nil {
+		attrs = append(attrs, proposal.Expect.ReadAttributes()...)
+	}
 	live, err := pl.read(ctx, r, record.DN, attrs)
 	if err != nil {
 		return Item{}, err
@@ -388,6 +393,19 @@ func (pl *Planner) classify(
 	// The state this decision rests on is what the *proposal* named, even when
 	// the operation that runs is narrower.
 	deps := dependsOn(record)
+
+	// A change derived from an earlier state is refused when the entry is no
+	// longer in it, before anything else is decided about it. The attributes it
+	// expects become part of what the plan depends on, so a change to them
+	// between planning and applying is caught as a stale plan.
+	if proposal.Expect != nil && live != nil {
+		if attr, differs := proposal.Expect.Differs(sch, live); differs {
+			return refuse(item, ActionConflict, ProblemExpectedStateDiffers, attr,
+				"The entry no longer holds what this change expects: "+attr+
+					" has changed since the state it was derived from. Nothing was decided for it."), nil
+		}
+		deps = mergeDependencies(deps, proposal.Expect.dependencies(sch, live))
+	}
 
 	switch record.Type {
 	case directory.ChangeAdd:
@@ -636,18 +654,52 @@ func (pl *Planner) Verify(
 	record directory.ChangeRecord,
 	claimed Baseline,
 ) error {
+	_, _, err := pl.VerifyRead(ctx, r, nil, record, claimed, nil, nil)
+	return err
+}
+
+// VerifyRead is Verify for a change that may carry an expectation, returning
+// the entry it read -- nil when there is none -- and the attributes it asked
+// for.
+//
+// The expectation is checked again here, not only at plan time. The token
+// binds the attributes the entry held when it was planned, so an attribute
+// added since is not one it can see; an exhaustive expectation can. extra
+// widens the one read for a caller that needs more of the entry, which is how
+// a recovery bundle is derived without reading the entry a second time.
+func (pl *Planner) VerifyRead(
+	ctx context.Context,
+	r Reader,
+	sch *schema.Schema,
+	record directory.ChangeRecord,
+	claimed Baseline,
+	expect *Expectation,
+	extra []string,
+) (*directory.Entry, []string, error) {
 	attrs := append(Attributes(record), claimed.Attributes()...)
+	if expect != nil {
+		attrs = append(attrs, expect.ReadAttributes()...)
+	}
+	attrs = append(attrs, extra...)
 	live, err := pl.read(ctx, r, record.DN, attrs)
 	if err != nil {
-		return fmt.Errorf("plan: re-reading %s: %w", record.DN, err)
+		return nil, nil, fmt.Errorf("plan: re-reading %s: %w", record.DN, err)
 	}
 	switch pl.fp.Check(claimed, record, live) {
 	case VerdictMismatch:
-		return &MismatchError{DN: record.DN}
+		return nil, nil, &MismatchError{DN: record.DN}
 	case VerdictStale:
-		return &StaleError{DN: record.DN}
+		return nil, nil, &StaleError{DN: record.DN}
 	}
-	return nil
+	if expect != nil {
+		if live == nil {
+			return nil, nil, &StaleError{DN: record.DN}
+		}
+		if _, differs := expect.Differs(sch, live); differs {
+			return nil, nil, &StaleError{DN: record.DN}
+		}
+	}
+	return live, attrs, nil
 }
 
 // StaleError is returned when the directory has moved since the plan was made.

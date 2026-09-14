@@ -136,6 +136,33 @@ contract changed only by tightening what a token proves:
   `DiffCandidateBlocked` follow the enum rule above. A client that does not
   recognise a `blocked` value should treat the item as offering no change.
 
+1.9 added recovery bundles, only by adding:
+
+- **A new endpoint and new optional fields.**
+  - The endpoint is `POST /recovery/inspect`.
+  - The new error identifiers are `recovery_invalid`,
+    `recovery_unsupported_version`, `recovery_checksum_mismatch` and
+    `recovery_too_large`.
+  - The new plan problem code is `expected_state_differs`.
+  - The new optional fields are `recovery` on `ChangesetRequest`,
+    `ChangesetResult`, `ApplyResult` and `PlanItem`; `?recovery=true` on
+    `POST /changes/apply`; and `expect` on `ChangeRequest`.
+
+  A request that uses none of them is answered as it was in 1.8.
+- **The recovery document is covered like the snapshot.** Recovery format
+  version 1, described in [RECOVERY.md](RECOVERY.md), was introduced in Alder
+  1.9. Later Alder 1.x releases will continue to read it.
+  - Releases before 1.9 have no recovery support.
+  - A later 1.x may write a new version and will still read version 1.
+  - Readers refuse unknown fields rather than ignore them, as they do for
+    snapshots.
+- **Recovery enums may grow.** New values in `RecoveryReasonCode` and
+  `RecoveryDriftState` follow the enum rule above.
+  - A client that does not recognise a reason should treat the step as not
+    exactly recoverable.
+  - A client that does not recognise a drift state should treat the change as
+    not ready.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —
@@ -183,6 +210,9 @@ documents, passed through, so it follows the API's rules above; what the client
 adds around them -- `apply`'s envelope, and the error document's `origin` and
 client error codes -- only grows. A flag that confirms or widens a write
 (`--yes`, `--allow-deletes`, `--force`) will not start reading the environment.
+1.9's `--recovery`, `--recovery-out` and `--allow-origin-mismatch` are covered
+the same way, and `--recovery-out` and `--allow-origin-mismatch` do not read the
+environment either.
 Their human-readable output is not covered, for the same reason message text is
 not.
 

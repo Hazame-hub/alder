@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { safeText } from "@/lib/display";
 
 /**
  * The schema as a table.
@@ -169,10 +170,10 @@ export function SchemaTable({
                   <button
                     type="button"
                     className="block max-w-full truncate text-left font-dn font-medium hover:underline"
-                    title={row.name}
+                    title={safeText(row.name)}
                     onClick={() => onOpen(row.id)}
                   >
-                    {row.name}
+                    {safeText(row.name)}
                   </button>
                   {/*
                     The OID under the name, for the same reason the entry table
@@ -180,7 +181,7 @@ export function SchemaTable({
                     convenience and the OID is the identity.
                   */}
                   <span className="block truncate font-dn text-[0.68rem] text-muted-foreground">
-                    {row.oid}
+                    {safeText(row.oid)}
                   </span>
                 </td>
                 <td className="px-3 py-1.5 align-middle">
@@ -195,13 +196,13 @@ export function SchemaTable({
                     {row.obsolete ? <Badge variant="warning">obsolete</Badge> : null}
                   </span>
                 </td>
-                <td className="max-w-48 truncate px-3 py-1.5 align-middle font-dn text-xs" title={row.extra}>
-                  {row.extra || <span className="text-muted-foreground/50">—</span>}
+                <td className="max-w-48 truncate px-3 py-1.5 align-middle font-dn text-xs" title={safeText(row.extra)}>
+                  {safeText(row.extra) || <span className="text-muted-foreground/50">—</span>}
                 </td>
                 {hasOrigin ? (
-                  <td className="max-w-40 truncate px-3 py-1.5 align-middle" title={row.origin}>
+                  <td className="max-w-40 truncate px-3 py-1.5 align-middle" title={safeText(row.origin)}>
                     {row.origin ? (
-                      <span className="font-dn text-xs">{row.origin}</span>
+                      <span className="font-dn text-xs">{safeText(row.origin)}</span>
                     ) : (
                       <span className="text-muted-foreground/50">—</span>
                     )}
