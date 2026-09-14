@@ -7,7 +7,7 @@
 
 * add alder snapshot, diff, plan, apply and version client commands to the existing alder binary (no separate alderctl), which use a running Alder server through its HTTP API ([27a6648](https://github.com/Hazame-hub/alder/commit/27a66484f5c578913382042879fb8832d7d59080))
 * apply always plans first and applies the reviewed plan with its tokens, never replans a stale plan, needs --yes when it cannot ask and --allow-deletes for deletions ([27a6648](https://github.com/Hazame-hub/alder/commit/27a66484f5c578913382042879fb8832d7d59080))
-* compare two snapshot files without LDAP credentials or a directory session, while comparisons with [@live](https://github.com/live) keep the normal directory-session requirement ([27a6648](https://github.com/Hazame-hub/alder/commit/27a66484f5c578913382042879fb8832d7d59080))
+* compare two snapshot files without LDAP credentials or a directory session, while comparisons with `@live` keep the normal directory-session requirement ([27a6648](https://github.com/Hazame-hub/alder/commit/27a66484f5c578913382042879fb8832d7d59080))
 * JSON automation output passed through from the server, stable documented exit codes, safe standard input and output, and Windows support, with no command-line password flag ([27a6648](https://github.com/Hazame-hub/alder/commit/27a66484f5c578913382042879fb8832d7d59080))
 
 
