@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.9.0](https://github.com/Hazame-hub/alder/compare/v1.8.0...v1.9.0) (2026-09-14)
+
+
+### Features
+
+* a recovery bundle covers only the changes that applied, derives each compensation from the entry as read before its change, and runs compensations in reverse order ([507a0b5](https://github.com/Hazame-hub/alder/commit/507a0b5734ad3633649c4363477ce41aec52edbe))
+* alder apply --recovery-out writes a verified bundle, including after a partial apply, alder plan and apply take --recovery, and the web interface prepares, downloads, loads and plans bundles ([507a0b5](https://github.com/Hazame-hub/alder/commit/507a0b5734ad3633649c4363477ce41aec52edbe))
+* bundles hold no passwords, password hashes, credentials or plan tokens; delete recovery is partial, password and schema or configuration changes are unavailable, and origin checks are advisory ([507a0b5](https://github.com/Hazame-hub/alder/commit/507a0b5734ad3633649c4363477ce41aec52edbe))
+* compensating changes carry an expect precondition, so an entry that has drifted since the original apply plans as expected_state_differs and a later change is never silently overwritten ([507a0b5](https://github.com/Hazame-hub/alder/commit/507a0b5734ad3633649c4363477ce41aec52edbe))
+* recovery bundles: before a change is applied, its plan says whether recovery is exact, partial or unavailable, and applying can return a client-held bundle in the versioned alder-recovery format version 1 ([507a0b5](https://github.com/Hazame-hub/alder/commit/507a0b5734ad3633649c4363477ce41aec52edbe))
+* recovery goes through the ordinary plan: POST /recovery/inspect turns a bundle into change requests that are reviewed and applied like any other, and nothing applies a bundle directly ([507a0b5](https://github.com/Hazame-hub/alder/commit/507a0b5734ad3633649c4363477ce41aec52edbe))
+
+
+### Fixes
+
+* directory text such as DNs, values and schema names is displayed with control and bidirectional override characters escaped, so it cannot visually reorder the interface ([507a0b5](https://github.com/Hazame-hub/alder/commit/507a0b5734ad3633649c4363477ce41aec52edbe))
+
+
+### Documentation
+
+* document recovery bundles, what exact recovery covers and what it does not, and recovery format version 1 compatibility ([507a0b5](https://github.com/Hazame-hub/alder/commit/507a0b5734ad3633649c4363477ce41aec52edbe))
+
 ## [1.8.0](https://github.com/Hazame-hub/alder/compare/v1.7.0...v1.8.0) (2026-09-14)
 
 
