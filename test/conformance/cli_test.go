@@ -300,13 +300,17 @@ func TestCLIAndAPIAgree(t *testing.T) {
 			t.Fatalf("the snapshots differ:\nCLI: %s\nAPI: %s", r.stdout, captured.body)
 		}
 		snapFile := filepath.Join(dir, "s.json")
-		_ = os.WriteFile(snapFile, []byte(r.stdout), 0o600)
+		cliSnapshot := r.stdout
+		_ = os.WriteFile(snapFile, []byte(cliSnapshot), 0o600)
 
-		// A comparison with something to find.
+		// A comparison with something to find. Both are given the same snapshot
+		// document: two captures a moment apart differ in createdAt, which the
+		// comparison reports, and that would be the captures disagreeing, not the
+		// client and the API.
 		setTitle(t, sess, "Compared")
 		r = run("diff", "@live", snapFile, "--json")
 		wantExit(t, r, cli.ExitDifferences, "diff")
-		diffed := post(t, client, apiBase+"/diff", `{"source":{"live":{}},"target":{"snapshot":`+captured.body+`}}`)
+		diffed := post(t, client, apiBase+"/diff", `{"source":{"live":{}},"target":{"snapshot":`+cliSnapshot+`}}`)
 		if diffed.status != http.StatusOK {
 			t.Fatalf("diff: %d %s", diffed.status, diffed.body)
 		}
