@@ -2520,7 +2520,7 @@ export interface components {
             recovery?: components["schemas"]["RecoveryBundle"];
         };
         /**
-         * @description How much of a change's effect its compensation undoes. `exact`: every
+         * @description How far a change can be compensated. `exact`: every
          *     user attribute the change touched returns to its earlier values, or an
          *     entry the change created is removed. `partial`: some of it; `reasons`
          *     say what is not. `unavailable`: none of it. Recovery is compensation

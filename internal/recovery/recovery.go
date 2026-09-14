@@ -30,7 +30,7 @@ import (
 	"github.com/hazame-hub/alder/internal/snapshot"
 )
 
-// Recoverability is how much of a change's effect its compensation undoes.
+// Recoverability is how far a change can be compensated.
 type Recoverability string
 
 const (
