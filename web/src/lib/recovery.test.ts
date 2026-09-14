@@ -15,8 +15,8 @@ function item(partial: Partial<PlanItem>): PlanItem {
 
 describe("visible", () => {
   it("makes bidi overrides and controls visible and leaves ordinary text alone", () => {
-    expect(visible("uid=report‮txt.exe")).toBe("uid=report\\u202etxt.exe");
-    expect(visible("abc")).toBe("a\\u0007b\\u001bc");
+    expect(visible("uid=report\u202etxt.exe")).toBe("uid=report\\u202etxt.exe");
+    expect(visible("a\u0007b\u001bc")).toBe("a\\u0007b\\u001bc");
     expect(visible("cn=Zoë Ångström,dc=alder")).toBe("cn=Zoë Ångström,dc=alder");
   });
 });
@@ -33,7 +33,7 @@ describe("assessmentLine", () => {
     expect(
       assessmentLine({
         recoverability: "partial",
-        reasons: [{ code: "sensitive_value_not_captured", attribute: "userPassword‮" }],
+        reasons: [{ code: "sensitive_value_not_captured", attribute: "userPassword\u202e" }],
       }),
     ).toContain("(userPassword\\u202e)");
   });
