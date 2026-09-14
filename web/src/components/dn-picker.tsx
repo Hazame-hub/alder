@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ErrorNote } from "@/components/change-dialog";
+import { safeText } from "@/lib/display";
 
 /**
  * DnPicker finds an entry and returns its DN.
@@ -72,7 +73,7 @@ export function DnPicker({
         <DialogHeader>
           <DialogTitle>{title ?? "Choose an entry"}</DialogTitle>
           <DialogDescription>
-            Searching below <span className="font-dn">{baseDn}</span>
+            Searching below <span className="font-dn">{safeText(baseDn)}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -139,9 +140,9 @@ export function DnPicker({
                         onOpenChange(false);
                       }}
                     >
-                      <div className="font-dn text-sm">{rdnOf(entry.dn)}</div>
+                      <div className="font-dn text-sm">{safeText(rdnOf(entry.dn))}</div>
                       <div className="truncate font-dn text-xs text-muted-foreground">
-                        {entry.dn}
+                        {safeText(entry.dn)}
                       </div>
                     </button>
                   </li>

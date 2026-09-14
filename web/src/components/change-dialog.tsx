@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { DownloadButton, LdifBlock } from "@/components/ldif-block";
 import { PlanImpactList, PlanRow } from "@/components/plan-summary";
 import { changeset } from "@/lib/changeset";
+import { safeText } from "@/lib/display";
 
 /**
  * ChangeDialog is the confirmation step every single change goes through.
@@ -142,9 +143,9 @@ export function ChangeDialog({
           <DialogTitle>{bundle ? "Change applied" : (title ?? "Review this change")}</DialogTitle>
           <DialogDescription>
             {preview ? (
-              <span className="font-dn">{preview.summary}</span>
+              <span className="font-dn">{safeText(preview.summary)}</span>
             ) : item ? (
-              <span className="font-dn">{item.dn}</span>
+              <span className="font-dn">{safeText(item.dn)}</span>
             ) : (
               "Planning against the directory…"
             )}
@@ -310,12 +311,12 @@ export function ChangeDialog({
                     ? "This is not the change that was planned"
                     : "The directory has changed since this plan was made"}
                 </div>
-                <p className="text-sm text-warning-tint-foreground/90">{stale.message}</p>
+                <p className="text-sm text-warning-tint-foreground/90">{safeText(stale.message)}</p>
                 {stale.affected?.length ? (
                   <ul className="mt-2 ml-5 list-disc space-y-0.5 text-xs text-warning-tint-foreground/90">
                     {stale.affected.map((a) => (
                       <li key={a.index} className="font-dn">
-                        {a.dn}
+                        {safeText(a.dn)}
                       </li>
                     ))}
                   </ul>
@@ -398,15 +399,15 @@ export function ErrorNote({ title, error }: { title: string; error: ApiFailure }
         <ShieldAlert className="size-4" />
         {title}
       </div>
-      <p className="mt-1 text-sm">{error.message}</p>
+      <p className="mt-1 text-sm">{safeText(error.message)}</p>
       {/*
         The likely cause comes before the raw diagnostic and the code. A result
         code is what the server said; the hint is what to do about it, and that
         is what the reader wants first.
       */}
-      {error.hint ? <p className="mt-1.5 text-sm">{error.hint}</p> : null}
+      {error.hint ? <p className="mt-1.5 text-sm">{safeText(error.hint)}</p> : null}
       {error.detail ? (
-        <p className="mt-1 font-mono text-xs text-muted-foreground">{error.detail}</p>
+        <p className="mt-1 font-mono text-xs text-muted-foreground">{safeText(error.detail)}</p>
       ) : null}
       {error.ldapCode !== undefined ? (
         <p className="mt-1 text-xs text-muted-foreground">

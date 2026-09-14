@@ -25,6 +25,7 @@ import { ErrorNote } from "@/components/change-dialog";
 import { DownloadButton } from "@/components/ldif-block";
 import { assessmentLine, bundleText, overallRecovery, recoveryFilename } from "@/lib/recovery";
 import { RecoveryLoader } from "@/features/recovery-loader";
+import { safeText } from "@/lib/display";
 
 /**
  * The changeset view: several staged changes, read as one document and applied
@@ -201,10 +202,10 @@ export function ChangesetView({
             </span>
             <button
               className="min-w-0 flex-1 truncate text-left font-dn text-sm hover:underline"
-              title={`Browse to ${item.change.dn}`}
+              title={`Browse to ${safeText(item.change.dn)}`}
               onClick={() => onBrowse(item.change.dn)}
             >
-              {item.label}
+              {safeText(item.label)}
             </button>
             <div className="flex shrink-0 items-center gap-0.5">
               <Button
@@ -348,13 +349,13 @@ export function ChangesetView({
               : "The directory has changed since this plan was made"}
           </div>
           <p className="text-sm text-warning-tint-foreground/90">
-            {stalePlan.message}
+            {safeText(stalePlan.message)}
           </p>
           {stalePlan.affected?.length ? (
             <ul className="mt-2 ml-5 list-disc space-y-0.5 text-xs text-warning-tint-foreground/90">
               {stalePlan.affected.map((a) => (
                 <li key={a.index}>
-                  Change {a.index + 1}: <span className="font-dn">{a.dn}</span>
+                  Change {a.index + 1}: <span className="font-dn">{safeText(a.dn)}</span>
                 </li>
               ))}
             </ul>
@@ -498,9 +499,9 @@ function ResultPanel({
               )}
             </span>
             <span className="min-w-0">
-              <span className="font-dn">{o.summary}</span>
+              <span className="font-dn">{safeText(o.summary)}</span>
               {o.error ? (
-                <span className="ml-2 text-destructive">{o.error.message}</span>
+                <span className="ml-2 text-destructive">{safeText(o.error.message)}</span>
               ) : !o.applied ? (
                 <span className="ml-2 text-muted-foreground">
                   not attempted

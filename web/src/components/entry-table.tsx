@@ -23,6 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { safeText } from "@/lib/display";
 
 /**
  * The table half of the browser.
@@ -215,16 +216,16 @@ export function EntryTable({
                     <button
                       type="button"
                       className="block max-w-full truncate text-left font-dn font-medium hover:underline"
-                      title={entry.dn}
+                      title={safeText(entry.dn)}
                       onClick={() => onOpen(entry.dn)}
                     >
-                      {entry.rdn ?? rdnOf(entry.dn)}
+                      {safeText(entry.rdn ?? rdnOf(entry.dn))}
                     </button>
                     <span
                       className="block max-w-full truncate font-dn text-xs text-muted-foreground"
-                      title={entry.dn}
+                      title={safeText(entry.dn)}
                     >
-                      {entry.dn}
+                      {safeText(entry.dn)}
                     </span>
                   </td>
 
@@ -307,7 +308,7 @@ function SortHeader({
           Email, and the next thing they do is write that in a filter.
         */}
         <span className="font-dn text-[0.68rem] font-normal leading-tight text-muted-foreground">
-          {attribute}
+          {safeText(attribute)}
         </span>
       </button>
     </th>
@@ -393,7 +394,7 @@ function cellText(entry: SearchResultEntry, attribute: string): React.ReactNode 
   const extra = attr.values.length - 1;
   return (
     <span className="flex items-baseline gap-1.5">
-      <span className="truncate">{displayText(first)}</span>
+      <span className="truncate">{safeText(displayText(first))}</span>
       {extra > 0 ? (
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           +{extra}
@@ -406,7 +407,7 @@ function cellText(entry: SearchResultEntry, attribute: string): React.ReactNode 
 function cellTitle(entry: SearchResultEntry, attribute: string): string | undefined {
   const attr = attributeOf(entry, attribute);
   if (!attr || attr.withheld) return undefined;
-  return attr.values.map(displayText).join("\n") || undefined;
+  return safeText(attr.values.map(displayText).join("\n")) || undefined;
 }
 
 /** Attribute names are case-insensitive, and options are not part of the name. */

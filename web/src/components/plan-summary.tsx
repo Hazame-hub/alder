@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { Plan, PlanAction, PlanItem, PlanProblemCode } from "@/lib/api";
 import { assessmentLine } from "@/lib/recovery";
+import { safeText } from "@/lib/display";
 
 /**
  * What a set of changes would do, before any of it is done.
@@ -218,7 +219,7 @@ export function PlanImpactList({ plan }: { plan: Plan }) {
           className={`flex items-start gap-2 ${line.tone ?? ""}`}
         >
           <line.icon className="mt-0.5 size-3.5 shrink-0" />
-          <span>{line.text}</span>
+          <span>{safeText(line.text)}</span>
         </li>
       ))}
       {plan.impact?.references.analysed ? (
@@ -245,8 +246,8 @@ export function PlanRow({ item }: { item: PlanItem }) {
       </span>
       <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-dn" title={item.dn}>
-            {item.dn}
+          <span className="truncate font-dn" title={safeText(item.dn)}>
+            {safeText(item.dn)}
           </span>
           {kind ? (
             <span className="shrink-0 rounded border px-1 text-[10px] uppercase tracking-wide text-warning-tint-foreground">
@@ -267,13 +268,13 @@ export function PlanRow({ item }: { item: PlanItem }) {
             {item.problem.attribute ? (
               <>
                 {" "}
-                (<code className="font-mono">{item.problem.attribute}</code>)
+                (<code className="font-mono">{safeText(item.problem.attribute)}</code>)
               </>
             ) : null}
           </div>
         ) : null}
         {item.reason && !item.problem ? (
-          <div className="text-xs text-muted-foreground">{item.reason}</div>
+          <div className="text-xs text-muted-foreground">{safeText(item.reason)}</div>
         ) : null}
         {item.recovery && item.baseline ? (
           <div
@@ -293,12 +294,12 @@ export function PlanRow({ item }: { item: PlanItem }) {
                 key={`+${v}`}
                 className="font-dn text-emerald-700 dark:text-emerald-400"
               >
-                + {m.attribute}: {v}
+                + {safeText(m.attribute)}: {safeText(v)}
               </div>
             ))}
             {m.removed.map((v) => (
               <div key={`-${v}`} className="font-dn text-destructive">
-                − {m.attribute}: {v}
+                − {safeText(m.attribute)}: {safeText(v)}
               </div>
             ))}
           </div>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, Copy, Download } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { safeText } from "@/lib/display";
 
 /**
  * LdifBlock renders an LDIF document with light syntax colouring.
@@ -31,7 +32,7 @@ export function LdifBlock({
       <pre className="max-h-[55vh] overflow-auto rounded-md border border-border bg-muted/40 p-3 pr-20 font-mono text-[12.5px] leading-relaxed">
         <code>
           {text.split("\n").map((line, i) => (
-            <LdifLine key={i} line={line} language={language} />
+            <LdifLine key={i} line={safeText(line)} language={language} />
           ))}
         </code>
       </pre>

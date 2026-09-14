@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ErrorNote } from "@/components/change-dialog";
+import { safeText } from "@/lib/display";
 
 /**
  * Deleting a container, by staging everything under it.
@@ -134,7 +135,7 @@ export function DeleteSubtreeButton({
           <DialogHeader>
             <DialogTitle>Delete this entry and everything under it</DialogTitle>
             <DialogDescription>
-              <span className="font-dn">{dn}</span>
+              <span className="font-dn">{safeText(dn)}</span>
             </DialogDescription>
           </DialogHeader>
 

@@ -64,6 +64,7 @@ import { AddAttribute, AttributeEditor } from "@/components/attribute-editor";
 import { computeMods, snapshot, type Draft } from "@/lib/mods";
 import { CreateEntryDialog } from "@/features/create-entry";
 import { CopyButton, LdifBlock } from "@/components/ldif-block";
+import { safeText } from "@/lib/display";
 
 export function EntryPanel({
   dn,
@@ -121,7 +122,7 @@ export function EntryPanel({
     return (
       <div className="flex items-center gap-2 p-8 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" />
-        Reading {dn}
+        Reading {safeText(dn)}
       </div>
     );
   }
@@ -265,7 +266,7 @@ function EntryHeader({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-base font-semibold">{rdnOf(entry.dn)}</h2>
+            <h2 className="truncate text-base font-semibold">{safeText(rdnOf(entry.dn))}</h2>
             {entry.requirements?.structural ? (
               <Badge variant="secondary">{entry.requirements.structural}</Badge>
             ) : (
@@ -274,8 +275,8 @@ function EntryHeader({
             {entry.hasChildren ? <Badge variant="outline">has children</Badge> : null}
           </div>
           <div className="mt-1 flex items-center gap-1.5">
-            <p className="truncate font-dn text-muted-foreground" title={entry.dn}>
-              {entry.dn}
+            <p className="truncate font-dn text-muted-foreground" title={safeText(entry.dn)}>
+              {safeText(entry.dn)}
             </p>
             <CopyButton text={entry.dn} />
           </div>
@@ -464,7 +465,7 @@ function ExportButton({ dn }: { dn: string }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Export</DialogTitle>
-            <DialogDescription className="font-dn">{dn}</DialogDescription>
+            <DialogDescription className="font-dn">{safeText(dn)}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-5 py-4">
             <div className="space-y-1.5">
@@ -650,7 +651,7 @@ function AttributeRow({
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="cursor-help font-dn font-medium underline decoration-dotted decoration-muted-foreground/50 underline-offset-4">
-                {attr.name}
+                {safeText(attr.name)}
               </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
@@ -664,7 +665,7 @@ function AttributeRow({
           </Tooltip>
         ) : (
           <span className="font-dn font-medium" title={attr.kind.syntaxLabel ?? undefined}>
-            {attr.name}
+            {safeText(attr.name)}
           </span>
         )}
         {attr.required ? (
@@ -759,9 +760,9 @@ function ValueDisplay({
         type="button"
         className="block max-w-full truncate text-left font-dn text-primary hover:underline"
         onClick={() => onNavigate(value.text as string)}
-        title={`Go to ${value.text}`}
+        title={`Go to ${safeText(value.text)}`}
       >
-        {value.text}
+        {safeText(value.text)}
       </button>
     );
   }
@@ -800,7 +801,7 @@ function ValueDisplay({
     if (pretty) {
       return (
         <span className="text-sm">
-          {pretty} <span className="font-dn text-muted-foreground">({text})</span>
+          {pretty} <span className="font-dn text-muted-foreground">({safeText(text)})</span>
         </span>
       );
     }
@@ -808,12 +809,12 @@ function ValueDisplay({
   if (kindName === "boolean") {
     return (
       <Badge variant={text.toUpperCase() === "TRUE" ? "success" : "outline"}>
-        {text}
+        {safeText(text)}
       </Badge>
     );
   }
 
-  return <span className="block whitespace-pre-wrap break-words font-dn">{text}</span>;
+  return <span className="block whitespace-pre-wrap break-words font-dn">{safeText(text)}</span>;
 }
 
 /*

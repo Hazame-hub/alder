@@ -6,20 +6,11 @@ import {
   overallRecovery,
   parseBundleFile,
   recoveryFilename,
-  visible,
 } from "@/lib/recovery";
 
 function item(partial: Partial<PlanItem>): PlanItem {
   return { index: 0, dn: "uid=a,dc=alder,dc=test", action: "modify", exists: true, ...partial };
 }
-
-describe("visible", () => {
-  it("makes bidi overrides and controls visible and leaves ordinary text alone", () => {
-    expect(visible("uid=report\u202etxt.exe")).toBe("uid=report\\u202etxt.exe");
-    expect(visible("a\u0007b\u001bc")).toBe("a\\u0007b\\u001bc");
-    expect(visible("cn=Zoë Ångström,dc=alder")).toBe("cn=Zoë Ångström,dc=alder");
-  });
-});
 
 describe("assessmentLine", () => {
   it("never says rollback, and says why a recovery is not exact", () => {

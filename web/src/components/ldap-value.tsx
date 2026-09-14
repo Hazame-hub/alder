@@ -9,6 +9,7 @@ import {
 import { displayText } from "@/lib/values";
 import { CopyButton } from "@/components/ldif-block";
 import { cn } from "@/lib/utils";
+import { safeText } from "@/lib/display";
 
 type Value = Parameters<typeof displayText>[0];
 
@@ -105,7 +106,7 @@ export function LdapValueView({
                 data-value=""
                 className={cn(expanded && i > 0 && "mt-1 border-t border-border/60 pt-1")}
               >
-                {withBreaks(displayText(v))}
+                {withBreaks(safeText(displayText(v)))}
               </div>
             ))}
       </div>

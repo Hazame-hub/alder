@@ -27,6 +27,7 @@ import {
 import { SchemaEditorDialog } from "@/features/schema-editor";
 import type { SchemaEditorRequest } from "@/features/schema-editor";
 import type { ChangeRequest, SchemaWrite } from "@/lib/api";
+import { safeText } from "@/lib/display";
 
 type Section = "objectClasses" | "attributeTypes" | "syntaxes" | "matchingRules";
 
@@ -472,7 +473,7 @@ function SchemaList({
           )}
         >
           <div className="flex items-baseline gap-2">
-            <span className="truncate font-dn">{item.label}</span>
+            <span className="truncate font-dn">{safeText(item.label)}</span>
             {item.tag ? (
               <Badge variant="outline" className="shrink-0">
                 {item.tag}
@@ -503,7 +504,7 @@ function SchemaOverview({ schema }: { schema: SchemaView }) {
     <div className="p-6">
       <h2 className="text-lg font-semibold">Schema</h2>
       <p className="mt-1 font-dn text-sm text-muted-foreground">
-        read from {schema.subschemaDn}
+        read from {safeText(schema.subschemaDn)}
       </p>
 
       <dl className="mt-5 grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-3">
@@ -530,9 +531,9 @@ function SchemaOverview({ schema }: { schema: SchemaView }) {
           <ul className="mt-3 space-y-2">
             {schema.errors.slice(0, 20).map((e, i) => (
               <li key={i} className="rounded border border-border bg-card p-2">
-                <p className="text-xs text-muted-foreground">{e.message}</p>
+                <p className="text-xs text-muted-foreground">{safeText(e.message)}</p>
                 <code className="mt-1 block break-all font-mono text-[11px]">
-                  {e.definition}
+                  {safeText(e.definition)}
                 </code>
               </li>
             ))}
@@ -591,13 +592,13 @@ function ObjectClassDetailPane({
     <div className="space-y-5 p-6">
       <header>
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-dn text-lg font-semibold">{s.name}</h2>
+          <h2 className="font-dn text-lg font-semibold">{safeText(s.name)}</h2>
           <Badge variant={s.kind === "AUXILIARY" ? "warning" : "secondary"}>
             {s.kind}
           </Badge>
           {s.obsolete ? <Badge variant="destructive">obsolete</Badge> : null}
         </div>
-        {s.desc ? <p className="mt-1 text-sm">{s.desc}</p> : null}
+        {s.desc ? <p className="mt-1 text-sm">{safeText(s.desc)}</p> : null}
         <p className="mt-1 font-dn text-xs text-muted-foreground">{s.oid}</p>
         {(s.names ?? []).length > 1 ? (
           <p className="mt-1 text-xs text-muted-foreground">
@@ -725,14 +726,14 @@ function AttributeTypeDetailPane({
     <div className="space-y-5 p-6">
       <header>
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-dn text-lg font-semibold">{s.name}</h2>
+          <h2 className="font-dn text-lg font-semibold">{safeText(s.name)}</h2>
           {s.singleValue ? <Badge variant="secondary">single-valued</Badge> : null}
           {s.operational ? <Badge variant="outline">operational</Badge> : null}
           {d.kind?.readOnly ? <Badge variant="outline">read-only</Badge> : null}
           {d.kind?.sensitive ? <Badge variant="destructive">secret</Badge> : null}
           {s.obsolete ? <Badge variant="destructive">obsolete</Badge> : null}
         </div>
-        {s.desc ? <p className="mt-1 text-sm">{s.desc}</p> : null}
+        {s.desc ? <p className="mt-1 text-sm">{safeText(s.desc)}</p> : null}
         <p className="mt-1 font-dn text-xs text-muted-foreground">{s.oid}</p>
         {canEdit ? (
           <div className="mt-3 flex gap-2">
@@ -863,8 +864,8 @@ function SimpleDetail({
   return (
     <div className="space-y-5 p-6">
       <header>
-        <h2 className="font-dn text-lg font-semibold">{rule.name}</h2>
-        {rule.desc ? <p className="mt-1 text-sm">{rule.desc}</p> : null}
+        <h2 className="font-dn text-lg font-semibold">{safeText(rule.name)}</h2>
+        {rule.desc ? <p className="mt-1 text-sm">{safeText(rule.desc)}</p> : null}
         <p className="mt-1 font-dn text-xs text-muted-foreground">{rule.oid}</p>
       </header>
       <Section title="Asserts values of syntax">
@@ -947,7 +948,7 @@ function Pending() {
 function NotFound({ name }: { name: string }) {
   return (
     <p className="p-6 text-sm text-muted-foreground">
-      This schema has no definition named <span className="font-dn">{name}</span>.
+      This schema has no definition named <span className="font-dn">{safeText(name)}</span>.
     </p>
   );
 }

@@ -7,6 +7,7 @@ import type {
   RecoveryReasonCode,
   RecoveryRecoverability,
 } from "@/lib/api";
+import { safeText } from "@/lib/display";
 
 /**
  * Recovery, as the interface talks about it.
@@ -41,23 +42,9 @@ export const DRIFT: Record<RecoveryDriftState, string> = {
   blocked: "not valid against the schema",
 };
 
-/**
- * Shows untrusted text -- a DN or an attribute name from an uploaded bundle --
- * with control and bidirectional formatting characters made visible, so a name
- * cannot reorder or hide what is displayed around it. React already escapes
- * markup; this is about what the characters do once they are text.
- */
-export function visible(text: string): string {
-  return text.replace(
-    // C0 and C1 controls, DEL, and the bidi embeddings, overrides and isolates.
-    /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
-    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
-  );
-}
-
 export function reasonText(reason: RecoveryReason): string {
   const text = REASON[reason.code] ?? reason.code;
-  return reason.attribute ? `${text} (${visible(reason.attribute)})` : text;
+  return reason.attribute ? `${text} (${safeText(reason.attribute)})` : text;
 }
 
 /** One line for an assessment: the label, then why it is not exact. */

@@ -5,6 +5,7 @@ import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { Destination, ResolveResult } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { safeText } from "@/lib/display";
 
 /**
  * One box that takes a DN, a filter, or a name.
@@ -96,7 +97,7 @@ export function JumpPalette({ onEntry, onSearch }: {
                 ) : (
                   <Search className="size-4 shrink-0 text-muted-foreground" />
                 )}
-                <span className="min-w-0 flex-1 truncate font-dn">{d.label}</span>
+                <span className="min-w-0 flex-1 truncate font-dn">{safeText(d.label)}</span>
                 {i === 0 ? (
                   <CornerDownLeft className="size-3.5 shrink-0 text-muted-foreground" />
                 ) : null}

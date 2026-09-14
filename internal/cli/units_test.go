@@ -106,6 +106,8 @@ func TestDirectoryTextIsMadeSafeForATerminal(t *testing.T) {
 		{"new\nline", `new\x0aline`},
 		{"c1\u009b31m", `c1\u009b31m`},
 		{"\u202eexe.txt", `\u202eexe.txt`},
+		{"a\u200eb\u200fc", `a\u200eb\u200fc`},
+		{"\u061cx", `\u061cx`},
 		{"isolate\u2066x\u2069", `isolate\u2066x\u2069`},
 		{"uid=alice,ou=people,dc=a,dc=b", "uid=alice,ou=people,dc=a,dc=b"},
 	}

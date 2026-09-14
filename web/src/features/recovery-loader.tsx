@@ -4,9 +4,10 @@ import { AlertTriangle, FileUp, Loader2, SearchCheck, X } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { RecoveryInspection } from "@/lib/api";
 import { changeset } from "@/lib/changeset";
-import { DRIFT, RECOVERABILITY, assessmentLine, parseBundleFile, visible } from "@/lib/recovery";
+import { DRIFT, RECOVERABILITY, assessmentLine, parseBundleFile } from "@/lib/recovery";
 import { Button } from "@/components/ui/button";
 import { ErrorNote } from "@/components/change-dialog";
+import { safeText } from "@/lib/display";
 
 /**
  * Loading a recovery bundle: read it, show what it says, and stage its changes
@@ -56,7 +57,7 @@ export function RecoveryLoader({
   const stage = () => {
     if (!inspection) return;
     const outcome = changeset.addMany(
-      inspection.changes.map((c) => ({ change: c, label: `Recovery: ${c.type} ${visible(c.dn)}` })),
+      inspection.changes.map((c) => ({ change: c, label: `Recovery: ${c.type} ${c.dn}` })),
     );
     if (outcome.staged > 0) {
       reset();
@@ -120,11 +121,11 @@ export function RecoveryLoader({
         <div className="mt-3 space-y-3 text-sm">
           <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
             <dt className="text-muted-foreground">Created</dt>
-            <dd>{visible(inspection.createdAt)}</dd>
+            <dd>{safeText(inspection.createdAt)}</dd>
             <dt className="text-muted-foreground">Directory</dt>
             <dd className="font-dn">
-              {visible(inspection.origin.vendor ?? "unknown vendor")} ·{" "}
-              {inspection.origin.namingContexts.map(visible).join(", ") || "no naming contexts"}
+              {safeText(inspection.origin.vendor ?? "unknown vendor")} ·{" "}
+              {inspection.origin.namingContexts.map(safeText).join(", ") || "no naming contexts"}
             </dd>
             <dt className="text-muted-foreground">Integrity</dt>
             <dd>
@@ -167,8 +168,8 @@ export function RecoveryLoader({
               {inspection.steps.map((step) => (
                 <li key={step.index} className="rounded border px-2 py-1">
                   <div className="font-dn text-xs">
-                    {step.index + 1}. {visible(step.original.type)} {visible(step.original.dn)}
-                    {step.original.targetDn ? ` → ${visible(step.original.targetDn)}` : ""}
+                    {step.index + 1}. {safeText(step.original.type)} {safeText(step.original.dn)}
+                    {step.original.targetDn ? ` → ${safeText(step.original.targetDn)}` : ""}
                   </div>
                   <div
                     className={`text-xs ${step.recoverability === "exact" ? "text-muted-foreground" : "text-warning-tint-foreground"}`}
@@ -195,10 +196,10 @@ export function RecoveryLoader({
                   return (
                     <li key={i} className="flex items-start justify-between gap-3 rounded border px-2 py-1 text-xs">
                       <span className="font-dn">
-                        {c.type} {visible(c.dn)}
+                        {c.type} {safeText(c.dn)}
                         {c.expect ? (
                           <span className="block text-muted-foreground">
-                            expects {c.expect.attributes.map((a) => visible(a.name)).join(", ") || "the entry"}
+                            expects {c.expect.attributes.map((a) => safeText(a.name)).join(", ") || "the entry"}
                             {c.expect.exhaustive ? " and nothing else" : ""} as the original change left it
                           </span>
                         ) : null}

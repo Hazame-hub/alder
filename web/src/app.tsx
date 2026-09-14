@@ -39,6 +39,7 @@ import { OverviewPanel } from "@/features/overview";
 import { isDirectoryView, type AppSearch, type AppView } from "@/lib/route";
 import { useChangeset } from "@/lib/changeset";
 import { SourceLink } from "@/components/source-link";
+import { safeText } from "@/lib/display";
 
 /**
  * The top bar offers destinations, and the URL says which one you are on.
@@ -354,11 +355,11 @@ function TopBar({
         ) : null}
         <div className="hidden text-right text-xs leading-tight sm:block">
           <div className="font-dn">
-            {info.host}:{info.port}
+            {safeText(info.host)}:{info.port}
           </div>
           <div className="text-muted-foreground">
             {info.bindDn ? (
-              <span className="font-dn">{info.bindDn}</span>
+              <span className="font-dn">{safeText(info.bindDn)}</span>
             ) : (
               "anonymous"
             )}

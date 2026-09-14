@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { ChangeDialog } from "@/components/change-dialog";
 import { AddAttribute, AttributeEditor } from "@/components/attribute-editor";
+import { safeText } from "@/lib/display";
 
 /**
  * Creating an entry, in steps, from the schema.
@@ -157,7 +158,7 @@ export function CreateEntryDialog({
           <DialogHeader>
             <DialogTitle>New entry</DialogTitle>
             <DialogDescription>
-              under <span className="font-dn">{parentDN}</span>
+              under <span className="font-dn">{safeText(parentDN)}</span>
             </DialogDescription>
           </DialogHeader>
 
@@ -573,7 +574,7 @@ function DetailsStep({
         </div>
         {rdnValue.trim() !== "" ? (
           <p className="font-dn text-xs text-muted-foreground">
-            {rdnAttr}={escapeRDNValue(rdnValue)},{parentDN}
+            {safeText(`${rdnAttr}=${escapeRDNValue(rdnValue)},${parentDN}`)}
           </p>
         ) : null}
       </div>

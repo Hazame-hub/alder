@@ -2520,11 +2520,16 @@ export interface components {
             recovery?: components["schemas"]["RecoveryBundle"];
         };
         /**
-         * @description How far a change can be compensated. `exact`: every
-         *     user attribute the change touched returns to its earlier values, or an
-         *     entry the change created is removed. `partial`: some of it; `reasons`
-         *     say what is not. `unavailable`: none of it. Recovery is compensation
-         *     through a reviewed plan, never a transaction or a guaranteed rollback.
+         * @description How far a change can be compensated. `exact`: Alder can derive
+         *     compensating changes that restore the ordinary directory state it
+         *     captured before the change -- the user attributes the change touched,
+         *     an entry's absence, or its former name -- subject to the plan's drift
+         *     checks. It does not cover operational attributes such as
+         *     `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
+         *     replication metadata, or attributes the bind could not read.
+         *     `partial`: some of it; `reasons` say what is not. `unavailable`: none of
+         *     it. Recovery is compensation through a reviewed plan, never a
+         *     transaction or a guaranteed rollback.
          * @enum {string}
          */
         RecoveryRecoverability: "exact" | "partial" | "unavailable";

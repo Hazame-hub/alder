@@ -14,6 +14,7 @@ import { api, unwrap } from "@/lib/api";
 import type { TreeNode } from "@/lib/api";
 import { ancestorsOf } from "@/lib/values";
 import { cn } from "@/lib/utils";
+import { safeText } from "@/lib/display";
 
 /**
  * Tree is the lazy-loading DIT browser.
@@ -161,8 +162,8 @@ function TreeItem({
             isSelected ? "text-primary" : "text-muted-foreground",
           )}
         />
-        <span className="truncate font-dn" title={node.dn}>
-          {node.rdn}
+        <span className="truncate font-dn" title={safeText(node.dn)}>
+          {safeText(node.rdn)}
         </span>
       </div>
 

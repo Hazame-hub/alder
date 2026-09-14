@@ -27,6 +27,7 @@ import { EntryTable } from "@/components/entry-table";
 import { ExportMenu } from "@/components/export-menu";
 import { InventoryButton } from "@/features/inventory";
 import { ColumnPicker } from "@/components/column-picker";
+import { safeText } from "@/lib/display";
 
 /**
  * Users, groups and organizational units, as pages of their own.
@@ -198,7 +199,7 @@ export function ObjectListPanel({
                 </Select>
               </>
             ) : (
-              <span className="font-dn text-xs text-muted-foreground">{base}</span>
+              <span className="font-dn text-xs text-muted-foreground">{safeText(base)}</span>
             )}
             <div className="flex items-center gap-1.5">
               <Label htmlFor="objects-limit" className="text-xs text-muted-foreground">
@@ -346,13 +347,13 @@ function ViewDefinition({ view, base }: { view: ObjectView; base: string }) {
   return (
     <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-sm">
       <p className="text-muted-foreground">
-        A subtree search under <span className="font-dn">{base}</span>, matching
+        A subtree search under <span className="font-dn">{safeText(base)}</span>, matching
         any entry that carries{" "}
         {view.anchors.length === 1 ? "the class" : "one of the classes"}{" "}
         {view.anchors.map((a, i) => (
           <span key={a}>
             {i > 0 ? ", " : ""}
-            <span className="font-dn text-foreground">{a}</span>
+            <span className="font-dn text-foreground">{safeText(a)}</span>
           </span>
         ))}
         . A class of your own that inherits from{" "}
@@ -408,7 +409,7 @@ function EmptyResult({ view, base }: { view: ObjectView; base: string }) {
         No {view.label.toLowerCase()} under this suffix.
       </p>
       <p>
-        The search ran and the filter was valid — <span className="font-dn">{base}</span>{" "}
+        The search ran and the filter was valid — <span className="font-dn">{safeText(base)}</span>{" "}
         simply holds no entry carrying{" "}
         {view.anchors.length === 1 ? "" : "any of "}
         {view.anchors.join(", ")}.

@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { LdapValue } from "@/components/ldap-value";
 import { ErrorNote } from "@/components/change-dialog";
+import { safeText } from "@/lib/display";
 
 /**
  * What this session is connected to, and what it can do there.
@@ -83,7 +84,7 @@ export function OverviewPanel({
             )}
           </Row>
           <Row label="Bound as">
-            <span className="font-dn">{info.bindDn || "anonymous"}</span>
+            <span className="font-dn">{safeText(info.bindDn || "anonymous")}</span>
           </Row>
           {info.readOnly ? (
             <Row label="This instance">
@@ -116,7 +117,7 @@ export function OverviewPanel({
               onClick={() => onBrowse(caps?.subschemaSubentry ?? "")}
               disabled={!caps?.subschemaSubentry}
             >
-              {caps?.subschemaSubentry || "not published"}
+              {safeText(caps?.subschemaSubentry || "not published")}
             </button>
           </Row>
           <Row label="Editable">
@@ -133,7 +134,7 @@ export function OverviewPanel({
                   className="font-dn hover:underline"
                   onClick={() => onBrowse(caps.config?.dn as string)}
                 >
-                  {caps.config.dn}
+                  {safeText(caps.config.dn)}
                 </button>
               </Row>
               <Row label="Readable">
@@ -143,7 +144,7 @@ export function OverviewPanel({
                     {caps.config.separateBind ? (
                       <>
                         , as{" "}
-                        <span className="font-dn">{caps.config.boundAs}</span>
+                        <span className="font-dn">{safeText(caps.config.boundAs)}</span>
                       </>
                     ) : null}
                   </span>
@@ -248,10 +249,10 @@ function ContextRow({ dn, onBrowse }: { dn: string; onBrowse: (dn: string) => vo
       <button
         type="button"
         className="min-w-0 flex-1 truncate text-left font-dn text-sm hover:underline"
-        title={dn}
+        title={safeText(dn)}
         onClick={() => onBrowse(dn)}
       >
-        {dn}
+        {safeText(dn)}
       </button>
 
       {count.data ? (
@@ -312,7 +313,7 @@ function MonitorCard({ dn, onBrowse }: { dn: string; onBrowse: (dn: string) => v
           className="font-dn text-xs text-muted-foreground hover:underline"
           onClick={() => onBrowse(dn)}
         >
-          {dn}
+          {safeText(dn)}
         </button>
       </header>
 
@@ -375,7 +376,7 @@ function MonitorField({
       )}
     >
       <dt className="max-w-full font-dn text-xs text-muted-foreground [overflow-wrap:anywhere]">
-        {name}
+        {safeText(name)}
       </dt>
       <dd className={cn("ml-auto min-w-0 max-w-full tabular-nums", expanded && "w-full")}>
         <LdapValue values={values} expanded={expanded} onExpandedChange={setExpanded} />

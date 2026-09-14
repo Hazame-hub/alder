@@ -18,6 +18,7 @@ import {
 import { Checkbox } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { displayText, rdnOf } from "@/lib/values";
+import { safeText } from "@/lib/display";
 
 /**
  * Why does this account work and that one not.
@@ -75,7 +76,7 @@ function CompareDialog({ left, onClose }: { left: string; onClose: () => void })
         <DialogHeader>
           <DialogTitle>Compare</DialogTitle>
           <DialogDescription>
-            <span className="font-dn">{left}</span> against another entry.
+            <span className="font-dn">{safeText(left)}</span> against another entry.
           </DialogDescription>
         </DialogHeader>
 
@@ -145,12 +146,12 @@ function CompareDialog({ left, onClose }: { left: string; onClose: () => void })
               <div className="grid gap-2 sm:grid-cols-2">
                 {[query.data.left, query.data.right].map((side, i) => (
                   <div key={i} className="rounded-md border border-border px-3 py-2">
-                    <div className="truncate font-dn text-sm" title={side.dn}>
-                      {side.rdn ?? rdnOf(side.dn)}
+                    <div className="truncate font-dn text-sm" title={safeText(side.dn)}>
+                      {safeText(side.rdn ?? rdnOf(side.dn))}
                     </div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {side.structural ? (
-                        <span className="font-dn">{side.structural}</span>
+                        <span className="font-dn">{safeText(side.structural)}</span>
                       ) : (
                         <span className="text-warning-tint-foreground">
                           no single structural class
@@ -224,7 +225,7 @@ function CompareRow({ row }: { row: AttributeComparison }) {
   return (
     <li className="px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-dn text-sm font-medium">{row.name}</span>
+        <span className="font-dn text-sm font-medium">{safeText(row.name)}</span>
         <StatusBadge row={row} />
         {row.left.required && !row.left.present ? (
           <Badge variant="warning">required on the left, and absent</Badge>
@@ -271,7 +272,7 @@ function CompareRow({ row }: { row: AttributeComparison }) {
                 {v.side === "both" ? "both" : v.side}
               </span>
               <span className="min-w-0 flex-1 break-all font-dn">
-                {displayText(v.value)}
+                {safeText(displayText(v.value))}
               </span>
             </div>
           ))}
