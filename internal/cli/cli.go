@@ -1,16 +1,19 @@
 // Package cli is the command-line client in the alder binary: snapshot, diff,
 // plan, apply and version.
 //
-// It is a client of Alder's HTTP API and nothing else. Every command opens a
-// session on a running Alder the way the connection screen does, calls the
-// endpoints the web interface calls, and closes the session when it is done. It
+// It is a client of Alder's HTTP API and nothing else. A command that reads or
+// writes a directory opens a session on a running Alder the way the connection
+// screen does, calls the endpoints the web interface calls, and closes the
+// session when it is done; comparing two snapshots needs no session at all. It
 // has no LDAP code: it parses no LDIF, compares no values, derives no change and
 // writes to no directory. Those have one implementation, on the server, and the
 // web interface and this client both ask it.
 //
 // What the client adds is what a terminal needs and a browser does not: reading
-// files and standard input, writing files atomically, asking before a write,
-// and exit codes a script can branch on. JSON output is the server's own
+// files and standard input, writing files atomically, exit codes a script can
+// branch on, and a stricter safety policy -- asking before a write, requiring
+// --allow-deletes before --yes deletes, and refusing a plan that already holds a
+// conflict. That policy decides whether a request is sent, never what it does. JSON output is the server's own
 // response, passed through, so a script reads exactly what the web interface
 // reads.
 package cli

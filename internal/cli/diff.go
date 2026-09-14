@@ -44,6 +44,8 @@ func diffCmd(env *Env) *cobra.Command {
 		Long: "Compares SOURCE with TARGET through a running Alder server, with the same\n" +
 			"comparison the web interface uses. Each side is a snapshot file, - for a\n" +
 			"snapshot on standard input, or @live for the directory as it is now.\n\n" +
+			"Two snapshots need only --api-url: the server compares them without a\n" +
+			"directory session. A comparison with @live needs the directory flags.\n\n" +
 			"The direction is always SOURCE to TARGET: added means in TARGET and not in\n" +
 			"SOURCE, removed means in SOURCE and not in TARGET. To see what would bring the\n" +
 			"directory back to a snapshot, compare @live with the snapshot.\n\n" +
@@ -118,7 +120,13 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 	if err := refuseExisting(o.changesOut, o.force || o.changesOut == ""); err != nil {
 		return err
 	}
-	if err := conn.check(srcArg == "-" || tgtArg == "-"); err != nil {
+	// Only a live side reads the directory. Two snapshots need nothing but the
+	// Alder server: no directory target, no bind, no password, no session.
+	if live {
+		if err := conn.check(srcArg == "-" || tgtArg == "-"); err != nil {
+			return err
+		}
+	} else if err := conn.checkAPI(); err != nil {
 		return err
 	}
 
@@ -159,10 +167,8 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 	}
 	parts = append(parts, []byte(fmt.Sprintf(`,"includeUnchanged":%t}`, o.includeUnchanged)))
 	var total int64
-	readers := make([]io.Reader, 0, len(parts))
 	for _, p := range parts {
 		total += int64(len(p))
-		readers = append(readers, bytes.NewReader(p))
 	}
 	if total > maxRequestBytes {
 		return failf("request_too_large", "the comparison request would be %.1f MB, and Alder reads at most %d MB in one request",
@@ -171,19 +177,52 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 
 	ctx, cancel := conn.bound(ctx)
 	defer cancel()
-	r, err := conn.open(ctx, env)
+	var r *remote
+	if live {
+		r, err = conn.open(ctx, env)
+	} else {
+		r, err = conn.client(env)
+	}
 	if err != nil {
 		return err
 	}
 	defer r.close()
 
-	setLength := func(_ context.Context, req *http.Request) error {
-		req.ContentLength = total
-		return nil
+	send := func() (*api.DiffStatesReply, error) {
+		readers := make([]io.Reader, 0, len(parts))
+		for _, p := range parts {
+			readers = append(readers, bytes.NewReader(p))
+		}
+		setLength := func(_ context.Context, req *http.Request) error {
+			req.ContentLength = total
+			return nil
+		}
+		return r.api.DiffStatesWithBodyWithResponse(ctx, "application/json", io.MultiReader(readers...), setLength)
 	}
-	res, err := r.api.DiffStatesWithBodyWithResponse(ctx, "application/json", io.MultiReader(readers...), setLength)
+	res, err := send()
 	if err != nil {
 		return transportFailure(ctx, "comparing", err)
+	}
+	// A server before 1.8 needs a session for every comparison. With the
+	// directory flags given, the comparison is made again with one; without
+	// them, the refusal says what to add.
+	if !live && res.StatusCode() == http.StatusUnauthorized {
+		if conn.host == "" {
+			refused := r.refusal(ctx, "the comparison", res.HTTPResponse, res.Body)
+			refused.Message += "\nThis Alder server needs a directory session even to compare two snapshots, " +
+				"as servers before 1.8 do: give the directory flags (--host, --bind-dn and a password) to compare with one"
+			return refused
+		}
+		if err := conn.check(srcArg == "-" || tgtArg == "-"); err != nil {
+			return err
+		}
+		if r, err = conn.open(ctx, env); err != nil {
+			return err
+		}
+		defer r.close()
+		if res, err = send(); err != nil {
+			return transportFailure(ctx, "comparing", err)
+		}
 	}
 	if res.StatusCode() != http.StatusOK {
 		return r.refusal(ctx, "the comparison", res.HTTPResponse, res.Body)

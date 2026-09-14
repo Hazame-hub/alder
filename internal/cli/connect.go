@@ -92,6 +92,12 @@ func (c *connection) registerDirectory(cmd *cobra.Command) {
 	envflags.Exclude(f, "insecure-skip-verify", "bind-password-stdin")
 }
 
+// checkAPI validates only what reaching the Alder server needs.
+func (c *connection) checkAPI() error {
+	_, _, err := apiBase(c.apiURL)
+	return err
+}
+
 // check validates the connection flags before anything is read or sent.
 func (c *connection) check(readsStdin bool) error {
 	if _, _, err := apiBase(c.apiURL); err != nil {
