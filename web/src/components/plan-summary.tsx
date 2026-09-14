@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import type { Plan, PlanAction, PlanItem, PlanProblemCode } from "@/lib/api";
+import { assessmentLine } from "@/lib/recovery";
 
 /**
  * What a set of changes would do, before any of it is done.
@@ -75,6 +76,8 @@ const PROBLEM: Record<PlanProblemCode, string> = {
   entry_exists: "the entry already exists",
   has_children: "the entry has children",
   rename_target_exists: "the new name is already taken",
+  expected_state_differs:
+    "the entry is no longer as the change expects: the directory has drifted since the original apply",
   object_class_undefined: "an object class is not defined by the schema",
   attribute_undefined: "an attribute is not defined by the schema",
   attribute_not_permitted: "no object class on the entry permits the attribute",
@@ -271,6 +274,17 @@ export function PlanRow({ item }: { item: PlanItem }) {
         ) : null}
         {item.reason && !item.problem ? (
           <div className="text-xs text-muted-foreground">{item.reason}</div>
+        ) : null}
+        {item.recovery && item.baseline ? (
+          <div
+            className={`text-xs ${
+              item.recovery.recoverability === "exact"
+                ? "text-muted-foreground"
+                : "text-warning-tint-foreground"
+            }`}
+          >
+            {assessmentLine(item.recovery)}
+          </div>
         ) : null}
         {item.membership?.map((m) => (
           <div key={m.attribute} className="space-y-0.5 text-xs">

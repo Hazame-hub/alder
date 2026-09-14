@@ -64,6 +64,14 @@ export type PlanProblemCode = Schemas["PlanProblemCode"];
 export type ChangesetOutcome = Schemas["ChangesetOutcome"];
 export type ImportResult = Schemas["ImportResult"];
 export type ApiError = Schemas["Error"];
+export type RecoveryBundle = Schemas["RecoveryBundle"];
+export type RecoveryInspection = Schemas["RecoveryInspection"];
+export type RecoveryAssessment = Schemas["RecoveryAssessment"];
+export type RecoveryReason = Schemas["RecoveryReason"];
+export type RecoveryReasonCode = Schemas["RecoveryReasonCode"];
+export type RecoveryRecoverability = Schemas["RecoveryRecoverability"];
+export type RecoveryDriftState = Schemas["RecoveryDriftState"];
+export type RecoveryStep = Schemas["RecoveryStep"];
 
 /**
  * ApiFailure carries the server's structured error so a component can show the

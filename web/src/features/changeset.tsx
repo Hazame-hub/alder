@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -22,6 +22,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { LdifBlock } from "@/components/ldif-block";
 import { PlanSummary } from "@/components/plan-summary";
 import { ErrorNote } from "@/components/change-dialog";
+import { DownloadButton } from "@/components/ldif-block";
+import { assessmentLine, bundleText, overallRecovery, recoveryFilename } from "@/lib/recovery";
+import { RecoveryLoader } from "@/features/recovery-loader";
 
 /**
  * The changeset view: several staged changes, read as one document and applied
@@ -41,6 +44,10 @@ export function ChangesetView({
   const staged = useChangeset();
   const queryClient = useQueryClient();
   const [result, setResult] = useState<ChangesetResult | null>(null);
+  const [prepareRecovery, setPrepareRecovery] = useState(false);
+  // Set when a recovery bundle has just been staged, so the plan is made as
+  // soon as the staged changes have rendered.
+  const [pendingCheck, setPendingCheck] = useState(false);
 
   const body = { changes: staged.map((s) => s.change) };
 
@@ -90,9 +97,14 @@ export function ChangesetView({
    * plan showed rather than the add that produced it. Without one, exactly what
    * it always sent.
    */
-  const applyBody: { changes: ChangeRequest[] } = current
-    ? { changes: changesFromPlan(current, body.changes) }
-    : body;
+  const applyBody: { changes: ChangeRequest[]; recovery?: boolean } = {
+    ...(current ? { changes: changesFromPlan(current, body.changes) } : body),
+    ...(prepareRecovery ? { recovery: true } : {}),
+  };
+  // A change with an expectation -- one from a recovery bundle -- is only ever
+  // applied through a checked plan; the server refuses it otherwise.
+  const needsPlan = staged.some((s) => s.change.expect !== undefined);
+  const recovery = current ? overallRecovery(current.items) : null;
 
   const apply = useMutation({
     mutationFn: async () =>
@@ -113,6 +125,13 @@ export function ChangesetView({
     },
   });
 
+  useEffect(() => {
+    if (pendingCheck && staged.length > 0) {
+      setPendingCheck(false);
+      check.mutate();
+    }
+  }, [pendingCheck, staged.length, check]);
+
   const previewError = preview.error as ApiFailure | null;
   const applyError = apply.error as ApiFailure | null;
   // A checked plan the server refused because it no longer holds. Apply stays
@@ -128,6 +147,7 @@ export function ChangesetView({
         {result ? (
           <ResultPanel result={result} onDismiss={() => setResult(null)} />
         ) : null}
+        <RecoveryLoader canStage onStaged={() => setPendingCheck(true)} />
         <div className="rounded-lg border border-dashed p-10 text-center">
           <ListChecks className="mx-auto mb-3 size-8 text-muted-foreground" />
           <h2 className="text-base font-medium">The changeset is empty</h2>
@@ -275,6 +295,12 @@ export function ChangesetView({
       ) : null}
 
       {current ? <PlanSummary plan={current} /> : null}
+      {needsPlan && !current ? (
+        <p className="mb-4 text-xs text-warning-tint-foreground">
+          These include changes from a recovery bundle, which are applied only
+          through a checked plan.
+        </p>
+      ) : null}
 
       {preview.isPending ? (
         <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
@@ -361,9 +387,25 @@ export function ChangesetView({
         </div>
       ) : null}
 
-      <div className="mt-5 flex items-center justify-end gap-2 border-t pt-4">
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t pt-4">
+        {recovery ? (
+          <span
+            className={`mr-auto text-xs ${recovery.recoverability === "exact" ? "text-muted-foreground" : "text-warning-tint-foreground"}`}
+          >
+            {assessmentLine(recovery)}
+          </span>
+        ) : null}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="size-4 accent-primary"
+            checked={prepareRecovery}
+            onChange={(e) => setPrepareRecovery(e.target.checked)}
+          />
+          Prepare a recovery bundle
+        </label>
         <Button
-          disabled={!data || apply.isPending || stalePlan !== null}
+          disabled={!data || apply.isPending || stalePlan !== null || (needsPlan && !current) || (current !== null && applyBody.changes.length === 0)}
           onClick={() => {
             setResult(null);
             apply.mutate();
@@ -424,6 +466,25 @@ function ResultPanel({
         </Button>
       </div>
 
+      {result.recovery ? (
+        <div className="mt-2.5 flex flex-wrap items-center gap-3 rounded border bg-card p-2 text-xs">
+          <span className={result.recovery.recoverability === "exact" ? "text-muted-foreground" : "text-warning-tint-foreground"}>
+            {assessmentLine({
+              recoverability: result.recovery.recoverability,
+              reasons: result.recovery.steps.flatMap((s) => s.reasons ?? []),
+            })}
+            {" "}for the {result.recovery.steps.length} applied change{result.recovery.steps.length === 1 ? "" : "s"}.
+            Not kept by Alder: download it now.
+          </span>
+          <DownloadButton
+            text={bundleText(result.recovery)}
+            filename={recoveryFilename(result.recovery)}
+            label="Download recovery bundle"
+            mime="application/json"
+          />
+        </div>
+      ) : null}
+
       <ul className="mt-2.5 space-y-1">
         {result.outcomes.map((o) => (
           <li key={o.index} className="flex items-start gap-2 text-sm">
@@ -452,8 +513,8 @@ function ResultPanel({
 
       {failed ? (
         <p className="mt-2.5 text-xs text-muted-foreground">
-          The changes that applied are done and are not rolled back — LDAP has
-          no transaction spanning entries. The ones that did not are still
+          The changes that applied are done and nothing reverses them by itself —
+          LDAP has no transaction spanning entries. The ones that did not are still
           staged, in order, so fixing the failure and applying again resumes
           rather than repeats.
         </p>
