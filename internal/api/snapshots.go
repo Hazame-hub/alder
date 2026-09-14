@@ -294,10 +294,6 @@ type resolvedSide struct {
 
 // DiffStates compares two states.
 func (s *Server) DiffStates(c *fiber.Ctx) error {
-	sess := s.require(c)
-	if sess == nil {
-		return nil
-	}
 	var body diffBody
 	if err := json.Unmarshal(c.Body(), &body); err != nil {
 		return badRequest(c, "The request body is not valid JSON.", err.Error())
@@ -311,6 +307,20 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 	if body.Source.Live != nil && body.Target.Live != nil {
 		return badRequest(c, "Compare a snapshot with the live directory, or two snapshots.",
 			"Both sides live would compare this directory with itself.")
+	}
+
+	// Two snapshots are documents the caller sent. Comparing them reads no
+	// directory, so it needs no session and opens none -- it is still a request,
+	// bounded by the body limit, the in-flight gate and the request timeout, and
+	// its snapshots are decoded exactly as strictly. A live side reads the
+	// directory as the session's identity, so it needs a session, and without one
+	// is refused before either snapshot is decoded. The comparison below is the
+	// same code either way.
+	var sess *session.Session
+	if body.Source.Live != nil || body.Target.Live != nil {
+		if sess = s.require(c); sess == nil {
+			return nil
+		}
 	}
 
 	sides := map[string]*resolvedSide{}
@@ -360,12 +370,14 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 		sides[name] = &resolvedSide{side: diff.Side{Snapshot: snap, Live: true, Truncated: truncated}}
 	}
 
-	probe := func(ctx context.Context, target dn.DN, attribute string) (directory.AttributeVisibility, error) {
-		return sess.Conn.VisibilityOf(ctx, target, attribute)
+	opts := diff.Options{IncludeUnchanged: body.IncludeUnchanged, ProbeBudget: snapshotProbeBudget}
+	if sess != nil {
+		// Only a live side has a directory to ask about attributes it lacks.
+		opts.Probe = func(ctx context.Context, target dn.DN, attribute string) (directory.AttributeVisibility, error) {
+			return sess.Conn.VisibilityOf(ctx, target, attribute)
+		}
 	}
-	result, err := diff.Compare(ctx, sides["source"].side, sides["target"].side, diff.Options{
-		IncludeUnchanged: body.IncludeUnchanged, Probe: probe, ProbeBudget: snapshotProbeBudget,
-	})
+	result, err := diff.Compare(ctx, sides["source"].side, sides["target"].side, opts)
 	if err != nil {
 		return s.fail(c, err)
 	}

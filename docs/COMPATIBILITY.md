@@ -128,6 +128,10 @@ contract changed only by tightening what a token proves:
   than ignore them, so a document that uses a field an older release does not
   know is refused by that release with `snapshot_invalid`. That is deliberate: a
   field the reader skipped could change what the comparison means.
+- **In 1.8, two snapshots are compared without a session.** `POST /diff` with a
+  snapshot on both sides used to be refused with `401` unless a session was
+  open, and is now answered either way. A request that succeeded before
+  succeeds the same way; a comparison with a live side still needs a session.
 - **Comparison enums may grow.** New values in `DiffKind`, `DiffReasonCode` and
   `DiffCandidateBlocked` follow the enum rule above. A client that does not
   recognise a `blocked` value should treat the item as offering no change.
@@ -170,6 +174,17 @@ The one thing that may tighten is a **security default**, and only with a way
 back. `--i-know-this-is-insecure` exists because refusing plaintext LDAP by
 default was worth doing; if another default has to move, it will come with an
 explicit opt-out and a changelog entry, not silently.
+
+The client commands -- `alder snapshot`, `diff`, `plan`, `apply` and `version`,
+added in 1.8 -- are covered the same way. Their names and flags keep their
+meanings, and so do the variables their connection flags read, the exit codes
+in [CLI.md](CLI.md), and their `--json` output. That JSON is the API's own
+documents, passed through, so it follows the API's rules above; what the client
+adds around them -- `apply`'s envelope, and the error document's `origin` and
+client error codes -- only grows. A flag that confirms or widens a write
+(`--yes`, `--allow-deletes`, `--force`) will not start reading the environment.
+Their human-readable output is not covered, for the same reason message text is
+not.
 
 ---
 
