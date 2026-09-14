@@ -28,17 +28,30 @@ alder snapshot | diff | plan | apply
 alder serve  ──  Snapshot, Diff, Plan, Apply  ──  LDAP  ──  directory
 ```
 
-Each command:
-
-1. opens a session the way the connection screen does;
-2. calls the endpoints the web interface calls;
-3. closes the session when it finishes, even when it is interrupted.
+A command that reads or writes a directory opens a session the way the
+connection screen does, calls the endpoints the web interface calls, and closes
+the session when it finishes, even when it is interrupted. Comparing two
+snapshot files reads no directory, so it opens no session and needs no
+directory credentials.
 
 The client has no LDAP code. It does not parse LDIF, compare values, derive
-changes or write to a directory. All of that has one implementation, on the
-server, so the web interface and the command line cannot disagree about what a
-snapshot, a diff, a plan or an apply means. With `--json`, a command writes the
-server's own response as it came.
+changes or write to a directory. **It uses the same server-side Snapshot, Diff,
+Plan and Apply as the web interface**, and with `--json` it writes the server's
+own response as it came.
+
+**It adds its own safety policy around them.** That policy is client-side, and
+it is stricter than the web interface in three places:
+
+- **Confirmation:** `apply` asks at a terminal, and elsewhere needs `--yes`.
+- **Deletion:** `--yes` alone never deletes; a plan with deletions also needs
+  `--allow-deletes`.
+- **Pre-existing conflicts:** `apply` refuses a plan that already contains a
+  conflict or an invalid change. The web interface's changeset can apply the
+  applicable part of such a plan.
+
+None of this is another way of executing changes. What `apply` does send goes to
+the same endpoint, `POST /api/v1/changeset/apply`, with the same plan tokens the
+web interface sends.
 
 What the client adds is what a terminal needs:
 
@@ -76,7 +89,7 @@ connect to. The directory flags are exactly the connection screen's fields.
 | `--api-url` | `ALDER_API_URL` | The Alder server, such as `https://alder.example.com`. Required. `/api/v1` is added if it is not there. It must not contain a user name, password, query or fragment. |
 | `--api-ca-file` | `ALDER_API_CA_FILE` | PEM certificates to verify the Alder server's HTTPS certificate with, instead of the system roots |
 | `--timeout` | `ALDER_TIMEOUT` | Give up on the whole command after this long. Default `10m`; `0` waits indefinitely. |
-| `--host` | `ALDER_HOST` | The directory's host, as the Alder server reaches it. Required. |
+| `--host` | `ALDER_HOST` | The directory's host, as the Alder server reaches it. Required for everything but comparing two snapshot files. |
 | `--port` | `ALDER_PORT` | The directory's port. Default 636 for `ldaps`, 389 otherwise. |
 | `--tls` | `ALDER_TLS` | `ldaps` (default), `starttls` or `plaintext`. The server refuses plaintext unless it was started with `--i-know-this-is-insecure`. |
 | `--ca-file` | `ALDER_CA_FILE` | PEM certificates to verify the directory's certificate with |
@@ -279,9 +292,11 @@ be derived.
   before it is sent.
 - **The comparison must fit in one 16 MB request**, which is the server's limit
   and is checked before sending.
-- **Two snapshot files still need a directory connection.** Every Alder API
-  endpoint but `/source` needs a session, even when nothing is read from the
-  directory.
+- **Two snapshot files need only `--api-url`.** The server compares them without
+  a directory session, so no directory flags, bind DN or password are needed;
+  any given are ignored. A comparison with `@live` needs the directory flags.
+  A server before 1.8 needs a session even for two snapshots. Against one, give
+  the directory flags and the comparison is made again with a session.
 
 The human report prints:
 
@@ -492,6 +507,7 @@ The client uses these endpoints:
 | all | `/session`, `/source` | any 1.x |
 | `plan`, `apply` | `/plan` with LDIF and `mode`, `/import/ldif`, `/changeset/apply` with plan tokens | 1.6 or later, where a plan token binds the secrets in the operation it plans |
 | `snapshot`, `diff` | `/snapshots/capture`, `/diff` | 1.7 or later |
+| `diff` of two snapshot files, with no directory flags | `/diff` without a session | 1.8 or later |
 
 This release adds no endpoint, so a 1.7 server provides everything the client
 calls. A server without an endpoint the client needs is reported by name and
@@ -505,8 +521,6 @@ promise: version 1 is read by every 1.x release from 1.7 on.
 
 - **No interactive password prompt.** Use a file, standard input or the
   environment.
-- **Comparing two snapshot files needs a directory connection**, because the
-  API requires a session.
 - **A desired-state LDIF record that sets a sensitive attribute can be planned
   but not applied.** The plan's record withholds the value, and the server
   refuses a withheld value rather than writing an empty one. The web interface

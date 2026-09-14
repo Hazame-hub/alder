@@ -128,6 +128,10 @@ contract changed only by tightening what a token proves:
   than ignore them, so a document that uses a field an older release does not
   know is refused by that release with `snapshot_invalid`. That is deliberate: a
   field the reader skipped could change what the comparison means.
+- **In 1.8, two snapshots are compared without a session.** `POST /diff` with a
+  snapshot on both sides used to be refused with `401` unless a session was
+  open, and is now answered either way. A request that succeeded before
+  succeeds the same way; a comparison with a live side still needs a session.
 - **Comparison enums may grow.** New values in `DiffKind`, `DiffReasonCode` and
   `DiffCandidateBlocked` follow the enum rule above. A client that does not
   recognise a `blocked` value should treat the item as offering no change.

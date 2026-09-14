@@ -193,6 +193,12 @@ before sending and says why it will not.
 `POST /diff` takes a `source` and a `target`. Each is exactly one of
 `{"snapshot": …}` or `{"live": {…}}`, and at most one side may be live.
 
+Comparing two snapshots needs no session: the comparison reads only the two
+documents, so it is answered without a directory connection and opens none. It
+is still an ordinary request, held to the same size limit, in-flight limit and
+timeout, and its snapshots are read as strictly as ever. A live side needs a
+session, and without one the request is refused before either snapshot is read.
+
 A live side captures the directory now, the same way a snapshot is captured.
 By default it uses the other side's base, scope, filter and operational setting,
 so "this snapshot against now" compares like with like. Any of those can be

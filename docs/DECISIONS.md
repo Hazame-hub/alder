@@ -2275,3 +2275,39 @@ to contradict the plan — add an entry.
   matches exactly, and the plan matches apart from its session-bound baselines.
   Six deliberate breaks of the client each fail a test. The client's tests also
   run on Windows in CI.
+
+### 2026-09-14 — comparing two snapshots needs no directory
+
+- **`POST /diff` asks for a session only when a side is live.** The handler
+  decodes the request's shape, and calls the session check only if either side
+  is `live` -- before either snapshot is read, so an unauthenticated live
+  comparison is refused as unauthorised and never parses a snapshot. Two
+  snapshots go through the same decoding and the same `diff.Compare`, with no
+  attribute-access probe, because there is no directory to ask. Rejected: a
+  second handler or endpoint for snapshots, which would be a second place for
+  the comparison to drift from.
+- **A sessionless comparison is still bounded untrusted input.** It stays under
+  the `/api/v1` in-flight gate, `alder serve`'s 16 MB body limit and the request
+  timeout, and its snapshots are decoded as strictly: malformed JSON, unknown
+  fields, a checksum mismatch, an unsupported version, and more than 50,000
+  entries are all refused. No new route, no new limit, no new exception.
+- **The client sends nothing it does not need.** `alder diff a.json b.json` checks
+  only `--api-url`, opens no session, and reads no password. Directory flags
+  inherited from the environment are ignored rather than refused. A server
+  before 1.8 answers such a request with `401`; with directory flags present the
+  client makes the comparison again with a session, and without them it says
+  what to add.
+- **Proven with a directory that cannot be reached.** The API tests run the server
+  with a driver that counts connection attempts and connects to nothing, and no
+  session in its store. Two snapshots compare with zero attempts and no cookie
+  issued, and the answer is byte-identical to the same request made with a
+  session. A live side without a session is `401`, also with zero attempts. The
+  client's test does the same end to end against the real server and its real
+  LDAP driver with no directory anywhere, and a deliberate break -- asking for a
+  session before decoding -- fails it.
+- **The command line's equivalence with the web interface is stated precisely.**
+  It uses the same server-side Snapshot, Diff, Plan and Apply. It adds a
+  client-side safety policy: confirmation, `--allow-deletes`, and refusing a plan
+  that already holds a conflict, where the changeset view can apply the
+  applicable part. The policy decides whether a request is sent; what is sent
+  goes to the same endpoint with the same plan tokens.
