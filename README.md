@@ -353,6 +353,15 @@ them: they go through the same plan and review as every other write. Deleting an
 entry is never selected for you. Details in
 [`docs/SNAPSHOTS.md`](docs/SNAPSHOTS.md).
 
+**Do it from a shell.** `alder snapshot`, `alder diff`, `alder plan` and
+`alder apply` run the same workflow from a terminal or a CI job, through a
+running Alder server: the same snapshot file, the same comparison, the same
+plan, and an apply that sends exactly the plan it showed and refuses if the
+directory moved in between. `--json` is the API's own response, exit codes say
+whether a comparison found differences or could not see everything, and a
+password is never a command-line argument. The client has no LDAP code of its
+own; see [`docs/CLI.md`](docs/CLI.md).
+
 ## Two servers, one behaviour
 
 OpenLDAP and 389 Directory Server are both first-class, and that is enforced by

@@ -5,7 +5,9 @@ A plan answers one question before anything is written:
 > Given this proposed change and the directory as it is now, what would Alder
 > actually do?
 
-It is available as `POST /api/v1/plan`. In the interface every write goes
+It is available as `POST /api/v1/plan`, and from a shell as `alder plan` and
+`alder apply`, which call it and apply with its tokens exactly as the interface
+does (see [CLI.md](CLI.md)). In the interface every write goes
 through one: the confirmation dialog plans the single change it was handed — an
 entry edit, a creation, a rename or move, a deletion, a password, a membership,
 a schema definition, a configuration setting — and the changeset and the import

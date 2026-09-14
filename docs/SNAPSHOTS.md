@@ -19,7 +19,9 @@ download and upload.
 
 In the interface this is the **Snapshots** tab. Over HTTP it is three
 endpoints: `POST /snapshots/capture`, `POST /snapshots/inspect` and `POST /diff`.
-`api/openapi.yaml` is the reference for their shapes.
+`api/openapi.yaml` is the reference for their shapes. From a shell it is
+`alder snapshot` and `alder diff`, which call those endpoints and write the same
+files; see [CLI.md](CLI.md).
 
 ---
 

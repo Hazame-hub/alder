@@ -90,6 +90,18 @@ Connecting to a directory over plaintext LDAP requires
 per-connection, never as a default, and a session that skipped it is marked
 unverified in the UI for as long as it lasts.
 
+**The command line takes no secret as a flag.** The client commands read a
+bind password from `ALDER_BIND_PASSWORD`, from a file, or from standard input --
+never from an argument, where shell history, the process list and CI logs would
+keep it. It is sent only to the Alder server named by `--api-url`, in the same
+session request the connection screen makes, and it is never printed or logged:
+the client has no mode that traces requests. It follows no redirect, so a
+request body cannot be carried to another address, and it warns when
+`--api-url` is plain HTTP to another machine. Text a directory controls is
+printed with control characters and bidirectional overrides escaped, so a value
+cannot rewrite the terminal showing it. No flag that confirms a write reads the
+environment.
+
 **Nothing writes without a confirmed ChangeRecord.** There is one code path that
 modifies a directory, and the LDIF the user confirmed is rendered from the same
 record that path receives.

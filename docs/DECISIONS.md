@@ -2197,3 +2197,81 @@ to contradict the plan — add an entry.
   so none of them is quadratic in entries or in group size.
 - **Stateless, still.** Snapshots are downloaded and uploaded. The server keeps
   no copy, no history and no schedule.
+
+### 2026-09-14 — the command line is a client
+
+- **Subcommands of `alder`, not a second binary.** The root command took no flags
+  and ran nothing, so `alder snapshot`, `diff`, `plan`, `apply` and `version` sit
+  beside `alder serve` without changing a single existing invocation, flag or
+  `ALDER_*` variable, and the container still starts `serve` by default. Rejected:
+  `alderctl`, which would double every release archive and SBOM to avoid a
+  compatibility problem that does not exist.
+- **This reverses a stated position, deliberately.** `cmd/alder` said there was
+  "deliberately nothing else" because a second interface to the same operations
+  is a liability. The condition under which the client exists is that it is not
+  one: it implements none of the operations. The package comment now says that
+  instead.
+- **A client of the HTTP API, not an in-process engine.** The commands talk to a
+  running Alder through a Go client generated from `api/openapi.yaml`, beside the
+  server interface and models. Rejected: linking the planner and driver into the
+  command, which would mean a second place that holds credentials, opens LDAP
+  connections and issues plan tokens -- under a different per-process key, so its
+  plans would bind secrets and state differently from the server's. One Alder
+  process issues and checks tokens; the web interface and the command line both
+  ask it.
+- **JSON is the server's bytes.** `diff --json` and `plan --json` are the API's
+  response as it came, and a snapshot is sent to `/diff` as the file's own bytes.
+  Re-encoding either would drop fields the client's generated types do not know:
+  on the way out that loses information, and on the way in it would hide exactly
+  the unknown field a version 1 snapshot reader must refuse. The client checks
+  only that a file is one JSON object, so a crafted file cannot close the
+  request's object and write the other side of the comparison itself.
+- **Exit codes are a small stable table.** 0 done or no differences, 1 differences,
+  2 incomplete (winning over 1), 3 not applicable as written, 4 the plan no longer
+  holds (`plan_stale` or `plan_mismatch`), 5 not confirmed, 6 stopped partway,
+  7 usage, 8 anything else. Differences are not a failure, and a partial
+  comparison is never reported as "no differences".
+- **Apply always plans, and applies that plan.** What is sent is the web
+  interface's rule from `web/src/lib/plan.ts`, ported and tested case for case: an
+  exact change from the client's own copy (for LDIF, the document as the server
+  parses it), a desired-state change from the plan's record, each with the plan's
+  baseline. A stale or mismatched plan stops with nothing written and is never
+  planned again and applied. A plan with a conflict or an invalid item is not
+  applied at all -- stricter than the changeset view, which can apply the
+  applicable subset, because a script should not quietly do part of what it was
+  asked.
+- **Confirmation is explicit.** At a terminal the answer defaults to no. With no
+  terminal to ask -- a pipe, CI, input on standard input -- `--yes` is required,
+  and the command refuses before connecting. `--yes` answers the question and
+  nothing else. A plan with deletions also needs `--allow-deletes` when `--yes`
+  answers.
+- **No secret is a flag.** Passwords come from `ALDER_BIND_PASSWORD`, a file, or
+  standard input; an empty one is refused rather than becoming an anonymous bind.
+  There is no hidden interactive prompt: it needs `golang.org/x/term` as a direct
+  dependency, and dependencies are not added without asking.
+- **The environment fills in connection flags, never safety flags.**
+  `internal/envflags` is `alder serve`'s mechanism, moved so both can use it, with
+  an annotation that keeps a flag command-line only. `--yes`, `--allow-deletes`,
+  `--force`, `--insecure-skip-verify`, `--bind-password-stdin`, and the flags
+  choosing what is operated on do not read variables.
+- **Streams and files are predictable.** `-` is standard input (or output for
+  `snapshot --output`), standard input has one owner, standard output carries only
+  the data asked for, and everything for a person goes to standard error. Files
+  are written to a temporary name, synced, checked when they are snapshots, and
+  then named with a hard link that fails if the name exists -- or replaced by
+  rename with `--force`.
+- **Directory text is escaped for terminals.** Control characters and
+  bidirectional overrides in values, DNs and messages are printed as escapes. No
+  colour at all, so no rules about when it is safe.
+- **Deletions from a comparison need two explicit acts.** `diff --stage-deletion`
+  selects one by DN (never `--stage`, never a wildcard), and `apply --yes` needs
+  `--allow-deletes` to send it. Only change requests the server derived are
+  written; the client derives nothing.
+- **Tested at two layers, and broken on purpose.** A stub Alder holds the client to
+  its contract -- streams, codes, files, confirmation, what is sent back. The
+  conformance suite runs the real server against both directories for the whole
+  snapshot, diff, plan and apply workflow, and asks the client and the API the
+  same questions: the snapshot matches apart from `createdAt`, the comparison
+  matches exactly, and the plan matches apart from its session-bound baselines.
+  Six deliberate breaks of the client each fail a test. The client's tests also
+  run on Windows in CI.

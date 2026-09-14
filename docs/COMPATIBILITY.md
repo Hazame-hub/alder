@@ -171,6 +171,17 @@ back. `--i-know-this-is-insecure` exists because refusing plaintext LDAP by
 default was worth doing; if another default has to move, it will come with an
 explicit opt-out and a changelog entry, not silently.
 
+The client commands -- `alder snapshot`, `diff`, `plan`, `apply` and `version`,
+added in 1.8 -- are covered the same way. Their names and flags keep their
+meanings, and so do the variables their connection flags read, the exit codes
+in [CLI.md](CLI.md), and their `--json` output. That JSON is the API's own
+documents, passed through, so it follows the API's rules above; what the client
+adds around them -- `apply`'s envelope, and the error document's `origin` and
+client error codes -- only grows. A flag that confirms or widens a write
+(`--yes`, `--allow-deletes`, `--force`) will not start reading the environment.
+Their human-readable output is not covered, for the same reason message text is
+not.
+
 ---
 
 ## Not covered
