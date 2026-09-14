@@ -922,6 +922,14 @@ paths:
           rules hide is indistinguishable from one that does not exist; see the
           limits in `docs/SNAPSHOTS.md`.
 
+        **Two snapshots need no session.** Comparing two documents the caller
+        sent reads no directory, so the request is answered without a session
+        and opens none. It is still bounded like any request -- the request body
+        limit, the in-flight limit and the request timeout -- and its snapshots
+        are read exactly as strictly. A request with a live side needs a
+        session; without one it is refused with `401` before either snapshot is
+        read.
+
         When the source is live, each item carries a `candidate`: change
         requests that would move the live directory toward the target. They are
         input for `POST /plan`, never applied from here. Deleting an entry is a
