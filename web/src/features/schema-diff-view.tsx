@@ -217,7 +217,7 @@ export function SchemaDiffView({
             onClick={() => refilter(setElements, el)}
             className={`rounded-md border px-2 py-1 text-xs ${elements.has(el) ? "border-primary bg-primary/10" : ""}`}
           >
-            {ELEMENT_LABEL[el]}s
+            {el === "objectClass" ? "object classes" : "attribute types"}
           </button>
         ))}
         <span className="mx-1 h-4 w-px bg-border" />
