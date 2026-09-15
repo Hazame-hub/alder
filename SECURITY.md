@@ -83,6 +83,18 @@ corruption of that content; it is not authentication or a signature, since
 anyone who edits a file can recompute it. A comparison proposes changes but never applies them: its candidates
 are staged and go through the plan like any other write.
 
+**Schema snapshots are read as untrusted too.** A schema snapshot (1.10) holds
+the definitions a server publishes, and no credential, server address or
+configuration. Decoding is strict: unknown fields, trailing content, malformed
+or duplicate OIDs, fields that disagree with their definition text, counts or
+coverage that do not match the document, inheritance cycles, more than 50,000
+definitions and a definition over 64 KiB are all refused. Every `NAME`, `DESC`,
+extension value and definition is directory-controlled text: the interface and
+the terminal escape control and bidirectional characters when showing it, and
+never change it where it is kept or sent. A schema comparison proposes changes
+and never applies them. A removal is never selected by default, a dependency is
+never added on anyone's behalf, and a definition is never reported as unused.
+
 **Recovery bundles hold no secret, and are never executed.** A recovery bundle
 (1.9) is derived from entries as they were read immediately before a change.
 - **What it holds:** the earlier values of the ordinary attributes a change

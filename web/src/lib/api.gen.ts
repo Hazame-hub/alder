@@ -695,9 +695,17 @@ export interface paths {
          *     - A capture that cannot finish -- more than 50,000 entries, a search
          *       limit, a failure part way -- is an error. There is no partial
          *       snapshot.
-         *     - Only data snapshots exist in 1.x so far: a base inside the schema or
-         *       the server's configuration is refused with
+         *     - A data snapshot's base must be ordinary data: a base inside the schema
+         *       or the server's configuration is refused with
          *       `snapshot_scope_unsupported`.
+         *
+         *     With `kind: schema` (1.10) the published subschema is captured instead,
+         *     and `base`, `scope`, `filter` and `operationalAttributes` are not used.
+         *     Attribute types and object classes are captured for comparison; LDAP
+         *     syntaxes, matching rules, matching rule uses, DIT content rules and name
+         *     forms as context. A definition that does not parse is kept verbatim and
+         *     makes the snapshot `partial`. Server configuration is never captured, and
+         *     there is no `kind: config`.
          *
          *     Nothing is kept on the server. The snapshot is returned and belongs to
          *     the caller.
@@ -730,6 +738,10 @@ export interface paths {
          *     sensitive attribute carries a value, or when a checksum is present and
          *     does not match (`snapshot_checksum_mismatch`). A snapshot without a
          *     checksum is accepted and described as `integrity: unverified`.
+         *
+         *     A schema snapshot (1.10) is checked as strictly: every OID, no OID twice,
+         *     every parsed field equal to what its definition text parses to, counts
+         *     and coverage true, and no inheritance cycle.
          */
         post: operations["inspectSnapshot"];
         delete?: never;
@@ -773,6 +785,15 @@ export interface paths {
          *     are read exactly as strictly. A request with a live side needs a
          *     session; without one it is refused with `401` before either snapshot is
          *     read.
+         *
+         *     **Schema (1.10).** Two schema snapshots, or a schema snapshot and the
+         *     live schema (`live: {kind: schema}`, or `live: {}` beside a schema
+         *     snapshot), compare definitions instead of entries, and the response has
+         *     `kind: schema` and a `schema` section. Identity is the OID; definitions
+         *     compare by meaning, not text; a difference only in X- extensions is
+         *     `metadata_only`; what did not parse is `unknown`. `counts` summarises
+         *     both element kinds, with `metadata_only` counted as unchanged. A schema
+         *     and a data side cannot be compared.
          *
          *     When the source is live, each item carries a `candidate`: change
          *     requests that would move the live directory toward the target. They are
@@ -1242,12 +1263,129 @@ export interface components {
             entries: components["schemas"]["SnapshotEntry"][];
         };
         SnapshotCaptureRequest: {
-            base: string;
+            /** @description What to capture. `data` (the default) needs `base`. Added in 1.10. */
+            kind?: components["schemas"]["StateKind"];
+            /** @description The subtree to capture. Required for kind data. */
+            base?: string;
             scope?: components["schemas"]["SnapshotScope"];
             /** @description An RFC 4515 filter, defaulting to `(objectClass=*)`. Parsed, never pasted. */
             filter?: string;
             /** @description Capture operational attributes too. Off by default. */
             operationalAttributes?: boolean;
+        };
+        /**
+         * @description What a snapshot or comparison is of: directory data, or the published
+         *     schema (1.10). Server configuration is not a kind.
+         * @enum {string}
+         */
+        StateKind: "data" | "schema";
+        SchemaSnapshotSource: {
+            vendor?: string;
+            vendorVersion?: string;
+            /** @description The DN the server publishes its schema at. */
+            subschemaEntry: string;
+            /**
+             * @description The server keeps schema in configuration collections and the capturing
+             *     session could read them, so definitions record the collection holding
+             *     them.
+             */
+            collections: boolean;
+        };
+        SchemaSnapshotCoverage: {
+            compared: string[];
+            context: string[];
+            notCaptured: string[];
+        };
+        SchemaSnapshotCounts: {
+            attributeTypes: number;
+            objectClasses: number;
+            ldapSyntaxes: number;
+            matchingRules: number;
+            matchingRuleUse: number;
+            ditContentRules: number;
+            nameForms: number;
+            unparsed: number;
+        };
+        SchemaExtensions: {
+            [key: string]: string[];
+        };
+        SchemaAttributeTypeDefinition: {
+            oid: string;
+            names?: string[];
+            desc?: string;
+            obsolete?: boolean;
+            sup?: string;
+            equality?: string;
+            ordering?: string;
+            substr?: string;
+            syntax?: string;
+            syntaxLength?: number;
+            singleValue?: boolean;
+            collective?: boolean;
+            noUserModification?: boolean;
+            usage: string;
+            extensions?: components["schemas"]["SchemaExtensions"];
+            unrecognized?: string[];
+            collection?: string;
+            /** @description The definition text the server published. */
+            definition: string;
+        };
+        SchemaObjectClassDefinition: {
+            oid: string;
+            names?: string[];
+            desc?: string;
+            obsolete?: boolean;
+            sup?: string[];
+            kind: string;
+            must?: string[];
+            may?: string[];
+            extensions?: components["schemas"]["SchemaExtensions"];
+            unrecognized?: string[];
+            collection?: string;
+            definition: string;
+        };
+        SchemaContextDefinition: {
+            oid: string;
+            names?: string[];
+            desc?: string;
+            syntax?: string;
+            definition: string;
+        };
+        SchemaSnapshotContext: {
+            ldapSyntaxes: components["schemas"]["SchemaContextDefinition"][];
+            matchingRules: components["schemas"]["SchemaContextDefinition"][];
+            matchingRuleUse: components["schemas"]["SchemaContextDefinition"][];
+            ditContentRules: components["schemas"]["SchemaContextDefinition"][];
+            nameForms: components["schemas"]["SchemaContextDefinition"][];
+        };
+        SchemaUnparsedDefinition: {
+            attribute: string;
+            definition: string;
+            error: string;
+        };
+        /**
+         * @description An Alder schema snapshot: format `alder-snapshot`, version 1, kind
+         *     `schema` (1.10). See `docs/SNAPSHOTS.md`. Canonical, checksummed like a
+         *     data snapshot, and holding no server configuration.
+         */
+        SchemaSnapshot: {
+            /** @enum {string} */
+            format: "alder-snapshot";
+            version: number;
+            /** @enum {string} */
+            kind: "schema";
+            /** Format: date-time */
+            createdAt: string;
+            source: components["schemas"]["SchemaSnapshotSource"];
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            coverage: components["schemas"]["SchemaSnapshotCoverage"];
+            counts: components["schemas"]["SchemaSnapshotCounts"];
+            attributeTypes: components["schemas"]["SchemaAttributeTypeDefinition"][];
+            objectClasses: components["schemas"]["SchemaObjectClassDefinition"][];
+            context: components["schemas"]["SchemaSnapshotContext"];
+            unparsed: components["schemas"]["SchemaUnparsedDefinition"][];
+            checksum?: string;
         };
         /** @enum {string} */
         SnapshotIntegrity: "verified" | "unverified";
@@ -1263,6 +1401,19 @@ export interface components {
             /** @description The checksum of the canonical content, whether or not the document carried one. */
             checksum: string;
             integrity: components["schemas"]["SnapshotIntegrity"];
+            /**
+             * @description For a schema snapshot (1.10): what it holds. The data fields then describe
+             *     the read of the subschema entry: `source.base` is that entry, `scope` is
+             *     `base`, `operationalAttributes` is true and `entryCount` is 1.
+             */
+            schema?: components["schemas"]["SchemaSnapshotSummary"];
+        };
+        SchemaSnapshotSummary: {
+            subschemaEntry: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            counts: components["schemas"]["SchemaSnapshotCounts"];
+            collections: boolean;
         };
         /**
          * @description The live directory. Omitted fields are taken from the other side's
@@ -1273,10 +1424,19 @@ export interface components {
             scope?: components["schemas"]["SnapshotScope"];
             filter?: string;
             operationalAttributes?: boolean;
+            /** @description What to read. Omitted, it is the other side's snapshot kind. Added in 1.10. */
+            kind?: components["schemas"]["StateKind"];
+            /**
+             * @description For a schema comparison with the live schema as source: the schema entry
+             *     an added definition would be written to, where the server keeps schema
+             *     in several collections. Without it such additions are
+             *     `schema_target_required`.
+             */
+            schemaTarget?: string;
         };
         /** @description Exactly one of `snapshot` or `live`. */
         DiffSide: {
-            snapshot?: components["schemas"]["Snapshot"];
+            snapshot?: components["schemas"]["Snapshot"] | components["schemas"]["SchemaSnapshot"];
             live?: components["schemas"]["DiffLiveSide"];
         };
         DiffRequest: {
@@ -1298,11 +1458,16 @@ export interface components {
             integrity?: components["schemas"]["SnapshotIntegrity"];
             operationalAttributes: boolean;
             entryCount: number;
+            /** @description For a schema side, how many definitions it holds, parsed or not. Added in 1.10. */
+            definitionCount?: number;
         };
+        /**
+         * @description `metadata_only` (1.10) is a schema definition whose meaning is equal and whose X- extensions differ.
+         * @enum {string}
+         */
+        DiffKind: "added" | "removed" | "modified" | "renamed" | "unchanged" | "unknown" | "metadata_only";
         /** @enum {string} */
-        DiffKind: "added" | "removed" | "modified" | "renamed" | "unchanged" | "unknown";
-        /** @enum {string} */
-        DiffReasonCode: "search_limit_reached" | "scope_mismatch" | "insufficient_access" | "access_not_verified" | "schema_unavailable";
+        DiffReasonCode: "search_limit_reached" | "scope_mismatch" | "insufficient_access" | "access_not_verified" | "schema_unavailable" | "schema_partial";
         DiffReason: {
             code: components["schemas"]["DiffReasonCode"];
             detail: string;
@@ -1334,7 +1499,7 @@ export interface components {
             unknownReason?: components["schemas"]["DiffReasonCode"];
         };
         /** @enum {string} */
-        DiffCandidateBlocked: "source_not_live" | "incomplete_comparison" | "nothing_to_change" | "unknown_difference" | "only_unchangeable_attributes" | "unresolvable_rename";
+        DiffCandidateBlocked: "source_not_live" | "incomplete_comparison" | "nothing_to_change" | "unknown_difference" | "only_unchangeable_attributes" | "unresolvable_rename" | "metadata_only" | "schema_not_editable" | "schema_target_required" | "server_defined" | "non_numeric_oid" | "unresolved_reference" | "dependency_cycle" | "unbuildable_definition";
         /**
          * @description Change requests that would move the live source toward the target: input
          *     for `POST /plan`, never applied from here.
@@ -1353,7 +1518,91 @@ export interface components {
             reason?: components["schemas"]["DiffReasonCode"];
             candidate?: components["schemas"]["DiffCandidate"];
         };
+        /** @enum {string} */
+        SchemaElementKind: "attributeType" | "objectClass";
+        /**
+         * @description `core` changes what a definition does; `description` is DESC; `extension` is an X- extension.
+         * @enum {string}
+         */
+        SchemaFieldCategory: "core" | "description" | "extension";
+        SchemaFieldChange: {
+            field: string;
+            category: components["schemas"]["SchemaFieldCategory"];
+            source?: string[];
+            target?: string[];
+        };
+        SchemaReference: {
+            element: components["schemas"]["SchemaElementKind"];
+            /** @description Empty when the reference resolves to nothing on that side. */
+            oid: string;
+            name?: string;
+            /** @enum {string} */
+            relation: "sup" | "must" | "may";
+        };
+        /**
+         * @description A fact about a schema difference. `unparsed_definition`, `ambiguous_name`
+         *     and `unrecognized_keyword` make it `unknown`. `non_numeric_oid`,
+         *     `unresolved_reference` and `dependency_cycle` block a change.
+         *     `referenced_by_schema`, `used_by_entries` and `usage_unknown` describe a
+         *     removal's impact; `usage_unknown` is never evidence of no use.
+         * @enum {string}
+         */
+        SchemaProblem: "unparsed_definition" | "ambiguous_name" | "unrecognized_keyword" | "non_numeric_oid" | "unresolved_reference" | "referenced_by_schema" | "used_by_entries" | "usage_unknown" | "server_defined" | "dependency_cycle";
+        /**
+         * @description Change requests that would move the live schema toward the target: the
+         *     schema editor's own modifications of the schema entry, input for
+         *     `POST /plan`, never applied from here.
+         */
+        SchemaDiffCandidate: {
+            changes: components["schemas"]["ChangeRequest"][];
+            /** @description The candidate removes a definition. Never selected for the caller. */
+            destructive: boolean;
+            blocked?: components["schemas"]["DiffCandidateBlocked"];
+            impact?: components["schemas"]["SchemaProblem"][];
+            /** @description Keys of other items whose change must be staged before this one. */
+            requires?: string[];
+        };
+        SchemaDiffItem: {
+            /** @description `element:oid`, stable within a comparison. */
+            key: string;
+            element: components["schemas"]["SchemaElementKind"];
+            oid: string;
+            names?: string[];
+            kind: components["schemas"]["DiffKind"];
+            fields?: components["schemas"]["SchemaFieldChange"][];
+            sourceDefinition?: string;
+            targetDefinition?: string;
+            sourceCollection?: string;
+            targetCollection?: string;
+            requires?: components["schemas"]["SchemaReference"][];
+            requiredBy?: components["schemas"]["SchemaReference"][];
+            problems?: components["schemas"]["SchemaProblem"][];
+            candidate?: components["schemas"]["SchemaDiffCandidate"];
+        };
+        SchemaDiffCounts: {
+            compared: number;
+            added: number;
+            removed: number;
+            modified: number;
+            metadataOnly: number;
+            unchanged: number;
+            unknown: number;
+        };
+        SchemaDiff: {
+            attributeTypes: components["schemas"]["SchemaDiffCounts"];
+            objectClasses: components["schemas"]["SchemaDiffCounts"];
+            items: components["schemas"]["SchemaDiffItem"][];
+            /**
+             * @description Keys of the items a change could be derived for, in dependency order:
+             *     what a definition needs before it for additions and modifications, what
+             *     names a definition before it for removals. Never lexical.
+             */
+            order: string[];
+        };
         Diff: {
+            /** @description What was compared. Added in 1.10; earlier releases compare data only. */
+            kind: components["schemas"]["StateKind"];
+            schema?: components["schemas"]["SchemaDiff"];
             source: components["schemas"]["DiffSideSummary"];
             target: components["schemas"]["DiffSideSummary"];
             complete: boolean;
@@ -2157,7 +2406,9 @@ export interface components {
          *     `rename_target_exists`, and `expected_state_differs` (1.9): the entry
          *     no longer holds the state a change's `expect` requires -- for a change
          *     from a recovery bundle, the directory has drifted since the original
-         *     apply.
+         *     apply. `dependency_required` and `referenced_by_schema` (1.10): a schema
+         *     change names a definition the schema would not define when it runs, or
+         *     removes one the schema still names, reading the set in order.
          *
          *     Schema violations (`action: invalid`), which will not resolve by
          *     waiting: `object_class_undefined`, `attribute_undefined`,
@@ -2167,7 +2418,7 @@ export interface components {
          *     directory to refuse.
          * @enum {string}
          */
-        PlanProblemCode: "entry_missing" | "entry_exists" | "has_children" | "rename_target_exists" | "expected_state_differs" | "object_class_undefined" | "attribute_undefined" | "attribute_not_permitted" | "single_value_violation" | "missing_required_attribute";
+        PlanProblemCode: "entry_missing" | "entry_exists" | "has_children" | "rename_target_exists" | "expected_state_differs" | "dependency_required" | "referenced_by_schema" | "object_class_undefined" | "attribute_undefined" | "attribute_not_permitted" | "single_value_violation" | "missing_required_attribute";
         PlanProblem: {
             code: components["schemas"]["PlanProblemCode"];
             /** @description The attribute or object class concerned, where there is one. */
@@ -3506,7 +3757,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Snapshot"];
+                    "application/json": components["schemas"]["Snapshot"] | components["schemas"]["SchemaSnapshot"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -3523,7 +3774,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Snapshot"];
+                "application/json": components["schemas"]["Snapshot"] | components["schemas"]["SchemaSnapshot"];
             };
         };
         responses: {

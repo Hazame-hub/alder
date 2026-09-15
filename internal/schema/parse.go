@@ -333,7 +333,7 @@ func ParseObjectClass(def string) (*ObjectClass, error) {
 				return nil, err
 			}
 		default:
-			if err := handleUnknown(p, kw, &oc.Extensions); err != nil {
+			if err := handleUnknownRecorded(p, kw, &oc.Extensions, &oc.Unrecognized); err != nil {
 				return nil, err
 			}
 		}
@@ -402,7 +402,7 @@ func ParseAttributeType(def string) (*AttributeType, error) {
 			}
 			at.Usage = parseUsage(v)
 		default:
-			if err := handleUnknown(p, kw, &at.Extensions); err != nil {
+			if err := handleUnknownRecorded(p, kw, &at.Extensions, &at.Unrecognized); err != nil {
 				return nil, err
 			}
 		}
@@ -618,6 +618,14 @@ func ParseNameForm(def string) (*NameForm, error) {
 
 // handleUnknown records an X- extension and skips anything else, so a keyword
 // this parser does not know about costs the definition its value, not its life.
+// handleUnknownRecorded is handleUnknown that also notes a skipped keyword.
+func handleUnknownRecorded(p *defParser, kw string, ext *Extensions, skipped *[]string) error {
+	if !strings.HasPrefix(kw, "X-") {
+		*skipped = append(*skipped, kw)
+	}
+	return handleUnknown(p, kw, ext)
+}
+
 func handleUnknown(p *defParser, kw string, ext *Extensions) error {
 	if strings.HasPrefix(kw, "X-") {
 		values, err := p.list()

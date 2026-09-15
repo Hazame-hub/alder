@@ -907,9 +907,17 @@ paths:
         - A capture that cannot finish -- more than 50,000 entries, a search
           limit, a failure part way -- is an error. There is no partial
           snapshot.
-        - Only data snapshots exist in 1.x so far: a base inside the schema or
-          the server's configuration is refused with
+        - A data snapshot's base must be ordinary data: a base inside the schema
+          or the server's configuration is refused with
           `snapshot_scope_unsupported`.
+
+        With `kind: schema` (1.10) the published subschema is captured instead,
+        and `base`, `scope`, `filter` and `operationalAttributes` are not used.
+        Attribute types and object classes are captured for comparison; LDAP
+        syntaxes, matching rules, matching rule uses, DIT content rules and name
+        forms as context. A definition that does not parse is kept verbatim and
+        makes the snapshot `partial`. Server configuration is never captured, and
+        there is no `kind: config`.
 
         Nothing is kept on the server. The snapshot is returned and belongs to
         the caller.
@@ -923,7 +931,10 @@ paths:
           description: The snapshot document, with a download filename.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Snapshot" }
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Snapshot"
+                  - $ref: "#/components/schemas/SchemaSnapshot"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -944,11 +955,18 @@ paths:
         sensitive attribute carries a value, or when a checksum is present and
         does not match (`snapshot_checksum_mismatch`). A snapshot without a
         checksum is accepted and described as `integrity: unverified`.
+
+        A schema snapshot (1.10) is checked as strictly: every OID, no OID twice,
+        every parsed field equal to what its definition text parses to, counts
+        and coverage true, and no inheritance cycle.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/Snapshot" }
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/Snapshot"
+                - $ref: "#/components/schemas/SchemaSnapshot"
       responses:
         "200":
           description: What the snapshot covers.
@@ -988,6 +1006,15 @@ paths:
         are read exactly as strictly. A request with a live side needs a
         session; without one it is refused with `401` before either snapshot is
         read.
+
+        **Schema (1.10).** Two schema snapshots, or a schema snapshot and the
+        live schema (`live: {kind: schema}`, or `live: {}` beside a schema
+        snapshot), compare definitions instead of entries, and the response has
+        `kind: schema` and a `schema` section. Identity is the OID; definitions
+        compare by meaning, not text; a difference only in X- extensions is
+        `metadata_only`; what did not parse is `unknown`. `counts` summarises
+        both element kinds, with `metadata_only` counted as unchanged. A schema
+        and a data side cannot be compared.
 
         When the source is live, each item carries a `candidate`: change
         requests that would move the live directory toward the target. They are
@@ -1673,9 +1700,11 @@ components:
 
     SnapshotCaptureRequest:
       type: object
-      required: [base]
       properties:
-        base: { type: string }
+        kind:
+          $ref: "#/components/schemas/StateKind"
+          description: What to capture. `data` (the default) needs `base`. Added in 1.10.
+        base: { type: string, description: "The subtree to capture. Required for kind data." }
         scope: { $ref: "#/components/schemas/SnapshotScope" }
         filter:
           type: string
@@ -1683,6 +1712,155 @@ components:
         operationalAttributes:
           type: boolean
           description: Capture operational attributes too. Off by default.
+
+    StateKind:
+      type: string
+      description: |
+        What a snapshot or comparison is of: directory data, or the published
+        schema (1.10). Server configuration is not a kind.
+      enum: [data, schema]
+      x-enum-varnames: [StateKindData, StateKindSchema]
+
+    SchemaSnapshotSource:
+      type: object
+      required: [subschemaEntry, collections]
+      properties:
+        vendor: { type: string }
+        vendorVersion: { type: string }
+        subschemaEntry: { type: string, description: The DN the server publishes its schema at. }
+        collections:
+          type: boolean
+          description: |
+            The server keeps schema in configuration collections and the capturing
+            session could read them, so definitions record the collection holding
+            them.
+
+    SchemaSnapshotCoverage:
+      type: object
+      required: [compared, context, notCaptured]
+      properties:
+        compared: { type: array, items: { type: string } }
+        context: { type: array, items: { type: string } }
+        notCaptured: { type: array, items: { type: string } }
+
+    SchemaSnapshotCounts:
+      type: object
+      required: [attributeTypes, objectClasses, ldapSyntaxes, matchingRules, matchingRuleUse, ditContentRules, nameForms, unparsed]
+      properties:
+        attributeTypes: { type: integer }
+        objectClasses: { type: integer }
+        ldapSyntaxes: { type: integer }
+        matchingRules: { type: integer }
+        matchingRuleUse: { type: integer }
+        ditContentRules: { type: integer }
+        nameForms: { type: integer }
+        unparsed: { type: integer }
+
+    SchemaExtensions:
+      type: object
+      additionalProperties:
+        type: array
+        items: { type: string }
+
+    SchemaAttributeTypeDefinition:
+      type: object
+      required: [oid, usage, definition]
+      properties:
+        oid: { type: string }
+        names: { type: array, items: { type: string } }
+        desc: { type: string }
+        obsolete: { type: boolean }
+        sup: { type: string }
+        equality: { type: string }
+        ordering: { type: string }
+        substr: { type: string }
+        syntax: { type: string }
+        syntaxLength: { type: integer }
+        singleValue: { type: boolean }
+        collective: { type: boolean }
+        noUserModification: { type: boolean }
+        usage: { type: string }
+        extensions: { $ref: "#/components/schemas/SchemaExtensions" }
+        unrecognized: { type: array, items: { type: string } }
+        collection: { type: string }
+        definition: { type: string, description: The definition text the server published. }
+
+    SchemaObjectClassDefinition:
+      type: object
+      required: [oid, kind, definition]
+      properties:
+        oid: { type: string }
+        names: { type: array, items: { type: string } }
+        desc: { type: string }
+        obsolete: { type: boolean }
+        sup: { type: array, items: { type: string } }
+        kind: { type: string }
+        must: { type: array, items: { type: string } }
+        may: { type: array, items: { type: string } }
+        extensions: { $ref: "#/components/schemas/SchemaExtensions" }
+        unrecognized: { type: array, items: { type: string } }
+        collection: { type: string }
+        definition: { type: string }
+
+    SchemaContextDefinition:
+      type: object
+      required: [oid, definition]
+      properties:
+        oid: { type: string }
+        names: { type: array, items: { type: string } }
+        desc: { type: string }
+        syntax: { type: string }
+        definition: { type: string }
+
+    SchemaSnapshotContext:
+      type: object
+      required: [ldapSyntaxes, matchingRules, matchingRuleUse, ditContentRules, nameForms]
+      properties:
+        ldapSyntaxes: { type: array, items: { $ref: "#/components/schemas/SchemaContextDefinition" } }
+        matchingRules: { type: array, items: { $ref: "#/components/schemas/SchemaContextDefinition" } }
+        matchingRuleUse: { type: array, items: { $ref: "#/components/schemas/SchemaContextDefinition" } }
+        ditContentRules: { type: array, items: { $ref: "#/components/schemas/SchemaContextDefinition" } }
+        nameForms: { type: array, items: { $ref: "#/components/schemas/SchemaContextDefinition" } }
+
+    SchemaUnparsedDefinition:
+      type: object
+      required: [attribute, definition, error]
+      properties:
+        attribute: { type: string }
+        definition: { type: string }
+        error: { type: string }
+
+    SchemaSnapshot:
+      type: object
+      description: |
+        An Alder schema snapshot: format `alder-snapshot`, version 1, kind
+        `schema` (1.10). See `docs/SNAPSHOTS.md`. Canonical, checksummed like a
+        data snapshot, and holding no server configuration.
+      required: [format, version, kind, createdAt, source, completeness, coverage, counts, attributeTypes,
+        objectClasses, context, unparsed]
+      properties:
+        format:
+          type: string
+          enum: [alder-snapshot]
+          x-enum-varnames: [SchemaSnapshotFormatAlderSnapshot]
+        version: { type: integer }
+        kind:
+          type: string
+          enum: [schema]
+          x-enum-varnames: [SchemaSnapshotKindSchema]
+        createdAt: { type: string, format: date-time }
+        source: { $ref: "#/components/schemas/SchemaSnapshotSource" }
+        completeness:
+          type: string
+          enum: [complete, partial]
+          x-enum-varnames: [SchemaSnapshotComplete, SchemaSnapshotPartial]
+        coverage: { $ref: "#/components/schemas/SchemaSnapshotCoverage" }
+        counts: { $ref: "#/components/schemas/SchemaSnapshotCounts" }
+        attributeTypes: { type: array, items: { $ref: "#/components/schemas/SchemaAttributeTypeDefinition" } }
+        objectClasses: { type: array, items: { $ref: "#/components/schemas/SchemaObjectClassDefinition" } }
+        context: { $ref: "#/components/schemas/SchemaSnapshotContext" }
+        unparsed: { type: array, items: { $ref: "#/components/schemas/SchemaUnparsedDefinition" } }
+        checksum: { type: string }
 
     SnapshotIntegrity:
       type: string
@@ -1706,6 +1884,24 @@ components:
         entryCount: { type: integer }
         checksum: { type: string, description: "The checksum of the canonical content, whether or not the document carried one." }
         integrity: { $ref: "#/components/schemas/SnapshotIntegrity" }
+        schema:
+          $ref: "#/components/schemas/SchemaSnapshotSummary"
+          description: |
+            For a schema snapshot (1.10): what it holds. The data fields then describe
+            the read of the subschema entry: `source.base` is that entry, `scope` is
+            `base`, `operationalAttributes` is true and `entryCount` is 1.
+
+    SchemaSnapshotSummary:
+      type: object
+      required: [subschemaEntry, completeness, counts, collections]
+      properties:
+        subschemaEntry: { type: string }
+        completeness:
+          type: string
+          enum: [complete, partial]
+          x-enum-varnames: [SchemaSummaryComplete, SchemaSummaryPartial]
+        counts: { $ref: "#/components/schemas/SchemaSnapshotCounts" }
+        collections: { type: boolean }
 
     DiffLiveSide:
       type: object
@@ -1717,12 +1913,26 @@ components:
         scope: { $ref: "#/components/schemas/SnapshotScope" }
         filter: { type: string }
         operationalAttributes: { type: boolean }
+        kind:
+          $ref: "#/components/schemas/StateKind"
+          description: |
+            What to read. Omitted, it is the other side's snapshot kind. Added in 1.10.
+        schemaTarget:
+          type: string
+          description: |
+            For a schema comparison with the live schema as source: the schema entry
+            an added definition would be written to, where the server keeps schema
+            in several collections. Without it such additions are
+            `schema_target_required`.
 
     DiffSide:
       type: object
       description: Exactly one of `snapshot` or `live`.
       properties:
-        snapshot: { $ref: "#/components/schemas/Snapshot" }
+        snapshot:
+          oneOf:
+            - $ref: "#/components/schemas/Snapshot"
+            - $ref: "#/components/schemas/SchemaSnapshot"
         live: { $ref: "#/components/schemas/DiffLiveSide" }
 
     DiffRequest:
@@ -1754,17 +1964,21 @@ components:
         integrity: { $ref: "#/components/schemas/SnapshotIntegrity" }
         operationalAttributes: { type: boolean }
         entryCount: { type: integer }
+        definitionCount:
+          type: integer
+          description: For a schema side, how many definitions it holds, parsed or not. Added in 1.10.
 
     DiffKind:
       type: string
-      enum: [added, removed, modified, renamed, unchanged, unknown]
-      x-enum-varnames: [DiffKindAdded, DiffKindRemoved, DiffKindModified, DiffKindRenamed, DiffKindUnchanged, DiffKindUnknown]
+      description: "`metadata_only` (1.10) is a schema definition whose meaning is equal and whose X- extensions differ."
+      enum: [added, removed, modified, renamed, unchanged, unknown, metadata_only]
+      x-enum-varnames: [DiffKindAdded, DiffKindRemoved, DiffKindModified, DiffKindRenamed, DiffKindUnchanged, DiffKindUnknown, DiffKindMetadataOnly]
 
     DiffReasonCode:
       type: string
-      enum: [search_limit_reached, scope_mismatch, insufficient_access, access_not_verified, schema_unavailable]
+      enum: [search_limit_reached, scope_mismatch, insufficient_access, access_not_verified, schema_unavailable, schema_partial]
       x-enum-varnames: [DiffReasonSearchLimitReached, DiffReasonScopeMismatch, DiffReasonInsufficientAccess,
-        DiffReasonAccessNotVerified, DiffReasonSchemaUnavailable]
+        DiffReasonAccessNotVerified, DiffReasonSchemaUnavailable, DiffReasonSchemaPartial]
 
     DiffReason:
       type: object
@@ -1809,9 +2023,12 @@ components:
     DiffCandidateBlocked:
       type: string
       enum: [source_not_live, incomplete_comparison, nothing_to_change, unknown_difference,
-        only_unchangeable_attributes, unresolvable_rename]
+        only_unchangeable_attributes, unresolvable_rename, metadata_only, schema_not_editable, schema_target_required,
+        server_defined, non_numeric_oid, unresolved_reference, dependency_cycle, unbuildable_definition]
       x-enum-varnames: [DiffBlockedSourceNotLive, DiffBlockedIncompleteComparison, DiffBlockedNothingToChange,
-        DiffBlockedUnknownDifference, DiffBlockedOnlyUnchangeableAttributes, DiffBlockedUnresolvableRename]
+        DiffBlockedUnknownDifference, DiffBlockedOnlyUnchangeableAttributes, DiffBlockedUnresolvableRename,
+        DiffBlockedMetadataOnly, DiffBlockedSchemaNotEditable, DiffBlockedSchemaTargetRequired, DiffBlockedServerDefined,
+        DiffBlockedNonNumericOID, DiffBlockedUnresolvedReference, DiffBlockedDependencyCycle, DiffBlockedUnbuildableDefinition]
 
     DiffCandidate:
       type: object
@@ -1841,10 +2058,123 @@ components:
         reason: { $ref: "#/components/schemas/DiffReasonCode" }
         candidate: { $ref: "#/components/schemas/DiffCandidate" }
 
+    SchemaElementKind:
+      type: string
+      enum: [attributeType, objectClass]
+      x-enum-varnames: [SchemaElementAttributeType, SchemaElementObjectClass]
+
+    SchemaFieldCategory:
+      type: string
+      description: "`core` changes what a definition does; `description` is DESC; `extension` is an X- extension."
+      enum: [core, description, extension]
+      x-enum-varnames: [SchemaFieldCore, SchemaFieldDescription, SchemaFieldExtension]
+
+    SchemaFieldChange:
+      type: object
+      required: [field, category]
+      properties:
+        field: { type: string }
+        category: { $ref: "#/components/schemas/SchemaFieldCategory" }
+        source: { type: array, items: { type: string } }
+        target: { type: array, items: { type: string } }
+
+    SchemaReference:
+      type: object
+      required: [element, oid, relation]
+      properties:
+        element: { $ref: "#/components/schemas/SchemaElementKind" }
+        oid: { type: string, description: Empty when the reference resolves to nothing on that side. }
+        name: { type: string }
+        relation:
+          type: string
+          enum: [sup, must, may]
+          x-enum-varnames: [SchemaRelationSup, SchemaRelationMust, SchemaRelationMay]
+
+    SchemaProblem:
+      type: string
+      description: |
+        A fact about a schema difference. `unparsed_definition`, `ambiguous_name`
+        and `unrecognized_keyword` make it `unknown`. `non_numeric_oid`,
+        `unresolved_reference` and `dependency_cycle` block a change.
+        `referenced_by_schema`, `used_by_entries` and `usage_unknown` describe a
+        removal's impact; `usage_unknown` is never evidence of no use.
+      enum: [unparsed_definition, ambiguous_name, unrecognized_keyword, non_numeric_oid, unresolved_reference,
+        referenced_by_schema, used_by_entries, usage_unknown, server_defined, dependency_cycle]
+      x-enum-varnames: [SchemaProblemUnparsed, SchemaProblemAmbiguousName, SchemaProblemUnrecognizedKeyword,
+        SchemaProblemNonNumericOID, SchemaProblemUnresolvedReference, SchemaProblemReferencedBySchema,
+        SchemaProblemUsedByEntries, SchemaProblemUsageUnknown, SchemaProblemServerDefined, SchemaProblemDependencyCycle]
+
+    SchemaDiffCandidate:
+      type: object
+      description: |
+        Change requests that would move the live schema toward the target: the
+        schema editor's own modifications of the schema entry, input for
+        `POST /plan`, never applied from here.
+      required: [changes, destructive]
+      properties:
+        changes: { type: array, items: { $ref: "#/components/schemas/ChangeRequest" } }
+        destructive: { type: boolean, description: The candidate removes a definition. Never selected for the caller. }
+        blocked: { $ref: "#/components/schemas/DiffCandidateBlocked" }
+        impact: { type: array, items: { $ref: "#/components/schemas/SchemaProblem" } }
+        requires:
+          type: array
+          items: { type: string }
+          description: Keys of other items whose change must be staged before this one.
+
+    SchemaDiffItem:
+      type: object
+      required: [key, element, oid, kind]
+      properties:
+        key: { type: string, description: "`element:oid`, stable within a comparison." }
+        element: { $ref: "#/components/schemas/SchemaElementKind" }
+        oid: { type: string }
+        names: { type: array, items: { type: string } }
+        kind: { $ref: "#/components/schemas/DiffKind" }
+        fields: { type: array, items: { $ref: "#/components/schemas/SchemaFieldChange" } }
+        sourceDefinition: { type: string }
+        targetDefinition: { type: string }
+        sourceCollection: { type: string }
+        targetCollection: { type: string }
+        requires: { type: array, items: { $ref: "#/components/schemas/SchemaReference" } }
+        requiredBy: { type: array, items: { $ref: "#/components/schemas/SchemaReference" } }
+        problems: { type: array, items: { $ref: "#/components/schemas/SchemaProblem" } }
+        candidate: { $ref: "#/components/schemas/SchemaDiffCandidate" }
+
+    SchemaDiffCounts:
+      type: object
+      required: [compared, added, removed, modified, metadataOnly, unchanged, unknown]
+      properties:
+        compared: { type: integer }
+        added: { type: integer }
+        removed: { type: integer }
+        modified: { type: integer }
+        metadataOnly: { type: integer }
+        unchanged: { type: integer }
+        unknown: { type: integer }
+
+    SchemaDiff:
+      type: object
+      required: [attributeTypes, objectClasses, items, order]
+      properties:
+        attributeTypes: { $ref: "#/components/schemas/SchemaDiffCounts" }
+        objectClasses: { $ref: "#/components/schemas/SchemaDiffCounts" }
+        items: { type: array, items: { $ref: "#/components/schemas/SchemaDiffItem" } }
+        order:
+          type: array
+          items: { type: string }
+          description: |
+            Keys of the items a change could be derived for, in dependency order:
+            what a definition needs before it for additions and modifications, what
+            names a definition before it for removals. Never lexical.
+
     Diff:
       type: object
-      required: [source, target, complete, counts, crossVendor, operationalIgnored, items]
+      required: [kind, source, target, complete, counts, crossVendor, operationalIgnored, items]
       properties:
+        kind:
+          $ref: "#/components/schemas/StateKind"
+          description: What was compared. Added in 1.10; earlier releases compare data only.
+        schema: { $ref: "#/components/schemas/SchemaDiff" }
         source: { $ref: "#/components/schemas/DiffSideSummary" }
         target: { $ref: "#/components/schemas/DiffSideSummary" }
         complete: { type: boolean }
@@ -2899,7 +3229,9 @@ components:
         `rename_target_exists`, and `expected_state_differs` (1.9): the entry
         no longer holds the state a change's `expect` requires -- for a change
         from a recovery bundle, the directory has drifted since the original
-        apply.
+        apply. `dependency_required` and `referenced_by_schema` (1.10): a schema
+        change names a definition the schema would not define when it runs, or
+        removes one the schema still names, reading the set in order.
 
         Schema violations (`action: invalid`), which will not resolve by
         waiting: `object_class_undefined`, `attribute_undefined`,
@@ -2913,6 +3245,8 @@ components:
         - has_children
         - rename_target_exists
         - expected_state_differs
+        - dependency_required
+        - referenced_by_schema
         - object_class_undefined
         - attribute_undefined
         - attribute_not_permitted
@@ -2924,6 +3258,8 @@ components:
         - PlanProblemHasChildren
         - PlanProblemRenameTargetExists
         - PlanProblemExpectedStateDiffers
+        - PlanProblemDependencyRequired
+        - PlanProblemReferencedBySchema
         - PlanProblemObjectClassUndefined
         - PlanProblemAttributeUndefined
         - PlanProblemAttributeNotPermitted

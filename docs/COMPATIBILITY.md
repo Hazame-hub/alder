@@ -163,6 +163,38 @@ contract changed only by tightening what a token proves:
   - A client that does not recognise a drift state should treat the change as
     not ready.
 
+1.10 added schema snapshots and schema comparison, only by adding:
+
+- **New optional fields and values, and no new endpoint.**
+  - `kind` on `SnapshotCaptureRequest`, whose `base` is now needed only for
+    `kind: data`, the default.
+  - `kind` and `schemaTarget` on `DiffLiveSide`; `kind` and `schema` on `Diff`;
+    `definitionCount` on `DiffSideSummary`; `schema` on `SnapshotInspection`.
+  - A `SchemaSnapshot` document as the body of capture, inspect and either side
+    of a diff.
+  - New enum values: `metadata_only` in `DiffKind`; `schema_partial` in
+    `DiffReasonCode`; `metadata_only`, `schema_not_editable`,
+    `schema_target_required`, `server_defined`, `non_numeric_oid`,
+    `unresolved_reference`, `dependency_cycle` and `unbuildable_definition` in
+    `DiffCandidateBlocked`; `dependency_required` and `referenced_by_schema` in
+    `PlanProblemCode`.
+
+  A request that uses none of them is answered as it was in 1.9, except that
+  every `Diff` now says `kind: data`.
+- **The schema snapshot is covered like the data snapshot.** Schema snapshots
+  were introduced in Alder 1.10. Later Alder 1.x releases will continue to read
+  schema snapshot kind/version 1. A release before 1.10 refuses one with
+  `snapshot_invalid`, as a kind it does not know, and readers refuse unknown
+  fields rather than ignore them.
+- **A set of schema changes can plan as a conflict where it did not.** A set that
+  adds a definition before what it names exists, or removes one the schema still
+  names, plans as `conflict` with `dependency_required` or
+  `referenced_by_schema`. Before 1.10 it planned as applicable and the directory
+  refused it during the apply.
+- **The command line gained options, not commands:** `alder snapshot --kind`
+  and `alder diff --schema-target`. `--stage` and `--stage-deletion` also take a
+  schema OID. A `metadata_only` difference alone exits 0.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —

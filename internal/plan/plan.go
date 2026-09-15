@@ -261,6 +261,10 @@ type Options struct {
 	// MembershipAttributes names the attributes that hold group members, so
 	// the plan can report memberships gained and lost. Empty reports none.
 	MembershipAttributes []string
+	// SchemaLocator says which attributes of which entries hold schema
+	// definitions, so changes to them are checked against each other and the
+	// live schema. Nil checks none.
+	SchemaLocator SchemaLocator
 }
 
 // Planner computes plans and checks them.
@@ -360,6 +364,7 @@ func (pl *Planner) ComputeProposals(
 			p.Counts.Invalid++
 		}
 	}
+	CheckSchemaDependencies(&p, sch, opts.SchemaLocator)
 	p.Subtrees = deletedSubtrees(p.Items)
 	return p, nil
 }

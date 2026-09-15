@@ -2465,3 +2465,75 @@ to contradict the plan — add an entry.
     escaped text to the directory.
   - Rejected: a CSS isolation rule, which cannot neutralise an explicit
     override inside the text.
+
+### 2026-09-14 — 1.10: schema snapshots and schema comparison
+
+- **A new kind in format version 1, not a version 2.** COMPATIBILITY.md already
+  allowed a later 1.x to add "a new kind", and a schema is a different document
+  rather than a new shape of the data one. `kind: schema` has its own strict
+  field set; the data reader refuses it by kind and the schema reader refuses a
+  data snapshot the same way. A release before 1.10 refuses it as
+  `snapshot_invalid`, which is the promised behaviour for a kind it does not
+  know.
+- **The OID is the identity; names are aliases.** A renamed definition is a
+  modification of `names`. A NAME claimed by two OIDs makes both `unknown`
+  (`ambiguous_name`). Descriptor-style OIDs, which 389 DS publishes for a few
+  definitions, are compared by exact text and flagged `non_numeric_oid`, never
+  acted on.
+  - Rejected: pairing by NAME when OIDs differ. It is the fuzzy identity the
+    product refuses everywhere else.
+- **Each definition is stored twice, parsed and as text, and the two must
+  agree.** The comparison reads fields; people read text. Decoding re-parses
+  every definition and refuses a document whose fields and text disagree, so an
+  edited field cannot pass as the published definition.
+- **Semantics versus metadata.** Every field that changes what a definition
+  does is `core`; `DESC` is its own category and still a modification; `X-`
+  extensions alone make `metadata_only`, which is reported and never proposed.
+  `X-ORIGIN` and `X-SCHEMA-FILE` are left out of what Alder writes; the server
+  records its own.
+- **What is actionable is what the server states.** Configuration collections,
+  read fresh at comparison time, say which collection holds a definition;
+  `X-ORIGIN 'user defined'` says a directly writable subschema's definition was
+  added by an administrator. Anything else is `server_defined`. An addition
+  needs a target, chosen explicitly where there are several.
+  - Rejected: classifying "custom" by OID arc or by name prefix. `origin`
+    unknown is better than a confident wrong answer.
+  - The collection map is read at comparison time rather than taken from
+    connect time, so a definition added in the same session can be changed
+    again without reconnecting.
+- **Order is computed once, on the server, and returned.** `order` is a
+  topological order (dependencies before dependents, referrers before a removed
+  definition, removals last), ties broken by element kind then OID. The
+  interface and the command line stage in it; a selection missing a dependency
+  is refused with `dependency_required`, never completed automatically. A cycle
+  gets no order and no change.
+- **The plan checks schema sets in order too.** A post-pass over a computed
+  plan reads schema-entry changes in sequence against the live schema and turns
+  a definition named before it exists, or removed while still named, into a
+  conflict. It is the same check whether the set came from a comparison or was
+  written by hand.
+- **Usage is never assumed to be zero.** A removal's impact is
+  `used_by_entries` only on positive evidence from a one-entry search;
+  otherwise `usage_unknown`. At most 50 searches run per comparison.
+- **A live schema capture reads the schema fresh.** The session cached the
+  parsed schema and invalidated it only after its own writes, so a comparison
+  with the live schema would have missed a change made elsewhere. `Session`
+  gained `RefreshSchema`; data captures keep using the cache.
+- **No new command family or endpoint.** `kind` on the capture request and on a
+  live diff side; a live side without one takes the other side's kind; mixed
+  kinds are refused. `alder snapshot --kind schema`, `alder diff`, stage by
+  OID. The data-shaped `counts` stay filled, with `metadata_only` counted as
+  `unchanged`, so an older client's exit status still means "core differences".
+- **`dITStructureRules` are not captured.** They are identified by integer rule
+  IDs rather than OIDs, the parser does not read them, and the document says so
+  in `coverage.notCaptured` rather than omitting them silently.
+- **Proof.** Conformance on both servers: capture twice with identical content,
+  zero differences against live, an attribute type and a dependent class added
+  and compared, refused out of order, planned and applied in order, modified,
+  removed in reverse order, zero differences after each. Cross-server: the
+  harness schema, installed identically on OpenLDAP and 389 DS, has zero core
+  differences, and one deliberate `SINGLE-VALUE` change makes exactly one. Seven
+  deliberate breaks — identity by NAME, a forgotten `MUST`, `SYNTAX` treated as
+  equal, a class ordered before its attribute type, an unselected deletion
+  included (command line and interface), `SINGLE-VALUE` normalised away — each
+  fail the tests.

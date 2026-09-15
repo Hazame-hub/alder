@@ -26,6 +26,9 @@ func (f *fakeSession) Capabilities() directory.Capabilities { return directory.C
 func (f *fakeSession) Schema(context.Context) (*schema.Schema, error) {
 	return nil, errors.New("not used")
 }
+func (f *fakeSession) RefreshSchema(context.Context) (*schema.Schema, error) {
+	return nil, errors.New("not used")
+}
 func (f *fakeSession) Search(context.Context, directory.SearchRequest) (*directory.SearchResult, error) {
 	return nil, errors.New("not used")
 }
