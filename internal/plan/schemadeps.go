@@ -119,110 +119,131 @@ func (s *schemaState) provides(kind directory.SchemaDefKind, ref string) bool {
 // CheckSchemaDependencies turns applicable schema changes whose dependencies do
 // not hold into conflicts, in the order the set would apply.
 func CheckSchemaDependencies(p *Plan, sch *schema.Schema, locate SchemaLocator) {
-	if locate == nil {
-		return
+	deps := newSchemaDeps(sch, locate)
+	for i := range p.Items {
+		deps.check(p, i)
 	}
-	state := &schemaState{sch: sch,
+}
+
+// schemaDeps is the dependency check as a walk: one item at a time, in order,
+// carrying what the changes so far would have added and removed. The plan runs
+// it beside classification rather than after it, so a change is judged against
+// the schema the set will really leave -- a removal refused here removes
+// nothing, and the changes that follow still see the definition.
+type schemaDeps struct {
+	sch    *schema.Schema
+	locate SchemaLocator
+	state  *schemaState
+}
+
+func newSchemaDeps(sch *schema.Schema, locate SchemaLocator) *schemaDeps {
+	return &schemaDeps{sch: sch, locate: locate, state: &schemaState{sch: sch,
 		added:   map[directory.SchemaDefKind]map[string]string{directory.SchemaDefAttributeType: {}, directory.SchemaDefObjectClass: {}},
 		removed: map[directory.SchemaDefKind]map[string]bool{directory.SchemaDefAttributeType: {}, directory.SchemaDefObjectClass: {}},
+	}}
+}
+
+// check judges one item, refusing it in place if its dependencies do not hold.
+func (s *schemaDeps) check(p *Plan, i int) {
+	if s == nil || s.locate == nil {
+		return
 	}
-	for i := range p.Items {
-		item := &p.Items[i]
-		if item.Action.AppliesNothing() || item.Record.Type != directory.ChangeModify {
+	sch, locate, state := s.sch, s.locate, s.state
+	item := &p.Items[i]
+	if item.Action.AppliesNothing() || item.Record.Type != directory.ChangeModify {
+		return
+	}
+	var adds, deletes []schemaDef
+	for _, m := range item.Record.Mods {
+		kind, ok := locate(item.Record.DN, m.Name)
+		if !ok {
 			continue
 		}
-		var adds, deletes []schemaDef
-		for _, m := range item.Record.Mods {
-			kind, ok := locate(item.Record.DN, m.Name)
-			if !ok {
+		for _, v := range m.Values {
+			d, parsed := parseSchemaValue(kind, v)
+			if !parsed {
 				continue
 			}
-			for _, v := range m.Values {
-				d, parsed := parseSchemaValue(kind, v)
-				if !parsed {
-					continue
-				}
-				switch m.Op {
-				case directory.ModAdd:
-					adds = append(adds, d)
-				case directory.ModDelete:
-					deletes = append(deletes, d)
-				}
+			switch m.Op {
+			case directory.ModAdd:
+				adds = append(adds, d)
+			case directory.ModDelete:
+				deletes = append(deletes, d)
 			}
 		}
-		if len(adds) == 0 && len(deletes) == 0 {
-			continue
-		}
-		readded := map[string]bool{}
-		for _, d := range adds {
-			readded[string(d.kind)+":"+strings.ToLower(d.oid)] = true
-		}
+	}
+	if len(adds) == 0 && len(deletes) == 0 {
+		return
+	}
+	readded := map[string]bool{}
+	for _, d := range adds {
+		readded[string(d.kind)+":"+strings.ToLower(d.oid)] = true
+	}
 
-		// What this change adds is available to itself: an object class and the
-		// attribute type it needs may arrive together.
-		local := &schemaState{sch: sch, added: map[directory.SchemaDefKind]map[string]string{}, removed: state.removed}
-		for k, m := range state.added {
-			local.added[k] = map[string]string{}
-			for name, oid := range m {
-				local.added[k][name] = oid
+	// What this change adds is available to itself: an object class and the
+	// attribute type it needs may arrive together.
+	local := &schemaState{sch: sch, added: map[directory.SchemaDefKind]map[string]string{}, removed: state.removed}
+	for k, m := range state.added {
+		local.added[k] = map[string]string{}
+		for name, oid := range m {
+			local.added[k][name] = oid
+		}
+	}
+	for _, d := range adds {
+		register(local.added[d.kind], d)
+	}
+	code, attribute := ProblemCode(""), ""
+	for _, d := range adds {
+		for _, ref := range d.refsAT {
+			if !local.provides(directory.SchemaDefAttributeType, ref) {
+				code, attribute = ProblemDependencyRequired, ref
 			}
 		}
-		for _, d := range adds {
-			register(local.added[d.kind], d)
-		}
-		code, attribute := ProblemCode(""), ""
-		for _, d := range adds {
-			for _, ref := range d.refsAT {
-				if !local.provides(directory.SchemaDefAttributeType, ref) {
-					code, attribute = ProblemDependencyRequired, ref
-				}
-			}
-			for _, ref := range d.refsOC {
-				if !local.provides(directory.SchemaDefObjectClass, ref) {
-					code, attribute = ProblemDependencyRequired, ref
-				}
-			}
-			if code != "" {
-				break
-			}
-		}
-		if code == "" {
-			for _, d := range deletes {
-				if readded[string(d.kind)+":"+strings.ToLower(d.oid)] {
-					continue
-				}
-				if name := referrer(sch, state, d, deletes); name != "" {
-					code, attribute = ProblemReferencedBySchema, name
-					break
-				}
+		for _, ref := range d.refsOC {
+			if !local.provides(directory.SchemaDefObjectClass, ref) {
+				code, attribute = ProblemDependencyRequired, ref
 			}
 		}
 		if code != "" {
-			reason := "This schema change names " + attribute + ", which the schema would not define when it runs."
-			if code == ProblemReferencedBySchema {
-				reason = "This schema change removes a definition that " + attribute + " still names."
-			}
-			action := item.Action
-			*item = refuse(*item, ActionConflict, code, attribute, reason)
-			item.Baseline = ""
-			switch action {
-			case ActionModify:
-				p.Counts.Modify--
-			case ActionAdd:
-				p.Counts.Add--
-			}
-			p.Counts.Conflict++
-			continue
+			break
 		}
+	}
+	if code == "" {
 		for _, d := range deletes {
-			if !readded[string(d.kind)+":"+strings.ToLower(d.oid)] {
-				state.removed[d.kind][strings.ToLower(d.oid)] = true
+			if readded[string(d.kind)+":"+strings.ToLower(d.oid)] {
+				continue
+			}
+			if name := referrer(sch, state, d, deletes); name != "" {
+				code, attribute = ProblemReferencedBySchema, name
+				break
 			}
 		}
-		for _, d := range adds {
-			register(state.added[d.kind], d)
-			delete(state.removed[d.kind], strings.ToLower(d.oid))
+	}
+	if code != "" {
+		reason := "This schema change names " + attribute + ", which the schema would not define when it runs."
+		if code == ProblemReferencedBySchema {
+			reason = "This schema change removes a definition that " + attribute + " still names."
 		}
+		action := item.Action
+		*item = refuse(*item, ActionConflict, code, attribute, reason)
+		item.Baseline = ""
+		switch action {
+		case ActionModify:
+			p.Counts.Modify--
+		case ActionAdd:
+			p.Counts.Add--
+		}
+		p.Counts.Conflict++
+		return
+	}
+	for _, d := range deletes {
+		if !readded[string(d.kind)+":"+strings.ToLower(d.oid)] {
+			state.removed[d.kind][strings.ToLower(d.oid)] = true
+		}
+	}
+	for _, d := range adds {
+		register(state.added[d.kind], d)
+		delete(state.removed[d.kind], strings.ToLower(d.oid))
 	}
 }
 
