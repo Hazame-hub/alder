@@ -151,6 +151,7 @@ func Commands(env *Env) []*cobra.Command {
 	return []*cobra.Command{
 		snapshotCmd(env),
 		diffCmd(env),
+		packageCmd(env),
 		planCmd(env),
 		applyCmd(env),
 		versionCmd(env),
