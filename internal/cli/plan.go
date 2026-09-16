@@ -22,8 +22,12 @@ type planOptions struct {
 	mode     string
 	changes  string
 	recovery string
-	json     bool
-	summary  bool
+	pkg      string
+	// schemaTarget belongs to a package: where an added definition goes on a
+	// server that keeps schema in several entries.
+	schemaTarget string
+	json         bool
+	summary      bool
 
 	yes                 bool
 	allowDeletes        bool
@@ -38,9 +42,12 @@ func (o *planOptions) register(cmd *cobra.Command) {
 		"how the LDIF is read: changes (every record is the operation it states) or desired (the state entries should be in)")
 	f.StringVar(&o.changes, "changes", "", "a JSON array of change requests to use instead of LDIF, or - for standard input")
 	f.StringVar(&o.recovery, "recovery", "", "a recovery bundle whose compensating changes to plan instead, or - for standard input")
+	f.StringVar(&o.pkg, "package", "", "a change package to validate against this directory and plan, or - for standard input")
+	f.StringVar(&o.schemaTarget, "schema-target", "",
+		"with --package: the schema entry an added definition is written to, where the server keeps schema in several")
 	f.BoolVar(&o.json, "json", false, "write JSON to standard output")
 	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
-	envflags.Exclude(f, "mode", "changes", "recovery", "json", "summary")
+	envflags.Exclude(f, "mode", "changes", "recovery", "package", "schema-target", "json", "summary")
 }
 
 func planCmd(env *Env) *cobra.Command {
@@ -57,6 +64,9 @@ func planCmd(env *Env) *cobra.Command {
 			"--mode changes (the default, as in the API) reads every record as the exact\n" +
 			"operation it states. --mode desired reads the document as the state entries\n" +
 			"should be in; an entry it does not mention is never deleted.\n\n" +
+			"--package validates a change package against this directory and plans the\n" +
+			"changes it says are ready. The package is not rewritten, and nothing another\n" +
+			"environment planned is replayed: the plan is made here, against this state.\n\n" +
 			"--recovery plans the compensating changes in a recovery bundle written by\n" +
 			"alder apply --recovery-out, against the directory as it is now. A change\n" +
 			"whose entry has moved on since the original apply is a conflict, never an\n" +
@@ -90,6 +100,8 @@ func applyCmd(env *Env) *cobra.Command {
 			"is applied unless --yes is given. --yes answers the question and nothing\n" +
 			"else: the plan, its checks and the refusal of a stale plan all still apply.\n" +
 			"A plan that deletes entries also needs --allow-deletes when --yes answers.\n\n" +
+			"--package validates a change package here and applies the plan made from what\n" +
+			"is ready, after showing it. There is no way to apply a package without a plan.\n\n" +
 			"--recovery-out FILE asks Alder for a recovery bundle: the compensating changes\n" +
 			"it can derive from each entry as it was immediately before its change. It is\n" +
 			"written only for changes that were applied -- on a run that stops partway,\n" +
@@ -130,10 +142,27 @@ type planInput struct {
 	// a server to ask.
 	bundle     []byte
 	inspection *api.RecoveryInspection
+	// pkg is a change package as read. It becomes changes only after the
+	// directory has been asked what its intent means here.
+	pkg          []byte
+	schemaTarget string
+	validation   *api.PackageValidation
 }
 
 func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*planInput, error) {
 	hasLDIF := len(args) == 1
+	if o.pkg != "" {
+		if hasLDIF || o.changes != "" || o.recovery != "" {
+			return nil, usagef("--package is the input: give no LDIF document, no --changes and no --recovery with it")
+		}
+		if flags.Changed("mode") {
+			return nil, usagef("--mode says how to read LDIF; a package holds exact changes and schema intent")
+		}
+		return &planInput{mode: api.PlanLdifModeChanges, readsStdin: o.pkg == "-", schemaTarget: o.schemaTarget}, nil
+	}
+	if flags.Changed("schema-target") {
+		return nil, usagef("--schema-target describes where a package's schema changes go, so it needs --package")
+	}
 	if o.recovery != "" {
 		if hasLDIF || o.changes != "" {
 			return nil, usagef("--recovery is the input: give no LDIF document and no --changes with it")
@@ -160,6 +189,14 @@ func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*plan
 // load reads the input. It is separate from input so a command can refuse its
 // command line before it touches standard input.
 func (in *planInput) load(env *Env, o planOptions, args []string) error {
+	if o.pkg != "" {
+		document, err := readPackage(env, o.pkg)
+		if err != nil {
+			return err
+		}
+		in.pkg = document
+		return nil
+	}
 	if o.recovery != "" {
 		data, _, err := env.readInput(o.recovery, "the recovery bundle", maxRequestBytes)
 		if err != nil {
@@ -204,6 +241,9 @@ func (in *planInput) load(env *Env, o planOptions, args []string) error {
 // resolve turns a recovery bundle into the changes to plan. It reports false
 // when the bundle has nothing that can be compensated, after saying so.
 func (in *planInput) resolve(ctx context.Context, r *remote, w io.Writer) (bool, error) {
+	if in.pkg != nil {
+		return in.resolvePackage(ctx, r, w)
+	}
 	if in.bundle == nil {
 		return true, nil
 	}
@@ -218,6 +258,29 @@ func (in *planInput) resolve(ctx context.Context, r *remote, w io.Writer) (bool,
 		return false, nil
 	}
 	changes := inspection.Changes
+	in.staged = changes
+	in.request = api.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
+	return true, nil
+}
+
+// resolvePackage asks the directory what the package means here, then plans
+// exactly the changes it says are ready.
+//
+// This is the whole of promotion on the command line: the package is not
+// rewritten and nothing from another environment is replayed. What is planned
+// is what this target's validation prepared, and the plan is made here.
+func (in *planInput) resolvePackage(ctx context.Context, r *remote, w io.Writer) (bool, error) {
+	validation, _, err := validatePackage(ctx, r, in.pkg, in.schemaTarget)
+	if err != nil {
+		return false, err
+	}
+	in.validation = &validation
+	renderPackageValidation(w, validation)
+	changes := readyChanges(validation)
+	if len(changes) == 0 {
+		writeln(w, "Nothing in this package is ready to apply here.")
+		return false, nil
+	}
 	in.staged = changes
 	in.request = api.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
 	return true, nil

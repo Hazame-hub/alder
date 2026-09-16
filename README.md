@@ -365,6 +365,19 @@ selected for you, and a change that needs another is refused until you select
 that one too. It works on OpenLDAP and 389 DS, and between them. Details in
 [`docs/SCHEMA-SNAPSHOTS.md`](docs/SCHEMA-SNAPSHOTS.md).
 
+**Carry a change between directories.** A change package is a portable
+description of what you intend to change -- entries and schema together, with
+the dependencies between them written down. It holds no password, no plan token
+and no trace of where one server keeps its schema, so the same file works on
+OpenLDAP and on 389 Directory Server. Take it to the next directory and Alder
+asks that directory what the intent means there: what is ready, what it already
+satisfies, what conflicts with what is there now, what is missing. The changes
+that are ready are staged, planned against that directory and reviewed like
+every other change. Promotion is revalidation, not replay: test accepting a
+package says nothing about production, and nothing is overwritten because
+another environment agreed. Details in
+[`docs/CHANGE-PACKAGES.md`](docs/CHANGE-PACKAGES.md).
+
 **Prepare a recovery before you apply.** A plan says how recoverable each change
 is -- exact, partial or unavailable -- and why. Exact is about the ordinary
 directory data the change touches, not timestamps, server-generated identifiers

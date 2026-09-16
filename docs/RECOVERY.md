@@ -45,6 +45,20 @@ From a shell, `alder apply --recovery-out FILE` writes a bundle, and
 
 ---
 
+## A bundle belongs to one directory, not to an intent
+
+A recovery bundle is derived from the entries a change touched, in the directory
+it was applied to, immediately before it ran. It is not a description of the
+change; it is a description of what that directory held.
+
+So a bundle made while applying a change package (1.11) in test must never be
+used to recover production: the entries differed, and the compensations restore
+what was there. Applying the same package to two directories produces two
+different bundles, and the conformance suite proves it. A package never contains
+a bundle, and a bundle never contains a package. See
+[CHANGE-PACKAGES.md](CHANGE-PACKAGES.md).
+
+
 ## How recoverable a change is
 
 Every step in a bundle has a recoverability, and every plan item that applies
