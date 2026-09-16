@@ -5,6 +5,7 @@ import {
   Database,
   FileUp,
   Camera,
+  Package,
   FolderTree,
   Gauge,
   Layers,
@@ -32,6 +33,7 @@ import { SchemaBrowser } from "@/features/schema";
 import { SearchPanel } from "@/features/search";
 import { ImportPanel } from "@/features/import";
 import { SnapshotsPanel } from "@/features/snapshots";
+import { PackagesPanel } from "@/features/packages";
 import { JumpPalette } from "@/features/palette";
 import { ChangesetView } from "@/features/changeset";
 import { ObjectListPanel } from "@/features/objects";
@@ -211,6 +213,10 @@ export function App() {
             <main className="min-w-0 flex-1 overflow-y-auto">
               <SnapshotsPanel onReviewChangeset={() => go({ view: "changeset" })} />
             </main>
+          ) : view === "packages" ? (
+            <main className="min-w-0 flex-1 overflow-y-auto">
+              <PackagesPanel onReviewChangeset={() => go({ view: "changeset" })} />
+            </main>
           ) : (
             <main className="min-w-0 flex-1 overflow-y-auto">
               <ImportPanel onReviewChangeset={() => go({ view: "changeset" })} />
@@ -312,6 +318,7 @@ function TopBar({
     ["changeset", "Changeset", ListChecks],
     ["import", "Import", FileUp],
     ["snapshots", "Snapshots", Camera],
+    ["packages", "Packages", Package],
   ];
 
   return (
