@@ -195,6 +195,27 @@ contract changed only by tightening what a token proves:
   and `alder diff --schema-target`. `--stage` and `--stage-deletion` also take a
   schema OID. A `metadata_only` difference alone exits 0.
 
+1.11 added change packages, only by adding:
+
+- **New endpoints:** `POST /packages/build`, `POST /packages/inspect` and
+  `POST /packages/validate`, and the error identifiers `package_invalid`,
+  `package_unsupported_version`, `package_checksum_mismatch` and
+  `package_too_large`. `POST /packages/inspect` needs no session, like a
+  comparison of two snapshots.
+- **The change package document is covered like the snapshot.** Change package
+  format version 1, described in [CHANGE-PACKAGES.md](CHANGE-PACKAGES.md), was
+  introduced in Alder 1.11. Every later 1.x release will continue to read it.
+  Releases before 1.11 have no package support at all. Readers refuse unknown
+  fields rather than ignore them, so a document that uses a field an older
+  release does not know is refused with `package_invalid`.
+- **Package enums may grow.** New values in `PackageItemStatus`,
+  `PackageProblem` and the omission reasons follow the enum rule above. A client
+  that does not recognise a status should treat the change as not ready.
+- **The command line gained one command family and one input:**
+  `alder package create|inspect|validate`, and `--package` on `alder plan` and
+  `alder apply`. There is no command that applies a package directly, and there
+  will not be one.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —
