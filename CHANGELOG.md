@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.10.0](https://github.com/Hazame-hub/alder/compare/v1.9.0...v1.10.0) (2026-09-16)
+
+
+### Features
+
+* alder snapshot --kind schema, and alder diff renders schema comparisons and stages definitions by OID in dependency order with --schema-target ([793cf23](https://github.com/Hazame-hub/alder/commit/793cf23fd338a649cd43009fc0a01716e0fbac5f))
+* schema differences go through the ordinary plan in dependency order; removals are destructive and opt-in, and the plan refuses a schema set out of order with dependency_required or referenced_by_schema ([793cf23](https://github.com/Hazame-hub/alder/commit/793cf23fd338a649cd43009fc0a01716e0fbac5f))
+* schema snapshots: kind schema in snapshot format version 1 captures attribute types and object classes deterministically, parsed and as published, with a checksum and strict re-parsing on decode ([793cf23](https://github.com/Hazame-hub/alder/commit/793cf23fd338a649cd43009fc0a01716e0fbac5f))
+* semantic schema comparison keyed by OID, where whitespace, quoting, name order and name-versus-OID references make no difference, extension-only changes are metadata_only and never proposed, and ambiguous or unparsed definitions are unknown ([793cf23](https://github.com/Hazame-hub/alder/commit/793cf23fd338a649cd43009fc0a01716e0fbac5f))
+* the web Snapshots tab captures data or schema and compares schema with per-kind counts, filters, field-level details and ordered staging ([793cf23](https://github.com/Hazame-hub/alder/commit/793cf23fd338a649cd43009fc0a01716e0fbac5f))
+
+
+### Fixes
+
+* live schema captures read the schema fresh rather than from a session cache that only the session's own writes invalidated ([793cf23](https://github.com/Hazame-hub/alder/commit/793cf23fd338a649cd43009fc0a01716e0fbac5f))
+
+
+### Documentation
+
+* document schema snapshots and schema comparison, and schema snapshot compatibility ([793cf23](https://github.com/Hazame-hub/alder/commit/793cf23fd338a649cd43009fc0a01716e0fbac5f))
+
 ## [1.9.0](https://github.com/Hazame-hub/alder/compare/v1.8.0...v1.9.0) (2026-09-14)
 
 
