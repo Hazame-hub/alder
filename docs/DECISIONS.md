@@ -2537,3 +2537,90 @@ to contradict the plan — add an entry.
   equal, a class ordered before its attribute type, an unselected deletion
   included (command line and interface), `SINGLE-VALUE` normalised away — each
   fail the tests.
+
+### 2026-09-16 — 1.11: change packages, and what may not travel
+
+- **A package is intent; a plan is what one directory would do about it now.**
+  The package holds the changes an operator means to make. Every target
+  validates it against its own state and makes its own plan. There is no path
+  from a package to an apply that skips the plan, in the interface, on the
+  command line or in the API, and there is deliberately no `alder package
+  apply`: `plan --package` and `apply --package` are inputs to the commands that
+  already show a plan.
+- **Plan tokens never appear in a package.** A baseline is a MAC under a key
+  that exists only in one server process, scoped to a session; it is
+  uncheckable anywhere else, so carrying one could only ever be theatre.
+  `expect` is left out for the same reason in reverse: it describes the source
+  environment's current values, and promoting it would refuse every target that
+  legitimately differs. The strict reader refuses both fields along with every
+  other it does not know, so neither can be smuggled in.
+- **Schema changes travel as intent, not as modifications.** Installing an
+  attribute type is a modify of `attributeTypes` on `cn=schema` on 389 DS and of
+  `olcAttributeTypes` on a configuration collection on OpenLDAP. A package
+  records the element, the operation, the OID and the definition; each target
+  builds its own modification through the existing schema write path. The
+  conformance proof shows one package becoming a change to
+  `cn={4}alder,cn=schema,cn=config` on one server and to `cn=schema` on the
+  other.
+  - Rejected: packaging the modification and rewriting it on arrival. That is a
+    provider transformation, which this milestone does not have and 1.x may
+    never want.
+- **Promotion is revalidation, never replay.** The same bytes go to each
+  environment. Test accepting a package says nothing about production: an entry
+  that differs is a conflict there, not an overwrite, and one that already holds
+  what the package describes is `already_satisfied` rather than a failure.
+  Neither outcome changes the package.
+- **An add whose entry already matches is satisfied intent.** The first
+  conformance run reported it as a conflict, which is right for a plan and wrong
+  for a promoted change somebody applied here last week. It is
+  `already_satisfied` when the entry holds everything the item describes, and a
+  conflict only when it is there and different.
+- **Dependencies are explicit, and derived once.** Array order carries no
+  meaning. Alder works the graph out from the changes when a package is built --
+  a class after the attribute types it names, an entry after its class and its
+  parent, a child's deletion before its parent's -- and writes it into the
+  document, where it can be edited. A graph with a missing identifier, a
+  self-dependency or a cycle is refused rather than silently repaired.
+- **Secrets are forbidden, and omissions are recorded.** A password change
+  cannot be packaged: it is refused when the package is built and listed in
+  `omitted` with a machine-readable reason, so nothing is dropped silently. A
+  change naming a sensitive attribute is refused outright, including one written
+  into a document by hand. No escrow, no placeholder, no claim that packages can
+  promote provisioning that involves a password.
+- **Recovery belongs to the apply, not to the intent.** A bundle is derived from
+  the entries as they were in that directory immediately before the change, so
+  the same package applied to two directories produces two different bundles --
+  proved against both servers. Packages never contain bundles.
+- **Validation is separate from the plan, and is not kept.** It answers "can
+  this be interpreted here", prepares ordinary change requests for what is
+  ready, and stops. It is never persisted as a reusable plan, and the statuses
+  are machine-readable: ready, already_satisfied, no_op, conflict,
+  dependency_missing, unsupported, target_incompatible, unknown.
+- **Reading a package needs no directory.** `POST /packages/inspect` and
+  `alder package inspect` check format, graph, definitions, secrets and checksum
+  with no session, which is what a pipeline can run before it has credentials.
+  Target compatibility still needs a target.
+- **Identity is provenance, not authority.** A package carries a generated UUID,
+  independent of the filename, and it is part of what the checksum covers. It
+  grants nothing, and Alder keeps no record of it: no catalogue, no deployment
+  history, no environment registry. The artifact is the operator's.
+- **No DN translation in 1.11.** Promoting between `dc=dev,dc=example,dc=com`
+  and `dc=example,dc=com` is a real need and a real hazard: an implicit rewrite
+  that caught some references and not others would be a silent corruption, and
+  an explicit one needs a preview and a model for every reference -- members,
+  superiors, DN-syntax attribute values. It is left out deliberately, and a
+  package is portable only where the DNs are.
+- **Portability is reported, never transformed.** A change that cannot travel is
+  omitted with a reason; a target that cannot perform one says `unsupported`.
+  There is no OpenLDAP-to-389 DS rewriting, and no provider abstraction: that
+  milestone can start from a clean statement of what is portable rather than
+  from a half-built engine.
+- **A plan follows the schema through the set.** Packages made schema-first sets
+  ordinary: install a definition, then add the entry that uses it. Judging every
+  change against the schema as it is now refused the entry the directory would
+  have accepted, which is the one failure mode schema validation must not have.
+  The planner now carries a view of the schema as the set would leave it and
+  judges each change against that view. Only a change that would actually run
+  updates the view, so the dependency check moved into the same walk: a schema
+  change refused for its dependencies adds and removes nothing, and the changes
+  after it still see the schema they were written against.

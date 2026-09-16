@@ -338,8 +338,13 @@ func (pl *Planner) ComputeProposals(
 	p := Plan{Items: make([]Item, 0, len(proposals))}
 	members := foldSet(opts.MembershipAttributes)
 
+	// The schema as this set would leave it: a change that uses a definition an
+	// earlier change in the same set adds is second, not invalid.
+	view := newSchemaView(sch, opts.SchemaLocator)
+	deps := newSchemaDeps(sch, opts.SchemaLocator)
+
 	for i, proposal := range proposals {
-		item, err := pl.classify(ctx, r, sch, i, proposal, members)
+		item, err := pl.classify(ctx, r, view.schema(), i, proposal, members)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -363,8 +368,15 @@ func (pl *Planner) ComputeProposals(
 		case ActionInvalid:
 			p.Counts.Invalid++
 		}
+		// The dependency check runs here, not over the finished plan, so that
+		// only a change that would actually run changes what the next one is
+		// judged against: a schema change refused for its dependencies removes
+		// nothing and adds nothing.
+		deps.check(&p, i)
+		if !p.Items[i].Action.AppliesNothing() {
+			view.apply(proposal.Record)
+		}
 	}
-	CheckSchemaDependencies(&p, sch, opts.SchemaLocator)
 	p.Subtrees = deletedSubtrees(p.Items)
 	return p, nil
 }

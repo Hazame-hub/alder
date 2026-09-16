@@ -384,6 +384,50 @@ data snapshot. Two schema files need only `--api-url`, as for data.
 
 ---
 
+## `alder package`
+
+```sh
+alder package create --changes restore.json --title "team schema" --output package.json
+alder package inspect package.json
+alder package validate package.json
+alder plan  --package package.json
+alder apply --package package.json --yes
+```
+
+A change package is a portable description of intended changes: what to change,
+not the operations one environment produced. The same file is carried to each
+directory and validated there. See
+[CHANGE-PACKAGES.md](CHANGE-PACKAGES.md).
+
+- **`create`** turns a JSON array of change requests into a package. A schema
+  change is recorded as the intent it expresses, so it can be carried to a
+  server that keeps its schema somewhere else. A `baseline` or an `expect` on a
+  change is dropped -- both describe the environment it was planned in -- and a
+  password change is refused and recorded as an omission, because a package
+  never carries a secret. Dependencies are derived from the changes and written
+  into the file.
+- **`inspect`** reads a package and checks everything that needs no directory:
+  format, version, unknown fields, duplicate identifiers, missing dependencies,
+  cycles, DNs, definitions, secrets and the checksum. It needs only `--api-url`,
+  so it runs in a pipeline before there are credentials.
+- **`validate`** asks a directory what the package means there: what is ready,
+  what it already satisfies, what conflicts, what is missing, what this server
+  cannot do.
+- **There is no `package apply`.** `alder plan --package` and
+  `alder apply --package` validate the package, plan the changes that are ready,
+  show the plan, and -- for apply -- send back exactly that plan.
+  `--schema-target` says which schema entry an added definition goes to on a
+  server that keeps schema in several.
+
+Exit status for `validate`: 0 applicable here or nothing left to do, 2 something
+could not be decided, 3 some change cannot be applied here, 7 usage, 8 failure.
+`plan --package` and `apply --package` keep their own codes.
+
+Files follow the same rules as everywhere else: `-` is standard input, output is
+written atomically, and an existing file is never replaced without `--force`.
+
+---
+
 ## `alder plan`
 
 ```sh

@@ -361,6 +361,9 @@ directory holds now.
   captured as its own kind, `schema` (see
   [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md)); configuration is not captured.
 - **Storage.** Alder keeps no snapshots, no history and no schedule.
+- **Intent.** A snapshot is a state, not a plan to reach one. What an operator
+  means to change travels as a change package (1.11); see
+  [CHANGE-PACKAGES.md](CHANGE-PACKAGES.md).
 - **Signing, compression, fuzzy rename detection, rollback, inverse LDIF.**
 
 Compensating a change you are about to apply is not a snapshot's job. A

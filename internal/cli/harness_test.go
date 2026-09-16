@@ -159,7 +159,8 @@ func (s *stub) run(t testing.TB, o runOpts, args ...string) result {
 	// the session, as the browser's do.
 	s.mu.Lock()
 	for _, c := range s.calls {
-		if c.Path != "/api/v1/session" && c.Path != "/api/v1/source" && c.Cookie != "stub-session" && !snapshotsOnlyDiff(c) {
+		if c.Path != "/api/v1/session" && c.Path != "/api/v1/source" && c.Path != "/api/v1/packages/inspect" &&
+			c.Cookie != "stub-session" && !snapshotsOnlyDiff(c) {
 			t.Errorf("%s %s was sent without the session cookie", c.Method, c.Path)
 		}
 	}
