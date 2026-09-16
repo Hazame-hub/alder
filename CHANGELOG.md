@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.11.0](https://github.com/Hazame-hub/alder/compare/v1.10.0...v1.11.0) (2026-09-16)
+
+
+### Features
+
+* a package is validated against each target independently, reporting ready, already_satisfied, no_op, conflict, dependency_missing, unsupported, target_incompatible or unknown for every change, and only ready changes become ordinary change requests that are planned and reviewed; nothing applies a package directly ([b232f10](https://github.com/Hazame-hub/alder/commit/b232f107b435f064ae8b8a0325314ba22b8f7b45))
+* alder package create, inspect and validate, and plan and apply take --package ([b232f10](https://github.com/Hazame-hub/alder/commit/b232f107b435f064ae8b8a0325314ba22b8f7b45))
+* change packages: the alder-change-package format version 1 carries reviewed data and schema intent between directories, with explicit dependencies between changes, deterministic serialisation and an integrity checksum that is not a signature ([b232f10](https://github.com/Hazame-hub/alder/commit/b232f107b435f064ae8b8a0325314ba22b8f7b45))
+* packages never hold passwords, password hashes, credentials, plan tokens or baselines; password changes and sensitive attributes are left out with a reason, and decoding refuses unknown fields ([b232f10](https://github.com/Hazame-hub/alder/commit/b232f107b435f064ae8b8a0325314ba22b8f7b45))
+* POST /packages/build, /packages/inspect and /packages/validate, where inspection needs no directory session ([b232f10](https://github.com/Hazame-hub/alder/commit/b232f107b435f064ae8b8a0325314ba22b8f7b45))
+* the web Packages tab exports the changeset as a package, opens one, validates it against the connected directory and stages its ready changes ([b232f10](https://github.com/Hazame-hub/alder/commit/b232f107b435f064ae8b8a0325314ba22b8f7b45))
+
+
+### Fixes
+
+* a set of changes is planned against the schema it would leave, so an entry that uses a definition an earlier change in the same set adds is no longer reported as invalid ([b232f10](https://github.com/Hazame-hub/alder/commit/b232f107b435f064ae8b8a0325314ba22b8f7b45))
+
+
+### Documentation
+
+* document change packages, promotion by revalidation, and change package format version 1 compatibility ([b232f10](https://github.com/Hazame-hub/alder/commit/b232f107b435f064ae8b8a0325314ba22b8f7b45))
+
 ## [1.10.0](https://github.com/Hazame-hub/alder/compare/v1.9.0...v1.10.0) (2026-09-16)
 
 
