@@ -129,6 +129,17 @@ behaviour is left for the directory to refuse:
   to read `objectClass` — permission and required-attribute rules are not applied
   at all.
 
+A set that changes the schema is judged against the schema **as the set would
+leave it** (1.11). A change that uses an object class or an attribute type an
+earlier change in the same set adds is second, not invalid; a change that uses
+one an earlier change removes is invalid, which is what the directory would say
+too. Only a change that would actually run counts: a schema change the plan
+refuses — as a conflict, as invalid, or as a no-op — changes nothing for the
+changes that follow it, so a removal that is refused leaves the definition in
+place for them. The view is built by parsing each definition, not by trusting
+its text, so a definition the parser cannot read changes nothing and is left for
+the directory to judge.
+
 A plan in which every item is `unchanged` is a successful answer, not an error.
 
 ### `record`, `preview` and `baseline`
@@ -251,6 +262,24 @@ later change.
 With `recovery: true` on `POST /changeset/apply`, or `?recovery=true` on
 `POST /changes/apply`, the result carries a recovery bundle for the changes that
 were applied. See [RECOVERY.md](RECOVERY.md).
+
+---
+
+## Changes from a change package
+
+A change package (1.11) is intent: what someone means to change, written so it
+can be carried to another directory. It is never applied. Validating one against
+a target prepares ordinary change requests for the changes that are ready here,
+and those go to a plan like any other. See
+[CHANGE-PACKAGES.md](CHANGE-PACKAGES.md).
+
+- The plan is made in the target, from the target's own state. A package carries
+  no baseline: a baseline is a MAC under a key that exists only in one server
+  process, and it means nothing anywhere else.
+- The same package planned against two directories gives two plans, because the
+  directories differ. That is promotion: revalidation, not replay.
+- A change the target already satisfies never reaches the plan, and nothing is
+  written for it.
 
 ---
 

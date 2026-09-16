@@ -95,6 +95,23 @@ never change it where it is kept or sent. A schema comparison proposes changes
 and never applies them. A removal is never selected by default, a dependency is
 never added on anyone's behalf, and a definition is never reported as unused.
 
+**Change packages hold no secret, and are never executed.** A change package
+(1.11) describes intended changes so they can be carried to another directory.
+It never contains a password, a hash, a reversible form of one, a placeholder
+that could replay one, a bind credential, an API token, or a session MAC: a
+password change is refused when a package is built and recorded as an omission
+with its reason, and a change naming a sensitive attribute is refused outright,
+including one written into a document by hand. It never contains a plan token
+either -- a baseline is a MAC under a key that exists only in one server process,
+and the strict reader refuses the field along with every other it does not know.
+A package is read as untrusted input: unknown fields, trailing content,
+duplicate identifiers, missing dependencies, self-dependencies, cycles,
+malformed DNs, definitions that do not parse, oversized strings and graphs past
+the bound are all refused. There is no templating, no interpolation and no
+expression evaluation; a package is data. Its identity is provenance and
+authorises nothing, every change still goes through the session's own access
+rights and the plan, and validating one writes nothing.
+
 **Recovery bundles hold no secret, and are never executed.** A recovery bundle
 (1.9) is derived from entries as they were read immediately before a change.
 - **What it holds:** the earlier values of the ordinary attributes a change
