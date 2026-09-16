@@ -102,6 +102,8 @@ State conflicts (`conflict`), which may resolve when the directory changes:
 | `has_children` | a delete of an entry that is not a leaf |
 | `rename_target_exists` | a rename onto a name that is taken |
 | `expected_state_differs` | the entry no longer holds what the change's `expect` requires; for a compensation from a recovery bundle, the directory has drifted since the original apply (1.9) |
+| `dependency_required` | a schema change adds a definition that names another which neither the live schema nor an earlier change in the set defines (1.10) |
+| `referenced_by_schema` | a schema change removes a definition the schema, less what the set removes, still names (1.10) |
 
 Schema violations (`invalid`), which will not resolve by waiting:
 
@@ -269,6 +271,13 @@ inputs to a plan and nothing else. Nothing applies a comparison directly.
   an ordinary `delete`, and its plan shows its impact.
 - No proposal ever carries a sensitive value, because a snapshot has none to
   offer.
+
+Schema differences (1.10) arrive the same way, as modifications of the schema
+entry, and are planned the same way. The set is also read in order against the
+live schema: a definition added before what it names exists is
+`dependency_required`, and one removed while something still names it is
+`referenced_by_schema`. Both are conflicts; the plan never reorders a set or
+adds to it. See [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md).
 
 The end-to-end test captures a snapshot, changes the directory, compares,
 stages every proposal including an explicit deletion, plans, applies with the

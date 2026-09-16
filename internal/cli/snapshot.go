@@ -11,12 +11,14 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/hazame-hub/alder/internal/api"
 	"github.com/hazame-hub/alder/internal/envflags"
 )
 
 type snapshotOptions struct {
+	kind                string
 	base, scope, filter string
 	operational         bool
 	output              string
@@ -26,45 +28,62 @@ type snapshotOptions struct {
 func snapshotCmd(env *Env) *cobra.Command {
 	var conn connection
 	var o snapshotOptions
-	cmd := command(env, &cobra.Command{
-		Use:   "snapshot --base DN --output FILE",
-		Short: "Capture a subtree as an Alder snapshot",
+	var cmd *cobra.Command
+	cmd = command(env, &cobra.Command{
+		Use:   "snapshot (--base DN | --kind schema) --output FILE",
+		Short: "Capture a subtree or the schema as an Alder snapshot",
 		Long: "Captures a subtree through a running Alder server and writes the snapshot\n" +
 			"exactly as Alder produced it: an alder-snapshot version 1 document, the same\n" +
 			"file the web interface downloads. Sensitive attributes are a count of values,\n" +
 			"never a value. A capture that cannot read the whole subtree fails; it never\n" +
 			"writes part of one.\n\n" +
+			"--kind schema captures the schema the server publishes instead: attribute\n" +
+			"types and object classes for comparison, and syntaxes, matching rules, matching\n" +
+			"rule uses, DIT content rules and name forms as context. It takes no --base,\n" +
+			"--scope, --filter or --operational, and never captures server configuration.\n\n" +
 			"--output - writes the snapshot to standard output and nothing else. A file is\n" +
 			"written to a temporary name and renamed when complete, and an existing file is\n" +
 			"never replaced without --force.",
 		Args: argsBetween(0, 0, "no arguments"),
 	}, func(ctx context.Context, _ []string) error {
-		return runSnapshot(ctx, env, &conn, o)
+		return runSnapshot(ctx, env, &conn, o, cmd.Flags())
 	})
 	conn.registerAPI(cmd)
 	conn.registerDirectory(cmd)
 	f := cmd.Flags()
+	f.StringVar(&o.kind, "kind", "data", "data, or schema for the published schema")
 	f.StringVar(&o.base, "base", "", "the DN of the subtree to capture")
 	f.StringVar(&o.scope, "scope", "sub", "sub, one or base")
 	f.StringVar(&o.filter, "filter", "", "an RFC 4515 filter; the default captures every entry in scope")
 	f.BoolVar(&o.operational, "operational", false, "also capture operational attributes")
 	f.StringVarP(&o.output, "output", "o", "", "the file to write, or - for standard output")
 	f.BoolVar(&o.force, "force", false, "replace --output if it already exists")
-	envflags.Exclude(f, "base", "scope", "filter", "operational", "output", "force")
+	envflags.Exclude(f, "kind", "base", "scope", "filter", "operational", "output", "force")
 	return cmd
 }
 
-func runSnapshot(ctx context.Context, env *Env, conn *connection, o snapshotOptions) error {
-	if o.base == "" {
-		return usagef("--base is required: the DN of the subtree to capture")
+func runSnapshot(ctx context.Context, env *Env, conn *connection, o snapshotOptions, flags *pflag.FlagSet) error {
+	switch o.kind {
+	case "data":
+		if o.base == "" {
+			return usagef("--base is required: the DN of the subtree to capture")
+		}
+		switch o.scope {
+		case "sub", "one", "base":
+		default:
+			return usagef("--scope must be sub, one or base, not %q", o.scope)
+		}
+	case "schema":
+		if flags.Changed("base") || flags.Changed("scope") || flags.Changed("filter") || flags.Changed("operational") {
+			return usagef("--kind schema captures the whole published schema: --base, --scope, --filter and --operational do not apply")
+		}
+	case "config":
+		return usagef("server configuration is not captured: --kind is data or schema")
+	default:
+		return usagef("--kind must be data or schema, not %q", o.kind)
 	}
 	if o.output == "" {
 		return usagef("--output is required: a file to write, or - for standard output")
-	}
-	switch o.scope {
-	case "sub", "one", "base":
-	default:
-		return usagef("--scope must be sub, one or base, not %q", o.scope)
 	}
 	if err := conn.check(false); err != nil {
 		return err
@@ -81,13 +100,18 @@ func runSnapshot(ctx context.Context, env *Env, conn *connection, o snapshotOpti
 	}
 	defer r.close()
 
-	scope := api.SnapshotScope(o.scope)
-	req := api.SnapshotCaptureRequest{Base: o.base, Scope: &scope}
-	if o.filter != "" {
-		req.Filter = &o.filter
-	}
-	if o.operational {
-		req.OperationalAttributes = ptr(true)
+	var req api.SnapshotCaptureRequest
+	if o.kind == "schema" {
+		req.Kind = ptr(api.StateKindSchema)
+	} else {
+		scope := api.SnapshotScope(o.scope)
+		req = api.SnapshotCaptureRequest{Base: &o.base, Scope: &scope}
+		if o.filter != "" {
+			req.Filter = &o.filter
+		}
+		if o.operational {
+			req.OperationalAttributes = ptr(true)
+		}
 	}
 	// The raw call, not the one that reads the body into memory: a snapshot
 	// can be tens of megabytes, and it goes straight from the socket to disk.
@@ -126,6 +150,12 @@ func runSnapshot(ctx context.Context, env *Env, conn *connection, o snapshotOpti
 	if err != nil {
 		return err
 	}
+	if head.Kind == "schema" {
+		writef(env.Stderr, "Captured the schema at %s (%d attribute types, %d object classes, %d unparsed; %s) to %s, %s\n",
+			safe(head.Source.SubschemaEntry), head.Counts.AttributeTypes, head.Counts.ObjectClasses, head.Counts.Unparsed,
+			safe(head.Completeness), o.output, safe(head.Checksum))
+		return nil
+	}
 	writef(env.Stderr, "Captured %d entries (%s of %s) to %s, %s\n",
 		head.EntryCount, safe(head.Source.Scope), safe(head.Source.Base), o.output, safe(head.Checksum))
 	return nil
@@ -143,12 +173,21 @@ func copyFailure(ctx context.Context, dest string, err error) *ExitError {
 type snapshotHead struct {
 	Format     string `json:"format"`
 	Version    int    `json:"version"`
+	Kind       string `json:"kind"`
 	EntryCount int    `json:"entryCount"`
 	Checksum   string `json:"checksum"`
 	Source     struct {
-		Base  string `json:"base"`
-		Scope string `json:"scope"`
+		Base           string `json:"base"`
+		Scope          string `json:"scope"`
+		SubschemaEntry string `json:"subschemaEntry"`
 	} `json:"source"`
+	// A schema snapshot's (1.10).
+	Completeness string `json:"completeness"`
+	Counts       struct {
+		AttributeTypes int `json:"attributeTypes"`
+		ObjectClasses  int `json:"objectClasses"`
+		Unparsed       int `json:"unparsed"`
+	} `json:"counts"`
 }
 
 // readSnapshotHead walks a whole document, which is also the proof that it is
@@ -171,6 +210,12 @@ func readSnapshotHead(r io.Reader) (snapshotHead, error) {
 			err = dec.Decode(&head.Format)
 		case "version":
 			err = dec.Decode(&head.Version)
+		case "kind":
+			err = dec.Decode(&head.Kind)
+		case "completeness":
+			err = dec.Decode(&head.Completeness)
+		case "counts":
+			err = dec.Decode(&head.Counts)
 		case "entryCount":
 			err = dec.Decode(&head.EntryCount)
 		case "checksum":

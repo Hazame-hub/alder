@@ -79,6 +79,8 @@ const PROBLEM: Record<PlanProblemCode, string> = {
   rename_target_exists: "the new name is already taken",
   expected_state_differs:
     "the entry is no longer as the change expects: the directory has drifted since the original apply",
+  dependency_required: "a schema definition it names would not be defined when it runs",
+  referenced_by_schema: "the schema would still refer to the definition it removes",
   object_class_undefined: "an object class is not defined by the schema",
   attribute_undefined: "an attribute is not defined by the schema",
   attribute_not_permitted: "no object class on the entry permits the attribute",

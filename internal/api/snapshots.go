@@ -67,8 +67,8 @@ func (s *Server) liveRequestFrom(c *fiber.Ctx, sess *session.Session, base, scop
 	// if they were ordinary entries.
 	if kind := targetKind(sess.Conn.Capabilities(), parsedBase); kind != PlanTargetData {
 		return liveRequest{}, fail(writeError(c, fiber.StatusBadRequest, ErrorErrorSnapshotScopeUnsupported,
-			fmt.Sprintf("Snapshots of the %s are not supported; only directory data can be captured.", kind),
-			"Alder 1.x captures data snapshots. Schema and configuration snapshots are not a snapshot kind yet."))
+			fmt.Sprintf("A data snapshot of the %s is not supported; its base must be directory data.", kind),
+			"Capture the schema as a schema snapshot (kind schema). Server configuration is not captured."))
 	}
 	return req, true
 }
@@ -145,11 +145,25 @@ func (s *Server) CaptureSnapshot(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return badRequest(c, "The request body is not valid JSON.", err.Error())
 	}
+	kind := snapshot.KindData
+	if body.Kind != nil {
+		kind = string(*body.Kind)
+	}
+	switch kind {
+	case snapshot.KindSchema:
+		return s.captureSchemaSnapshot(c, sess)
+	case snapshot.KindData:
+	default:
+		return refuseSnapshotKind(c, kind)
+	}
+	if body.Base == nil || strings.TrimSpace(*body.Base) == "" {
+		return badRequest(c, "A data snapshot needs a base.", "Name the subtree to capture, or capture the schema with kind schema.")
+	}
 	scope := ""
 	if body.Scope != nil {
 		scope = string(*body.Scope)
 	}
-	req, ok := s.liveRequestFrom(c, sess, body.Base, scope, deref(body.Filter), deref(body.OperationalAttributes))
+	req, ok := s.liveRequestFrom(c, sess, *body.Base, scope, deref(body.Filter), deref(body.OperationalAttributes))
 	if !ok {
 		return nil
 	}
@@ -202,6 +216,17 @@ func snapshotFilename(base dn.DN, at time.Time) string {
 func (s *Server) InspectSnapshot(c *fiber.Ctx) error {
 	if sess := s.require(c); sess == nil {
 		return nil
+	}
+	kind, err := snapshot.KindOf(c.Body())
+	if err != nil {
+		return snapshotRefusal(c, "", err)
+	}
+	if kind == snapshot.KindSchema {
+		snap, integrity, err := snapshot.DecodeSchema(c.Body())
+		if err != nil {
+			return snapshotRefusal(c, "", err)
+		}
+		return c.JSON(schemaInspection(snap, integrity))
 	}
 	snap, integrity, err := snapshot.Decode(c.Body())
 	if err != nil {
@@ -322,6 +347,13 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 			return nil
 		}
 	}
+	kind, ok := diffKind(c, body)
+	if !ok {
+		return nil
+	}
+	if kind == snapshot.KindSchema {
+		return s.diffSchema(c, sess, body)
+	}
 
 	sides := map[string]*resolvedSide{}
 	for name, side := range map[string]diffSideBody{"source": body.Source, "target": body.Target} {
@@ -386,6 +418,7 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 
 func diffView(r *diff.Result, source, target *resolvedSide) Diff {
 	out := Diff{
+		Kind:               StateKindData,
 		Source:             sideSummary(source),
 		Target:             sideSummary(target),
 		Complete:           r.Complete,

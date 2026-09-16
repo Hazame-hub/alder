@@ -353,6 +353,18 @@ them: they go through the same plan and review as every other write. Deleting an
 entry is never selected for you. Details in
 [`docs/SNAPSHOTS.md`](docs/SNAPSHOTS.md).
 
+**Snapshot and compare the schema.** The same capture, with `kind: schema`,
+records the schema a server publishes as a deterministic, checksummed document.
+Definitions are identified by OID and compared by meaning: the order of NAMEs,
+quoting, or a reference written by name rather than OID make no difference; a
+changed `SYNTAX`, `MUST` or `SINGLE-VALUE` does. A difference only in `X-`
+extensions is reported as metadata and never proposed. With the live schema as
+the source, the additions, modifications and removals you select become ordinary
+schema changes, in dependency order, through the same plan. A removal is never
+selected for you, and a change that needs another is refused until you select
+that one too. It works on OpenLDAP and 389 DS, and between them. Details in
+[`docs/SCHEMA-SNAPSHOTS.md`](docs/SCHEMA-SNAPSHOTS.md).
+
 **Prepare a recovery before you apply.** A plan says how recoverable each change
 is -- exact, partial or unavailable -- and why. Exact is about the ordinary
 directory data the change touches, not timestamps, server-generated identifiers

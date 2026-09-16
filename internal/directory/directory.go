@@ -37,6 +37,10 @@ type Session interface {
 	// Schema returns the parsed subschema, reading it once and caching it. A
 	// schema is a few hundred kilobytes and changes about once a year.
 	Schema(ctx context.Context) (*schema.Schema, error)
+	// RefreshSchema reads the subschema again and replaces what Schema cached.
+	// A schema snapshot is what the server publishes now, including a change
+	// someone else made since this session last read it.
+	RefreshSchema(ctx context.Context) (*schema.Schema, error)
 	// Search runs a paged search. There is no unbounded search.
 	Search(ctx context.Context, req SearchRequest) (*SearchResult, error)
 	// Read returns a single entry by DN.

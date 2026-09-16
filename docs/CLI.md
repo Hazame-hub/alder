@@ -259,6 +259,20 @@ the same document the web interface downloads, byte for byte. See
 `--output` is required: a path, or `-` for standard output. On success the
 client prints one line to standard error, with the entry count and checksum.
 
+### The schema
+
+```sh
+alder snapshot --kind schema --output schema.json
+```
+
+`--kind schema` (1.10) captures the schema the server publishes instead of a
+subtree: attribute types and object classes for comparison, syntaxes, matching
+rules and the rest as context. It takes no `--base`, `--scope`, `--filter` or
+`--operational`, and `--kind config` is refused: server configuration is never
+captured. The line on standard error gives the subschema entry, the counts,
+whether the capture is complete, and the checksum. See
+[SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md).
+
 ---
 
 ## `alder diff`
@@ -334,6 +348,39 @@ alder apply --changes restore.json --yes --allow-deletes
   comparison, which the server never derives.
 - **Selected changes are ordinary change requests.** They go through plan and
   apply like any other, and the directory is re-read when they are planned.
+
+### Comparing schema
+
+```sh
+alder diff openldap-schema.json 389ds-schema.json --summary
+alder diff @live schema.json
+alder diff @live schema.json \
+  --stage 1.3.6.1.4.1.99999.1.9 --stage objectClass:1.3.6.1.4.1.99999.2.9 \
+  --changes-out schema-changes.json
+```
+
+A schema snapshot compares with another schema snapshot, or with `@live`, which
+then reads the published schema whole. `--base`, `--scope`, `--filter` and
+`--operational` do not apply, and a schema snapshot is never compared with a
+data snapshot. Two schema files need only `--api-url`, as for data.
+
+- **The report is by definition:** counts for attribute types and object
+  classes, then each difference by OID and NAME, with each changed field as
+  `-` and `+`, its category (`core`, `description` or `extension`) and any
+  problem.
+- **A difference only in `X-` extensions is `metadata_only`.** It is reported
+  and never counts toward exit status 1.
+- **Differences are selected by OID,** or as `attributeType:OID` or
+  `objectClass:OID` where the same OID names both. A NAME is not accepted: the
+  OID is the identity.
+- **A removal is selected only with `--stage-deletion`.**
+- **A change that needs another is refused** (`dependency_required`) unless the
+  other is selected too. Nothing is added for you.
+- **Changes are written in dependency order,** the order Alder returned, not the
+  order they were named in.
+- `--schema-target DN` names the schema entry an added definition is written to,
+  where the server keeps schema in several; without it such additions are not
+  offered.
 
 ---
 

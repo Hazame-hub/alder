@@ -51,6 +51,10 @@ type fakeSession struct {
 	// different ones would pass every test.
 	byDN map[string]*directory.Entry
 
+	// schemaDefs answers SchemaDefinitions, keyed "dn|kind" with the DN in
+	// lower case.
+	schemaDefs map[string][]string
+
 	searchErr error
 	readErr   error
 	applyErr  error
@@ -123,6 +127,8 @@ func (f *fakeSession) last() *directory.SearchRequest {
 func (f *fakeSession) Capabilities() directory.Capabilities { return f.caps }
 
 func (f *fakeSession) Schema(context.Context) (*schema.Schema, error) { return f.sch, nil }
+
+func (f *fakeSession) RefreshSchema(context.Context) (*schema.Schema, error) { return f.sch, nil }
 
 func (f *fakeSession) Search(ctx context.Context, req directory.SearchRequest) (*directory.SearchResult, error) {
 	f.searchMu.Lock()
@@ -210,8 +216,8 @@ func (f *fakeSession) VisibilityOf(_ context.Context, target dn.DN, attribute st
 	return directory.VisibilityAbsent, nil
 }
 
-func (f *fakeSession) SchemaDefinitions(context.Context, string, directory.SchemaDefKind) ([]string, error) {
-	return nil, nil
+func (f *fakeSession) SchemaDefinitions(_ context.Context, target string, kind directory.SchemaDefKind) ([]string, error) {
+	return f.schemaDefs[strings.ToLower(target)+"|"+string(kind)], nil
 }
 
 func (f *fakeSession) Apply(_ context.Context, ch directory.ChangeRecord) error {
