@@ -1036,6 +1036,103 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /packages/build:
+    post:
+      tags: [packages]
+      operationId: buildPackage
+      summary: Build a change package from changes
+      description: |
+        Turns changes into an `alder-change-package` document (1.11): a portable
+        description of intended directory and schema changes that can be carried
+        to another environment and validated there.
+
+        The package holds intent, not execution. Every `baseline` is dropped,
+        every expectation is dropped, and a change to a schema entry is recorded
+        as what it means -- this element, this operation, this definition --
+        rather than as the modification this server happens to need, because the
+        entry and attribute that hold schema differ between products.
+
+        What cannot be packaged is never dropped silently. A password change
+        needs its secret to mean anything, so it is refused, and the package
+        records the omission with a machine-readable reason.
+
+        Dependencies are derived from the changes themselves -- an object class
+        after the attribute types it names, an entry after the class it uses and
+        after its parent -- and written into the document. Array order carries no
+        meaning; the graph does.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PackageBuildRequest" }
+      responses:
+        "200":
+          description: The package document, with a download filename.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangePackage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /packages/inspect:
+    post:
+      tags: [packages]
+      operationId: inspectPackage
+      summary: Read a change package and check everything that needs no directory
+      description: |
+        Reads a package strictly and reports what it holds: its identity, its
+        provenance, its assumptions, its changes and its dependency order.
+
+        Everything that can be checked without a directory is checked here --
+        the format and version, unknown fields, trailing content, duplicate
+        identifiers, missing dependencies, self-dependencies, cycles, malformed
+        DNs, schema definitions that do not parse, secrets, and the checksum.
+        Nothing is executed and no directory is read, so no session is needed:
+        this is the check a pipeline runs before it has credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePackage" }
+      responses:
+        "200":
+          description: What the package holds.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PackageInspection" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /packages/validate:
+    post:
+      tags: [packages]
+      operationId: validatePackage
+      summary: Validate a change package against the current directory
+      description: |
+        Reads the package, then asks this directory what its intent means here:
+        which changes are ready, which the target already satisfies, which
+        conflict with what is there now, which name something that is missing,
+        and which this server cannot do at all.
+
+        Validation is not a plan. It prepares the ordinary change requests a
+        plan would take and stops; the plan reads the directory again, issues
+        the baselines an apply checks, and remains the only thing that decides
+        what is written. Nothing here writes, and a validation is not something
+        to keep: carry the package to the next environment and validate it
+        there.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PackageValidationRequest" }
+      responses:
+        "200":
+          description: What this target makes of the package.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PackageValidation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /export/ldif:
     get:
       tags: [transfer]
@@ -1350,6 +1447,10 @@ components:
             - recovery_unsupported_version
             - recovery_checksum_mismatch
             - recovery_too_large
+            - package_invalid
+            - package_unsupported_version
+            - package_checksum_mismatch
+            - package_too_large
             - not_found
             - conflict
             - constraint_violation
@@ -1712,6 +1813,381 @@ components:
         operationalAttributes:
           type: boolean
           description: Capture operational attributes too. Off by default.
+
+    PackageValue:
+      type: object
+      description: "One attribute value: exactly one of text or base64."
+      properties:
+        text: { type: string }
+        base64: { type: string }
+
+    PackageAttribute:
+      type: object
+      required: [name, values]
+      properties:
+        name: { type: string }
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/PackageValue" }
+
+    PackageMod:
+      type: object
+      required: [op, name]
+      properties:
+        op:
+          type: string
+          enum: [add, delete, replace]
+          x-enum-varnames: [PackageModAdd, PackageModDelete, PackageModReplace]
+        name: { type: string }
+        values:
+          type: array
+          items: { $ref: "#/components/schemas/PackageValue" }
+          description: "A delete with no values removes the attribute."
+
+    PackageDataChange:
+      type: object
+      required: [dn, type]
+      description: |
+        An intended change to an ordinary entry. The same operations the rest of
+        Alder uses, without `setpassword`, which cannot travel without its
+        secret.
+      properties:
+        dn: { type: string }
+        type:
+          type: string
+          enum: [add, modify, delete, rename]
+          x-enum-varnames: [PackageOpAdd, PackageOpModify, PackageOpDelete, PackageOpRename]
+        attributes:
+          type: array
+          items: { $ref: "#/components/schemas/PackageAttribute" }
+        mods:
+          type: array
+          items: { $ref: "#/components/schemas/PackageMod" }
+        newRdn: { type: string }
+        deleteOldRdn: { type: boolean }
+        newSuperior: { type: string }
+
+    PackageSchemaChange:
+      type: object
+      required: [element, op, oid]
+      description: |
+        An intended change to a schema definition, as what it means rather than
+        as one server's modification: the entry and attribute that hold schema
+        differ between products, and each target works that out for itself.
+      properties:
+        element:
+          type: string
+          enum: [attributeType, objectClass]
+          x-enum-varnames: [PackageElementAttributeType, PackageElementObjectClass]
+        op:
+          type: string
+          enum: [add, replace, delete]
+          x-enum-varnames: [PackageSchemaAdd, PackageSchemaReplace, PackageSchemaDelete]
+        oid: { type: string }
+        definition:
+          type: string
+          description: "The RFC 4512 definition, canonicalised. Required to add or replace."
+
+    PackageChange:
+      type: object
+      required: [id, kind, destructive]
+      properties:
+        id:
+          type: string
+          description: "Identifies this change inside the package. Dependencies name it."
+        label:
+          type: string
+          description: "What the operator was doing when the change was made. Carries no meaning."
+        kind:
+          type: string
+          enum: [data, schema]
+          x-enum-varnames: [PackageKindData, PackageKindSchema]
+        intent:
+          type: string
+          enum: [exact, desired]
+          x-enum-varnames: [PackageIntentExact, PackageIntentDesired]
+          description: |
+            How the change is planned. `desired` reconciles an add against the
+            entry that is there, changing only the attributes it names, and only
+            an add may ask for it. Absence never implies deletion: a deletion is
+            only ever an explicit `delete`.
+        destructive:
+          type: boolean
+          description: "The change removes something. Written out rather than inferred."
+        data: { $ref: "#/components/schemas/PackageDataChange" }
+        schema: { $ref: "#/components/schemas/PackageSchemaChange" }
+        dependsOn:
+          type: array
+          items: { type: string }
+          description: "The changes that must be applied before this one."
+
+    PackageOmitted:
+      type: object
+      required: [reason]
+      description: |
+        An intended change the package deliberately does not carry, with the
+        reason. Nothing is dropped silently.
+      properties:
+        subject: { type: string, description: "What was left out, named without its values." }
+        kind: { type: string }
+        reason:
+          type: string
+          enum: [secret_not_portable, unsupported_change, server_specific]
+          x-enum-varnames: [PackageOmittedSecret, PackageOmittedUnsupported, PackageOmittedServerSpecific]
+        detail: { type: string }
+
+    PackageProvenance:
+      type: object
+      description: |
+        Where a package came from. Informational: a package proves nothing about
+        its origin, and nothing here grants any authority. No host, no bind DN,
+        no path, no credential.
+      properties:
+        alderVersion: { type: string }
+        method:
+          type: string
+          enum: [changeset, data_diff, schema_diff, cli]
+          x-enum-varnames: [PackageMethodChangeset, PackageMethodDataDiff, PackageMethodSchemaDiff, PackageMethodCLI]
+        vendor: { type: string }
+        vendorVersion: { type: string }
+        namingContexts: { type: array, items: { type: string } }
+        snapshotChecksum: { type: string }
+        schemaSnapshotChecksum: { type: string }
+
+    PackageAssumptions:
+      type: object
+      description: |
+        What the package expects of a target, checked at validation. About
+        directory semantics, never about a host: the same package should suit
+        dev, test and production when their directories are compatible.
+      properties:
+        namingContexts: { type: array, items: { type: string } }
+        schemaOids: { type: array, items: { type: string } }
+        objectClasses: { type: array, items: { type: string } }
+
+    PackageCounts:
+      type: object
+      required: [changes, data, schema, destructive, omitted]
+      properties:
+        changes: { type: integer }
+        data: { type: integer }
+        schema: { type: integer }
+        destructive: { type: integer }
+        omitted: { type: integer }
+
+    ChangePackage:
+      type: object
+      description: |
+        An Alder change package: format `alder-change-package`, version 1 (1.11).
+        A portable description of intended changes. It holds no plan token, no
+        baseline, no session, no credential and no secret, and it is never
+        applied: a target validates it and makes its own plan.
+      required: [format, version, id, createdAt, source, assumptions, counts, changes, omitted]
+      properties:
+        format:
+          type: string
+          enum: [alder-change-package]
+          x-enum-varnames: [PackageFormatAlderChangePackage]
+        version: { type: integer }
+        id:
+          type: string
+          description: |
+            A generated UUID, stable across copies and independent of the
+            filename. Provenance only: it authorises nothing and Alder keeps no
+            record of it.
+        createdAt: { type: string, format: date-time }
+        title: { type: string }
+        description: { type: string }
+        source: { $ref: "#/components/schemas/PackageProvenance" }
+        assumptions: { $ref: "#/components/schemas/PackageAssumptions" }
+        counts: { $ref: "#/components/schemas/PackageCounts" }
+        changes:
+          type: array
+          maxItems: 2000
+          items: { $ref: "#/components/schemas/PackageChange" }
+          description: |
+            In the package's canonical order: a dependency before what depends
+            on it, ties broken by identifier. The order a target applies them in
+            comes from the graph.
+        omitted:
+          type: array
+          items: { $ref: "#/components/schemas/PackageOmitted" }
+        checksum:
+          type: string
+          description: |
+            SHA-256 over the canonical content without `createdAt` and without
+            the checksum itself, so the same intent captured twice has the same
+            checksum. Integrity, not authentication: anyone who edits a package
+            can recompute it. Packages are not signed.
+
+    PackageBuildRequest:
+      type: object
+      required: [changes]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          items: { $ref: "#/components/schemas/ChangeRequest" }
+          description: |
+            The changes to package. A `baseline` or an `expect` on one is
+            ignored rather than carried: both describe the environment the
+            change was planned in.
+        assumptions: { $ref: "#/components/schemas/PackageAssumptions" }
+        method:
+          type: string
+          enum: [changeset, data_diff, schema_diff, cli]
+          x-enum-varnames: [PackageBuildChangeset, PackageBuildDataDiff, PackageBuildSchemaDiff, PackageBuildCLI]
+        recordSource:
+          type: boolean
+          description: |
+            Record this directory's vendor and naming contexts as provenance.
+            Off by default: provenance is informational, and a package that says
+            nothing about where it was made is still a valid package.
+
+    PackageItemStatus:
+      type: string
+      description: |
+        What validation concluded about one change against this target.
+        `already_satisfied` is a success: a change applied here by hand is not a
+        problem to report. `unknown` is never read as ready.
+      enum: [ready, already_satisfied, no_op, conflict, dependency_missing, unsupported, target_incompatible, unknown]
+      x-enum-varnames: [PackageStatusReady, PackageStatusAlreadySatisfied, PackageStatusNoOp, PackageStatusConflict,
+        PackageStatusDependencyMissing, PackageStatusUnsupported, PackageStatusTargetIncompatible, PackageStatusUnknown]
+
+    PackageProblem:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: |
+            Why the change is not simply ready, in the vocabulary the plan and
+            the schema comparison already use where the situation is the same.
+          enum: [entry_missing, entry_exists, parent_missing, rename_target_exists, attribute_undefined,
+            object_class_undefined, definition_missing, definition_differs, dependency_required,
+            referenced_by_schema, schema_not_editable, schema_target_required, server_defined,
+            outside_naming_contexts, assumption_unmet, read_failed, unbuildable_change]
+          x-enum-varnames: [PackageProblemEntryMissing, PackageProblemEntryExists, PackageProblemParentMissing,
+            PackageProblemRenameTargetExists, PackageProblemAttributeUndefined, PackageProblemObjectClassUndefined,
+            PackageProblemDefinitionMissing, PackageProblemDefinitionDiffers, PackageProblemDependencyRequired,
+            PackageProblemReferencedBySchema, PackageProblemSchemaNotEditable, PackageProblemSchemaTargetRequired,
+            PackageProblemServerDefined, PackageProblemOutsideNamingContexts, PackageProblemAssumptionUnmet,
+            PackageProblemReadFailed, PackageProblemUnbuildable]
+        subject: { type: string }
+        detail: { type: string }
+
+    PackageAssumptionResult:
+      type: object
+      required: [kind, value, satisfied]
+      properties:
+        kind: { type: string }
+        value: { type: string }
+        satisfied: { type: boolean }
+        detail: { type: string }
+
+    PackageTarget:
+      type: object
+      required: [namingContexts, schemaWritable]
+      description: "What the directory a package was validated against announces. Display only."
+      properties:
+        vendor: { type: string }
+        vendorVersion: { type: string }
+        namingContexts: { type: array, items: { type: string } }
+        schemaWritable: { type: boolean }
+        schemaEntries: { type: array, items: { type: string } }
+
+    PackageValidationCounts:
+      type: object
+      required: [ready, alreadySatisfied, noOp, conflict, dependencyMissing, unsupported, targetIncompatible, unknown]
+      properties:
+        ready: { type: integer }
+        alreadySatisfied: { type: integer }
+        noOp: { type: integer }
+        conflict: { type: integer }
+        dependencyMissing: { type: integer }
+        unsupported: { type: integer }
+        targetIncompatible: { type: integer }
+        unknown: { type: integer }
+
+    PackageValidationItem:
+      type: object
+      required: [id, kind, destructive, status]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        label: { type: string }
+        destructive: { type: boolean }
+        status: { $ref: "#/components/schemas/PackageItemStatus" }
+        intent: { type: string }
+        dependsOn: { type: array, items: { type: string } }
+        problems:
+          type: array
+          items: { $ref: "#/components/schemas/PackageProblem" }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/ChangeRequest" }
+          description: |
+            For a ready change: the ordinary change requests it means on this
+            target, prepared for `POST /plan` and nothing else. They carry no
+            baseline, because only a plan issues one.
+
+    PackageInspection:
+      type: object
+      required: [packageId, version, createdAt, integrity, source, assumptions, counts, changes, omitted, order]
+      properties:
+        packageId: { type: string }
+        version: { type: integer }
+        createdAt: { type: string }
+        title: { type: string }
+        description: { type: string }
+        integrity: { $ref: "#/components/schemas/SnapshotIntegrity" }
+        source: { $ref: "#/components/schemas/PackageProvenance" }
+        assumptions: { $ref: "#/components/schemas/PackageAssumptions" }
+        counts: { $ref: "#/components/schemas/PackageCounts" }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/PackageChange" }
+        omitted:
+          type: array
+          items: { $ref: "#/components/schemas/PackageOmitted" }
+        order:
+          type: array
+          items: { type: string }
+          description: "The changes in the order a target must apply them."
+
+    PackageValidationRequest:
+      type: object
+      required: [package]
+      properties:
+        package: { $ref: "#/components/schemas/ChangePackage" }
+        schemaTarget:
+          type: string
+          description: |
+            The schema entry an added definition should be written to, where the
+            server keeps schema in several. Without it such a change is a
+            conflict with `schema_target_required`.
+
+    PackageValidation:
+      type: object
+      required: [packageId, integrity, target, assumptions, counts, items, order]
+      properties:
+        packageId: { type: string }
+        integrity: { $ref: "#/components/schemas/SnapshotIntegrity" }
+        target: { $ref: "#/components/schemas/PackageTarget" }
+        assumptions:
+          type: array
+          items: { $ref: "#/components/schemas/PackageAssumptionResult" }
+        counts: { $ref: "#/components/schemas/PackageValidationCounts" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PackageValidationItem" }
+        order:
+          type: array
+          items: { type: string }
+          description: "The identifiers of the ready changes, in the order to apply them."
 
     StateKind:
       type: string

@@ -809,6 +809,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/packages/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build a change package from changes
+         * @description Turns changes into an `alder-change-package` document (1.11): a portable
+         *     description of intended directory and schema changes that can be carried
+         *     to another environment and validated there.
+         *
+         *     The package holds intent, not execution. Every `baseline` is dropped,
+         *     every expectation is dropped, and a change to a schema entry is recorded
+         *     as what it means -- this element, this operation, this definition --
+         *     rather than as the modification this server happens to need, because the
+         *     entry and attribute that hold schema differ between products.
+         *
+         *     What cannot be packaged is never dropped silently. A password change
+         *     needs its secret to mean anything, so it is refused, and the package
+         *     records the omission with a machine-readable reason.
+         *
+         *     Dependencies are derived from the changes themselves -- an object class
+         *     after the attribute types it names, an entry after the class it uses and
+         *     after its parent -- and written into the document. Array order carries no
+         *     meaning; the graph does.
+         */
+        post: operations["buildPackage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packages/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a change package and check everything that needs no directory
+         * @description Reads a package strictly and reports what it holds: its identity, its
+         *     provenance, its assumptions, its changes and its dependency order.
+         *
+         *     Everything that can be checked without a directory is checked here --
+         *     the format and version, unknown fields, trailing content, duplicate
+         *     identifiers, missing dependencies, self-dependencies, cycles, malformed
+         *     DNs, schema definitions that do not parse, secrets, and the checksum.
+         *     Nothing is executed and no directory is read, so no session is needed:
+         *     this is the check a pipeline runs before it has credentials.
+         */
+        post: operations["inspectPackage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packages/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate a change package against the current directory
+         * @description Reads the package, then asks this directory what its intent means here:
+         *     which changes are ready, which the target already satisfies, which
+         *     conflict with what is there now, which name something that is missing,
+         *     and which this server cannot do at all.
+         *
+         *     Validation is not a plan. It prepares the ordinary change requests a
+         *     plan would take and stops; the plan reads the directory again, issues
+         *     the baselines an apply checks, and remains the only thing that decides
+         *     what is written. Nothing here writes, and a validation is not something
+         *     to keep: carry the package to the next environment and validate it
+         *     there.
+         */
+        post: operations["validatePackage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/export/ldif": {
         parameters: {
             query?: never;
@@ -1004,7 +1099,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -1272,6 +1367,265 @@ export interface components {
             filter?: string;
             /** @description Capture operational attributes too. Off by default. */
             operationalAttributes?: boolean;
+        };
+        /** @description One attribute value: exactly one of text or base64. */
+        PackageValue: {
+            text?: string;
+            base64?: string;
+        };
+        PackageAttribute: {
+            name: string;
+            values: components["schemas"]["PackageValue"][];
+        };
+        PackageMod: {
+            /** @enum {string} */
+            op: "add" | "delete" | "replace";
+            name: string;
+            /** @description A delete with no values removes the attribute. */
+            values?: components["schemas"]["PackageValue"][];
+        };
+        /**
+         * @description An intended change to an ordinary entry. The same operations the rest of
+         *     Alder uses, without `setpassword`, which cannot travel without its
+         *     secret.
+         */
+        PackageDataChange: {
+            dn: string;
+            /** @enum {string} */
+            type: "add" | "modify" | "delete" | "rename";
+            attributes?: components["schemas"]["PackageAttribute"][];
+            mods?: components["schemas"]["PackageMod"][];
+            newRdn?: string;
+            deleteOldRdn?: boolean;
+            newSuperior?: string;
+        };
+        /**
+         * @description An intended change to a schema definition, as what it means rather than
+         *     as one server's modification: the entry and attribute that hold schema
+         *     differ between products, and each target works that out for itself.
+         */
+        PackageSchemaChange: {
+            /** @enum {string} */
+            element: "attributeType" | "objectClass";
+            /** @enum {string} */
+            op: "add" | "replace" | "delete";
+            oid: string;
+            /** @description The RFC 4512 definition, canonicalised. Required to add or replace. */
+            definition?: string;
+        };
+        PackageChange: {
+            /** @description Identifies this change inside the package. Dependencies name it. */
+            id: string;
+            /** @description What the operator was doing when the change was made. Carries no meaning. */
+            label?: string;
+            /** @enum {string} */
+            kind: "data" | "schema";
+            /**
+             * @description How the change is planned. `desired` reconciles an add against the
+             *     entry that is there, changing only the attributes it names, and only
+             *     an add may ask for it. Absence never implies deletion: a deletion is
+             *     only ever an explicit `delete`.
+             * @enum {string}
+             */
+            intent?: "exact" | "desired";
+            /** @description The change removes something. Written out rather than inferred. */
+            destructive: boolean;
+            data?: components["schemas"]["PackageDataChange"];
+            schema?: components["schemas"]["PackageSchemaChange"];
+            /** @description The changes that must be applied before this one. */
+            dependsOn?: string[];
+        };
+        /**
+         * @description An intended change the package deliberately does not carry, with the
+         *     reason. Nothing is dropped silently.
+         */
+        PackageOmitted: {
+            /** @description What was left out, named without its values. */
+            subject?: string;
+            kind?: string;
+            /** @enum {string} */
+            reason: "secret_not_portable" | "unsupported_change" | "server_specific";
+            detail?: string;
+        };
+        /**
+         * @description Where a package came from. Informational: a package proves nothing about
+         *     its origin, and nothing here grants any authority. No host, no bind DN,
+         *     no path, no credential.
+         */
+        PackageProvenance: {
+            alderVersion?: string;
+            /** @enum {string} */
+            method?: "changeset" | "data_diff" | "schema_diff" | "cli";
+            vendor?: string;
+            vendorVersion?: string;
+            namingContexts?: string[];
+            snapshotChecksum?: string;
+            schemaSnapshotChecksum?: string;
+        };
+        /**
+         * @description What the package expects of a target, checked at validation. About
+         *     directory semantics, never about a host: the same package should suit
+         *     dev, test and production when their directories are compatible.
+         */
+        PackageAssumptions: {
+            namingContexts?: string[];
+            schemaOids?: string[];
+            objectClasses?: string[];
+        };
+        PackageCounts: {
+            changes: number;
+            data: number;
+            schema: number;
+            destructive: number;
+            omitted: number;
+        };
+        /**
+         * @description An Alder change package: format `alder-change-package`, version 1 (1.11).
+         *     A portable description of intended changes. It holds no plan token, no
+         *     baseline, no session, no credential and no secret, and it is never
+         *     applied: a target validates it and makes its own plan.
+         */
+        ChangePackage: {
+            /** @enum {string} */
+            format: "alder-change-package";
+            version: number;
+            /**
+             * @description A generated UUID, stable across copies and independent of the
+             *     filename. Provenance only: it authorises nothing and Alder keeps no
+             *     record of it.
+             */
+            id: string;
+            /** Format: date-time */
+            createdAt: string;
+            title?: string;
+            description?: string;
+            source: components["schemas"]["PackageProvenance"];
+            assumptions: components["schemas"]["PackageAssumptions"];
+            counts: components["schemas"]["PackageCounts"];
+            /**
+             * @description In the package's canonical order: a dependency before what depends
+             *     on it, ties broken by identifier. The order a target applies them in
+             *     comes from the graph.
+             */
+            changes: components["schemas"]["PackageChange"][];
+            omitted: components["schemas"]["PackageOmitted"][];
+            /**
+             * @description SHA-256 over the canonical content without `createdAt` and without
+             *     the checksum itself, so the same intent captured twice has the same
+             *     checksum. Integrity, not authentication: anyone who edits a package
+             *     can recompute it. Packages are not signed.
+             */
+            checksum?: string;
+        };
+        PackageBuildRequest: {
+            title?: string;
+            description?: string;
+            /**
+             * @description The changes to package. A `baseline` or an `expect` on one is
+             *     ignored rather than carried: both describe the environment the
+             *     change was planned in.
+             */
+            changes: components["schemas"]["ChangeRequest"][];
+            assumptions?: components["schemas"]["PackageAssumptions"];
+            /** @enum {string} */
+            method?: "changeset" | "data_diff" | "schema_diff" | "cli";
+            /**
+             * @description Record this directory's vendor and naming contexts as provenance.
+             *     Off by default: provenance is informational, and a package that says
+             *     nothing about where it was made is still a valid package.
+             */
+            recordSource?: boolean;
+        };
+        /**
+         * @description What validation concluded about one change against this target.
+         *     `already_satisfied` is a success: a change applied here by hand is not a
+         *     problem to report. `unknown` is never read as ready.
+         * @enum {string}
+         */
+        PackageItemStatus: "ready" | "already_satisfied" | "no_op" | "conflict" | "dependency_missing" | "unsupported" | "target_incompatible" | "unknown";
+        PackageProblem: {
+            /**
+             * @description Why the change is not simply ready, in the vocabulary the plan and
+             *     the schema comparison already use where the situation is the same.
+             * @enum {string}
+             */
+            code: "entry_missing" | "entry_exists" | "parent_missing" | "rename_target_exists" | "attribute_undefined" | "object_class_undefined" | "definition_missing" | "definition_differs" | "dependency_required" | "referenced_by_schema" | "schema_not_editable" | "schema_target_required" | "server_defined" | "outside_naming_contexts" | "assumption_unmet" | "read_failed" | "unbuildable_change";
+            subject?: string;
+            detail?: string;
+        };
+        PackageAssumptionResult: {
+            kind: string;
+            value: string;
+            satisfied: boolean;
+            detail?: string;
+        };
+        /** @description What the directory a package was validated against announces. Display only. */
+        PackageTarget: {
+            vendor?: string;
+            vendorVersion?: string;
+            namingContexts: string[];
+            schemaWritable: boolean;
+            schemaEntries?: string[];
+        };
+        PackageValidationCounts: {
+            ready: number;
+            alreadySatisfied: number;
+            noOp: number;
+            conflict: number;
+            dependencyMissing: number;
+            unsupported: number;
+            targetIncompatible: number;
+            unknown: number;
+        };
+        PackageValidationItem: {
+            id: string;
+            kind: string;
+            label?: string;
+            destructive: boolean;
+            status: components["schemas"]["PackageItemStatus"];
+            intent?: string;
+            dependsOn?: string[];
+            problems?: components["schemas"]["PackageProblem"][];
+            /**
+             * @description For a ready change: the ordinary change requests it means on this
+             *     target, prepared for `POST /plan` and nothing else. They carry no
+             *     baseline, because only a plan issues one.
+             */
+            changes?: components["schemas"]["ChangeRequest"][];
+        };
+        PackageInspection: {
+            packageId: string;
+            version: number;
+            createdAt: string;
+            title?: string;
+            description?: string;
+            integrity: components["schemas"]["SnapshotIntegrity"];
+            source: components["schemas"]["PackageProvenance"];
+            assumptions: components["schemas"]["PackageAssumptions"];
+            counts: components["schemas"]["PackageCounts"];
+            changes: components["schemas"]["PackageChange"][];
+            omitted: components["schemas"]["PackageOmitted"][];
+            /** @description The changes in the order a target must apply them. */
+            order: string[];
+        };
+        PackageValidationRequest: {
+            package: components["schemas"]["ChangePackage"];
+            /**
+             * @description The schema entry an added definition should be written to, where the
+             *     server keeps schema in several. Without it such a change is a
+             *     conflict with `schema_target_required`.
+             */
+            schemaTarget?: string;
+        };
+        PackageValidation: {
+            packageId: string;
+            integrity: components["schemas"]["SnapshotIntegrity"];
+            target: components["schemas"]["PackageTarget"];
+            assumptions: components["schemas"]["PackageAssumptionResult"][];
+            counts: components["schemas"]["PackageValidationCounts"];
+            items: components["schemas"]["PackageValidationItem"][];
+            /** @description The identifiers of the ready changes, in the order to apply them. */
+            order: string[];
         };
         /**
          * @description What a snapshot or comparison is of: directory data, or the published
@@ -3811,6 +4165,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Diff"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    buildPackage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description The package document, with a download filename. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePackage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    inspectPackage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePackage"];
+            };
+        };
+        responses: {
+            /** @description What the package holds. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageInspection"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    validatePackage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageValidationRequest"];
+            };
+        };
+        responses: {
+            /** @description What this target makes of the package. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageValidation"];
                 };
             };
             400: components["responses"]["BadRequest"];
