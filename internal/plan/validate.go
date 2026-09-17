@@ -227,3 +227,12 @@ func problemReason(p Problem) string {
 	}
 	return "The schema does not permit this change."
 }
+
+// SchemaProblem returns the first rule of the schema an operation breaks, or
+// nil. It is the same check a plan makes, for the callers that have to judge
+// content against a schema without planning anything: a migration preflight
+// asks whether an entry would be accepted, and must not issue a baseline to
+// find out.
+func SchemaProblem(sch *schema.Schema, op directory.ChangeRecord, live *directory.Entry) *Problem {
+	return validate(sch, op, live)
+}
