@@ -67,7 +67,10 @@ that does not match, or a version this release does not read is refused with
 the same error code (`package_checksum_mismatch`, `snapshot_unsupported_version`
 and so on). A document that is none of the three is refused with
 `preflight_artifact_unsupported`. Arbitrary LDIF is not read; make a package or
-a snapshot from it first.
+a snapshot from it first. A **configuration** snapshot (1.13, `kind: config`)
+is not a preflight artifact: configuration is provider-specific, and what a
+preflight would have to say about it is exactly what the exclusion below already
+says. See [CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md).
 
 The source is always an artifact and the target always live. Alder does not
 connect to two directories at once, and a preflight needs no connection to the
@@ -384,7 +387,10 @@ Every report lists these, because pretending they do not exist would make a
   translated. An entry that carries across may not be readable or writable by the
   same people on the target.
 - **Server configuration.** Overlays, plugins, password policy, limits, indexes,
-  referential integrity and every other setting the source relies on.
+  referential integrity and every other setting the source relies on. 1.13
+  captures and compares configuration, but only ever within one server's own
+  software; whether one server's configuration is compatible with another's is
+  not evaluated here or anywhere else in Alder.
 - **Secret values.** Passwords and other sensitive values are never in an
   artifact.
 

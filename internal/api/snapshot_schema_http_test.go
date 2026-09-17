@@ -131,7 +131,9 @@ func TestASchemaCaptureIsTheSameDocumentTwice(t *testing.T) {
 func TestACaptureNamesItsKind(t *testing.T) {
 	rig := schemaRig(t, baseSchemaAttrs(nil, nil))
 	for body, code := range map[string]ErrorError{
-		`{"kind":"config"}`:   ErrorErrorSnapshotScopeUnsupported,
+		// 1.13 added kind config. This server has no configuration tree to
+		// read, which is a different answer from "there is no such kind".
+		`{"kind":"config"}`:   ErrorErrorConfigModelUnavailable,
 		`{"kind":"nonsense"}`: ErrorErrorBadRequest,
 		`{"kind":"data"}`:     ErrorErrorBadRequest,
 		`{}`:                  ErrorErrorBadRequest,

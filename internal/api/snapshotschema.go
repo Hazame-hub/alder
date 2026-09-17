@@ -111,12 +111,7 @@ func (s *Server) captureSchemaSnapshot(c *fiber.Ctx, sess *session.Session) erro
 
 // refuseSnapshotKind answers a request for a kind Alder does not capture.
 func refuseSnapshotKind(c *fiber.Ctx, kind string) error {
-	if strings.EqualFold(kind, "config") {
-		return writeError(c, fiber.StatusBadRequest, ErrorErrorSnapshotScopeUnsupported,
-			"Server configuration is not captured.",
-			"Snapshots are of directory data or of the published schema. There is no configuration snapshot kind.")
-	}
-	return badRequest(c, "The kind must be data or schema.", "")
+	return badRequest(c, "The kind must be data, schema or config.", "")
 }
 
 func schemaInspection(snap *snapshot.SchemaSnapshot, integrity snapshot.Integrity) SnapshotInspection {
@@ -162,7 +157,7 @@ func diffKind(c *fiber.Ctx, body diffBody) (string, bool) {
 		if side.Live != nil {
 			if side.Live.Kind != nil {
 				k := string(*side.Live.Kind)
-				if k != snapshot.KindData && k != snapshot.KindSchema {
+				if k != snapshot.KindData && k != snapshot.KindSchema && k != snapshot.KindConfig {
 					return "", fail(refuseSnapshotKind(c, k))
 				}
 				kinds[name] = k
@@ -182,12 +177,17 @@ func diffKind(c *fiber.Ctx, body diffBody) (string, bool) {
 		kinds["target"] = kinds["source"]
 	}
 	source, target := kinds["source"], kinds["target"]
-	if source != target && (source == snapshot.KindSchema || target == snapshot.KindSchema) {
-		return "", fail(badRequest(c, "Schema is compared only with schema.",
-			fmt.Sprintf("The source is %s and the target is %s.", source, target)))
+	// A kind is only ever compared with its own. Two configurations of
+	// different providers are a comparison Alder makes and answers with a
+	// mismatch; a configuration against a schema is not a comparison at all.
+	for _, kind := range []string{snapshot.KindSchema, snapshot.KindConfig} {
+		if source != target && (source == kind || target == kind) {
+			return "", fail(badRequest(c, "Data, schema and configuration are each compared only with their own kind.",
+				fmt.Sprintf("The source is %s and the target is %s.", source, target)))
+		}
 	}
-	if source == snapshot.KindSchema {
-		return snapshot.KindSchema, true
+	if source == snapshot.KindSchema || source == snapshot.KindConfig {
+		return source, true
 	}
 	// Anything else is read as data, and the data reader refuses what is not.
 	return snapshot.KindData, true

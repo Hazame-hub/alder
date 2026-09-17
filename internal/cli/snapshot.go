@@ -78,9 +78,11 @@ func runSnapshot(ctx context.Context, env *Env, conn *connection, o snapshotOpti
 			return usagef("--kind schema captures the whole published schema: --base, --scope, --filter and --operational do not apply")
 		}
 	case "config":
-		return usagef("server configuration is not captured: --kind is data or schema")
+		if flags.Changed("base") || flags.Changed("scope") || flags.Changed("filter") || flags.Changed("operational") {
+			return usagef("--kind config captures the server's whole configuration: --base, --scope, --filter and --operational do not apply")
+		}
 	default:
-		return usagef("--kind must be data or schema, not %q", o.kind)
+		return usagef("--kind must be data, schema or config, not %q", o.kind)
 	}
 	if o.output == "" {
 		return usagef("--output is required: a file to write, or - for standard output")
@@ -101,9 +103,12 @@ func runSnapshot(ctx context.Context, env *Env, conn *connection, o snapshotOpti
 	defer r.close()
 
 	var req api.SnapshotCaptureRequest
-	if o.kind == "schema" {
+	switch o.kind {
+	case "schema":
 		req.Kind = ptr(api.StateKindSchema)
-	} else {
+	case "config":
+		req.Kind = ptr(api.StateKindConfig)
+	default:
 		scope := api.SnapshotScope(o.scope)
 		req = api.SnapshotCaptureRequest{Base: &o.base, Scope: &scope}
 		if o.filter != "" {
@@ -150,6 +155,14 @@ func runSnapshot(ctx context.Context, env *Env, conn *connection, o snapshotOpti
 	if err != nil {
 		return err
 	}
+	if head.Kind == "config" {
+		// A configuration is one server's own, so the line says whose it is,
+		// and says plainly that the secrets in it were not read.
+		writef(env.Stderr, "Captured the %s configuration at %s (%d settings in %d resources, %d withheld; %s) to %s, %s\n",
+			safe(head.Source.Provider), safe(head.Source.Root), head.Counts.Settings, head.Counts.Resources,
+			head.Counts.Withheld, safe(head.Completeness), o.output, safe(head.Checksum))
+		return nil
+	}
 	if head.Kind == "schema" {
 		writef(env.Stderr, "Captured the schema at %s (%d attribute types, %d object classes, %d unparsed; %s) to %s, %s\n",
 			safe(head.Source.SubschemaEntry), head.Counts.AttributeTypes, head.Counts.ObjectClasses, head.Counts.Unparsed,
@@ -180,6 +193,9 @@ type snapshotHead struct {
 		Base           string `json:"base"`
 		Scope          string `json:"scope"`
 		SubschemaEntry string `json:"subschemaEntry"`
+		// A configuration snapshot's (1.13).
+		Provider string `json:"provider"`
+		Root     string `json:"root"`
 	} `json:"source"`
 	// A schema snapshot's (1.10).
 	Completeness string `json:"completeness"`
@@ -187,6 +203,10 @@ type snapshotHead struct {
 		AttributeTypes int `json:"attributeTypes"`
 		ObjectClasses  int `json:"objectClasses"`
 		Unparsed       int `json:"unparsed"`
+		// A configuration snapshot's (1.13).
+		Settings  int `json:"settings"`
+		Resources int `json:"resources"`
+		Withheld  int `json:"withheld"`
 	} `json:"counts"`
 }
 

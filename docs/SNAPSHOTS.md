@@ -26,7 +26,11 @@ files; see [CLI.md](CLI.md).
 Since 1.10 the same endpoints also capture and compare the **schema** a server
 publishes, as a snapshot of `kind: schema`. That document, its comparison and
 how its differences become changes are described in
-[SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md). This page is about data snapshots.
+[SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md). Since 1.13 they also capture a
+server's own **configuration**, as `kind: config`, which is provider-specific
+and is only ever compared with another capture of the same server software; see
+[CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md). This page is about data
+snapshots.
 
 ---
 
@@ -72,7 +76,7 @@ how its differences become changes are described in
 | Field | Meaning |
 |---|---|
 | `format`, `version` | Always `alder-snapshot` and, for now, `1`. |
-| `kind` | `data`. A schema snapshot (1.10) is `kind: schema`, a separate document with its own fields; see [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md). Configuration is not a snapshot kind. |
+| `kind` | `data`. A schema snapshot (1.10) is `kind: schema` and a configuration snapshot (1.13) is `kind: config`, each a separate document with its own fields; see [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md) and [CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md). A kind is only ever compared with its own. |
 | `source` | Where it was captured: the server's announced vendor and version (for display, and possibly absent), the base, the scope and the filter. It never contains the bind DN, credentials, the server address or any local path. |
 | `operationalAttributes` | Whether operational attributes were captured. |
 | `schemaAvailable` | Whether the server's schema was readable at capture time. Without it every value compares byte for byte. |
@@ -178,7 +182,8 @@ pure read. A document is refused with `400` and one of these codes:
 | `snapshot_unsupported_version` | A `version` this Alder does not read. |
 | `snapshot_checksum_mismatch` | See above. |
 | `snapshot_too_large` | More than 50,000 entries. |
-| `snapshot_scope_unsupported` | A capture, or the live side of a comparison, whose base is under the schema or configuration tree. |
+| `snapshot_scope_unsupported` | A *data* capture, or the live side of a data comparison, whose base is under the schema or configuration tree. Each has its own kind. |
+| `config_model_unavailable` | A configuration capture where the server announced no configuration tree, this session cannot read it, or Alder has no model for that server (1.13). |
 
 **Unknown fields are refused**, not ignored. A field this version does not know
 might change what the document means, and reading it as if it were absent could
@@ -357,9 +362,11 @@ directory holds now.
 
 - **Schema and configuration as data.** A data snapshot whose base is under the
   schema or configuration tree is refused with `snapshot_scope_unsupported`.
-  Both have different identity and ordering rules. Since 1.10 the schema is
-  captured as its own kind, `schema` (see
-  [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md)); configuration is not captured.
+  Both have different identity and ordering rules, so each has a kind of its
+  own: `schema` since 1.10 (see [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md)) and
+  `config` since 1.13 (see [CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md)).
+  Configuration is provider-specific: a configuration is only ever compared
+  with another capture of the same server software.
 - **Storage.** Alder keeps no snapshots, no history and no schedule.
 - **Intent.** A snapshot is a state, not a plan to reach one. What an operator
   means to change travels as a change package (1.11); see
@@ -373,8 +380,10 @@ do. See [RECOVERY.md](RECOVERY.md). Restoring a snapshot is still not a feature:
 a comparison proposes changes, and nothing restores a subtree wholesale.
 
 Snapshot format version 1 was introduced in Alder 1.7. Every later 1.x release
-will continue to read it. Schema snapshots were introduced in Alder 1.10. Later
-Alder 1.x releases will continue to read schema snapshot kind/version 1. See
+will continue to read it. Schema snapshots were introduced in Alder 1.10 and
+configuration snapshots in Alder 1.13; later Alder 1.x releases will continue to
+read version 1 of both. A release older than the kind refuses the document as a
+kind it does not know, rather than misreading it. See
 [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ## Preflight

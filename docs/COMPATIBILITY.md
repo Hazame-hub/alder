@@ -239,6 +239,41 @@ contract changed only by tightening what a token proves:
   compares schema without computing the dependency order a staged comparison
   needs. `POST /diff` is unchanged.
 
+1.13 added configuration snapshots and comparison, only by adding:
+
+- **A new snapshot kind, not a new endpoint.** `POST /snapshots/capture`,
+  `POST /snapshots/inspect` and `POST /diff` take `kind: config`, and the new
+  error identifier is `config_model_unavailable` -- the server announced no
+  configuration tree, this session cannot read it, or Alder has no model for
+  that server's software.
+- **The configuration document is covered like the others.** Snapshot format
+  version 1, kind `config`, described in
+  [CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md), was introduced in Alder 1.13, and
+  every later 1.x release will continue to read it. Releases before 1.13 refuse
+  it as a kind they do not know rather than misreading it, which is what the
+  kind field is for. Readers refuse unknown fields rather than ignore them.
+- **A kind is only ever compared with its own.** Mixing kinds in one comparison
+  is `400 bad_request` on both sides of the pair, as it already was for schema
+  against data.
+- **Two configurations of different providers are compared and answered**, with
+  `providerMismatch: true`, no items and `complete: false` -- not refused. A
+  client that does not know the field would read a comparison with no
+  differences, which is why it also carries reason code `provider_mismatch` and
+  a summary of each side.
+- **Configuration enums may grow.** `ConfigProvider`, `ConfigMutability`,
+  `ConfigActionable`, the section names, the value types, the `incomplete`
+  reasons and the item problems follow the enum rule above. A client that does
+  not recognise an `actionable` value should treat the difference as one it
+  cannot act on.
+- **Nothing new can be written.** A configuration comparison proposes changes
+  only for settings Alder already wrote through the ordinary plan before 1.13;
+  a comparison creates no new write capability, and recovery stays unavailable
+  for configuration.
+- **The command line gained one kind:** `alder snapshot --kind config`, and
+  `alder diff` reads configuration documents, reusing the existing exit codes.
+- **Preflight is unchanged.** Configuration compatibility is still not
+  evaluated, cross-provider or otherwise, and every report still says so.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —

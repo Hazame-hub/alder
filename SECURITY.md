@@ -95,6 +95,35 @@ never change it where it is kept or sent. A schema comparison proposes changes
 and never applies them. A removal is never selected by default, a dependency is
 never added on anyone's behalf, and a definition is never reported as unused.
 
+**Configuration snapshots withhold secrets, and still describe a machine.** A
+configuration snapshot (1.13) records the server's own configuration. A setting
+whose value is a credential -- a root password, a replication credential, a
+database encryption key -- is recorded as **present and counted**: no value, no
+hash, no salt, no truncation, no digest of any kind, so it is not an offline
+guessing oracle and a comparison of two captures can say only whether the number
+of values changed. It carries no bind DN, no session credential and nothing
+about the Alder host.
+
+It does carry **operational infrastructure metadata**, marked `operational` and
+counted: file and directory paths, ports, host names, socket names, module
+paths, suffixes and backend names. *Config snapshots may contain operational
+infrastructure metadata even when secrets are withheld.* Treat a configuration
+document the way you would treat the server's configuration file: it tells a
+reader how the machine is laid out. Runtime state -- monitoring entries,
+counters, task entries and the attributes a server maintains for itself -- is
+not configuration and is not captured at all.
+
+Decoding is strict, as for the other kinds: an unknown field, another kind, a
+version from the future, a provider with no model, a setting recorded twice, a
+setting naming a resource the document does not hold, counts that disagree with
+the document, a withheld setting carrying a value, a value over 64 KiB or one
+that is not valid UTF-8 are all refused. Values are directory-controlled text
+and are escaped where they are shown. A configuration comparison proposes
+changes and never applies them, and it proposes them only for the settings
+Alder already wrote through the ordinary plan: a document cannot make a setting
+writable, because the live server's own model has to agree. Comparing two
+different products' configuration compares nothing at all.
+
 **Change packages hold no secret, and are never executed.** A change package
 (1.11) describes intended changes so they can be carried to another directory.
 It never contains a password, a hash, a reversible form of one, a placeholder

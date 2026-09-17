@@ -170,13 +170,20 @@ read. It is an assessment made before anything runs, from the operation alone. T
 derived from the entry as it was then, and says more -- whether a deleted entry
 held a password, for instance. See [RECOVERY.md](RECOVERY.md). Added in 1.9.
 
+Recovery is **unavailable** for a `schema` or `config` item. Compensation is
+derived from ordinary directory state, and neither a schema entry nor a
+configuration entry is that; a configuration change is put back the way it was
+made, by planning the opposite change.
+
 ### `impact`
 
 Facts, not a risk score.
 
 - **`kind`** on each item, and **`impact.kinds`** in total: `schema` (the
   server's schema entries, where a write changes what every entry may hold),
-  `config` (the server's own configuration tree), or `data`. Decided from the
+  `config` (the server's own configuration tree -- since 1.13 a configuration
+  comparison can propose one of these; see
+  [CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md)), or `data`. Decided from the
   locations the server announces — `subschemaSubentry`, the configuration
   context, the schema write targets — never from what a DN looks like. On a
   server that keeps its schema inside its configuration, a schema entry is

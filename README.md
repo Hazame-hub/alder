@@ -365,6 +365,21 @@ selected for you, and a change that needs another is refused until you select
 that one too. It works on OpenLDAP and 389 DS, and between them. Details in
 [`docs/SCHEMA-SNAPSHOTS.md`](docs/SCHEMA-SNAPSHOTS.md).
 
+**Snapshot and compare the configuration.** The same capture, with
+`kind: config`, records a server's own configuration -- its settings, and the
+databases, overlays, backends and plugins they belong to -- as a deterministic,
+checksummed document. Settings are identified by what the server names them,
+never by their position in a list, so renumbering a database changes nothing.
+Secrets are recorded as present and counted, never as a value and never as a
+digest of one; runtime counters are not configuration and are left out. Compare
+two captures, or one and the live server, and see what changed and which
+settings Alder can actually change -- those go through the same plan and review
+as every other write, and nothing else is ever staged. Configuration belongs to
+the server's software: given two different products, Alder says so and compares
+nothing, rather than producing a thousand differences that are artefacts of the
+comparison. Details in
+[`docs/CONFIG-SNAPSHOTS.md`](docs/CONFIG-SNAPSHOTS.md).
+
 **Carry a change between directories.** A change package is a portable
 description of what you intend to change -- entries and schema together, with
 the dependencies between them written down. It holds no password, no plan token

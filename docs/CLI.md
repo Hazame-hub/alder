@@ -268,10 +268,35 @@ alder snapshot --kind schema --output schema.json
 `--kind schema` (1.10) captures the schema the server publishes instead of a
 subtree: attribute types and object classes for comparison, syntaxes, matching
 rules and the rest as context. It takes no `--base`, `--scope`, `--filter` or
-`--operational`, and `--kind config` is refused: server configuration is never
-captured. The line on standard error gives the subschema entry, the counts,
-whether the capture is complete, and the checksum. See
+`--operational`. The line on standard error gives the subschema entry, the
+counts, whether the capture is complete, and the checksum. See
 [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md).
+
+### The configuration
+
+```sh
+alder snapshot --kind config --output config.json
+```
+
+`--kind config` (1.13) captures the server's own configuration: its settings,
+the databases, overlays, backends and plugins they belong to, and whether each
+is one Alder can change. Secrets are withheld -- recorded as present and
+counted, never as a value -- runtime counters are not configuration and are left
+out, and schema definitions have their own kind.
+
+It takes no `--base`, `--scope`, `--filter` or `--operational`: a configuration
+is one tree, the server's own, and there is nothing to narrow. The line on
+standard error names the provider, the root, the counts, how many values were
+withheld, whether the capture is complete, and the checksum:
+
+```
+Captured the openldap configuration at cn=config (88 settings in 6 resources, 2 withheld; complete) to config.json, sha256:...
+```
+
+A session that cannot read the configuration tree, or a server Alder has no
+configuration model for, is told so (`config_model_unavailable`) rather than
+given an empty configuration. See
+[CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md).
 
 ---
 
@@ -381,6 +406,36 @@ data snapshot. Two schema files need only `--api-url`, as for data.
 - `--schema-target DN` names the schema entry an added definition is written to,
   where the server keeps schema in several; without it such additions are not
   offered.
+
+### Comparing configuration
+
+```sh
+alder diff before-config.json after-config.json
+alder diff @live config.json
+alder diff @live config.json --stage olcIdleTimeout --changes-out config-changes.json
+```
+
+A configuration snapshot compares with another configuration snapshot of the
+**same server software**, or with `@live`. `--base`, `--scope`, `--filter` and
+`--operational` do not apply, and a configuration is never compared with data
+or with a schema.
+
+- **The report is by setting:** counts, a table by section, then each
+  difference with its section, key, resource and entry, the values as `-` and
+  `+`, and one line saying whether Alder can change it.
+- **Two providers are not compared.** Given an OpenLDAP configuration and a
+  389 DS one, the command prints what each side holds and stops. Their settings
+  are not the same settings, and every difference it could list would be an
+  artefact.
+- **A withheld value is never printed.** The line says `withheld`.
+- **Differences are selected by the identifier `diff` prints**, or by the
+  setting's key where that names only one difference.
+- **Only a setting Alder already changes through a plan can be staged.**
+  Anything else -- a secret, a setting the server maintains, a value nothing
+  parses, a setting on one side only -- is refused by name rather than skipped
+  silently.
+- **`--stage-deletion` is refused:** adding or removing configuration entries is
+  not something Alder does.
 
 ---
 
