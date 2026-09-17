@@ -454,6 +454,32 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
     );
   }
   const i = slot.inspection;
+  if (slot.doc.kind === "config") {
+    // A configuration document describes itself, and in its own words: these
+    // are settings on one server's software, not entries in a subtree.
+    const c = slot.doc;
+    return (
+      <div className="space-y-1 rounded-md border p-3 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium">Snapshot {name} · configuration</span>
+          <DownloadButton text={slot.raw} filename={slot.filename} label="Download" mime="application/json" />
+        </div>
+        <div className="truncate font-dn text-xs" title={safeText(c.source.root)}>
+          {c.source.provider} configuration at {safeText(c.source.root)}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {c.counts.settings} settings · {c.counts.resources} resources ·{" "}
+          {safeText(c.source.vendor) || "server not identified"} · {slot.origin} {c.createdAt}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {c.counts.withheld > 0 ? <Badge variant="outline">{c.counts.withheld} withheld</Badge> : null}
+          {c.counts.operational > 0 ? <Badge variant="outline">{c.counts.operational} machine details</Badge> : null}
+          {c.completeness === "partial" ? <Badge variant="warning">partial</Badge> : null}
+          {slot.bytes > MAX_BODY ? <Badge variant="warning">too large to compare here</Badge> : null}
+        </div>
+      </div>
+    );
+  }
   if (i.schema) {
     const s = i.schema;
     return (
