@@ -24,7 +24,8 @@ export type AppView =
   | "changeset"
   | "import"
   | "snapshots"
-  | "packages";
+  | "packages"
+  | "preflight";
 
 const views: AppView[] = [
   "overview",
@@ -38,6 +39,7 @@ const views: AppView[] = [
   "import",
   "snapshots",
   "packages",
+  "preflight",
 ];
 
 export type SearchScope = "base" | "one" | "sub";
