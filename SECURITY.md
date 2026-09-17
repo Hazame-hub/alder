@@ -112,6 +112,24 @@ expression evaluation; a package is data. Its identity is provenance and
 authorises nothing, every change still goes through the session's own access
 rights and the plan, and validating one writes nothing.
 
+**A migration preflight reads, and only reads.** A preflight (1.12) takes an
+artifact from anywhere -- another environment, another team, another server --
+and reads it against the session's directory. The artifact is decoded as
+strictly as its own endpoints decode it, and is never changed. The session is
+handed to the preflight as a type with no write method; the HTTP tests drive
+every mode, including refused and failing ones, against a directory that
+records writes and require none, and the conformance suite captures both
+servers' data and schema before and after every mode and requires the same
+documents. A report carries no bind credential, no password, no plan token, no
+session identifier and no prepared change. What it reads is bounded: findings,
+causes, prerequisites, explanation length, dependency depth, reference reads
+and presence probes all have limits, and text from the artifact is shown with
+control and bidirectional characters escaped. An entry the bind may not read is
+reported as unknown where the server admits it exists; where a server answers
+exactly as for a missing entry, the finding says it is what the server reported
+to this bind. A presence probe is a Compare of a constant value, so it discloses
+nothing about an attribute's content.
+
 **Recovery bundles hold no secret, and are never executed.** A recovery bundle
 (1.9) is derived from entries as they were read immediately before a change.
 - **What it holds:** the earlier values of the ordinary attributes a change

@@ -2624,3 +2624,55 @@ to contradict the plan — add an entry.
   updates the view, so the dependency check moved into the same walk: a schema
   change refused for its dependencies adds and removes nothing, and the changes
   after it still see the schema they were written against.
+
+## 2026-09-17 — 1.12: migration preflight, and what it will not do
+
+- **Preflight is read-only analysis.** It reads the target, never writes, never
+  changes the artifact, and produces nothing a plan or an apply reads. The
+  session reaches it as a type without Apply, the HTTP tests drive every mode
+  against a directory that records writes, and the conformance suite compares
+  both servers' data and schema before and after.
+- **One artifact, one live target.** The source is client-held -- a change
+  package, a schema snapshot or a data snapshot -- and the target is the session's
+  directory. Alder does not connect to two directories at once.
+- **Package validation is reused, not duplicated.** A package preflight runs
+  validation first and carries each item's status on its findings; what
+  preflight adds is what validation does not ask.
+- **Compatibility is semantic, not vendor-name based.** Definitions are compared
+  by OID and meaning through the schema comparison; syntaxes and matching rules
+  by what the target publishes; `crossVendor` is metadata and decides no finding.
+  Which snapshot definitions a server supplied itself is read from what the
+  snapshot recorded -- collections, or `X-ORIGIN 'user defined'` -- never from the
+  vendor.
+- **Unknown visibility never becomes absence.** An entry the server admits
+  exists and the bind cannot read is unknown. Where a server conceals an entry
+  exactly as a missing one, nothing can tell them apart, and the finding says it
+  is the server's account to this bind. Unknown keeps a report from being
+  compatible. The presence probe compares `cn`, not `objectClass`: OpenLDAP
+  refuses a compare of an OID-syntax attribute with a non-OID value before it
+  looks at the entry, which made every absent entry unknown -- found by the
+  conformance suite, not by review.
+- **Naming-context mismatch is reported, never rewritten.** No DN, attribute or
+  object class is mapped. Mappings, if they ever exist, will be explicit and
+  reviewed transformations of the source.
+- **Operational and server-generated attributes are not ordinary portable
+  state.** Usage and `NO-USER-MODIFICATION` decide, from the target's schema and
+  what the source recorded; they are excluded from a snapshot's migration, and a
+  package that writes one is unsupported. Identities are the target's own.
+- **Capability checks are contextual.** A capability is listed only when the
+  artifact needs it: schema write for definitions to add, paged results for a
+  data snapshot's comparison, password modify when a source withheld passwords.
+- **The overall result is derived.** Incompatible beats unknown, unknown beats
+  prerequisites, and compatible means none of them. No scores, no percentages;
+  an empty artifact is incomplete.
+- **Config and ACL compatibility are not evaluated in 1.12, and every report
+  says so.** So are secret values.
+- **Preflight never produces execution state.** No baseline, no plan token, no
+  prepared change is in a report.
+- **Excluded is a classification.** A withheld secret, a server-generated value
+  and a server's own definition are neither portable nor incompatible; calling
+  them either would make the report say something untrue.
+- **A preflight's schema comparison skips dependency ordering.** It reads items
+  only, and the ordering was the one quadratic step (483 ms to 62 ms for 1000
+  definitions). `POST /diff` still orders.
+- **Provider abstraction remains deferred.**

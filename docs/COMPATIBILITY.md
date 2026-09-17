@@ -216,6 +216,29 @@ contract changed only by tightening what a token proves:
   `alder apply`. There is no command that applies a package directly, and there
   will not be one.
 
+1.12 added migration preflight, only by adding:
+
+- **One endpoint:** `POST /preflight`, and the error identifier
+  `preflight_artifact_unsupported`. An artifact that is malformed, forged or
+  from a newer version is refused with the identifier its own endpoints already
+  use.
+- **The preflight report is covered like any response.** `reportVersion` is 1.
+  Finding codes, classifications, categories, scopes and `notEvaluated` areas
+  are stable identifiers and follow the enum rule above: new ones may be added,
+  and a client that does not recognise a classification should treat the finding
+  as unknown, which keeps a report from reading as compatible. `overall` is
+  derived from the findings as described in [PREFLIGHT.md](PREFLIGHT.md) and
+  will stay derived. Finding ids are positions in a sorted report and are only
+  stable for the same artifact against the same target state.
+- **The command line gained one command:** `alder preflight`, reusing the
+  existing exit codes -- 0, 1, 2 and 3 -- as described in [CLI.md](CLI.md).
+- **The artifacts are unchanged.** Change package format version 1 and snapshot
+  format version 1 are read exactly as 1.11 and 1.10 read them; nothing is
+  added to either.
+- **The schema comparison gained an option, not a behaviour:** a preflight
+  compares schema without computing the dependency order a staged comparison
+  needs. `POST /diff` is unchanged.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —

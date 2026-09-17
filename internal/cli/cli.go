@@ -152,6 +152,7 @@ func Commands(env *Env) []*cobra.Command {
 		snapshotCmd(env),
 		diffCmd(env),
 		packageCmd(env),
+		preflightCmd(env),
 		planCmd(env),
 		applyCmd(env),
 		versionCmd(env),

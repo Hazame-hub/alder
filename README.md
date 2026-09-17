@@ -378,6 +378,21 @@ package says nothing about production, and nothing is overwritten because
 another environment agreed. Details in
 [`docs/CHANGE-PACKAGES.md`](docs/CHANGE-PACKAGES.md).
 
+**Preflight a migration before anything moves.** Give Alder a change package, a
+schema snapshot or a data snapshot -- made on this directory or another one --
+and it reports what would carry across to the directory you are connected to,
+finding by finding: what is already there, what could be added, what needs
+something done first, what contradicts it, what the server cannot represent,
+and what this bind could not see. It checks definitions by OID and meaning,
+syntaxes and matching rules the target publishes, naming contexts, parents,
+MUST and SINGLE-VALUE rules, and what DN-valued attributes name, and it explains
+why one thing cannot carry across because another cannot. It is analysis only:
+nothing is written, nothing in the artifact is changed, no DN is rewritten and
+no attribute is mapped, and a vendor difference alone decides nothing. Access
+control and server configuration are reported as not evaluated. `alder
+preflight` gives a pipeline an exit code to stop a promotion on. Details in
+[`docs/PREFLIGHT.md`](docs/PREFLIGHT.md).
+
 **Prepare a recovery before you apply.** A plan says how recoverable each change
 is -- exact, partial or unavailable -- and why. Exact is about the ordinary
 directory data the change touches, not timestamps, server-generated identifiers
@@ -467,6 +482,7 @@ interface and the TypeScript client are both generated from it.
 | `internal/ldif` | RFC 2849 reader and writer. Values are `[]byte` throughout. |
 | `internal/directory` | The `Driver` and `Session` interfaces, `Capabilities`, and `ChangeRecord`. |
 | `internal/directory/ldapdriver` | The only driver in v1. |
+| `internal/preflight` | Migration preflight: an artifact read against one live target, reported finding by finding. Read-only; its target type has no write method. |
 | `internal/ansible` | `ChangeRecord` to a `community.general` task. |
 | `internal/api` | The generated server interface and the handlers behind it. |
 | `internal/session` | In-memory session store. |

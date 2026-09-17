@@ -51,6 +51,12 @@ tags:
       Capturing directory state as a versioned snapshot, and comparing states.
       Nothing here writes: a comparison can propose change requests, and those
       only ever reach the directory through `/plan` and the ordinary apply.
+  - name: preflight
+    description: |
+      Migration and compatibility preflight (1.12): reading a change package,
+      a schema snapshot or a data snapshot against the connected directory and
+      reporting what would carry across. Analysis only: nothing here writes,
+      transforms the artifact, or produces anything a plan or an apply reads.
   - name: licence
     description: |
       The AGPL section 13 offer. The only endpoint here that answers without a
@@ -1133,6 +1139,48 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /preflight:
+    post:
+      tags: [preflight]
+      operationId: preflight
+      summary: Report what of an artifact would carry across to this directory
+      description: |
+        Reads a change package, a schema snapshot or a data snapshot -- told
+        apart by its own `format` and `kind`, never by a file name -- and reports,
+        finding by finding, what this directory already holds, what it could take,
+        what needs something done first, what contradicts it, what it cannot
+        represent, and what could not be seen.
+
+        A preflight is not a plan and not a migration. It reads the directory and
+        never writes to it; it never rewrites a DN, maps an attribute or object
+        class, or changes the artifact; and it produces no baseline and no
+        prepared change. Package validation is its first step for a package, and
+        its answer is carried on every finding about an item.
+
+        `overall` is derived from the findings: `incompatible` when any finding
+        that blocks portability is incompatible or unsupported, `incomplete` when
+        otherwise something could not be decided, `compatible_with_prerequisites`
+        when something has to be done first, and `compatible` only when none of
+        these hold. Access control and server configuration are never evaluated,
+        and `notEvaluated` says so on every report.
+
+        A document that is none of the three is refused with
+        `preflight_artifact_unsupported`; an artifact that is malformed, forged
+        or from a newer version is refused with the code its own endpoints use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PreflightRequest" }
+      responses:
+        "200":
+          description: The report.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PreflightReport" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /export/ldif:
     get:
       tags: [transfer]
@@ -1451,6 +1499,7 @@ components:
             - package_unsupported_version
             - package_checksum_mismatch
             - package_too_large
+            - preflight_artifact_unsupported
             - not_found
             - conflict
             - constraint_violation
@@ -2188,6 +2237,232 @@ components:
           type: array
           items: { type: string }
           description: "The identifiers of the ready changes, in the order to apply them."
+
+    PreflightRequest:
+      type: object
+      required: [artifact]
+      properties:
+        artifact:
+          type: object
+          additionalProperties: true
+          description: |
+            The artifact exactly as its file holds it: a change package, a schema
+            snapshot or a data snapshot. It is decoded strictly, as its own
+            endpoints decode it.
+        schemaTarget:
+          type: string
+          description: |
+            For a change package, the schema entry an added definition would be
+            written to, where the server keeps schema in several.
+
+    PreflightClassification:
+      type: string
+      description: |
+        What a finding concludes about one source object. `excluded` is what
+        does not travel by design, such as a server-generated value or a withheld
+        secret, and does not by itself stop anything else.
+      enum: [portable, already_satisfied, prerequisite_required, incompatible, unsupported, unknown, excluded]
+      x-enum-varnames: [PreflightPortable, PreflightAlreadySatisfied, PreflightPrerequisiteRequired, PreflightIncompatible, PreflightUnsupported, PreflightUnknown, PreflightExcluded]
+
+    PreflightOverall:
+      type: string
+      enum: [compatible, compatible_with_prerequisites, incompatible, incomplete]
+      x-enum-varnames: [PreflightCompatible, PreflightCompatibleWithPrerequisites, PreflightNotCompatible, PreflightIncomplete]
+
+    PreflightCategory:
+      type: string
+      enum: [artifact, schema, naming, entries, references, capabilities, operational, sensitive]
+      x-enum-varnames: [PreflightCategoryArtifact, PreflightCategorySchema, PreflightCategoryNaming, PreflightCategoryEntries, PreflightCategoryReferences, PreflightCategoryCapabilities, PreflightCategoryOperational, PreflightCategorySensitive]
+
+    PreflightScope:
+      type: string
+      enum: [artifact, item, definition, entry, attribute, value]
+      x-enum-varnames: [PreflightScopeArtifact, PreflightScopeItem, PreflightScopeDefinition, PreflightScopeEntry, PreflightScopeAttribute, PreflightScopeValue]
+
+    PreflightSourceRef:
+      type: object
+      description: The source object a finding is about. Which fields are set depends on the scope.
+      properties:
+        item:
+          type: string
+          description: A change package item id.
+        element:
+          type: string
+          description: attributeType or objectClass.
+        oid: { type: string }
+        name: { type: string }
+        dn: { type: string }
+        attribute: { type: string }
+        value: { type: string }
+
+    PreflightTargetFact:
+      type: object
+      required: [fact]
+      properties:
+        fact:
+          type: string
+          description: A stable identifier for what the target showed, such as absent, present, hidden or defined_differently.
+        detail: { type: string }
+
+    PreflightPrerequisite:
+      type: object
+      required: [type]
+      description: Something that has to be true first, as data rather than advice.
+      properties:
+        type:
+          type: string
+          description: schema, syntax, matching_rule, entry or capability.
+        element: { type: string }
+        oid: { type: string }
+        name: { type: string }
+        dn: { type: string }
+        capability: { type: string }
+        providedBy:
+          type: string
+          description: The finding about the source object that supplies it, when the same source does.
+
+    PreflightFinding:
+      type: object
+      required: [id, code, classification, category, scope, source, explanation, blocksPortability, blocksPlan, manualAction]
+      properties:
+        id:
+          type: string
+          description: Assigned after findings are sorted, so the same source against the same target state gives the same ids.
+        code:
+          type: string
+          description: |
+            A stable identifier to switch on, for example definition_portable,
+            definition_conflict, syntax_unavailable, naming_context_mismatch,
+            parent_missing, parent_unknown, existing_entry_differs,
+            reference_missing, reference_unknown, ignored_operational and
+            sensitive_value_not_migratable. docs/PREFLIGHT.md lists them all.
+        classification: { $ref: "#/components/schemas/PreflightClassification" }
+        category: { $ref: "#/components/schemas/PreflightCategory" }
+        scope: { $ref: "#/components/schemas/PreflightScope" }
+        source: { $ref: "#/components/schemas/PreflightSourceRef" }
+        target: { $ref: "#/components/schemas/PreflightTargetFact" }
+        explanation: { type: string }
+        blocksPortability: { type: boolean }
+        blocksPlan:
+          type: boolean
+          description: A plan made now for the change this concerns would refuse it.
+        manualAction:
+          type: boolean
+          description: An operator has something to do that Alder will not do for them.
+        prerequisites:
+          type: array
+          items: { $ref: "#/components/schemas/PreflightPrerequisite" }
+        causes:
+          type: array
+          description: Ids of the findings that explain this one.
+          items: { type: string }
+        count:
+          type: integer
+          description: How many source objects an aggregated finding stands for.
+        validationStatus:
+          type: string
+          description: For a package item, what change package validation concluded.
+
+    PreflightCounts:
+      type: object
+      required: [portable, alreadySatisfied, prerequisiteRequired, incompatible, unsupported, unknown, excluded]
+      properties:
+        portable: { type: integer }
+        alreadySatisfied: { type: integer }
+        prerequisiteRequired: { type: integer }
+        incompatible: { type: integer }
+        unsupported: { type: integer }
+        unknown: { type: integer }
+        excluded: { type: integer }
+
+    PreflightSection:
+      type: object
+      required: [category, counts]
+      properties:
+        category: { $ref: "#/components/schemas/PreflightCategory" }
+        counts: { $ref: "#/components/schemas/PreflightCounts" }
+
+    PreflightSource:
+      type: object
+      required: [type, format, version, integrity, objects]
+      properties:
+        type:
+          type: string
+          enum: [change_package, schema_snapshot, data_snapshot]
+          x-enum-varnames: [PreflightSourceChangePackage, PreflightSourceSchemaSnapshot, PreflightSourceDataSnapshot]
+        format: { type: string }
+        version: { type: integer }
+        kind: { type: string }
+        id: { type: string }
+        title: { type: string }
+        checksum: { type: string }
+        integrity:
+          type: string
+          description: verified or unverified.
+        vendor: { type: string }
+        vendorVersion: { type: string }
+        objects: { type: integer }
+
+    PreflightTarget:
+      type: object
+      required: [namingContexts, schemaWritable, crossVendor]
+      properties:
+        vendor: { type: string }
+        vendorVersion: { type: string }
+        namingContexts:
+          type: array
+          items: { type: string }
+        schemaEntry: { type: string }
+        schemaWritable: { type: boolean }
+        crossVendor:
+          type: boolean
+          description: Source and target name different products. Metadata only; no finding follows from it.
+
+    PreflightCapability:
+      type: object
+      required: [capability, available, requiredBy, explanation]
+      description: A target capability this source needs. Capabilities it does not need are not listed.
+      properties:
+        capability: { type: string }
+        available: { type: boolean }
+        requiredBy: { type: string }
+        explanation: { type: string }
+
+    PreflightNotEvaluated:
+      type: object
+      required: [area, reason]
+      properties:
+        area: { type: string }
+        reason: { type: string }
+
+    PreflightReport:
+      type: object
+      required: [reportVersion, createdAt, source, target, overall, complete, reasons, counts, sections, capabilities, notEvaluated, findings, truncated]
+      properties:
+        reportVersion: { type: integer }
+        createdAt: { type: string }
+        source: { $ref: "#/components/schemas/PreflightSource" }
+        target: { $ref: "#/components/schemas/PreflightTarget" }
+        overall: { $ref: "#/components/schemas/PreflightOverall" }
+        complete: { type: boolean }
+        reasons:
+          type: array
+          description: Why the report is not complete, as stable codes.
+          items: { type: string }
+        counts: { $ref: "#/components/schemas/PreflightCounts" }
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/PreflightSection" }
+        capabilities:
+          type: array
+          items: { $ref: "#/components/schemas/PreflightCapability" }
+        notEvaluated:
+          type: array
+          items: { $ref: "#/components/schemas/PreflightNotEvaluated" }
+        findings:
+          type: array
+          items: { $ref: "#/components/schemas/PreflightFinding" }
+        truncated: { type: boolean }
 
     StateKind:
       type: string

@@ -166,6 +166,11 @@ func (r *SchemaResult) Item(key string) (SchemaItem, bool) {
 type SchemaOptions struct {
 	// IncludeUnchanged lists unchanged definitions as items.
 	IncludeUnchanged bool
+	// WithoutOrder skips computing Order, for a caller that only reads the
+	// items. A migration preflight compares a whole schema and derives no
+	// change from it, and the ordering is the expensive part of a comparison
+	// between two large schemas.
+	WithoutOrder bool
 }
 
 // schemaIndex resolves names and OIDs within one side.
@@ -302,7 +307,9 @@ func CompareSchema(source, target SchemaSide, opts SchemaOptions) *SchemaResult 
 		r.index[it.Key()] = i
 	}
 	r.dependencies(si, ti)
-	r.order()
+	if !opts.WithoutOrder {
+		r.order()
+	}
 	return r
 }
 

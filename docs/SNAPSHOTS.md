@@ -376,3 +376,13 @@ Snapshot format version 1 was introduced in Alder 1.7. Every later 1.x release
 will continue to read it. Schema snapshots were introduced in Alder 1.10. Later
 Alder 1.x releases will continue to read schema snapshot kind/version 1. See
 [COMPATIBILITY.md](COMPATIBILITY.md).
+
+## Preflight
+
+A data or schema snapshot captured on one directory can be preflighted against
+another (1.12): `alder preflight snapshot.json`, or the Preflight tab. The
+report says, for each entry or definition the snapshot holds, whether the target
+already holds it, could take it, needs something first, contradicts it, cannot
+represent it, or could not be seen. A snapshot is state, not intent: nothing it
+does not hold is reported as something to remove. See
+[PREFLIGHT.md](PREFLIGHT.md).

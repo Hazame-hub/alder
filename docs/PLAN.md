@@ -129,6 +129,12 @@ behaviour is left for the directory to refuse:
   to read `objectClass` — permission and required-attribute rules are not applied
   at all.
 
+The same rules are available as a pure function, `plan.SchemaProblem`, for the
+one caller that has to judge content without planning it: a migration preflight
+(1.12, [PREFLIGHT.md](PREFLIGHT.md)) asks whether an entry would be accepted,
+and issues no baseline to find out. A preflight is not a plan and produces
+nothing a plan reads.
+
 A set that changes the schema is judged against the schema **as the set would
 leave it** (1.11). A change that uses an object class or an attribute type an
 earlier change in the same set adds is second, not invalid; a change that uses
