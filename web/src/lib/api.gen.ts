@@ -904,6 +904,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report what of an artifact would carry across to this directory
+         * @description Reads a change package, a schema snapshot or a data snapshot -- told
+         *     apart by its own `format` and `kind`, never by a file name -- and reports,
+         *     finding by finding, what this directory already holds, what it could take,
+         *     what needs something done first, what contradicts it, what it cannot
+         *     represent, and what could not be seen.
+         *
+         *     A preflight is not a plan and not a migration. It reads the directory and
+         *     never writes to it; it never rewrites a DN, maps an attribute or object
+         *     class, or changes the artifact; and it produces no baseline and no
+         *     prepared change. Package validation is its first step for a package, and
+         *     its answer is carried on every finding about an item.
+         *
+         *     `overall` is derived from the findings: `incompatible` when any finding
+         *     that blocks portability is incompatible or unsupported, `incomplete` when
+         *     otherwise something could not be decided, `compatible_with_prerequisites`
+         *     when something has to be done first, and `compatible` only when none of
+         *     these hold. Access control and server configuration are never evaluated,
+         *     and `notEvaluated` says so on every report.
+         *
+         *     A document that is none of the three is refused with
+         *     `preflight_artifact_unsupported`; an artifact that is malformed, forged
+         *     or from a newer version is refused with the code its own endpoints use.
+         */
+        post: operations["preflight"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/export/ldif": {
         parameters: {
             query?: never;
@@ -1099,7 +1140,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -1626,6 +1667,157 @@ export interface components {
             items: components["schemas"]["PackageValidationItem"][];
             /** @description The identifiers of the ready changes, in the order to apply them. */
             order: string[];
+        };
+        PreflightRequest: {
+            /**
+             * @description The artifact exactly as its file holds it: a change package, a schema
+             *     snapshot or a data snapshot. It is decoded strictly, as its own
+             *     endpoints decode it.
+             */
+            artifact: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description For a change package, the schema entry an added definition would be
+             *     written to, where the server keeps schema in several.
+             */
+            schemaTarget?: string;
+        };
+        /**
+         * @description What a finding concludes about one source object. `excluded` is what
+         *     does not travel by design, such as a server-generated value or a withheld
+         *     secret, and does not by itself stop anything else.
+         * @enum {string}
+         */
+        PreflightClassification: "portable" | "already_satisfied" | "prerequisite_required" | "incompatible" | "unsupported" | "unknown" | "excluded";
+        /** @enum {string} */
+        PreflightOverall: "compatible" | "compatible_with_prerequisites" | "incompatible" | "incomplete";
+        /** @enum {string} */
+        PreflightCategory: "artifact" | "schema" | "naming" | "entries" | "references" | "capabilities" | "operational" | "sensitive";
+        /** @enum {string} */
+        PreflightScope: "artifact" | "item" | "definition" | "entry" | "attribute" | "value";
+        /** @description The source object a finding is about. Which fields are set depends on the scope. */
+        PreflightSourceRef: {
+            /** @description A change package item id. */
+            item?: string;
+            /** @description attributeType or objectClass. */
+            element?: string;
+            oid?: string;
+            name?: string;
+            dn?: string;
+            attribute?: string;
+            value?: string;
+        };
+        PreflightTargetFact: {
+            /** @description A stable identifier for what the target showed, such as absent, present, hidden or defined_differently. */
+            fact: string;
+            detail?: string;
+        };
+        /** @description Something that has to be true first, as data rather than advice. */
+        PreflightPrerequisite: {
+            /** @description schema, syntax, matching_rule, entry or capability. */
+            type: string;
+            element?: string;
+            oid?: string;
+            name?: string;
+            dn?: string;
+            capability?: string;
+            /** @description The finding about the source object that supplies it, when the same source does. */
+            providedBy?: string;
+        };
+        PreflightFinding: {
+            /** @description Assigned after findings are sorted, so the same source against the same target state gives the same ids. */
+            id: string;
+            /**
+             * @description A stable identifier to switch on, for example definition_portable,
+             *     definition_conflict, syntax_unavailable, naming_context_mismatch,
+             *     parent_missing, parent_unknown, existing_entry_differs,
+             *     reference_missing, reference_unknown, ignored_operational and
+             *     sensitive_value_not_migratable. docs/PREFLIGHT.md lists them all.
+             */
+            code: string;
+            classification: components["schemas"]["PreflightClassification"];
+            category: components["schemas"]["PreflightCategory"];
+            scope: components["schemas"]["PreflightScope"];
+            source: components["schemas"]["PreflightSourceRef"];
+            target?: components["schemas"]["PreflightTargetFact"];
+            explanation: string;
+            blocksPortability: boolean;
+            /** @description A plan made now for the change this concerns would refuse it. */
+            blocksPlan: boolean;
+            /** @description An operator has something to do that Alder will not do for them. */
+            manualAction: boolean;
+            prerequisites?: components["schemas"]["PreflightPrerequisite"][];
+            /** @description Ids of the findings that explain this one. */
+            causes?: string[];
+            /** @description How many source objects an aggregated finding stands for. */
+            count?: number;
+            /** @description For a package item, what change package validation concluded. */
+            validationStatus?: string;
+        };
+        PreflightCounts: {
+            portable: number;
+            alreadySatisfied: number;
+            prerequisiteRequired: number;
+            incompatible: number;
+            unsupported: number;
+            unknown: number;
+            excluded: number;
+        };
+        PreflightSection: {
+            category: components["schemas"]["PreflightCategory"];
+            counts: components["schemas"]["PreflightCounts"];
+        };
+        PreflightSource: {
+            /** @enum {string} */
+            type: "change_package" | "schema_snapshot" | "data_snapshot";
+            format: string;
+            version: number;
+            kind?: string;
+            id?: string;
+            title?: string;
+            checksum?: string;
+            /** @description verified or unverified. */
+            integrity: string;
+            vendor?: string;
+            vendorVersion?: string;
+            objects: number;
+        };
+        PreflightTarget: {
+            vendor?: string;
+            vendorVersion?: string;
+            namingContexts: string[];
+            schemaEntry?: string;
+            schemaWritable: boolean;
+            /** @description Source and target name different products. Metadata only; no finding follows from it. */
+            crossVendor: boolean;
+        };
+        /** @description A target capability this source needs. Capabilities it does not need are not listed. */
+        PreflightCapability: {
+            capability: string;
+            available: boolean;
+            requiredBy: string;
+            explanation: string;
+        };
+        PreflightNotEvaluated: {
+            area: string;
+            reason: string;
+        };
+        PreflightReport: {
+            reportVersion: number;
+            createdAt: string;
+            source: components["schemas"]["PreflightSource"];
+            target: components["schemas"]["PreflightTarget"];
+            overall: components["schemas"]["PreflightOverall"];
+            complete: boolean;
+            /** @description Why the report is not complete, as stable codes. */
+            reasons: string[];
+            counts: components["schemas"]["PreflightCounts"];
+            sections: components["schemas"]["PreflightSection"][];
+            capabilities: components["schemas"]["PreflightCapability"][];
+            notEvaluated: components["schemas"]["PreflightNotEvaluated"][];
+            findings: components["schemas"]["PreflightFinding"][];
+            truncated: boolean;
         };
         /**
          * @description What a snapshot or comparison is of: directory data, or the published
@@ -4242,6 +4434,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PackageValidation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    preflight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreflightRequest"];
+            };
+        };
+        responses: {
+            /** @description The report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreflightReport"];
                 };
             };
             400: components["responses"]["BadRequest"];
