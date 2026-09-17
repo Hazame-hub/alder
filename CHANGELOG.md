@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.12.0](https://github.com/Hazame-hub/alder/compare/v1.11.0...v1.12.0) (2026-09-17)
+
+
+### Features
+
+* migration preflight: a change package, a schema snapshot or a data snapshot is read against the connected directory and reported finding by finding as portable, already satisfied, prerequisite required, incompatible, unsupported, unknown or excluded, with stable codes, prerequisites and cause links ([aac3cfc](https://github.com/Hazame-hub/alder/commit/aac3cfcbb83a2988ff9289f9ebaf09de852b9ecb))
+* POST /preflight, alder preflight with exit codes 0 compatible, 1 with prerequisites, 2 incomplete and 3 incompatible, and a web Preflight tab with filters and cause chains ([aac3cfc](https://github.com/Hazame-hub/alder/commit/aac3cfcbb83a2988ff9289f9ebaf09de852b9ecb))
+* preflight compares definitions by OID and meaning, checks the syntaxes and matching rules the target publishes, and judges entries against the schema the target would have, including naming contexts, parents, MUST and SINGLE-VALUE rules, DN-valued references, and operational and sensitive attributes ([aac3cfc](https://github.com/Hazame-hub/alder/commit/aac3cfcbb83a2988ff9289f9ebaf09de852b9ecb))
+* preflight is read-only analysis: it never writes, never changes the artifact, rewrites no DN, maps no attribute or object class, and produces no plan token; a hidden entry is unknown rather than missing, a vendor difference alone decides nothing, and access control and server configuration are reported as not evaluated ([aac3cfc](https://github.com/Hazame-hub/alder/commit/aac3cfcbb83a2988ff9289f9ebaf09de852b9ecb))
+
+
+### Performance
+
+* a schema comparison used by preflight skips dependency ordering, the quadratic step for large schemas ([aac3cfc](https://github.com/Hazame-hub/alder/commit/aac3cfcbb83a2988ff9289f9ebaf09de852b9ecb))
+
+
+### Documentation
+
+* document migration preflight, its finding codes, cross-vendor results and limits ([aac3cfc](https://github.com/Hazame-hub/alder/commit/aac3cfcbb83a2988ff9289f9ebaf09de852b9ecb))
+
 ## [1.11.0](https://github.com/Hazame-hub/alder/compare/v1.10.0...v1.11.0) (2026-09-16)
 
 
