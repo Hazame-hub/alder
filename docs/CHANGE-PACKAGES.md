@@ -351,6 +351,17 @@ read of the target's schema.
 
 ---
 
+## Preflight
+
+Validation asks whether a package's items can be interpreted against a target
+now. A preflight (1.12) asks what of the package would carry across, and why
+not: whether the target publishes the syntaxes and matching rules its
+definitions use, whether its entries meet the schema they would meet, what
+their references name, and which item is blocked because another is. It runs
+validation first and carries each item's status on its findings rather than
+deciding it again. `alder preflight package.json`, or the Preflight tab. See
+[PREFLIGHT.md](PREFLIGHT.md).
+
 ## Not in this version
 
 - **DN translation between environments.** A package is portable only where the

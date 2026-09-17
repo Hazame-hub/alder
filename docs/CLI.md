@@ -183,9 +183,9 @@ compatibility promise.
 | Code | Meaning |
 |---|---|
 | 0 | Done. For `diff`, complete with no differences. For `apply`, applied, or nothing to apply. |
-| 1 | `diff`: complete, and there are differences |
-| 2 | `diff`: incomplete, because something could not be seen. This wins over 1. |
-| 3 | A change cannot be applied as written (a conflict or a schema violation), or a selected difference offers no change. Nothing was written. |
+| 1 | `diff`: complete, and there are differences. `preflight`: compatible once the listed prerequisites are done |
+| 2 | `diff`: incomplete, because something could not be seen. This wins over 1. `preflight`: incomplete |
+| 3 | A change cannot be applied as written (a conflict or a schema violation), or a selected difference offers no change. `preflight`: incompatible. Nothing was written. |
 | 4 | The plan no longer holds: the directory changed after it was made (`plan_stale`), or the operations sent are not the ones planned (`plan_mismatch`). Nothing was written. |
 | 5 | Not confirmed: declined, or no confirmation could be given. Nothing was written. |
 | 6 | `apply` stopped after writing some of its changes |
@@ -425,6 +425,36 @@ could not be decided, 3 some change cannot be applied here, 7 usage, 8 failure.
 
 Files follow the same rules as everywhere else: `-` is standard input, output is
 written atomically, and an existing file is never replaced without `--force`.
+
+---
+
+## `alder preflight`
+
+```sh
+alder preflight package.json
+alder preflight schema-snapshot.json --all
+alder preflight data-snapshot.json --json > preflight.json
+cat package.json | alder preflight -
+```
+
+Reads a change package, a schema snapshot or a data snapshot against the
+directory and reports what would carry across: what is already there, what
+could be added, what needs something done first, what contradicts the
+directory, what it cannot represent, and what could not be seen. The server
+recognises the artifact from its own `format` and `kind`; the client only
+refuses what is not JSON before sending it. See [PREFLIGHT.md](PREFLIGHT.md).
+
+A preflight writes nothing, changes nothing in the file, rewrites no DN and maps
+no attribute or object class. The human report lists every finding that needs
+attention (`--all` lists them all), the capabilities the artifact needs, and
+what was not evaluated -- access control and server configuration, always.
+`--json` writes the report exactly as Alder answered. `--schema-target` names
+the schema entry a package's definitions would go to, where the server keeps
+several.
+
+Exit status: 0 compatible, 1 compatible once the listed prerequisites are done,
+2 incomplete (something could not be decided), 3 incompatible, 7 usage,
+8 failure -- including an artifact Alder refused as malformed or forged.
 
 ---
 
