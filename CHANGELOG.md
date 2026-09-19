@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.13.0](https://github.com/Hazame-hub/alder/compare/v1.12.0...v1.13.0) (2026-09-19)
+
+
+### Features
+
+* a configuration difference becomes a change only where Alder already writes that setting through the ordinary plan, on the live side's own entry, and never for a secret, a setting on one side only, or one the server maintains; recovery stays unavailable for configuration ([e02da85](https://github.com/Hazame-hub/alder/commit/e02da8566422551afd6ef3188d04ff27743acdf7))
+* configuration comparison: two captures of the same server software are compared setting by setting, with unknown rather than removed for anything a partial capture did not read, order honoured only where the provider says it means something, and values nothing parses compared as text and marked as such ([e02da85](https://github.com/Hazame-hub/alder/commit/e02da8566422551afd6ef3188d04ff27743acdf7))
+* configuration snapshots: capture a server's own configuration as a deterministic, checksummed document of kind config, with settings identified by provider, section, resource and key rather than by position, secrets recorded as present and counted, and runtime state and schema left out ([e02da85](https://github.com/Hazame-hub/alder/commit/e02da8566422551afd6ef3188d04ff27743acdf7))
+* kind config on POST /snapshots/capture and POST /diff with config_model_unavailable, alder snapshot --kind config and configuration in alder diff, and a configuration comparison in the Snapshots tab with filters and staging ([e02da85](https://github.com/Hazame-hub/alder/commit/e02da8566422551afd6ef3188d04ff27743acdf7))
+* two providers' configuration is not compared: a comparison of an OpenLDAP and a 389 Directory Server configuration reports a provider mismatch and summarises each side instead of listing differences that would all be artefacts ([e02da85](https://github.com/Hazame-hub/alder/commit/e02da8566422551afd6ef3188d04ff27743acdf7))
+
+
+### Documentation
+
+* document configuration snapshots, the provider-specific model, what is withheld and what operational metadata remains ([e02da85](https://github.com/Hazame-hub/alder/commit/e02da8566422551afd6ef3188d04ff27743acdf7))
+
 ## [1.12.0](https://github.com/Hazame-hub/alder/compare/v1.11.0...v1.12.0) (2026-09-17)
 
 
