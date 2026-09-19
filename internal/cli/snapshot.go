@@ -30,8 +30,8 @@ func snapshotCmd(env *Env) *cobra.Command {
 	var o snapshotOptions
 	var cmd *cobra.Command
 	cmd = command(env, &cobra.Command{
-		Use:   "snapshot (--base DN | --kind schema) --output FILE",
-		Short: "Capture a subtree or the schema as an Alder snapshot",
+		Use:   "snapshot (--base DN | --kind schema | --kind config) --output FILE",
+		Short: "Capture a subtree, the schema or the configuration as an Alder snapshot",
 		Long: "Captures a subtree through a running Alder server and writes the snapshot\n" +
 			"exactly as Alder produced it: an alder-snapshot version 1 document, the same\n" +
 			"file the web interface downloads. Sensitive attributes are a count of values,\n" +
@@ -40,7 +40,11 @@ func snapshotCmd(env *Env) *cobra.Command {
 			"--kind schema captures the schema the server publishes instead: attribute\n" +
 			"types and object classes for comparison, and syntaxes, matching rules, matching\n" +
 			"rule uses, DIT content rules and name forms as context. It takes no --base,\n" +
-			"--scope, --filter or --operational, and never captures server configuration.\n\n" +
+			"--scope, --filter or --operational.\n\n" +
+			"--kind config captures the server's own configuration: its settings and the\n" +
+			"databases, overlays, backends and plugins they belong to. Secrets are counted,\n" +
+			"never recorded; runtime state and schema definitions are left out. It takes no\n" +
+			"--base, --scope, --filter or --operational.\n\n" +
 			"--output - writes the snapshot to standard output and nothing else. A file is\n" +
 			"written to a temporary name and renamed when complete, and an existing file is\n" +
 			"never replaced without --force.",
@@ -51,7 +55,7 @@ func snapshotCmd(env *Env) *cobra.Command {
 	conn.registerAPI(cmd)
 	conn.registerDirectory(cmd)
 	f := cmd.Flags()
-	f.StringVar(&o.kind, "kind", "data", "data, or schema for the published schema")
+	f.StringVar(&o.kind, "kind", "data", "data, schema for the published schema, or config for the server's own configuration")
 	f.StringVar(&o.base, "base", "", "the DN of the subtree to capture")
 	f.StringVar(&o.scope, "scope", "sub", "sub, one or base")
 	f.StringVar(&o.filter, "filter", "", "an RFC 4515 filter; the default captures every entry in scope")
