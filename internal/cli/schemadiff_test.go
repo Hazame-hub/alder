@@ -213,7 +213,6 @@ func TestASchemaCaptureAsksForTheSchemaAndNothingElse(t *testing.T) {
 
 	for name, args := range map[string][]string{
 		"a base":        {"snapshot", "--kind", "schema", "--base", "dc=example,dc=test", "--output", "x.json"},
-		"configuration": {"snapshot", "--kind", "config", "--output", "x.json"},
 		"a live target": {"diff", "schema.json", "@live", "--schema-target", "cn=schema"},
 	} {
 		t.Run(name, func(t *testing.T) {

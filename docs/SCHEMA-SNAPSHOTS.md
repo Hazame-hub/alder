@@ -36,8 +36,10 @@ Nothing is stored on the server.
 | `dITStructureRules` | no | no | no | listed in `coverage.notCaptured`; identified by an integer rule ID rather than an OID |
 
 A document says this about itself in `coverage`: `compared`, `context` and
-`notCaptured`. Server configuration is never captured, and there is no
-`kind: config` — a request for one is refused with `snapshot_scope_unsupported`.
+`notCaptured`. Server configuration is not in a schema snapshot: since 1.13 it
+has a kind of its own, `config` (see
+[CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md)), and a schema snapshot holds
+schema.
 
 A definition that does not parse is **kept, not dropped**: its text and the
 parse error go in `unparsed`, and the snapshot is `completeness: partial`. The

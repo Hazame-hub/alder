@@ -30,11 +30,13 @@ import {
 } from "@/lib/diff-selection";
 import { safeText } from "@/lib/display";
 import { SCHEMA_KIND_LOOK, SchemaDiffView } from "@/features/schema-diff-view";
+import { ConfigDiffView } from "@/features/config-diff-view";
 
 type Snapshot = components["schemas"]["Snapshot"];
 type SchemaSnapshot = components["schemas"]["SchemaSnapshot"];
-/** A snapshot of either kind. Its `kind` tells them apart. */
-type AnySnapshot = Snapshot | SchemaSnapshot;
+type ConfigSnapshot = components["schemas"]["ConfigSnapshot"];
+/** A snapshot of any kind. Its `kind` tells them apart. */
+type AnySnapshot = Snapshot | SchemaSnapshot | ConfigSnapshot;
 type Inspection = components["schemas"]["SnapshotInspection"];
 type Diff = components["schemas"]["Diff"];
 type SnapshotValue = components["schemas"]["SnapshotValue"];
@@ -64,6 +66,26 @@ const mb = (bytes: number) => (bytes / (1 << 20)).toFixed(1);
  * capture the server has just produced is ever described this way.
  */
 function unread(doc: AnySnapshot): Inspection {
+  if (doc.kind === "config") {
+    return {
+      version: doc.version,
+      kind: doc.kind,
+      createdAt: doc.createdAt,
+      source: {
+        base: doc.source.root,
+        scope: "sub",
+        filter: "(objectClass=*)",
+        vendor: doc.source.vendor,
+        vendorVersion: doc.source.vendorVersion,
+      },
+      operationalAttributes: false,
+      schemaAvailable: false,
+      excluded: [],
+      entryCount: doc.counts.settings,
+      checksum: doc.checksum ?? "",
+      integrity: "unverified",
+    };
+  }
   if (doc.kind === "schema") {
     return {
       version: doc.version,
@@ -127,7 +149,7 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
   const [scope, setScope] = useState<"base" | "one" | "sub">("sub");
   const [filter, setFilter] = useState("");
   const [operational, setOperational] = useState(false);
-  const [captureKind, setCaptureKind] = useState<"data" | "schema">("data");
+  const [captureKind, setCaptureKind] = useState<"data" | "schema" | "config">("data");
   const [schemaTarget, setSchemaTarget] = useState("");
   const schemaTargets = session.data?.capabilities?.schemaWrite?.targets ?? [];
   const [into, setInto] = useState<"A" | "B">("A");
@@ -156,6 +178,11 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
       // Keep what was just captured, so it can still be downloaded.
       return { doc, bytes, inspection: unread(doc) };
     }
+    if (doc.kind === "config") {
+      // Configuration documents are summarised from the document itself; the
+      // comparison is where one is decoded strictly and its checksum checked.
+      return { doc, inspection: unread(doc), bytes };
+    }
     const inspection = unwrap(await api.POST("/snapshots/inspect", { body: doc }));
     return { doc, inspection, bytes };
   };
@@ -165,8 +192,8 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
       const raw = unwrap(
         await api.POST("/snapshots/capture", {
           body:
-            captureKind === "schema"
-              ? { kind: "schema" }
+            captureKind === "schema" || captureKind === "config"
+              ? { kind: captureKind }
               : {
                   base: (base ?? defaultBase).trim(),
                   scope,
@@ -178,7 +205,9 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
       ) as unknown as string;
       const { doc, inspection, bytes } = await inspect(raw, true);
       const stamp = inspection.createdAt.replace(/[-:]/g, "").replace(/\.\d+/, "");
-      return { name: into, raw, doc, inspection, bytes, origin: "captured", filename: `${captureKind === "schema" ? "alder-schema-snapshot" : "alder-snapshot"}-${stamp}.json` };
+      const prefix =
+        captureKind === "schema" ? "alder-schema-snapshot" : captureKind === "config" ? "alder-config-snapshot" : "alder-snapshot";
+      return { name: into, raw, doc, inspection, bytes, origin: "captured", filename: `${prefix}-${stamp}.json` };
     },
     onSuccess: (slot) => setSlots((s) => ({ ...s, [slot.name]: slot })),
   });
@@ -202,12 +231,19 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
 
   const kindOf = (choice: SideChoice) => (choice === "live" ? null : (slots[choice]?.doc.kind ?? null));
   const schemaComparison = kindOf(source) === "schema" || kindOf(target) === "schema";
+  const configComparison = kindOf(source) === "config" || kindOf(target) === "config";
   // A live side reads whatever the other side is a snapshot of. Where the
   // server keeps schema in several entries, a live source also says which one
   // added definitions go to.
   const sideBody = (choice: SideChoice) =>
     choice === "live"
-      ? { live: schemaComparison && choice === source && schemaTarget ? { schemaTarget } : {} }
+      ? {
+          live: configComparison
+            ? { kind: "config" as const }
+            : schemaComparison && choice === source && schemaTarget
+              ? { schemaTarget }
+              : {},
+        }
       : { snapshot: slots[choice]?.doc as AnySnapshot };
   const requestBytes = (["A", "B"] as const)
     .filter((n) => n === source || n === target)
@@ -220,7 +256,7 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
         : target !== "live" && !slots[target]
           ? `Snapshot ${target} is empty.`
           : source !== "live" && target !== "live" && kindOf(source) !== kindOf(target)
-            ? "One snapshot is of the schema and the other of data; schema is compared only with schema."
+            ? "These snapshots are of different kinds; data, schema and configuration are each compared only with their own."
             : requestBytes > MAX_BODY
             ? `Together that is ${mb(requestBytes)} MB to send, and the server reads at most ${mb(MAX_BODY)} MB in one request.`
             : null;
@@ -252,9 +288,9 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
             </Button>
           ))}
           <span className="ml-3 font-medium">Capture</span>
-          {(["data", "schema"] as const).map((k) => (
+          {(["data", "schema", "config"] as const).map((k) => (
             <Button key={k} size="sm" variant={captureKind === k ? "default" : "outline"} onClick={() => setCaptureKind(k)}>
-              {k === "data" ? "Directory data" : "Schema"}
+              {k === "data" ? "Directory data" : k === "schema" ? "Schema" : "Configuration"}
             </Button>
           ))}
         </div>
@@ -294,10 +330,17 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
           </span>
         </label>
         </>
+        ) : captureKind === "config" ? (
+          <p className="text-xs text-muted-foreground">
+            Captures this server's own configuration, as its software arranges it: settings, the databases,
+            overlays, plugins and backends they belong to, and whether each is something Alder can change.
+            Secrets are withheld, runtime counters are not configuration and are left out, and the schema has its
+            own kind. A configuration is only ever compared with another capture of the same server software.
+          </p>
         ) : (
           <p className="text-xs text-muted-foreground">
             Captures the schema the server publishes: attribute types and object classes for comparison, and
-            syntaxes, matching rules and the rest as context. Server configuration is never captured.
+            syntaxes, matching rules and the rest as context. Server configuration has its own kind.
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -306,7 +349,8 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
             disabled={capture.isPending || (captureKind === "data" && !(base ?? defaultBase).trim())}
           >
             {capture.isPending ? <Loader2 className="animate-spin" /> : <Camera />}
-            Capture {captureKind === "schema" ? "the schema " : ""}into snapshot {into}
+            Capture {captureKind === "schema" ? "the schema " : captureKind === "config" ? "the configuration " : ""}into snapshot{" "}
+            {into}
           </Button>
           <Button variant="outline" onClick={() => fileInput.current?.click()}>
             <Upload />
@@ -375,7 +419,14 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
         </p>
         {compare.isError ? <ErrorNote title="The comparison failed" error={compare.error} /> : null}
         {compare.data ? (
-          compare.data.kind === "schema" ? (
+          compare.data.kind === "config" ? (
+            <ConfigDiffView
+              diff={compare.data}
+              sourceLabel={sideLabel(source)}
+              targetLabel={sideLabel(target)}
+              onReviewChangeset={onReviewChangeset}
+            />
+          ) : compare.data.kind === "schema" ? (
             <SchemaDiffView
               diff={compare.data}
               sourceLabel={sideLabel(source)}
@@ -403,6 +454,32 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
     );
   }
   const i = slot.inspection;
+  if (slot.doc.kind === "config") {
+    // A configuration document describes itself, and in its own words: these
+    // are settings on one server's software, not entries in a subtree.
+    const c = slot.doc;
+    return (
+      <div className="space-y-1 rounded-md border p-3 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium">Snapshot {name} · configuration</span>
+          <DownloadButton text={slot.raw} filename={slot.filename} label="Download" mime="application/json" />
+        </div>
+        <div className="truncate font-dn text-xs" title={safeText(c.source.root)}>
+          {c.source.provider} configuration at {safeText(c.source.root)}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {c.counts.settings} settings · {c.counts.resources} resources ·{" "}
+          {safeText(c.source.vendor) || "server not identified"} · {slot.origin} {c.createdAt}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {c.counts.withheld > 0 ? <Badge variant="outline">{c.counts.withheld} withheld</Badge> : null}
+          {c.counts.operational > 0 ? <Badge variant="outline">{c.counts.operational} machine details</Badge> : null}
+          {c.completeness === "partial" ? <Badge variant="warning">partial</Badge> : null}
+          {slot.bytes > MAX_BODY ? <Badge variant="warning">too large to compare here</Badge> : null}
+        </div>
+      </div>
+    );
+  }
   if (i.schema) {
     const s = i.schema;
     return (

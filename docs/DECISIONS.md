@@ -2676,3 +2676,85 @@ to contradict the plan — add an entry.
   only, and the ordering was the one quadratic step (483 ms to 62 ms for 1000
   definitions). `POST /diff` still orders.
 - **Provider abstraction remains deferred.**
+
+## 2026-09-17 — 1.13: configuration snapshots, and the model that is not shared
+
+- **Configuration is provider-specific unless equivalence is explicitly
+  proven.** There is one model per provider — `internal/config/openldap.go` and
+  `internal/config/ds389.go` — and a configuration is only ever compared with
+  another capture of the same one. No portable configuration model exists here,
+  and adding one is not deferred work: it is work that would have to prove each
+  equivalence, one setting at a time, and nothing in 1.13 proves any.
+- **Two providers produce a mismatch, not a diff.** Lining up the harness
+  servers would have produced roughly 1,500 differences, every one an artefact
+  of the comparison rather than a fact about either server. A cross-provider
+  comparison reports `providerMismatch`, no items, `complete: false`, and a
+  summary of what each side holds. This is the one place in Alder where the
+  answer to "compare these" is "these are not comparable".
+- **The provider is decided by the tree, and the vendor name only breaks a
+  tie.** Only OpenLDAP writes configuration in `olc*` attributes and only 389 DS
+  in `nsslapd-*`, which is a fact about the server rather than about its name.
+  The vendor name stays what section 3 of CLAUDE.md says it is: display, plus a
+  last resort when the tree says nothing.
+- **Identity is what the provider names a thing; never a position.** A database
+  is its suffix, an overlay its name under its database, a plugin its name, a
+  backend's index its path below the backend. The `{n}` in an OpenLDAP DN is
+  where something sat and changes when something else is removed. A setting is
+  `section / resource / key`, lower-cased, inside a document that names its
+  provider. The conformance suite asserts no resource name contains `{` and no
+  two share an identity.
+- **A secret is present and counted, never a value and never a digest.** No
+  hash, no salt, no truncation, no fingerprint: a configuration document must
+  not be an offline guessing oracle, and a "safe" digest would make one. The
+  sensitivity rule is deliberately narrow — a credential, a secret, a key, or a
+  name ending in the word password — because a configuration is full of
+  settings that describe passwords without holding one, and withholding those
+  would hide ordinary configuration while protecting nothing.
+- **Operational metadata stays, marked and documented.** Paths, ports, host
+  names and file names are not secrets and do describe the machine. They are
+  captured with `operational: true`, counted, and SECURITY.md says plainly that
+  a configuration snapshot may carry operational infrastructure metadata even
+  when secrets are withheld.
+- **Runtime state is not configuration.** `cn=monitor` at any depth, `cn=tasks`,
+  and the attributes a server maintains for itself are excluded, and the
+  document says so in `coverage.excluded`. Schema definitions are excluded too —
+  they have a kind of their own, and two answers to one question is worse than
+  one. Which schema entries are *loaded* is configuration, so OpenLDAP records
+  their names and nothing else.
+- **An unrecognised entry becomes an area, not a hole.** A model that does not
+  know what something is still captures it, in the `other` section, so a
+  difference in it is still seen.
+- **Diff does not create a new config write capability.** A difference is
+  actionable only where the provider's model already lists the setting as one
+  Alder writes through the ordinary plan, both sides agree, it is not a secret,
+  and it exists on both sides. A forged document cannot make a setting writable,
+  because the live side's own model has to agree — proved against both servers.
+  Adding or removing a configuration entry is reported and never derived.
+- **The change goes to the live side's own entry.** Two servers may keep the
+  same setting in differently named entries, so the DN comes from the live
+  side's snapshot, never from the other side's.
+- **Absence in a partial capture is `unknown`, never `removed`.** A side that
+  was not read in full cannot be used to say a setting is not there, and such a
+  comparison is never complete. Hidden configuration is the same answer.
+- **Recovery stays unavailable for configuration**, as for schema. Compensation
+  is derived from ordinary directory state, and a configuration entry is not
+  that. A configuration change is put back the way it was made: by planning the
+  opposite change.
+- **Order is kept only where the provider says it means something.** Access
+  rules, `syncrepl` statements and module loads keep the server's order and are
+  compared in it; the `{n}` prefix is stripped, because a configuration that
+  differs only in renumbering is the same configuration. Everything else is a
+  set.
+- **A value nothing parses is compared as text, and says so.** `olcAccess`,
+  `aci`, index definitions: `comparison: raw`, `not_comparable` on the
+  difference, never actionable. This is also as close to ACL analysis as 1.13
+  goes, deliberately.
+- **A value that is not text is captured as base64**, rather than dropped, so a
+  snapshot is never quietly smaller than the configuration it claims to hold.
+  389 DS's replication state is the case that found this.
+- **A configuration capture takes no base, scope or filter.** There is nothing
+  to narrow; a request that carries them was written for another kind and is
+  refused rather than ignored. Kind `schema` goes on ignoring them, because
+  1.10 clients already send them.
+- **Preflight is unchanged.** Configuration compatibility is still not
+  evaluated, cross-provider or otherwise, and every report still says so.

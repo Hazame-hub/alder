@@ -253,8 +253,11 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 	}
 	if selecting {
 		stage := stageSelected
-		if d.Kind == api.StateKindSchema {
+		switch d.Kind {
+		case api.StateKindSchema:
 			stage = stageSchemaSelected
+		case api.StateKindConfig:
+			stage = stageConfigSelected
 		}
 		if err := stage(env, d, res.Body, o); err != nil {
 			// The comparison is already on standard output; the refusal

@@ -152,6 +152,16 @@ func (s *Server) CaptureSnapshot(c *fiber.Ctx) error {
 	switch kind {
 	case snapshot.KindSchema:
 		return s.captureSchemaSnapshot(c, sess)
+	case snapshot.KindConfig:
+		// A configuration is one tree, the server's own, and there is nothing
+		// to narrow: a base or a filter here means the request was written for
+		// another kind, so it is refused rather than ignored. Kind schema goes
+		// on ignoring them, because clients from 1.10 already send them.
+		if body.Base != nil || body.Scope != nil || body.Filter != nil || body.OperationalAttributes != nil {
+			return badRequest(c, "A configuration snapshot takes no base, scope, filter or operational attributes.",
+				"The configuration is the tree the server announced, and there is nothing in it to narrow.")
+		}
+		return s.captureConfigSnapshot(c, sess)
 	case snapshot.KindData:
 	default:
 		return refuseSnapshotKind(c, kind)
@@ -353,6 +363,9 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 	}
 	if kind == snapshot.KindSchema {
 		return s.diffSchema(c, sess, body)
+	}
+	if kind == snapshot.KindConfig {
+		return s.diffConfig(c, sess, body)
 	}
 
 	sides := map[string]*resolvedSide{}

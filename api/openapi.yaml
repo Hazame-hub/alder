@@ -1500,6 +1500,7 @@ components:
             - package_checksum_mismatch
             - package_too_large
             - preflight_artifact_unsupported
+            - config_model_unavailable
             - not_found
             - conflict
             - constraint_violation
@@ -1853,7 +1854,10 @@ components:
       properties:
         kind:
           $ref: "#/components/schemas/StateKind"
-          description: What to capture. `data` (the default) needs `base`. Added in 1.10.
+          description: |
+            What to capture. `data` (the default) needs `base`; `schema` was added
+            in 1.10 and `config` in 1.13. A configuration capture needs a session
+            that can read the server's configuration tree.
         base: { type: string, description: "The subtree to capture. Required for kind data." }
         scope: { $ref: "#/components/schemas/SnapshotScope" }
         filter:
@@ -2464,13 +2468,279 @@ components:
           items: { $ref: "#/components/schemas/PreflightFinding" }
         truncated: { type: boolean }
 
+    ConfigSnapshotSource:
+      type: object
+      required: [provider, root]
+      properties:
+        provider: { $ref: "#/components/schemas/ConfigProvider" }
+        vendor: { type: string }
+        vendorVersion: { type: string }
+        root: { type: string, description: The configuration tree the server announced or answered at. }
+
+    ConfigSnapshotCoverage:
+      type: object
+      required: [sections, excluded]
+      properties:
+        sections:
+          type: array
+          description: The categories this provider's model covers.
+          items: { type: string }
+        excluded:
+          type: array
+          description: |
+            What is left out on purpose, as stable identifiers: `runtime-state`,
+            `schema-definitions`, `sensitive-values` and
+            `server-maintained-attributes`.
+          items: { type: string }
+
+    ConfigSnapshotIncomplete:
+      type: object
+      required: [reason]
+      description: One reason a capture did not cover everything.
+      properties:
+        reason:
+          type: string
+          enum: [insufficient_access, read_failed, unsupported_section, read_limit_reached]
+        scope: { type: string }
+        detail: { type: string }
+
+    ConfigSnapshotCounts:
+      type: object
+      required: [resources, settings, withheld, operational, readOnly]
+      properties:
+        resources: { type: integer }
+        settings: { type: integer }
+        withheld: { type: integer, description: Settings whose values are secrets and were never recorded. }
+        operational: { type: integer, description: Settings whose values name something about the machine. }
+        readOnly: { type: integer }
+
+    ConfigResource:
+      type: object
+      required: [section, kind, name]
+      description: |
+        One configuration object a provider repeats: a database, an overlay, a
+        module, a backend, a plugin. Identified by what the provider names it
+        by -- a suffix, an overlay's name -- never by its position.
+      properties:
+        section: { type: string }
+        kind: { type: string, description: "global, database, overlay, module, backend, plugin, encryption, mapping-tree, replication or area." }
+        name: { type: string }
+        dn: { type: string }
+        label: { type: string }
+
+    ConfigSetting:
+      type: object
+      required: [section, key, type, mutability, comparison]
+      description: One attribute of one configuration entry, normalised by the provider's model.
+      properties:
+        section: { type: string }
+        resource: { type: string, description: The resource's identity; absent for a provider's global settings. }
+        key: { type: string }
+        values:
+          type: array
+          description: The values, canonicalised. A withheld setting has none.
+          items: { type: string }
+        ordered: { type: boolean, description: The order of the values carries meaning. }
+        type: { type: string }
+        mutability: { $ref: "#/components/schemas/ConfigMutability" }
+        comparison: { type: string, description: normalised or raw. }
+        sensitive: { type: boolean }
+        withheld: { type: integer, description: How many values a sensitive setting had. }
+        operational: { type: boolean }
+        dn: { type: string }
+
+    ConfigSnapshot:
+      type: object
+      required: [format, version, kind, createdAt, source, completeness, incomplete, coverage, counts, resources, settings]
+      description: |
+        A configuration snapshot document: `alder-snapshot` version 1 with kind
+        `config`, introduced in Alder 1.13. Releases before 1.13 refuse it as a
+        kind they do not know. It holds one server's persistent configuration
+        as that server's software arranges it; it is not portable to another
+        product, and Alder never translates one into another.
+      properties:
+        format:
+          type: string
+          enum: [alder-snapshot]
+          x-enum-varnames: [ConfigSnapshotFormatAlderSnapshot]
+        version: { type: integer }
+        kind:
+          type: string
+          enum: [config]
+          x-enum-varnames: [ConfigSnapshotKindConfig]
+        createdAt: { type: string, format: date-time }
+        source: { $ref: "#/components/schemas/ConfigSnapshotSource" }
+        completeness:
+          type: string
+          enum: [complete, partial]
+          x-enum-varnames: [ConfigSnapshotCompletenessComplete, ConfigSnapshotCompletenessPartial]
+        incomplete:
+          type: array
+          items: { $ref: "#/components/schemas/ConfigSnapshotIncomplete" }
+        coverage: { $ref: "#/components/schemas/ConfigSnapshotCoverage" }
+        counts: { $ref: "#/components/schemas/ConfigSnapshotCounts" }
+        resources:
+          type: array
+          items: { $ref: "#/components/schemas/ConfigResource" }
+        settings:
+          type: array
+          items: { $ref: "#/components/schemas/ConfigSetting" }
+        checksum: { type: string }
+
+    ConfigProvider:
+      type: string
+      description: |
+        The configuration model a snapshot belongs to. Configuration is
+        provider-specific: two providers' settings are not the same settings,
+        and Alder does not translate between them.
+      enum: [openldap, 389ds]
+      x-enum-varnames: [ConfigProviderOpenLDAP, ConfigProvider389DS]
+
+    ConfigMutability:
+      type: string
+      description: |
+        What the provider's model says about a setting: whether it is something
+        an administrator sets. It is not a statement about this session's
+        rights, and not a promise that Alder can change it.
+      enum: [writable, read_only, unknown]
+      x-enum-varnames: [ConfigMutabilityWritable, ConfigMutabilityReadOnly, ConfigMutabilityUnknown]
+
+    ConfigActionable:
+      type: string
+      description: |
+        What Alder could do about a difference. `writable` means Alder already
+        changes that exact setting through the ordinary plan; a comparison
+        never creates a new way to write configuration, so everything else is
+        reported and never staged.
+      enum: [writable, read_only, unknown]
+      x-enum-varnames: [ConfigActionableWritable, ConfigActionableReadOnly, ConfigActionableUnknown]
+
+    ConfigDiffCounts:
+      type: object
+      required: [compared, added, removed, modified, unchanged, unknown, actionable]
+      properties:
+        compared: { type: integer }
+        added: { type: integer }
+        removed: { type: integer }
+        modified: { type: integer }
+        unchanged: { type: integer }
+        unknown: { type: integer }
+        actionable:
+          type: integer
+          description: How many differences Alder could change through the ordinary plan.
+
+    ConfigSectionCounts:
+      type: object
+      required: [section, counts]
+      properties:
+        section: { type: string }
+        counts: { $ref: "#/components/schemas/ConfigDiffCounts" }
+
+    ConfigSectionTotals:
+      type: object
+      required: [section, settings]
+      properties:
+        section: { type: string }
+        settings: { type: integer }
+
+    ConfigProviderSummary:
+      type: object
+      required: [provider, completeness, settings, resources, sections]
+      description: |
+        What one side holds, in the terms that survive a provider mismatch:
+        which sections it has and how much is in them. When the two sides are
+        different providers this is the whole answer.
+      properties:
+        provider: { $ref: "#/components/schemas/ConfigProvider" }
+        vendor: { type: string }
+        vendorVersion: { type: string }
+        root: { type: string, description: The configuration tree the server announced or answered at. }
+        completeness: { type: string, description: complete or partial. }
+        settings: { type: integer }
+        resources: { type: integer }
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/ConfigSectionTotals" }
+
+    ConfigDiffItem:
+      type: object
+      required: [id, kind, section, key, actionable]
+      properties:
+        id:
+          type: string
+          description: |
+            The setting's identity within the provider's model: section,
+            resource and key. Stable across captures, and never a position.
+        kind: { $ref: "#/components/schemas/DiffKind" }
+        section: { type: string }
+        resource: { type: string, description: The resource the setting belongs to, when it belongs to one. }
+        resourceLabel: { type: string }
+        key: { type: string, description: The setting's name in the provider's own vocabulary. }
+        source:
+          type: array
+          description: The values the source holds. A withheld setting has none.
+          items: { type: string }
+        target:
+          type: array
+          items: { type: string }
+        ordered:
+          type: boolean
+          description: The order of the values is part of the setting, so a comparison keeps it.
+        type: { type: string, description: "string, int, bool, dn, path, url, structured or binary." }
+        comparison:
+          type: string
+          description: |
+            `normalised` when the model understands the value, `raw` when it is
+            compared as text because nothing here parses it.
+        mutability: { $ref: "#/components/schemas/ConfigMutability" }
+        actionable: { $ref: "#/components/schemas/ConfigActionable" }
+        sensitive:
+          type: boolean
+          description: The value is a secret and was never recorded; only whether it is present.
+        operational:
+          type: boolean
+          description: |
+            The value names something about the machine -- a path, a host, a
+            port, a file. Not a secret, and not something to publish carelessly.
+        dn: { type: string, description: The configuration entry the setting lives on. }
+        problems:
+          type: array
+          items: { type: string }
+        candidate: { $ref: "#/components/schemas/DiffCandidate" }
+
+    ConfigDiff:
+      type: object
+      required: [providerMismatch, complete, crossVendor, counts, sections, items, source, target]
+      description: |
+        A configuration comparison. When `providerMismatch` is true the two
+        sides are different providers' configuration: nothing was compared
+        setting by setting, `items` is empty, and `source` and `target` say what
+        each side holds. Alder does not translate configuration between
+        providers and does not synthesise added and removed settings.
+      properties:
+        providerMismatch: { type: boolean }
+        provider: { $ref: "#/components/schemas/ConfigProvider" }
+        complete: { type: boolean }
+        crossVendor: { type: boolean }
+        counts: { $ref: "#/components/schemas/ConfigDiffCounts" }
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/ConfigSectionCounts" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ConfigDiffItem" }
+        source: { $ref: "#/components/schemas/ConfigProviderSummary" }
+        target: { $ref: "#/components/schemas/ConfigProviderSummary" }
+
     StateKind:
       type: string
       description: |
-        What a snapshot or comparison is of: directory data, or the published
-        schema (1.10). Server configuration is not a kind.
-      enum: [data, schema]
-      x-enum-varnames: [StateKindData, StateKindSchema]
+        What a snapshot or comparison is of: directory data, the published
+        schema (1.10), or the server's own configuration (1.13). A release
+        before the one that added a kind refuses a snapshot of it rather than
+        misreading it.
+      enum: [data, schema, config]
+      x-enum-varnames: [StateKindData, StateKindSchema, StateKindConfig]
 
     SchemaSnapshotSource:
       type: object
@@ -2684,6 +2954,7 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Snapshot"
             - $ref: "#/components/schemas/SchemaSnapshot"
+            - $ref: "#/components/schemas/ConfigSnapshot"
         live: { $ref: "#/components/schemas/DiffLiveSide" }
 
     DiffRequest:
@@ -2926,6 +3197,7 @@ components:
           $ref: "#/components/schemas/StateKind"
           description: What was compared. Added in 1.10; earlier releases compare data only.
         schema: { $ref: "#/components/schemas/SchemaDiff" }
+        config: { $ref: "#/components/schemas/ConfigDiff" }
         source: { $ref: "#/components/schemas/DiffSideSummary" }
         target: { $ref: "#/components/schemas/DiffSideSummary" }
         complete: { type: boolean }
