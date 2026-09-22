@@ -398,3 +398,43 @@ func has(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestARawDifferenceIsNeverOfferedEvenOnAWritableSetting(t *testing.T) {
+	index := func(values ...string) snapshot.ConfigSetting {
+		return snapshot.ConfigSetting{Section: "backend", Key: "olcDbIndex", Values: values,
+			Type: "structured", Mutability: snapshot.MutabilityWritable, Comparison: snapshot.ComparisonRaw,
+			DN: "cn=config"}
+	}
+	live := configSide(t, snapshot.ProviderOpenLDAP, false, index("uid eq"))
+	live.Live = true
+	r := CompareConfig(live, configSide(t, snapshot.ProviderOpenLDAP, false, index("uid eq,sub")), ConfigOptions{})
+	got := item(t, r, "backend//olcdbindex")
+	if got.Actionable == ActionableWritable {
+		t.Fatal("a difference nothing parsed was offered as a change")
+	}
+	if c := DeriveConfig(r, got, live); len(c.Records) != 0 {
+		t.Fatalf("a raw difference produced %+v", c)
+	}
+}
+
+func TestTwoSpellingsOfOneBooleanAreOneSetting(t *testing.T) {
+	flag := func(v string) snapshot.ConfigSetting {
+		return snapshot.ConfigSetting{Section: "backend", Key: "olcReadOnly", Values: []string{v}, Type: "bool",
+			Mutability: snapshot.MutabilityWritable, Comparison: snapshot.ComparisonNormalised, DN: "cn=config"}
+	}
+	r := CompareConfig(configSide(t, snapshot.ProviderOpenLDAP, false, flag("FALSE")),
+		configSide(t, snapshot.ProviderOpenLDAP, false, flag("false")), ConfigOptions{})
+	if len(r.Items) != 0 {
+		t.Fatalf("FALSE and false were reported as a difference: %v", itemIDs(r))
+	}
+
+	// And what is written back is the other side's spelling, not a lower-cased
+	// one the server would refuse.
+	live := configSide(t, snapshot.ProviderOpenLDAP, false, flag("FALSE"))
+	live.Live = true
+	d := CompareConfig(live, configSide(t, snapshot.ProviderOpenLDAP, false, flag("TRUE")), ConfigOptions{})
+	c := DeriveConfig(d, item(t, d, "backend//olcreadonly"), live)
+	if len(c.Records) != 1 || string(c.Records[0].Mods[0].Values[0]) != "TRUE" {
+		t.Fatalf("the change writes %+v, want TRUE", c.Records)
+	}
+}

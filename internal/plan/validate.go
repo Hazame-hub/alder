@@ -97,6 +97,15 @@ func validate(sch *schema.Schema, op directory.ChangeRecord, live *directory.Ent
 		}
 	case directory.ChangeModify:
 		for name, count := range resultingCounts(op, live) {
+			// An attribute the entry already holds, and the published schema
+			// does not define, is one the server accepted on this entry: it
+			// is the server's own vocabulary rather than a mistake. 389
+			// Directory Server's configuration entries are full of them. The
+			// schema has nothing to say about such an attribute, so it is left
+			// for the directory to judge, exactly as the rule above says.
+			if sch.AttributeType(schema.BaseName(name)) == nil && live != nil && len(live.Get(name)) > 0 {
+				continue
+			}
 			if p := check(name, count); p != nil {
 				return p
 			}

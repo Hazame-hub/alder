@@ -335,9 +335,22 @@ func configItem(source, target *snapshot.ConfigSetting, labels map[string]string
 
 // sameValues compares two settings' values, honouring order only where the
 // model said order means something.
+//
+// A boolean keeps the server's spelling in a snapshot, because that spelling is
+// what gets written back -- OpenLDAP refuses a lower-case TRUE -- so booleans
+// are the one type compared without regard to case.
 func sameValues(a, b *snapshot.ConfigSetting) bool {
 	if len(a.Values) != len(b.Values) {
 		return false
+	}
+	if a.Type == "bool" && b.Type == "bool" {
+		left := make([]string, len(a.Values))
+		right := make([]string, len(b.Values))
+		for i := range a.Values {
+			left[i] = strings.ToLower(a.Values[i])
+			right[i] = strings.ToLower(b.Values[i])
+		}
+		return equalStrings(left, right, a.Ordered || b.Ordered)
 	}
 	if a.Ordered || b.Ordered {
 		for i := range a.Values {
@@ -378,6 +391,12 @@ func actionability(source, target *snapshot.ConfigSetting, kind Kind) string {
 		return ActionableUnknown
 	}
 	if source.Sensitive || target.Sensitive {
+		return ActionableReadOnly
+	}
+	// A value nothing here parses is compared as text, and a textual
+	// difference is not a change anyone has understood. Writing the other
+	// side's text back would replace a structure Alder cannot read.
+	if source.Comparison == snapshot.ComparisonRaw || target.Comparison == snapshot.ComparisonRaw {
 		return ActionableReadOnly
 	}
 	if source.Mutability == snapshot.MutabilityWritable && target.Mutability == snapshot.MutabilityWritable {
@@ -444,4 +463,19 @@ func sectionCounts(items []ConfigItem) []ConfigSectionCounts {
 		out = append(out, ConfigSectionCounts{Section: section, Counts: *totals[section]})
 	}
 	return out
+}
+
+func equalStrings(a, b []string, ordered bool) bool {
+	if !ordered {
+		a = append([]string(nil), a...)
+		b = append([]string(nil), b...)
+		sort.Strings(a)
+		sort.Strings(b)
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
