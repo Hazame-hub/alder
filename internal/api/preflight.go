@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/hazame-hub/alder/internal/changepkg"
+	"github.com/hazame-hub/alder/internal/config"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/filter"
 	"github.com/hazame-hub/alder/internal/preflight"
@@ -42,7 +43,7 @@ func (s *Server) Preflight(c *fiber.Ctx) error {
 	}
 	artifact := bytes.TrimSpace(body.Artifact)
 	if len(artifact) == 0 || artifact[0] != '{' {
-		return badRequest(c, "The request carries no artifact.", "artifact must be a change package, a schema snapshot or a data snapshot.")
+		return badRequest(c, "The request carries no artifact.", "artifact must be a change package, a schema snapshot, a data snapshot or a configuration snapshot.")
 	}
 	opts := preflight.Options{NotFound: isNoSuchObject}
 	if body.SchemaTarget != nil {
@@ -58,6 +59,9 @@ func (s *Server) Preflight(c *fiber.Ctx) error {
 	defer cancel()
 	opts.Capture = func(ctx context.Context, base dn.DN, scope, rawFilter string) (*snapshot.Snapshot, bool, error) {
 		return s.preflightCapture(ctx, sess, base, scope, rawFilter)
+	}
+	opts.CaptureConfig = func(ctx context.Context) (*snapshot.ConfigSnapshot, error) {
+		return config.Capture(ctx, sess.Conn, config.Options{})
 	}
 	report, err := preflight.Run(ctx, artifact, readOnly{sess.Conn}, opts)
 	if err != nil {
@@ -97,7 +101,7 @@ func preflightRefusal(c *fiber.Ctx, s *Server, err error) error {
 	case errors.Is(err, preflight.ErrNotArtifact):
 		return writeError(c, fiber.StatusBadRequest, ErrorErrorPreflightArtifactUnsupported,
 			"The document is not an artifact a preflight reads.",
-			"A preflight reads an Alder change package, a schema snapshot or a data snapshot, recognised by their format field.")
+			"A preflight reads an Alder change package, a schema snapshot, a data snapshot or a configuration snapshot, recognised by their format field.")
 	case errors.Is(err, preflight.ErrUnsupportedKind):
 		return writeError(c, fiber.StatusBadRequest, ErrorErrorPreflightArtifactUnsupported,
 			"The snapshot is of a kind a preflight does not read.", "A preflight reads data and schema snapshots.")

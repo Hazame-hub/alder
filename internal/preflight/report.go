@@ -84,7 +84,7 @@ const (
 
 // Categories lists the sections in report order.
 var Categories = []Category{CategoryArtifact, CategorySchema, CategoryNaming, CategoryEntries,
-	CategoryReferences, CategoryCapabilities, CategoryOperational, CategorySensitive}
+	CategoryReferences, CategoryConfiguration, CategoryCapabilities, CategoryOperational, CategorySensitive}
 
 // Finding codes. Stable identifiers: a client switches on these, never on the
 // explanation.
@@ -193,6 +193,10 @@ type SourceRef struct {
 	DN        string `json:"dn,omitempty"`
 	Attribute string `json:"attribute,omitempty"`
 	Value     string `json:"value,omitempty"`
+	// Setting and Resource identify a configuration setting and the object it
+	// belongs to, in the snapshot's own terms (1.14).
+	Setting  string `json:"setting,omitempty"`
+	Resource string `json:"resource,omitempty"`
 }
 
 // TargetFact is what the target showed that the finding rests on.
@@ -216,6 +220,9 @@ type Prerequisite struct {
 	DN string `json:"dn,omitempty"`
 	// Capability names a target capability.
 	Capability string `json:"capability,omitempty"`
+	// Setting and Resource name a configuration setting or object (1.14).
+	Setting  string `json:"setting,omitempty"`
+	Resource string `json:"resource,omitempty"`
 	// ProvidedBy is the finding of the source object that supplies it, when the
 	// same source does.
 	ProvidedBy string `json:"providedBy,omitempty"`
@@ -358,7 +365,7 @@ type Report struct {
 // Areas never assessed, always listed.
 var alwaysNotEvaluated = []NotEvaluated{
 	{Area: "access_control", Reason: "Access control semantics differ between servers and are not compared: aci values and olcAccess rules are neither read nor translated."},
-	{Area: "server_configuration", Reason: "Server configuration is not captured or compared, so settings the source relies on -- overlays, plugins, password policy, limits, indexes -- are not evaluated."},
+	{Area: "server_configuration", Reason: "This artifact carries no server configuration, so settings the source relies on -- overlays, plugins, password policy, limits, indexes -- are not evaluated. A configuration snapshot of the same server software can be preflighted on its own."},
 	{Area: "secret_values", Reason: "Passwords and other sensitive values are never read into an artifact, so whether they would carry across cannot be assessed; they must be set on the target separately."},
 }
 

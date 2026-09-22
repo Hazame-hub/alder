@@ -84,7 +84,11 @@ describe("preflight findings", () => {
       label: "Schema snapshot",
       objects: 2,
     });
-    expect(claimedArtifact({ format: "alder-snapshot", kind: "config" })).toBeNull();
+    expect(claimedArtifact({ format: "alder-snapshot", kind: "config", settings: [{}, {}, {}] })).toEqual({
+      label: "Configuration snapshot",
+      objects: 3,
+    });
+    expect(claimedArtifact({ format: "alder-snapshot", kind: "acl" })).toBeNull();
     expect(claimedArtifact([{ format: "alder-change-package" }])).toBeNull();
     expect(claimedArtifact("alder-change-package")).toBeNull();
   });

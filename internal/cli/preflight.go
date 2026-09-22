@@ -35,13 +35,15 @@ func preflightCmd(env *Env) *cobra.Command {
 	cmd := command(env, &cobra.Command{
 		Use:   "preflight ARTIFACT_FILE | -",
 		Short: "Report what of a package or snapshot would carry across to a directory",
-		Long: "Reads a change package, a schema snapshot or a data snapshot against the\n" +
-			"directory and reports, finding by finding, what it already holds, what it\n" +
-			"could take, what needs something done first, what contradicts it, what it\n" +
-			"cannot represent, and what could not be seen.\n\n" +
+		Long: "Reads a change package, a schema snapshot, a data snapshot or a\n" +
+			"configuration snapshot against the directory and reports, finding by\n" +
+			"finding, what it already holds, what it could take, what needs something\n" +
+			"done first, what contradicts it, what it cannot represent, and what could\n" +
+			"not be seen.\n\n" +
 			"A preflight writes nothing, changes nothing in the artifact, rewrites no DN\n" +
-			"and maps no attribute or object class. Access control and server\n" +
-			"configuration are not evaluated.\n\n" +
+			"and maps no attribute or object class. Access control is not evaluated.\n" +
+			"Server configuration is evaluated only for a configuration snapshot, and\n" +
+			"only against a directory of the same server software.\n\n" +
 			"Exit status: 0 compatible, 1 compatible once the prerequisites it lists are\n" +
 			"done, 2 incomplete (something could not be decided), 3 incompatible,\n" +
 			"7 usage, 8 failure.",
@@ -154,6 +156,7 @@ var preflightSourceText = map[api.PreflightSourceType]string{
 	api.PreflightSourceChangePackage:  "change package",
 	api.PreflightSourceSchemaSnapshot: "schema snapshot",
 	api.PreflightSourceDataSnapshot:   "data snapshot",
+	api.PreflightSourceConfigSnapshot: "configuration snapshot",
 }
 
 func renderPreflight(w io.Writer, r api.PreflightReport, all bool) {
@@ -248,6 +251,8 @@ func sectionTitle(c api.PreflightCategory) string {
 		return "Entries"
 	case api.PreflightCategoryReferences:
 		return "References"
+	case api.PreflightCategoryConfiguration:
+		return "Configuration"
 	case api.PreflightCategoryCapabilities:
 		return "Capabilities"
 	case api.PreflightCategoryOperational:
@@ -264,7 +269,7 @@ func findingSubject(f api.PreflightFinding) string {
 	if item := safe(text(s.Item)); item != "" {
 		parts = append(parts, item)
 	}
-	for _, v := range []*string{s.Oid, s.Name, s.Dn, s.Attribute, s.Value} {
+	for _, v := range []*string{s.Oid, s.Name, s.Setting, s.Resource, s.Dn, s.Attribute, s.Value} {
 		if value := safe(text(v)); value != "" {
 			parts = append(parts, value)
 		}
@@ -277,7 +282,7 @@ func findingSubject(f api.PreflightFinding) string {
 
 func prerequisiteText(p api.PreflightPrerequisite) string {
 	parts := []string{safe(p.Type)}
-	for _, v := range []*string{p.Element, p.Oid, p.Name, p.Dn, p.Capability} {
+	for _, v := range []*string{p.Element, p.Oid, p.Name, p.Dn, p.Capability, p.Setting, p.Resource} {
 		if value := safe(text(v)); value != "" {
 			parts = append(parts, value)
 		}
