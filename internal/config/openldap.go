@@ -31,12 +31,33 @@ var openldapModel = model{
 		// attribute of one configuration entry, through the ordinary plan.
 		// Nothing is here because it would be nice to support; each is a
 		// scalar an administrator sets, on an entry that already exists.
+		//
+		// Every one is written, read back and restored through Alder on the
+		// harness by the conformance suite; a setting that cannot be proved
+		// that way is not here. Left out on purpose, with the reason in
+		// DECISIONS.md: anything that can lock a person out (TLS, SASL, root
+		// DN, access rules, olcLocalSSF, the socket buffer limits), anything
+		// read only when the server starts (olcDbMaxReaders, olcListenerThreads),
+		// anything that silently invalidates an index (olcIndex*, olcDbIndex),
+		// and the password policy overlay's switches.
 		writable: set(
-			"olcidletimeout", "olcsizelimit", "oltimelimit", "olctimelimit", "olcloglevel",
-			"olcreadonly", "olcdbmaxsize", "olcdbindex", "olclastmod", "olcmaxderefdepth",
-			"olcdbnosync", "olcdbsearchstack", "olcdbmaxreaders", "olcdbmaxentrysize",
+			"olcidletimeout", "olcsizelimit", "olctimelimit", "olcloglevel",
+			"olcreadonly", "olcdbmaxsize", "olclastmod", "olcmaxderefdepth",
+			"olcdbnosync", "olcdbsearchstack", "olcdbmaxentrysize",
 			"olcwritetimeout", "olcconnmaxpending", "olcconnmaxpendingauth", "olcmonitoring",
+			// Added in 1.14.
+			"olcmaxfilterdepth", "olcthreads", "olcgentlehup", "olcdbrtxnsize", "olclastbind",
 		),
+		// Read-only mode on one database stops writes to that database. On the
+		// global entry, the frontend or the configuration database it stops
+		// writes to the configuration as well, and nothing could switch it back.
+		writableOn: func(resource Resource, key string) bool {
+			if key != "olcreadonly" {
+				return true
+			}
+			return resource.Kind == KindDatabase &&
+				!strings.EqualFold(resource.Name, "config") && !strings.EqualFold(resource.Name, "frontend")
+		},
 		readOnly: set(
 			"olcconfigfile", "olcconfigdir", "olcargsfile", "olcpidfile", "olcdatabase",
 			"olcoverlay", "cn", "olclocalssf", "olcdbdirectory",

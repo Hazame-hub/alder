@@ -20,7 +20,7 @@ import (
 
 // ErrNotArtifact is returned for a document that is not an Alder artifact a
 // preflight reads.
-var ErrNotArtifact = errors.New("preflight: the document is not a change package, a schema snapshot or a data snapshot")
+var ErrNotArtifact = errors.New("preflight: the document is not a change package, a schema snapshot, a data snapshot or a configuration snapshot")
 
 // ErrUnsupportedKind is returned for a snapshot of a kind a preflight does not
 // read.
@@ -44,6 +44,8 @@ func Detect(data []byte) (string, error) {
 			return SourceSchemaSnapshot, nil
 		case snapshot.KindData:
 			return SourceDataSnapshot, nil
+		case snapshot.KindConfig:
+			return SourceConfigSnapshot, nil
 		}
 		return "", ErrUnsupportedKind
 	}
@@ -71,6 +73,12 @@ func Run(ctx context.Context, data []byte, t Target, opts Options) (*Report, err
 			return nil, err
 		}
 		return SchemaSnapshot(ctx, s, string(integrity), t, opts)
+	case SourceConfigSnapshot:
+		s, integrity, err := snapshot.DecodeConfig(data)
+		if err != nil {
+			return nil, err
+		}
+		return ConfigSnapshot(ctx, s, string(integrity), t, opts)
 	default:
 		s, integrity, err := snapshot.Decode(data)
 		if err != nil {

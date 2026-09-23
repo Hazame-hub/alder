@@ -27,6 +27,9 @@ type Options struct {
 	// Capture reads the target's entries under a base, for a data snapshot
 	// preflight: the entries, and whether the read stopped at a bound.
 	Capture func(ctx context.Context, base dn.DN, scope, filter string) (*snapshot.Snapshot, bool, error)
+	// CaptureConfig reads the target's configuration, for a configuration
+	// snapshot preflight (1.14).
+	CaptureConfig func(ctx context.Context) (*snapshot.ConfigSnapshot, error)
 }
 
 func (o Options) now() string {

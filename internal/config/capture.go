@@ -31,6 +31,9 @@ type model struct {
 	skipTree func(*directory.Entry) bool
 	// resource names the configuration object an entry is.
 	resource func(entry *directory.Entry, parents map[string]Resource) (Resource, bool)
+	// restartRequired reads, from the tree itself, which settings the server
+	// says need a restart. Nil for a server that publishes no such list.
+	restartRequired func(entries []*directory.Entry) map[string]bool
 }
 
 // ErrNoModel is returned for a server Alder has no configuration model for.
@@ -171,6 +174,11 @@ func Capture(ctx context.Context, r Reader, opts Options) (*snapshot.ConfigSnaps
 		return strings.ToLower(a) < strings.ToLower(b)
 	})
 
+	classify := m.classifier
+	if m.restartRequired != nil {
+		classify.restart = m.restartRequired(entries)
+	}
+
 	resources := map[string]Resource{}
 	byDN := map[string]Resource{}
 	var settings []Setting
@@ -191,7 +199,7 @@ func Capture(ctx context.Context, r Reader, opts Options) (*snapshot.ConfigSnaps
 			resources[resource.ID()] = resource
 		}
 		for _, name := range attributeNames(entry) {
-			setting, keep := settingFrom(m.classifier, resource, entry, name, entry.GetStrings(name))
+			setting, keep := settingFrom(classify, resource, entry, name, entry.GetStrings(name))
 			if !keep {
 				continue
 			}
@@ -280,6 +288,23 @@ func attributeNames(entry *directory.Entry) []string {
 	out := make([]string, 0, len(entry.Attributes))
 	for name := range entry.Attributes {
 		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// WritableKeys lists, sorted, the settings a provider's model states Alder
+// changes through the ordinary plan -- before narrowing by resource and before
+// anything the server says needs a restart. The conformance suite proves each
+// one against the harness, and the documentation is written from it.
+func WritableKeys(provider string) []string {
+	m, ok := modelFor(provider)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(m.classifier.writable))
+	for key := range m.classifier.writable {
+		out = append(out, key)
 	}
 	sort.Strings(out)
 	return out

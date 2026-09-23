@@ -2,6 +2,7 @@ package diff
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
@@ -78,7 +79,7 @@ func DeriveConfig(r *ConfigResult, item ConfigItem, source ConfigSide) ConfigCan
 	}
 	values := make([][]byte, 0, len(item.Target))
 	for _, v := range item.Target {
-		values = append(values, []byte(v))
+		values = append(values, []byte(inLiveSpelling(item, v)))
 	}
 	return ConfigCandidate{Records: []directory.ChangeRecord{{
 		DN:   target,
@@ -106,4 +107,20 @@ func configEntryDN(r *ConfigResult, item ConfigItem, source ConfigSide) (dn.DN, 
 // offering anything.
 func ConfigWritable(setting *snapshot.ConfigSetting) bool {
 	return setting != nil && setting.Mutability == snapshot.MutabilityWritable && !setting.Sensitive
+}
+
+// inLiveSpelling writes a boolean the way the live server spells its own. A
+// document from 1.13 lower-cased booleans, and OpenLDAP refuses a lower-case
+// TRUE; the live side's value is the server's own answer to how it spells one.
+func inLiveSpelling(item ConfigItem, value string) string {
+	if item.Type != "bool" || len(item.Source) == 0 {
+		return value
+	}
+	switch live := item.Source[0]; {
+	case live == strings.ToUpper(live):
+		return strings.ToUpper(value)
+	case live == strings.ToLower(live):
+		return strings.ToLower(value)
+	}
+	return value
 }

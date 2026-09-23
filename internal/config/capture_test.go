@@ -246,9 +246,10 @@ func TestOpenLDAPConfigurationIsReadAsOpenLDAPArrangesIt(t *testing.T) {
 		t.Fatalf("two overlays' settings collapsed into one: %v and %v", first.Values, second.Values)
 	}
 
-	// A boolean is normalised, so TRUE and true are one configuration.
-	if first.Values[0] != "true" {
-		t.Fatalf("a boolean was not normalised: %v", first.Values)
+	// A boolean keeps the server's spelling, because that spelling is what a
+	// change writes back: OpenLDAP refuses a lower-case TRUE.
+	if first.Values[0] != "TRUE" || first.Type != TypeBool {
+		t.Fatalf("a boolean was rewritten: %v (%s)", first.Values, first.Type)
 	}
 
 	// Sections place a setting where a person would look for it.
@@ -535,4 +536,64 @@ func settingIDsUnder(s *snapshot.ConfigSnapshot, contains string) []string {
 		}
 	}
 	return out
+}
+
+func TestReadOnlyModeIsChangeableOnlyWhereItCannotLockTheConfigurationAway(t *testing.T) {
+	// On one database, read-only mode stops writes to that database. On the
+	// global entry it stops writes to the configuration too, including the one
+	// that would switch it back, so there it is reported and never offered.
+	r := openldapReader(t)
+	r.entries[0].Set("olcReadOnly", [][]byte{[]byte("FALSE")})
+	r.entries[5].Set("olcReadOnly", [][]byte{[]byte("FALSE")})
+	s := capture(t, r)
+	if got := setting(t, s, "backend//olcreadonly").Mutability; got != snapshot.MutabilityReadOnly {
+		t.Fatalf("read-only mode on the global entry is %q, want read_only", got)
+	}
+	if got := setting(t, s, "backend/database:dc=alder,dc=test/olcreadonly").Mutability; got != snapshot.MutabilityWritable {
+		t.Fatalf("read-only mode on a database is %q, want writable", got)
+	}
+
+	d := ds389Reader(t)
+	d.entries[0].Set("nsslapd-readonly", [][]byte{[]byte("off")})
+	ds := capture(t, d)
+	for _, st := range ds.Settings {
+		if !strings.EqualFold(st.Key, "nsslapd-readonly") {
+			continue
+		}
+		want := snapshot.MutabilityReadOnly
+		if strings.HasPrefix(st.Resource, "backend:dc=") {
+			want = snapshot.MutabilityWritable
+		}
+		if st.Mutability != want {
+			t.Errorf("%s is %q, want %q", st.ID(), st.Mutability, want)
+		}
+	}
+}
+
+func TestASettingTheServerSaysNeedsARestartIsNeverOffered(t *testing.T) {
+	// 389 DS publishes which settings take effect only at start. That list is
+	// the server's own statement, and it wins over the model's.
+	d := ds389Reader(t)
+	d.entries[0].Set("nsslapd-requiresrestart", [][]byte{
+		[]byte("cn=config:nsslapd-port"),
+		[]byte("cn=config,cn=ldbm:nsslapd-readonly"),
+	})
+	s := capture(t, d)
+	for _, st := range s.Settings {
+		if strings.EqualFold(st.Key, "nsslapd-readonly") && st.Mutability != snapshot.MutabilityReadOnly {
+			t.Fatalf("%s needs a restart and is %q", st.ID(), st.Mutability)
+		}
+	}
+	if got := setting(t, s, "limits//nsslapd-idletimeout").Mutability; got != snapshot.MutabilityWritable {
+		t.Fatalf("a setting the server did not name is %q, want writable", got)
+	}
+
+	// Without the server's list, the same setting is the model's to decide.
+	plain := capture(t, ds389Reader(t))
+	for _, st := range plain.Settings {
+		if strings.EqualFold(st.Key, "nsslapd-readonly") && strings.HasPrefix(st.Resource, "backend:dc=") &&
+			st.Mutability != snapshot.MutabilityWritable {
+			t.Fatalf("%s is %q with no restart list", st.ID(), st.Mutability)
+		}
+	}
 }

@@ -1675,8 +1675,11 @@ export interface components {
         PreflightRequest: {
             /**
              * @description The artifact exactly as its file holds it: a change package, a schema
-             *     snapshot or a data snapshot. It is decoded strictly, as its own
-             *     endpoints decode it.
+             *     snapshot, a data snapshot or, since 1.14, a configuration snapshot.
+             *     It is decoded strictly, as its own endpoints decode it. A
+             *     configuration snapshot is evaluated only against a target of the
+             *     same server software; against another it is reported as not
+             *     evaluated.
              */
             artifact: {
                 [key: string]: unknown;
@@ -1696,8 +1699,11 @@ export interface components {
         PreflightClassification: "portable" | "already_satisfied" | "prerequisite_required" | "incompatible" | "unsupported" | "unknown" | "excluded";
         /** @enum {string} */
         PreflightOverall: "compatible" | "compatible_with_prerequisites" | "incompatible" | "incomplete";
-        /** @enum {string} */
-        PreflightCategory: "artifact" | "schema" | "naming" | "entries" | "references" | "capabilities" | "operational" | "sensitive";
+        /**
+         * @description `configuration` was added in 1.14.
+         * @enum {string}
+         */
+        PreflightCategory: "artifact" | "schema" | "naming" | "entries" | "references" | "configuration" | "capabilities" | "operational" | "sensitive";
         /** @enum {string} */
         PreflightScope: "artifact" | "item" | "definition" | "entry" | "attribute" | "value";
         /** @description The source object a finding is about. Which fields are set depends on the scope. */
@@ -1711,6 +1717,10 @@ export interface components {
             dn?: string;
             attribute?: string;
             value?: string;
+            /** @description A configuration setting's identity, section/resource/key. Added in 1.14. */
+            setting?: string;
+            /** @description A configuration object's identity, kind:name. Added in 1.14. */
+            resource?: string;
         };
         PreflightTargetFact: {
             /** @description A stable identifier for what the target showed, such as absent, present, hidden or defined_differently. */
@@ -1719,13 +1729,17 @@ export interface components {
         };
         /** @description Something that has to be true first, as data rather than advice. */
         PreflightPrerequisite: {
-            /** @description schema, syntax, matching_rule, entry or capability. */
+            /** @description schema, syntax, matching_rule, entry, capability or, since 1.14, configuration. */
             type: string;
             element?: string;
             oid?: string;
             name?: string;
             dn?: string;
             capability?: string;
+            /** @description A configuration setting that has to hold the snapshot's value first. Added in 1.14. */
+            setting?: string;
+            /** @description A configuration object that has to exist first. Added in 1.14. */
+            resource?: string;
             /** @description The finding about the source object that supplies it, when the same source does. */
             providedBy?: string;
         };
@@ -1774,7 +1788,7 @@ export interface components {
         };
         PreflightSource: {
             /** @enum {string} */
-            type: "change_package" | "schema_snapshot" | "data_snapshot";
+            type: "change_package" | "schema_snapshot" | "data_snapshot" | "config_snapshot";
             format: string;
             version: number;
             kind?: string;

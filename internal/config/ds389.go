@@ -26,13 +26,42 @@ var ds389Model = model{
 		section: ds389Section,
 		// Settings Alder already changes through the ordinary plan: one
 		// attribute of one configuration entry.
+		//
+		// Every one is written, read back and restored through Alder on the
+		// harness by the conformance suite. Anything the server lists in its
+		// own nsslapd-requiresrestart is left out whatever this list says;
+		// that is how nsslapd-cachesize and nsslapd-maxdescriptors, listed in
+		// 1.13, came off it. nsslapd-cachememsize came off too: while entry
+		// cache autosizing is on, which is the default, the server refuses to
+		// set it, so offering it would offer a change that cannot be made.
+		// Also left out on purpose, with the reason in
+		// DECISIONS.md: security, TLS and SASL settings, the password policy,
+		// schema and syntax checking, ports and paths.
 		writable: set(
 			"nsslapd-idletimeout", "nsslapd-sizelimit", "nsslapd-timelimit", "nsslapd-lookthroughlimit",
 			"nsslapd-pagedsizelimit", "nsslapd-errorlog-level", "nsslapd-accesslog-level",
-			"nsslapd-readonly", "nsslapd-cachememsize", "nsslapd-dncachememsize", "nsslapd-cachesize",
-			"nsslapd-require-index", "nsslapd-maxdescriptors", "nsslapd-ioblocktimeout",
+			"nsslapd-readonly", "nsslapd-dncachememsize",
+			"nsslapd-require-index", "nsslapd-ioblocktimeout",
 			"nsslapd-accesslog-logging-enabled", "nsslapd-auditlog-logging-enabled",
+			// Added in 1.14.
+			"nsslapd-pagedlookthroughlimit", "nsslapd-rangelookthroughlimit",
+			"nsslapd-securitylog-level", "nsslapd-statlog-level", "nsslapd-errorlog-logging-enabled",
+			"nsslapd-max-filter-nest-level", "nsslapd-maxthreadsperconn", "nsslapd-threadnumber",
+			"nsslapd-groupevalnestlevel",
+			"nsslapd-accesslog-maxlogsperdir", "nsslapd-errorlog-maxlogsperdir", "nsslapd-auditlog-maxlogsperdir",
+			"nsslapd-accesslog-logmaxdiskspace", "nsslapd-errorlog-logmaxdiskspace", "nsslapd-auditlog-logmaxdiskspace",
+			"nsslapd-accesslog-logexpirationtime", "nsslapd-errorlog-logexpirationtime", "nsslapd-auditlog-logexpirationtime",
+			"nsslapd-accesslog-logrotationtime", "nsslapd-errorlog-logrotationtime", "nsslapd-auditlog-logrotationtime",
 		),
+		// Read-only mode on one backend stops writes to it. On the server's
+		// global entry it is the whole server, which is not a setting Alder
+		// should be one click away from.
+		writableOn: func(resource Resource, key string) bool {
+			if key != "nsslapd-readonly" {
+				return true
+			}
+			return resource.Kind == KindBackend && !strings.EqualFold(resource.Name, "ldbm")
+		},
 		readOnly: set(
 			"nsslapd-backendconfig", "nsslapd-betype", "nsslapd-plugin", "nsslapd-privatenamespaces",
 			"nsslapd-instancedir", "nsslapd-schemadir", "nsslapd-lockdir", "nsslapd-tmpdir",
@@ -59,7 +88,28 @@ var ds389Model = model{
 		return strings.HasPrefix(text, "cn=monitor,") || text == "cn=monitor" ||
 			strings.Contains(text, ",cn=monitor,")
 	},
-	resource: ds389Resource,
+	resource:        ds389Resource,
+	restartRequired: ds389RestartRequired,
+}
+
+// ds389RestartRequired reads the settings 389 DS says it applies only at
+// start. The server publishes them on its global entry as values of
+// nsslapd-requiresrestart, each an entry and an attribute: "cn=config:
+// nsslapd-port". They are matched by attribute alone, which is the cautious
+// reading -- a setting that needs a restart anywhere is not offered anywhere.
+func ds389RestartRequired(entries []*directory.Entry) map[string]bool {
+	out := map[string]bool{}
+	for _, entry := range entries {
+		if !strings.EqualFold(entry.DN.String(), "cn=config") {
+			continue
+		}
+		for _, value := range entry.GetStrings("nsslapd-requiresrestart") {
+			if i := strings.LastIndex(value, ":"); i >= 0 {
+				out[strings.ToLower(strings.TrimSpace(value[i+1:]))] = true
+			}
+		}
+	}
+	return out
 }
 
 func ds389Section(resource Resource, attribute string) string {

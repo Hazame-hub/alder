@@ -2251,8 +2251,11 @@ components:
           additionalProperties: true
           description: |
             The artifact exactly as its file holds it: a change package, a schema
-            snapshot or a data snapshot. It is decoded strictly, as its own
-            endpoints decode it.
+            snapshot, a data snapshot or, since 1.14, a configuration snapshot.
+            It is decoded strictly, as its own endpoints decode it. A
+            configuration snapshot is evaluated only against a target of the
+            same server software; against another it is reported as not
+            evaluated.
         schemaTarget:
           type: string
           description: |
@@ -2275,8 +2278,9 @@ components:
 
     PreflightCategory:
       type: string
-      enum: [artifact, schema, naming, entries, references, capabilities, operational, sensitive]
-      x-enum-varnames: [PreflightCategoryArtifact, PreflightCategorySchema, PreflightCategoryNaming, PreflightCategoryEntries, PreflightCategoryReferences, PreflightCategoryCapabilities, PreflightCategoryOperational, PreflightCategorySensitive]
+      description: "`configuration` was added in 1.14."
+      enum: [artifact, schema, naming, entries, references, configuration, capabilities, operational, sensitive]
+      x-enum-varnames: [PreflightCategoryArtifact, PreflightCategorySchema, PreflightCategoryNaming, PreflightCategoryEntries, PreflightCategoryReferences, PreflightCategoryConfiguration, PreflightCategoryCapabilities, PreflightCategoryOperational, PreflightCategorySensitive]
 
     PreflightScope:
       type: string
@@ -2298,6 +2302,12 @@ components:
         dn: { type: string }
         attribute: { type: string }
         value: { type: string }
+        setting:
+          type: string
+          description: A configuration setting's identity, section/resource/key. Added in 1.14.
+        resource:
+          type: string
+          description: A configuration object's identity, kind:name. Added in 1.14.
 
     PreflightTargetFact:
       type: object
@@ -2315,12 +2325,18 @@ components:
       properties:
         type:
           type: string
-          description: schema, syntax, matching_rule, entry or capability.
+          description: schema, syntax, matching_rule, entry, capability or, since 1.14, configuration.
         element: { type: string }
         oid: { type: string }
         name: { type: string }
         dn: { type: string }
         capability: { type: string }
+        setting:
+          type: string
+          description: A configuration setting that has to hold the snapshot's value first. Added in 1.14.
+        resource:
+          type: string
+          description: A configuration object that has to exist first. Added in 1.14.
         providedBy:
           type: string
           description: The finding about the source object that supplies it, when the same source does.
@@ -2392,8 +2408,8 @@ components:
       properties:
         type:
           type: string
-          enum: [change_package, schema_snapshot, data_snapshot]
-          x-enum-varnames: [PreflightSourceChangePackage, PreflightSourceSchemaSnapshot, PreflightSourceDataSnapshot]
+          enum: [change_package, schema_snapshot, data_snapshot, config_snapshot]
+          x-enum-varnames: [PreflightSourceChangePackage, PreflightSourceSchemaSnapshot, PreflightSourceDataSnapshot, PreflightSourceConfigSnapshot]
         format: { type: string }
         version: { type: integer }
         kind: { type: string }

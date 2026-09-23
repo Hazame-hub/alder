@@ -153,14 +153,29 @@ type classifier struct {
 	sensitive map[string]bool
 	// skipped names attributes that are runtime state on a configuration entry.
 	skipped map[string]bool
+	// writableOn narrows a writable setting to the resources where changing it
+	// is safe. A setting absent from it is writable wherever it appears. The
+	// case it exists for is read-only mode: on one database it stops writes to
+	// that database, and on the server's global entry it stops writes to the
+	// configuration too -- including the one that would switch it back.
+	writableOn func(resource Resource, key string) bool
+	// restart names the settings the server itself says take effect only after
+	// a restart. Read from the server, never from a list of vendor facts: a
+	// setting that does nothing until a restart is not one Alder changes.
+	restart map[string]bool
 }
 
-func (c classifier) mutability(attribute string) string {
+func (c classifier) mutability(resource Resource, attribute string) string {
 	key := strings.ToLower(attribute)
 	switch {
 	case c.readOnly[key]:
 		return snapshot.MutabilityReadOnly
+	case c.restart[key]:
+		return snapshot.MutabilityReadOnly
 	case c.writable[key]:
+		if c.writableOn != nil && !c.writableOn(resource, key) {
+			return snapshot.MutabilityReadOnly
+		}
 		return snapshot.MutabilityWritable
 	}
 	return snapshot.MutabilityUnknown
@@ -259,8 +274,8 @@ func valueType(attribute string, values []string, structured bool) string {
 // normalise puts a value in the form two captures of the same configuration
 // both produce.
 //
-// Only what the model is sure of: the case of a boolean, an integer's
-// spelling, and the ordering prefix a server keeps in front of an ordered
+// Only what the model is sure of: an integer's spelling, and the ordering
+// prefix a server keeps in front of an ordered
 // value, which changes when unrelated values are removed and means nothing on
 // its own. Anything else is left exactly as the server gave it.
 func normalise(valueKind string, ordered bool, values []string) ([]string, bool) {
@@ -283,12 +298,6 @@ func normalise(valueKind string, ordered bool, values []string) ([]string, bool)
 			}
 		}
 		switch valueKind {
-		case TypeBool:
-			lowered := strings.ToLower(text)
-			if lowered != text {
-				changed = true
-			}
-			text = lowered
 		case TypeInt:
 			if n, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64); err == nil {
 				if formatted := strconv.FormatInt(n, 10); formatted != text {
@@ -331,7 +340,7 @@ func settingFrom(c classifier, resource Resource, entry *directory.Entry, attrib
 	if resource.Kind != KindGlobal {
 		setting.Resource = resource.ID()
 	}
-	setting.Mutability = c.mutability(attribute)
+	setting.Mutability = c.mutability(resource, attribute)
 	if c.isSensitive(attribute) {
 		setting.Sensitive = true
 		setting.Withheld = len(values)

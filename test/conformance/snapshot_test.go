@@ -68,7 +68,7 @@ func planAndApplyChanges(t *testing.T, client *http.Client, base string, changes
 	p := decodeInto[api.Plan](t, res)
 	for i, item := range p.Items {
 		if item.Baseline == nil {
-			t.Fatalf("change %d planned as %s (%v), not as something to apply", i, item.Action, item.Problem)
+			t.Fatalf("change %d planned as %s (%s), not as something to apply", i, item.Action, mustEncode(t, item))
 		}
 		changes[i].Baseline = item.Baseline
 	}
@@ -78,7 +78,7 @@ func planAndApplyChanges(t *testing.T, client *http.Client, base string, changes
 		t.Fatalf("apply: status %d\n%s", applied.status, applied.body)
 	}
 	if r := decodeInto[api.ChangesetResult](t, applied); r.AppliedCount != len(changes) {
-		t.Fatalf("applied %d of %d: %+v", r.AppliedCount, len(changes), r.Outcomes)
+		t.Fatalf("applied %d of %d: %s", r.AppliedCount, len(changes), mustEncode(t, r.Outcomes))
 	}
 }
 

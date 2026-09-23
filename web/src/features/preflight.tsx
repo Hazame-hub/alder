@@ -362,7 +362,7 @@ function FindingRow({
               <ul className="ml-4 list-disc">
                 {f.prerequisites.map((p, index) => (
                   <li key={index}>
-                    {p.type} <span className="font-dn">{safeText([p.element, p.oid, p.name, p.dn, p.capability].filter(Boolean).join(" "))}</span>
+                    {p.type} <span className="font-dn">{safeText([p.element, p.oid, p.name, p.dn, p.capability, p.setting, p.resource].filter(Boolean).join(" "))}</span>
                     {p.providedBy ? (
                       <>
                         {" "}

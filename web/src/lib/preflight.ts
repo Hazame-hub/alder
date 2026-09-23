@@ -56,6 +56,7 @@ export const CATEGORY_LABEL: Record<PreflightCategory, string> = {
   naming: "Naming",
   entries: "Entries",
   references: "References",
+  configuration: "Configuration",
   capabilities: "Capabilities",
   operational: "Operational attributes",
   sensitive: "Sensitive data",
@@ -65,6 +66,7 @@ export const SOURCE_LABEL = {
   change_package: "Change package",
   schema_snapshot: "Schema snapshot",
   data_snapshot: "Data snapshot",
+  config_snapshot: "Configuration snapshot",
 } as const satisfies Record<PreflightReport["source"]["type"], string>;
 
 /** Classifications that need no attention. */
@@ -93,7 +95,7 @@ export function filterFindings(report: PreflightReport, filter: FindingFilter): 
 /** What a finding is about, in one line. */
 export function subjectLine(f: PreflightFinding): string {
   const s = f.source;
-  const parts = [s.item, s.element, s.oid, s.name, s.dn, s.attribute, s.value].filter((p): p is string => !!p);
+  const parts = [s.item, s.element, s.oid, s.name, s.resource, s.dn, s.attribute, s.value].filter((p): p is string => !!p);
   if (f.count && f.count > 1) parts.push(`×${f.count}`);
   return parts.join(" · ");
 }
@@ -138,6 +140,9 @@ export function claimedArtifact(document: unknown): { label: string; objects: nu
     const ats = Array.isArray(d.attributeTypes) ? d.attributeTypes.length : 0;
     const ocs = Array.isArray(d.objectClasses) ? d.objectClasses.length : 0;
     return { label: SOURCE_LABEL.schema_snapshot, objects: ats + ocs };
+  }
+  if (d.format === "alder-snapshot" && d.kind === "config") {
+    return { label: SOURCE_LABEL.config_snapshot, objects: Array.isArray(d.settings) ? d.settings.length : 0 };
   }
   if (d.format === "alder-snapshot" && d.kind === "data") {
     return { label: SOURCE_LABEL.data_snapshot, objects: Array.isArray(d.entries) ? d.entries.length : 0 };

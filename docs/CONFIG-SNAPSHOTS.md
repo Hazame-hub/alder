@@ -248,7 +248,8 @@ Only where a proven write path already exists:
   disappears would mean adding or removing a configuration entry, which Alder
   does not do.
 - Both sides' models must call it `writable`.
-- It must not be a secret.
+- It must not be a secret, and it must not be compared as text: a value nothing
+  in Alder parses is never written back.
 
 The result is one ordinary `ChangeRecord`: a `modify` with a `replace` on the
 live side's own entry — never the other side's DN, because two servers may keep
@@ -260,10 +261,54 @@ it is for schema.
 Everything else is reported and left alone, with a reason on the item:
 `sensitive_withheld`, `not_comparable`, `no_write_path`, `not_read`.
 
-> **Diff does not create a new config write capability.** The set of settings
-> Alder can change is the set it could already change before 1.13; the
-> comparison only points at them. Each provider's list is short and explicit in
-> `internal/config/openldap.go` and `internal/config/ds389.go`.
+> **Diff does not create a new config write capability.** The comparison only
+> points at settings Alder already changes through the ordinary plan. Each
+> provider's list is explicit in `internal/config/openldap.go` and
+> `internal/config/ds389.go`.
+
+### Which settings Alder changes (1.14)
+
+A setting is on a provider's list only if Alder has **written it, read it back
+and restored it, through a comparison, a plan and an apply, on the harness**.
+The conformance suite does that for every setting a fresh capture calls
+writable -- not for a list kept in the test -- so a setting added to a model
+without a proof fails the suite. In 1.14 that is 28 settings on OpenLDAP and 36
+on 389 Directory Server, counting each database or backend that holds one.
+
+| OpenLDAP | 389 Directory Server |
+|---|---|
+| `olcIdleTimeout`, `olcWriteTimeout`, `olcSizeLimit`, `olcTimeLimit` | `nsslapd-idletimeout`, `nsslapd-ioblocktimeout`, `nsslapd-sizelimit`, `nsslapd-timelimit` |
+| `olcMaxDerefDepth`, `olcMaxFilterDepth` | `nsslapd-max-filter-nest-level`, `nsslapd-groupevalnestlevel` |
+| `olcThreads`, `olcConnMaxPending`, `olcConnMaxPendingAuth` | `nsslapd-threadnumber`, `nsslapd-maxthreadsperconn` |
+| `olcLogLevel`, `olcGentleHUP` | the access, error, audit, security and statistics log levels, whether each log is enabled, and each log's rotation, retention, disk-space and file-count limits |
+| `olcDbMaxSize`, `olcDbMaxEntrySize`, `olcDbSearchStack`, `olcDbRtxnSize`, `olcDbNoSync` | `nsslapd-lookthroughlimit`, `nsslapd-pagedlookthroughlimit`, `nsslapd-rangelookthroughlimit`, `nsslapd-pagedsizelimit`, `nsslapd-dncachememsize` |
+| `olcReadOnly` (on a database), `olcLastMod`, `olcLastBind`, `olcMonitoring` | `nsslapd-readonly` (on a backend), `nsslapd-require-index` |
+
+Three rules narrow the lists further, and each is a fact rather than a
+preference:
+
+- **Read-only mode is offered only on an ordinary database or backend.** On
+  OpenLDAP's global entry, the frontend or the configuration database, and on
+  389 DS's global entry, it would also stop the write that switches it back.
+- **A setting the server says needs a restart is never offered.** 389 DS
+  publishes that list itself, as `nsslapd-requiresrestart` on `cn=config`, and
+  Alder reads it at capture time. `nsslapd-cachesize` and
+  `nsslapd-maxdescriptors`, which 1.13 listed, came off this way.
+- **A value compared as text is never offered**, even on a writable setting.
+  `olcDbIndex`, which 1.13 listed, came off this way: writing another server's
+  index list back would reindex from a structure Alder cannot read.
+
+Left out on purpose: anything that can lock a person out (TLS, SASL, the root
+DN, access rules, `olcLocalSSF`, the socket buffer limits); anything read only
+at start (`olcDbMaxReaders`, `olcListenerThreads`); anything that silently
+invalidates an index (the `olcIndex*` settings); the password policy on both
+servers; `nsslapd-security`, schema and syntax checking; and
+`nsslapd-cachememsize`, which 389 DS refuses to set while cache autosizing is
+on, its default.
+
+A boolean keeps the server's spelling in a snapshot -- `TRUE`, `off` -- because
+that spelling is what a change writes back, and OpenLDAP refuses a lower-case
+`true`. Two spellings of one boolean compare equal.
 
 ---
 
@@ -316,7 +361,19 @@ summaries and an explanation.
 
 ---
 
-## Not in 1.13
+## Preflight (1.14)
+
+A configuration snapshot can be preflighted against the directory you are
+connected to: `alder preflight config.json`, or the Preflight tab. Against the
+**same server software** each setting is reported as already present, a
+difference Alder changes through a plan, a difference an operator has to make, a
+setting or a whole database, overlay or plugin the target lacks, a secret
+(excluded), or a path, host or port (excluded: it names the machine). Against
+**other software** nothing is judged, and the report says configuration is not
+evaluated, exactly as every other report does. See
+[PREFLIGHT.md](PREFLIGHT.md#configuration).
+
+## Not in 1.14
 
 - **Configuration conversion.** No OpenLDAP → 389 DS translation, in either
   direction, at any level.
@@ -325,13 +382,15 @@ summaries and an explanation.
 - **ACL analysis.** `olcAccess` and `aci` are captured, marked `raw`, and never
   interpreted. Alder still does not edit access control.
 - **Creating or removing configuration entries.** Adding a database, loading a
-  module, enabling a plugin: reported, never derived.
+  module, enabling a plugin: reported, never derived. A narrow list -- OpenLDAP
+  overlays whose module is already loaded, and switching 389 DS plugins on or
+  off -- is in scope for a later release; see the decisions log.
 - **Applying a configuration wholesale.** There is no "restore this
   configuration" button, as there is no "restore this subtree" one.
 - **Recovery for configuration changes**, which stays unavailable.
-- **Preflight of configuration.** A preflight report still says that
-  configuration compatibility is not evaluated across providers; 1.13 does not
-  change that, and the wording is unchanged. See [PREFLIGHT.md](PREFLIGHT.md).
+- **Preflight across providers.** Configuration compatibility between two
+  products is not evaluated, and the report says so. See
+  [PREFLIGHT.md](PREFLIGHT.md).
 - **Storage.** Alder keeps no snapshots, no history and no schedule.
 
 ---

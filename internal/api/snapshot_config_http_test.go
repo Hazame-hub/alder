@@ -292,3 +292,64 @@ func itemKeys(items []ConfigDiffItem) []string {
 	}
 	return out
 }
+
+// 1.14: a configuration snapshot is a preflight artifact, evaluated only
+// against a target of the same server software.
+
+func TestAConfigurationSnapshotIsPreflightedAgainstTheSameSoftware(t *testing.T) {
+	doc := captureConfig(t, configRig(t, "1800"))
+	target := configRig(t, "0")
+
+	res := post(t, target, "/api/v1/preflight", preflightBodyFor(doc))
+	if res.Status != http.StatusOK {
+		t.Fatalf("preflight: %d %s", res.Status, res.Body)
+	}
+	r := strictReport(t, res.Body)
+	if r.Source.Type != PreflightSourceConfigSnapshot {
+		t.Fatalf("source type %s", r.Source.Type)
+	}
+	var changeable int
+	for _, f := range r.Findings {
+		if f.Code == "config_setting_changeable" && f.Source.Attribute != nil && strings.EqualFold(*f.Source.Attribute, "olcIdleTimeout") {
+			changeable++
+		}
+		if f.Code == "config_setting_present" && f.Classification != PreflightAlreadySatisfied {
+			t.Errorf("a present setting is %s", f.Classification)
+		}
+	}
+	if changeable != 1 {
+		t.Fatalf("the one setting that differs was not reported as one Alder can change: %s", res.Body)
+	}
+	if r.Overall != PreflightCompatibleWithPrerequisites {
+		t.Fatalf("overall %s", r.Overall)
+	}
+	for _, n := range r.NotEvaluated {
+		if n.Area == "server_configuration" {
+			t.Fatal("configuration was evaluated and still listed as not evaluated")
+		}
+	}
+	if strings.Contains(res.Body, harnessRootPW) {
+		t.Fatal("the report holds the server's root password")
+	}
+	if n := len(target.fake.applied); n != 0 {
+		t.Fatalf("a preflight wrote %d changes", n)
+	}
+}
+
+func TestAConfigurationSnapshotOfOtherSoftwareIsNotEvaluated(t *testing.T) {
+	res := post(t, configRig(t, "0"), "/api/v1/preflight", preflightBodyFor(ds389Document(t)))
+	if res.Status != http.StatusOK {
+		t.Fatalf("preflight: %d %s", res.Status, res.Body)
+	}
+	r := strictReport(t, res.Body)
+	if r.Overall != PreflightIncomplete || len(r.Findings) != 1 || r.Findings[0].Code != "config_provider_mismatch" {
+		t.Fatalf("overall %s findings %+v", r.Overall, r.Findings)
+	}
+	listed := false
+	for _, n := range r.NotEvaluated {
+		listed = listed || n.Area == "server_configuration"
+	}
+	if !listed {
+		t.Fatal("configuration across providers is not listed as not evaluated")
+	}
+}

@@ -274,6 +274,31 @@ contract changed only by tightening what a token proves:
 - **Preflight is unchanged.** Configuration compatibility is still not
   evaluated, cross-provider or otherwise, and every report still says so.
 
+1.14 widened what configuration Alder changes and made a configuration snapshot
+a preflight artifact, only by adding -- with one correction called out below:
+
+- **More settings are writable.** A setting is listed only once the
+  conformance suite has written, read back and restored it through Alder on
+  both servers. Settings the server itself lists as needing a restart, values
+  compared as text, and read-only mode outside an ordinary database or backend
+  are no longer offered, so a 1.13 comparison and a 1.14 comparison of the same
+  documents may differ in `actionable` for those settings. That is a
+  correction: each of them offered a change the server would refuse or that
+  could not be undone through Alder.
+- **Booleans keep the server's spelling.** A 1.14 configuration snapshot
+  records `TRUE` where 1.13 recorded `true`, so the checksum of a new capture of
+  an unchanged server differs from a 1.13 capture. Comparing the two is still
+  correct: booleans compare without regard to case, and a change derived from a
+  1.13 document writes the boolean the way the live server spells its own.
+- **A configuration snapshot is a preflight artifact.** `POST /preflight`
+  accepts `kind: config`; the report gains the `configuration` category, the
+  `config_snapshot` source type, `setting` and `resource` on source references
+  and prerequisites, and the `config_*` finding codes. Enums grow under the rule
+  above.
+- **The plan no longer calls a modification invalid for an attribute the entry
+  already holds and the published schema does not define.** 389 DS keeps its
+  configuration in such attributes. The directory still judges the change.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —
