@@ -255,7 +255,11 @@ func storedDefinition(value string) string {
 // No session: this reads a document and touches no directory, like comparing
 // two snapshots. It is the check a pipeline can run before it has credentials.
 func (s *Server) InspectPackage(c *fiber.Ctx) error {
-	p, integrity, err := changepkg.Decode(c.Body())
+	document, signature, ok := s.openDocument(c, c.Body())
+	if !ok {
+		return nil
+	}
+	p, integrity, err := changepkg.Decode(document)
 	if err != nil {
 		return packageRefusal(c, err)
 	}
@@ -270,6 +274,7 @@ func (s *Server) InspectPackage(c *fiber.Ctx) error {
 		Changes: packageChanges(p.Changes), Omitted: packageOmissions(p.Omitted), Order: order,
 	}
 	out.Title, out.Description = ptrIfSet(p.Title), ptrIfSet(p.Description)
+	out.Signature = signatureView(signature)
 	return c.JSON(out)
 }
 
@@ -292,7 +297,11 @@ func (s *Server) ValidatePackage(c *fiber.Ctx) error {
 	if len(bytes.TrimSpace(body.Package)) == 0 {
 		return badRequest(c, "The request carries no package.", "")
 	}
-	p, integrity, err := changepkg.Decode(body.Package)
+	document, _, ok := s.openDocument(c, body.Package)
+	if !ok {
+		return nil
+	}
+	p, integrity, err := changepkg.Decode(document)
 	if err != nil {
 		return packageRefusal(c, err)
 	}

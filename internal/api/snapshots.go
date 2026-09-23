@@ -16,6 +16,7 @@ import (
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/filter"
 	"github.com/hazame-hub/alder/internal/session"
+	"github.com/hazame-hub/alder/internal/signing"
 	"github.com/hazame-hub/alder/internal/snapshot"
 )
 
@@ -227,22 +228,30 @@ func (s *Server) InspectSnapshot(c *fiber.Ctx) error {
 	if sess := s.require(c); sess == nil {
 		return nil
 	}
-	kind, err := snapshot.KindOf(c.Body())
+	document, signature, ok := s.openDocument(c, c.Body())
+	if !ok {
+		return nil
+	}
+	kind, err := snapshot.KindOf(document)
 	if err != nil {
 		return snapshotRefusal(c, "", err)
 	}
 	if kind == snapshot.KindSchema {
-		snap, integrity, err := snapshot.DecodeSchema(c.Body())
+		snap, integrity, err := snapshot.DecodeSchema(document)
 		if err != nil {
 			return snapshotRefusal(c, "", err)
 		}
-		return c.JSON(schemaInspection(snap, integrity))
+		out := schemaInspection(snap, integrity)
+		out.Signature = signatureView(signature)
+		return c.JSON(out)
 	}
-	snap, integrity, err := snapshot.Decode(c.Body())
+	snap, integrity, err := snapshot.Decode(document)
 	if err != nil {
 		return snapshotRefusal(c, "", err)
 	}
-	return c.JSON(inspection(snap, integrity))
+	out := inspection(snap, integrity)
+	out.Signature = signatureView(signature)
+	return c.JSON(out)
 }
 
 func inspection(snap *snapshot.Snapshot, integrity snapshot.Integrity) SnapshotInspection {
@@ -320,6 +329,10 @@ type diffBody struct {
 	Source           diffSideBody `json:"source"`
 	Target           diffSideBody `json:"target"`
 	IncludeUnchanged bool         `json:"includeUnchanged"`
+
+	// signatures is what verification concluded about each side that was a
+	// document, filled in before anything decodes one.
+	signatures map[string]signing.Result
 }
 
 type resolvedSide struct {
@@ -342,6 +355,25 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 	if body.Source.Live != nil && body.Target.Live != nil {
 		return badRequest(c, "Compare a snapshot with the live directory, or two snapshots.",
 			"Both sides live would compare this directory with itself.")
+	}
+
+	// A side that is a document may be a signed one. It is unwrapped here,
+	// once, so every comparison below reads the payload and nothing downstream
+	// has to know signing exists.
+	body.signatures = map[string]signing.Result{}
+	for _, side := range []struct {
+		name string
+		body *diffSideBody
+	}{{"source", &body.Source}, {"target", &body.Target}} {
+		if len(bytes.TrimSpace(side.body.Snapshot)) == 0 {
+			continue
+		}
+		payload, result, ok := s.openDocument(c, side.body.Snapshot)
+		if !ok {
+			return nil
+		}
+		side.body.Snapshot = payload
+		body.signatures[side.name] = result
 	}
 
 	// Two snapshots are documents the caller sent. Comparing them reads no
@@ -426,7 +458,7 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 	if err != nil {
 		return s.fail(c, err)
 	}
-	return c.JSON(diffView(result, sides["source"], sides["target"]))
+	return c.JSON(signedDiff(diffView(result, sides["source"], sides["target"]), body))
 }
 
 func diffView(r *diff.Result, source, target *resolvedSide) Diff {

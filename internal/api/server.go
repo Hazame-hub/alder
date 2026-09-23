@@ -14,6 +14,7 @@ import (
 	"github.com/hazame-hub/alder/internal/ldif"
 	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/session"
+	"github.com/hazame-hub/alder/internal/signing"
 )
 
 // Config is what the server needs from the command line.
@@ -51,6 +52,16 @@ type Config struct {
 	// Version is reported alongside the source offer, so someone can tell which
 	// build they are being offered the source of.
 	Version string
+
+	// TrustedKeys are the public keys this server accepts signatures from.
+	// Public keys only: there is no field here for a private one, because the
+	// server never signs. Empty means every signature is reported as
+	// untrusted, which is what an operator who named no key asked for.
+	TrustedKeys signing.TrustedKeys
+	// RequireSignature refuses a document that is not signed by a trusted key.
+	// Off by default: signing is something a deployment adopts, not something
+	// Alder imposes on every file written before it existed.
+	RequireSignature bool
 }
 
 // Server implements the generated ServerInterface.

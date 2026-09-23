@@ -1140,7 +1140,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -1645,6 +1645,11 @@ export interface components {
             title?: string;
             description?: string;
             integrity: components["schemas"]["SnapshotIntegrity"];
+            /**
+             * @description What this server concluded about the signature on the document
+             *     it was given. Absent from a response that read none. Added in 1.15.
+             */
+            signature?: components["schemas"]["DocumentSignature"];
             source: components["schemas"]["PackageProvenance"];
             assumptions: components["schemas"]["PackageAssumptions"];
             counts: components["schemas"]["PackageCounts"];
@@ -1787,6 +1792,11 @@ export interface components {
             counts: components["schemas"]["PreflightCounts"];
         };
         PreflightSource: {
+            /**
+             * @description What this server concluded about the signature on the document
+             *     it was given. Absent from a response that read none. Added in 1.15.
+             */
+            signature?: components["schemas"]["DocumentSignature"];
             /** @enum {string} */
             type: "change_package" | "schema_snapshot" | "data_snapshot" | "config_snapshot";
             format: string;
@@ -1836,6 +1846,37 @@ export interface components {
             notEvaluated: components["schemas"]["PreflightNotEvaluated"][];
             findings: components["schemas"]["PreflightFinding"][];
             truncated: boolean;
+        };
+        /**
+         * @description What verification concluded about a document Alder was given.
+         *     `unsigned`: it carried no signature, which is ordinary.
+         *     `verified`: a signature is valid and made by a key this server trusts.
+         *     `untrusted`: every signature is valid and none is by a key it was told
+         *     to trust; the document is intact, its provenance is not established.
+         *     `invalid` never reaches a response -- such a document is refused with
+         *     `signature_invalid`. Added in 1.15.
+         * @enum {string}
+         */
+        DocumentSignatureStatus: "unsigned" | "verified" | "untrusted" | "invalid";
+        /** @description One signature on a document, and whether its key is trusted here. Added in 1.15. */
+        DocumentSigner: {
+            /** @description The public key's identity, sha256 of its DER encoding, hex. */
+            keyId: string;
+            /** @description What the person who signed called themselves. A label; nothing is decided by it. */
+            signer?: string;
+            signedAt?: string;
+            /** @description Whether this server was told to trust the key. */
+            trusted: boolean;
+        };
+        /**
+         * @description What this server concluded about the signature on a document it was
+         *     given. Absent where no document was read. Added in 1.15.
+         */
+        DocumentSignature: {
+            status: components["schemas"]["DocumentSignatureStatus"];
+            signers?: components["schemas"]["DocumentSigner"][];
+            /** @description Why a document is untrusted, for a person to read. */
+            detail?: string;
         };
         ConfigSnapshotSource: {
             provider: components["schemas"]["ConfigProvider"];
@@ -2178,6 +2219,11 @@ export interface components {
              *     `base`, `operationalAttributes` is true and `entryCount` is 1.
              */
             schema?: components["schemas"]["SchemaSnapshotSummary"];
+            /**
+             * @description What this server concluded about the signature on the document
+             *     it was given. Absent from a response that read none. Added in 1.15.
+             */
+            signature?: components["schemas"]["DocumentSignature"];
         };
         SchemaSnapshotSummary: {
             subschemaEntry: string;
@@ -2377,6 +2423,10 @@ export interface components {
             config?: components["schemas"]["ConfigDiff"];
             source: components["schemas"]["DiffSideSummary"];
             target: components["schemas"]["DiffSideSummary"];
+            /** @description What this server concluded about the source document's signature, when it was a file. Added in 1.15. */
+            sourceSignature?: components["schemas"]["DocumentSignature"];
+            /** @description What this server concluded about the target document's signature, when it was a file. Added in 1.15. */
+            targetSignature?: components["schemas"]["DocumentSignature"];
             complete: boolean;
             reasons?: components["schemas"]["DiffReason"][];
             counts: components["schemas"]["DiffCounts"];

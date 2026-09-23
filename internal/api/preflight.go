@@ -41,7 +41,11 @@ func (s *Server) Preflight(c *fiber.Ctx) error {
 	if err := json.Unmarshal(c.Body(), &body); err != nil {
 		return badRequest(c, "The request body is not valid JSON.", err.Error())
 	}
-	artifact := bytes.TrimSpace(body.Artifact)
+	artifact, signature, ok := s.openDocument(c, bytes.TrimSpace(body.Artifact))
+	if !ok {
+		return nil
+	}
+	artifact = bytes.TrimSpace(artifact)
 	if len(artifact) == 0 || artifact[0] != '{' {
 		return badRequest(c, "The request carries no artifact.", "artifact must be a change package, a schema snapshot, a data snapshot or a configuration snapshot.")
 	}
@@ -67,7 +71,9 @@ func (s *Server) Preflight(c *fiber.Ctx) error {
 	if err != nil {
 		return preflightRefusal(c, s, err)
 	}
-	return c.JSON(report)
+	// The report carries what the artifact's signature amounted to, so a
+	// person reading the report knows whose artifact it was about.
+	return c.JSON(withSignature(report, signature))
 }
 
 // readOnly is the session as a preflight may see it: every read, and no Apply.

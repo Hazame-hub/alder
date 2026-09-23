@@ -21,6 +21,7 @@ import (
 
 	"github.com/hazame-hub/alder/internal/allowlist"
 	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/signing"
 	"github.com/hazame-hub/alder/internal/web"
 )
 
@@ -31,6 +32,8 @@ type serveOptions struct {
 	allowHTTP   bool
 	allowPlain  bool
 	readOnly    bool
+	trustedKeys []string
+	requireSig  bool
 	logLevel    string
 	logFormat   string
 	sourceURL   string
@@ -71,6 +74,10 @@ func serveCmd() *cobra.Command {
 		"serve plain HTTP. Only safe behind a reverse proxy that terminates TLS")
 	f.BoolVar(&o.allowPlain, "i-know-this-is-insecure", false,
 		"permit connecting to a directory over plaintext LDAP")
+	f.StringArrayVar(&o.trustedKeys, "trusted-keys", nil,
+		"a PEM public key file, or a directory of .pem files, whose signatures this server trusts. Repeatable. Public keys only: Alder never signs")
+	f.BoolVar(&o.requireSig, "require-signature", false,
+		"refuse a snapshot, package, bundle or artifact that is not signed by a trusted key")
 	f.BoolVar(&o.readOnly, "read-only", false,
 		"refuse every write, whatever the directory would have allowed")
 	f.StringVar(&o.logLevel, "log-level", "info", "debug, info, warn or error")
@@ -148,6 +155,21 @@ func runServe(ctx context.Context, o serveOptions) error {
 			"to any directory a caller names (--allowed-targets)")
 	}
 
+	// Parsed before anything listens, for the same reason the allowlist is: a
+	// key file that does not exist is an operator's mistake, and finding it out
+	// when the first signed document arrives is worse than not starting.
+	trusted, err := signing.LoadTrustedKeys(o.trustedKeys)
+	if err != nil {
+		return err
+	}
+	switch {
+	case len(trusted) > 0:
+		logger.Info("trusting signatures", "keys", strings.Join(trusted.IDs(), ","))
+	case o.requireSig:
+		return fmt.Errorf("--require-signature was given with no --trusted-keys, " +
+			"so every document would be refused")
+	}
+
 	server := api.NewServer(logger, api.Config{
 		// The cookie's Secure attribute must match how the browser reaches
 		// Alder, which behind a proxy is HTTPS even though this process speaks
@@ -161,6 +183,8 @@ func runServe(ctx context.Context, o serveOptions) error {
 		AllowedTargets:     allowed,
 		MaxInFlight:        o.maxInFlight,
 		SourceURL:          o.sourceURL,
+		TrustedKeys:        trusted,
+		RequireSignature:   o.requireSig,
 		Version:            buildVersion(),
 	})
 	defer server.Close()
