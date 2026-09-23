@@ -377,7 +377,10 @@ settings Alder can actually change -- those go through the same plan and review
 as every other write, and nothing else is ever staged. Configuration belongs to
 the server's software: given two different products, Alder says so and compares
 nothing, rather than producing a thousand differences that are artefacts of the
-comparison. Details in
+comparison. Every setting Alder offers to change is one the test suite has
+written, read back and restored on both servers. A configuration snapshot can
+also be preflighted against another server of the same software, to see what
+would have to change for it to match. Details in
 [`docs/CONFIG-SNAPSHOTS.md`](docs/CONFIG-SNAPSHOTS.md).
 
 **Carry a change between directories.** A change package is a portable

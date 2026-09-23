@@ -2758,3 +2758,60 @@ to contradict the plan — add an entry.
   1.10 clients already send them.
 - **Preflight is unchanged.** Configuration compatibility is still not
   evaluated, cross-provider or otherwise, and every report still says so.
+
+## 2026-09-22 — 1.14: the settings Alder changes, and configuration in preflight
+
+- **A setting is writable only once it has been changed.** The conformance
+  suite writes, reads back and restores every setting a fresh capture calls
+  writable, through a comparison, a plan and an apply, on both servers; the
+  test takes its list from the capture, so a model cannot list a setting the
+  suite has not proved. 28 settings on OpenLDAP and 36 on 389 DS in 1.14.
+- **The proof found four defects that 1.13 shipped.** Booleans were
+  lower-cased and written back that way, which OpenLDAP refuses; the plan called
+  changes to 389 DS configuration attributes invalid because its published
+  schema does not define them; read-only mode was offered where it would lock
+  the configuration against the write that undoes it; and settings needing a
+  restart were offered. The 1.13 conformance case changed one integer, which is
+  why none of this surfaced. A proof per setting is what finds per-setting
+  defects.
+- **A boolean keeps the server's spelling.** Normalisation is for comparing,
+  not for writing: booleans compare without case, and a change writes the value
+  in the live server's own spelling, so a 1.13 document still restores.
+- **An attribute the entry already holds is the server's vocabulary.** The
+  plan's schema check leaves a modification of one to the directory when the
+  published schema does not define it. A misspelt attribute, and any undefined
+  attribute on a new entry, are still refused. This follows the rule the check
+  was written under: a false positive withholds a change the directory would
+  accept, which is worse than a miss.
+- **What needs a restart is the server's statement.** 389 DS lists it in
+  `nsslapd-requiresrestart`; Alder reads that at capture, matches by attribute
+  alone (the cautious reading), and offers nothing it names. OpenLDAP publishes
+  no such list; its model lists only settings `cn=config` applies at once.
+- **Read-only mode is offered only on an ordinary database or backend.** On a
+  global entry, the frontend or the configuration database it would also stop
+  the write that switches it back.
+- **A value compared as text is never written back**, even on a writable
+  setting. `olcDbIndex` came off the list for this reason.
+- **Left out, with reasons:** lockout risks (TLS, SASL, root DN, access,
+  `olcLocalSSF`, socket buffers), settings read only at start, index-shaping
+  settings, the password policy, security and schema checking, and
+  `nsslapd-cachememsize`, which 389 DS refuses while cache autosizing is on.
+- **A configuration snapshot is a preflight artifact, within one provider.**
+  The comparison is `POST /diff`'s, with the target as the live source. Paths,
+  hosts and ports are excluded as environment-specific; a missing database,
+  overlay or plugin is its own finding and the cause of its settings' findings;
+  a setting only the target has is not a finding, as for data snapshots.
+  Against other software the report judges nothing and keeps server
+  configuration in the not-evaluated list, worded as before.
+- **Decided today, built later: creating or removing configuration entries,
+  on a narrow list.** OpenLDAP overlays whose module is already loaded, and
+  switching 389 DS plugins on or off (a modification of an existing entry, not a
+  new one). Moved into scope deliberately, on the record, as schema editing was;
+  CLAUDE.md section 2 says so. Removal is never pre-selected, the plan shows what
+  depends on it, and recovery stays unavailable.
+- **Decided today, built later: signed snapshots and packages, keyed by the
+  person.** `alder sign --key` signs on the operator's machine with Ed25519 from
+  the standard library; the server only verifies, against public keys named at
+  `alder serve --trusted-keys`. The private key never reaches Alder, which stays
+  stateless and holds no secret on disk. Staged: signing in 1.15, configuration
+  entries after it.

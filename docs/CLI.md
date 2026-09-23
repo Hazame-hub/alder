@@ -485,6 +485,10 @@ written atomically, and an existing file is never replaced without `--force`.
 
 ## `alder preflight`
 
+Since 1.14 a configuration snapshot is read too. It is evaluated only against a
+directory of the same server software; against another, the report has one
+finding, `config_provider_mismatch`, and exits 2.
+
 ```sh
 alder preflight package.json
 alder preflight schema-snapshot.json --all

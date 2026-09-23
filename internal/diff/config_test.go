@@ -438,3 +438,18 @@ func TestTwoSpellingsOfOneBooleanAreOneSetting(t *testing.T) {
 		t.Fatalf("the change writes %+v, want TRUE", c.Records)
 	}
 }
+
+func TestABooleanFromA113DocumentIsWrittenInTheServersSpelling(t *testing.T) {
+	flag := func(v string) snapshot.ConfigSetting {
+		return snapshot.ConfigSetting{Section: "backend", Key: "olcReadOnly", Values: []string{v}, Type: "bool",
+			Mutability: snapshot.MutabilityWritable, Comparison: snapshot.ComparisonNormalised, DN: "cn=config"}
+	}
+	live := configSide(t, snapshot.ProviderOpenLDAP, false, flag("FALSE"))
+	live.Live = true
+	// 1.13 wrote booleans in lower case.
+	d := CompareConfig(live, configSide(t, snapshot.ProviderOpenLDAP, false, flag("true")), ConfigOptions{})
+	c := DeriveConfig(d, item(t, d, "backend//olcreadonly"), live)
+	if len(c.Records) != 1 || string(c.Records[0].Mods[0].Values[0]) != "TRUE" {
+		t.Fatalf("the change writes %+v, want TRUE as the server spells it", c.Records)
+	}
+}

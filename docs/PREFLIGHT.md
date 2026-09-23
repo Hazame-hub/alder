@@ -60,6 +60,7 @@ this target?* For a package, validation is the first step and is not repeated
 | Change package | `format: alder-change-package` | Every item: schema intent, then data, in dependency order |
 | Schema snapshot | `format: alder-snapshot`, `kind: schema` | Every attribute type and object class it holds |
 | Data snapshot | `format: alder-snapshot`, `kind: data` | Every entry it holds |
+| Configuration snapshot (1.14) | `format: alder-snapshot`, `kind: config` | Every setting it holds, against a target of the same server software only |
 
 The artifact is recognised by what it says it is, never by a file name, and is
 decoded as strictly as its own endpoints decode it: an unknown field, a checksum
@@ -67,10 +68,8 @@ that does not match, or a version this release does not read is refused with
 the same error code (`package_checksum_mismatch`, `snapshot_unsupported_version`
 and so on). A document that is none of the three is refused with
 `preflight_artifact_unsupported`. Arbitrary LDIF is not read; make a package or
-a snapshot from it first. A **configuration** snapshot (1.13, `kind: config`)
-is not a preflight artifact: configuration is provider-specific, and what a
-preflight would have to say about it is exactly what the exclusion below already
-says. See [CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md).
+a snapshot from it first. A configuration snapshot is read since 1.14; see
+[Configuration](#configuration).
 
 The source is always an artifact and the target always live. Alder does not
 connect to two directories at once, and a preflight needs no connection to the
@@ -269,6 +268,30 @@ penalises a target for a capability this artifact does not use.
 | `paged_results` | A data snapshot is compared with the target's entries under the same base |
 | `password_modify` | A source withheld passwords, which must be set separately |
 
+### Configuration
+
+Since 1.14. Only for a configuration snapshot, and only against a target of the
+same server software; the comparison is the one `POST /diff` makes, with the
+target as the live source. A snapshot is state, not intent: a setting only the
+target has is not a finding.
+
+| Code | Classification | When |
+|---|---|---|
+| `config_setting_present` | already satisfied | The target holds the snapshot's value |
+| `config_setting_changeable` | prerequisite required | The target holds another value, and Alder changes this setting through a plan: compare the snapshot with the directory and stage it |
+| `config_setting_manual` | prerequisite required, manual action | The target holds another value Alder has no proven way to change, or one compared as text |
+| `config_setting_missing` | prerequisite required, manual action | The target does not set it, or the object it belongs to is missing |
+| `config_resource_missing` | prerequisite required, manual action | The target has no such database, overlay, backend or plugin; its settings name this finding as their cause |
+| `config_environment_specific` | excluded | A path, host, port or file name: it names the machine rather than configures the software |
+| `config_setting_unknown` | unknown | The target's configuration was not read in full, and this setting was not in what was read |
+| `config_provider_mismatch` | unknown | The snapshot and the target are different server software. Nothing is judged, and server configuration stays in the not-evaluated list |
+| `config_target_unreadable` | unknown | This session cannot read the target's configuration |
+
+A secret is `sensitive_value_not_migratable`, excluded, as everywhere else.
+Access rules produce no finding: access control is not evaluated, in every
+report. A configuration preflight lists `config_read` among the capabilities,
+available when the target's whole configuration tree was read.
+
 ### Artifact
 
 | Code | Classification | When |
@@ -386,11 +409,12 @@ Every report lists these, because pretending they do not exist would make a
 - **Access control.** `aci` values and `olcAccess` rules are neither read nor
   translated. An entry that carries across may not be readable or writable by the
   same people on the target.
-- **Server configuration.** Overlays, plugins, password policy, limits, indexes,
-  referential integrity and every other setting the source relies on. 1.13
-  captures and compares configuration, but only ever within one server's own
-  software; whether one server's configuration is compatible with another's is
-  not evaluated here or anywhere else in Alder.
+- **Server configuration**, except for a configuration snapshot against a
+  target of the same server software (1.14). For every other artifact, overlays,
+  plugins, password policy, limits, indexes, referential integrity and every
+  other setting the source relies on are not evaluated. Whether one product's
+  configuration is compatible with another's is not evaluated here or anywhere
+  else in Alder.
 - **Secret values.** Passwords and other sensitive values are never in an
   artifact.
 
