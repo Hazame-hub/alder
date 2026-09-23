@@ -383,6 +383,17 @@ also be preflighted against another server of the same software, to see what
 would have to change for it to match. Details in
 [`docs/CONFIG-SNAPSHOTS.md`](docs/CONFIG-SNAPSHOTS.md).
 
+**Sign what you hand over, and check what you are handed.** A checksum shows a
+file was not corrupted; it cannot show who made it. `alder key generate` makes
+an Ed25519 key pair, `alder sign` wraps a snapshot, package or recovery bundle
+in a signed envelope, and `alder verify` checks one against the public keys you
+name -- all three on your own machine, with no server and no directory, and the
+private key never reaches Alder. A server started with `--trusted-keys` says,
+wherever it reads a document, whether it was signed and by whom; a document
+changed after signing is refused before anything reads it, and
+`--require-signature` makes signed documents the only ones it reads. Details in
+[`docs/SIGNING.md`](docs/SIGNING.md).
+
 **Carry a change between directories.** A change package is a portable
 description of what you intend to change -- entries and schema together, with
 the dependencies between them written down. It holds no password, no plan token

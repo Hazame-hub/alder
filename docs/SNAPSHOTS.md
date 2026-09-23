@@ -371,7 +371,11 @@ directory holds now.
 - **Intent.** A snapshot is a state, not a plan to reach one. What an operator
   means to change travels as a change package (1.11); see
   [CHANGE-PACKAGES.md](CHANGE-PACKAGES.md).
-- **Signing, compression, fuzzy rename detection, rollback, inverse LDIF.**
+- **Compression, fuzzy rename detection, rollback, inverse LDIF.** Signing
+  arrived in 1.15, outside the format: a signed document is an
+  `alder-signed` envelope carrying the snapshot unchanged, so a snapshot's own
+  checksum and every field still mean what they meant. See
+  [SIGNING.md](SIGNING.md).
 
 Compensating a change you are about to apply is not a snapshot's job. A
 recovery bundle (1.9) is derived from the entries a change touches, immediately
