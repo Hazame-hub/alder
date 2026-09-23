@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/Hazame-hub/alder/compare/v1.13.0...v1.13.1) (2026-09-22)
+
+
+### Fixes
+
+* **cli:** alder snapshot --help names --kind config ([#117](https://github.com/Hazame-hub/alder/issues/117)) ([9674944](https://github.com/Hazame-hub/alder/commit/967494474aa78b9636d2cb27debc290643a85edc))
+
 ## [1.13.0](https://github.com/Hazame-hub/alder/compare/v1.12.0...v1.13.0) (2026-09-19)
 
 
