@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.14.0](https://github.com/Hazame-hub/alder/compare/v1.13.1...v1.14.0) (2026-09-23)
+
+
+### Features
+
+* a configuration snapshot is a preflight artifact, evaluated against a target of the same server software setting by setting and reported as not evaluated against any other, with a configuration section, the config_snapshot source type and the config_* finding codes ([d10bc61](https://github.com/Hazame-hub/alder/commit/d10bc614d5d673fef59cf4b59a443417e5413caf))
+* every setting a configuration comparison offers to change is written, read back and restored through Alder on both servers by the conformance suite, which reads its list from a capture rather than from the test; 28 settings on OpenLDAP and 36 on 389 Directory Server ([d10bc61](https://github.com/Hazame-hub/alder/commit/d10bc614d5d673fef59cf4b59a443417e5413caf))
+
+
+### Fixes
+
+* a boolean keeps the server's spelling in a configuration snapshot and is compared without regard to case, so restoring an on/off setting no longer fails on OpenLDAP, and a change derived from an older document is written the way the live server spells its own ([d10bc61](https://github.com/Hazame-hub/alder/commit/d10bc614d5d673fef59cf4b59a443417e5413caf))
+* read-only mode is offered only on an ordinary database or backend, never where it would also stop the write that switches it back, and a setting the server itself says needs a restart, or a value compared as text, is never offered as a change ([d10bc61](https://github.com/Hazame-hub/alder/commit/d10bc614d5d673fef59cf4b59a443417e5413caf))
+* the plan no longer calls a modification invalid because the published schema does not define an attribute the entry already holds, which is how 389 Directory Server keeps its configuration; a misspelt attribute and an undefined attribute on a new entry are still refused ([d10bc61](https://github.com/Hazame-hub/alder/commit/d10bc614d5d673fef59cf4b59a443417e5413caf))
+
+
+### Documentation
+
+* document which settings Alder changes and why the others are left out, and configuration in preflight ([d10bc61](https://github.com/Hazame-hub/alder/commit/d10bc614d5d673fef59cf4b59a443417e5413caf))
+
 ## [1.13.1](https://github.com/Hazame-hub/alder/compare/v1.13.0...v1.13.1) (2026-09-22)
 
 
