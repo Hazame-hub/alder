@@ -158,6 +158,10 @@ type ConfigResult struct {
 	Counts      ConfigCounts          `json:"counts"`
 	Sections    []ConfigSectionCounts `json:"sections"`
 	Items       []ConfigItem          `json:"items"`
+	// Objects are the configuration objects each side holds -- databases,
+	// overlays, backends, plugins -- and what Alder could do about a
+	// difference. Added in 1.16.
+	Objects []ConfigObject `json:"objects"`
 	// Source and Target describe each side, and are the whole answer when the
 	// providers differ.
 	Source ConfigProviderSummary `json:"source"`
@@ -178,7 +182,7 @@ type ConfigOptions struct {
 func CompareConfig(source, target ConfigSide, opts ConfigOptions) *ConfigResult {
 	s, t := source.Snapshot, target.Snapshot
 	r := &ConfigResult{Complete: true, Items: []ConfigItem{}, Sections: []ConfigSectionCounts{},
-		Source: summarise(s), Target: summarise(t)}
+		Objects: []ConfigObject{}, Source: summarise(s), Target: summarise(t)}
 	r.CrossVendor = !strings.EqualFold(strings.TrimSpace(s.Source.Vendor), strings.TrimSpace(t.Source.Vendor))
 
 	if !strings.EqualFold(s.Source.Provider, t.Source.Provider) {
@@ -226,6 +230,7 @@ func CompareConfig(source, target ConfigSide, opts ConfigOptions) *ConfigResult 
 		r.record(item, opts.IncludeUnchanged)
 	}
 	sort.SliceStable(r.Items, func(i, j int) bool { return r.Items[i].ID < r.Items[j].ID })
+	r.Objects = compareObjects(s, t, live(source, target))
 	r.Sections = sectionCounts(r.Items)
 	sort.SliceStable(r.Reasons, func(i, j int) bool { return r.Reasons[i].Detail < r.Reasons[j].Detail })
 	return r
@@ -478,4 +483,15 @@ func equalStrings(a, b []string, ordered bool) bool {
 		}
 	}
 	return true
+}
+
+// live is whichever side was read from the directory, where one was.
+func live(source, target ConfigSide) ConfigSide {
+	switch {
+	case source.Live:
+		return source
+	case target.Live:
+		return target
+	}
+	return ConfigSide{}
 }

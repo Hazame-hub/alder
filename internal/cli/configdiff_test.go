@@ -89,7 +89,8 @@ func configDiffJSON(t *testing.T, items []map[string]any, mismatch bool) string 
 			map[string]any{"section": "limits", "counts": map[string]any{"compared": 1, "added": 0, "removed": 0,
 				"modified": 1, "unchanged": 0, "unknown": 0, "actionable": 1}},
 		},
-		"source": summary("openldap", 88, 6), "target": summary("openldap", 88, 6),
+		"objects": []any{},
+		"source":  summary("openldap", 88, 6), "target": summary("openldap", 88, 6),
 	}
 	if mismatch {
 		config["items"] = []any{}
@@ -273,4 +274,131 @@ func TestOnlyAConfigSettingAlderCanChangeIsStaged(t *testing.T) {
 			}
 		})
 	}
+}
+
+// 1.16: configuration objects on the command line.
+
+func configObjects() []map[string]any {
+	overlay := map[string]any{
+		"id": "overlay:dc=alder,dc=test/memberof", "kind": "added", "section": "plugins",
+		"object": "overlay", "name": "dc=alder,dc=test/memberof", "label": "memberof",
+		"settings": 0, "actionable": "writable",
+		"candidate": map[string]any{"changes": []any{map[string]any{
+			"dn": "olcOverlay=memberof,olcDatabase={1}mdb,cn=config", "type": "add",
+			"attrs": []any{map[string]any{"name": "objectClass", "values": []any{map[string]any{"text": "olcOverlayConfig"}}}},
+		}}},
+	}
+	gone := map[string]any{
+		"id": "overlay:dc=alder,dc=test/ppolicy", "kind": "removed", "section": "plugins",
+		"object": "overlay", "name": "dc=alder,dc=test/ppolicy", "label": "ppolicy",
+		"settings": 3, "actionable": "writable", "destructive": true,
+		"candidate": map[string]any{"destructive": true, "changes": []any{map[string]any{
+			"dn": "olcOverlay={0}ppolicy,olcDatabase={1}mdb,cn=config", "type": "delete"}}},
+	}
+	database := map[string]any{
+		"id": "database:dc=second,dc=test", "kind": "added", "section": "backend",
+		"object": "database", "name": "dc=second,dc=test", "settings": 4,
+		"actionable": "read_only", "refusal": "not_creatable",
+	}
+	return []map[string]any{overlay, gone, database}
+}
+
+func TestConfigObjectsAreShownAndStagedByName(t *testing.T) {
+	body := configDiffJSON(t, configItems(), false)
+	body = withObjects(t, body, configObjects())
+	snap := writeTemp(t, t.TempDir(), "config.json", configSnapshotDoc)
+	run := func(t *testing.T, args ...string) (result, string) {
+		s := newStub(t)
+		s.reply("POST /api/v1/diff", http.StatusOK, body)
+		out := filepath.Join(t.TempDir(), "changes.json")
+		return s.run(t, runOpts{}, append([]string{"diff", "@live", snap, "--changes-out", out}, args...)...), out
+	}
+
+	// Shown without staging anything: --changes-out with no selection writes
+	// nothing and prints nothing, which is a different command.
+	plain := newStub(t)
+	plain.reply("POST /api/v1/diff", http.StatusOK, body)
+	shown := plain.run(t, runOpts{}, "diff", "@live", snap)
+	for _, want := range []string{
+		"Configuration objects",
+		"added      overlay    dc=alder,dc=test/memberof (memberof)",
+		"can create it (select with --stage overlay:dc=alder,dc=test/memberof)",
+		"can remove it from the server (select with --stage-deletion overlay:dc=alder,dc=test/ppolicy)",
+		"reported only: Alder does not create or remove objects of this kind",
+	} {
+		if !strings.Contains(shown.stdout, want) {
+			t.Errorf("output lacks %q:\n%s", want, shown.stdout)
+		}
+	}
+
+	t.Run("an overlay is created when it is named", func(t *testing.T) {
+		r, out := run(t, "--stage", "overlay:dc=alder,dc=test/memberof")
+		expectCode(t, r, ExitDifferences)
+		data, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var changes []struct {
+			DN   string `json:"dn"`
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(data, &changes); err != nil {
+			t.Fatalf("%s: %v", data, err)
+		}
+		if len(changes) != 1 || changes[0].Type != "add" {
+			t.Fatalf("staged: %s", data)
+		}
+	})
+
+	t.Run("a removal is refused unless it is named as one", func(t *testing.T) {
+		r, out := run(t, "--stage", "overlay:dc=alder,dc=test/ppolicy")
+		expectCode(t, r, ExitNotApplicable)
+		if !strings.Contains(r.stderr, "--stage-deletion") {
+			t.Errorf("stderr: %s", r.stderr)
+		}
+		if _, err := os.Stat(out); err == nil {
+			t.Error("a refused selection wrote change requests")
+		}
+	})
+
+	t.Run("and made when it is", func(t *testing.T) {
+		r, out := run(t, "--stage-deletion", "overlay:dc=alder,dc=test/ppolicy")
+		expectCode(t, r, ExitDifferences)
+		data, _ := os.ReadFile(out)
+		if !strings.Contains(string(data), `"type": "delete"`) && !strings.Contains(string(data), `"type":"delete"`) {
+			t.Fatalf("staged: %s", data)
+		}
+	})
+
+	t.Run("an object Alder does not create is refused by name", func(t *testing.T) {
+		r, _ := run(t, "--stage", "database:dc=second,dc=test")
+		expectCode(t, r, ExitNotApplicable)
+		if !strings.Contains(r.stderr, "reported only") {
+			t.Errorf("stderr: %s", r.stderr)
+		}
+	})
+
+	t.Run("a setting cannot be deleted", func(t *testing.T) {
+		r, _ := run(t, "--stage-deletion", "olcIdleTimeout")
+		expectCode(t, r, ExitNotApplicable)
+		if !strings.Contains(r.stderr, "no configuration object") {
+			t.Errorf("stderr: %s", r.stderr)
+		}
+	})
+}
+
+// withObjects puts a list of objects into a comparison document.
+func withObjects(t *testing.T, body string, objects []map[string]any) string {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatal(err)
+	}
+	config, _ := doc["config"].(map[string]any)
+	config["objects"] = objects
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

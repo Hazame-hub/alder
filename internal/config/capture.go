@@ -34,6 +34,10 @@ type model struct {
 	// restartRequired reads, from the tree itself, which settings the server
 	// says need a restart. Nil for a server that publishes no such list.
 	restartRequired func(entries []*directory.Entry) map[string]bool
+	// switchablePlugins reads which plugins may be switched on or off without
+	// stopping the server from starting. Nil where the question does not
+	// arise.
+	switchablePlugins func(entries []*directory.Entry) map[string]bool
 }
 
 // ErrNoModel is returned for a server Alder has no configuration model for.
@@ -177,6 +181,9 @@ func Capture(ctx context.Context, r Reader, opts Options) (*snapshot.ConfigSnaps
 	classify := m.classifier
 	if m.restartRequired != nil {
 		classify.restart = m.restartRequired(entries)
+	}
+	if m.switchablePlugins != nil {
+		classify.switchable = m.switchablePlugins(entries)
 	}
 
 	resources := map[string]Resource{}

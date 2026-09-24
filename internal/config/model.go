@@ -159,6 +159,10 @@ type classifier struct {
 	// that database, and on the server's global entry it stops writes to the
 	// configuration too -- including the one that would switch it back.
 	writableOn func(resource Resource, key string) bool
+	// switchable names the resources whose plugin may be switched on or off,
+	// by resource id. Computed from the tree, because which plugins a server
+	// can run without is a fact about that server rather than a list.
+	switchable map[string]bool
 	// restart names the settings the server itself says take effect only after
 	// a restart. Read from the server, never from a list of vendor facts: a
 	// setting that does nothing until a restart is not one Alder changes.
@@ -174,6 +178,11 @@ func (c classifier) mutability(resource Resource, attribute string) string {
 		return snapshot.MutabilityReadOnly
 	case c.writable[key]:
 		if c.writableOn != nil && !c.writableOn(resource, key) {
+			return snapshot.MutabilityReadOnly
+		}
+		// A setting the model decides per resource, from the tree: a plugin
+		// the server needs is not one Alder switches off.
+		if key == "nsslapd-pluginenabled" && !c.switchable[resource.ID()] {
 			return snapshot.MutabilityReadOnly
 		}
 		return snapshot.MutabilityWritable
