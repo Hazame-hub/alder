@@ -114,8 +114,8 @@ $ alder serve --trusted-keys team.pem --require-signature
 ```
 
 Every endpoint that reads a document unwraps it first: `POST /snapshots/inspect`,
-`POST /diff` on either side, `POST /preflight`, `POST /packages/inspect` and
-`POST /packages/validate`.
+`POST /diff` on either side, `POST /preflight`, `POST /packages/inspect`,
+`POST /packages/validate` and `POST /recovery/inspect`.
 
 - An **unsigned** document is read exactly as it always was. This is what keeps
   every file written by an earlier Alder working, and why signing is something a

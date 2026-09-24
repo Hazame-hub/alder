@@ -3713,6 +3713,11 @@ export interface components {
             origin: components["schemas"]["RecoveryOrigin"];
             /** @description Whether the vendor and naming contexts match this session's directory. Not proof either way. */
             originMatches: boolean;
+            /**
+             * @description What this server concluded about the signature on the bundle it was
+             *     given. Absent where it was unsigned. Added in 1.15.
+             */
+            signature?: components["schemas"]["DocumentSignature"];
             originDifferences?: string[];
             recoverability: components["schemas"]["RecoveryRecoverability"];
             integrity: components["schemas"]["SnapshotIntegrity"];

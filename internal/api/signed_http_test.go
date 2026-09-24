@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"crypto/ed25519"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -215,5 +216,34 @@ func TestTheServerHoldsPublicKeysOnly(t *testing.T) {
 		if bytes.Contains(priv, held) && len(priv) == len(held) {
 			t.Fatal("a private key was stored as a trusted key")
 		}
+	}
+}
+
+func TestASignedRecoveryBundleIsReadToo(t *testing.T) {
+	// alder sign signs any Alder document, and the documentation says a
+	// recovery bundle is one of them. The endpoint that reads one has to agree.
+	pub, priv := signingKeys(t)
+	rig, _ := recoveryRig(t, standardDirectory(t)...)
+	rig.server.cfg.TrustedKeys = signing.TrustedKeys{}
+	rig.server.cfg.TrustedKeys.Add(pub)
+
+	_, result := applyThroughPlan(t, rig, parseChanges(t, fmt.Sprintf(
+		`{"dn":%q,"type":"modify","mods":[{"op":"replace","name":"description","values":[{"text":"applied"}]}]}`, recAlice)), true)
+	bundle := string(bundleJSON(t, result.Recovery))
+
+	res := rig.do(t, http.MethodPost, "/api/v1/recovery/inspect", strings.NewReader(signDocument(t, bundle, priv, "alice")))
+	if res.Status != http.StatusOK {
+		t.Fatalf("a signed bundle: %d %s", res.Status, res.Body)
+	}
+	in := decode[RecoveryInspection](t, res)
+	if in.Signature == nil || in.Signature.Status != DocumentVerified {
+		t.Fatalf("signature: %+v", in.Signature)
+	}
+
+	// And a bundle changed after signing never reaches the planner.
+	tampered := strings.Replace(signDocument(t, bundle, priv, "alice"), "applied", "changed", 1)
+	bad := rig.do(t, http.MethodPost, "/api/v1/recovery/inspect", strings.NewReader(tampered))
+	if bad.Status != http.StatusBadRequest || errorCode(t, bad) != ErrorErrorSignatureInvalid {
+		t.Fatalf("a tampered bundle: %d %s", bad.Status, bad.Body)
 	}
 }

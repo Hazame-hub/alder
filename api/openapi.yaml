@@ -5063,6 +5063,11 @@ components:
         originMatches:
           type: boolean
           description: Whether the vendor and naming contexts match this session's directory. Not proof either way.
+        signature:
+          $ref: "#/components/schemas/DocumentSignature"
+          description: |
+            What this server concluded about the signature on the bundle it was
+            given. Absent where it was unsigned. Added in 1.15.
         originDifferences:
           type: array
           items: { type: string }
