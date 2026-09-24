@@ -434,8 +434,10 @@ or with a schema.
   Anything else -- a secret, a setting the server maintains, a value nothing
   parses, a setting on one side only -- is refused by name rather than skipped
   silently.
-- **`--stage-deletion` is refused:** adding or removing configuration entries is
-  not something Alder does.
+- **An object is staged by the identifier `diff` prints**, the same as a
+  setting: `--stage overlay:dc=alder,dc=test/memberof` creates it.
+- **A removal needs `--stage-deletion`.** `--stage` on an object that would be
+  removed is refused by name, and a setting has no deletion at all.
 
 ---
 

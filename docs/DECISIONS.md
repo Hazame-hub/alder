@@ -2855,3 +2855,38 @@ to contradict the plan — add an entry.
   badge for an unsigned document.
 - **A signature authorises nothing.** A verified document goes through the same
   plan, review and apply, and no directory permission follows from it.
+
+## 2026-09-24 — 1.16: one kind of configuration object, and the plugins a server can spare
+
+- **A comparison lists objects as well as settings.** "The target has no
+  memberof overlay" is one fact; reporting it as fourteen missing settings, or
+  not at all, was the gap 1.13 left. Listing is all it does for almost
+  everything.
+- **Exactly one kind is created or removed: an OpenLDAP overlay whose module is
+  loaded.** Scoped that way before any code, and confirmed as a change to
+  section 2 of the charter. A database is where data lives, a module is a
+  library the server must find, a 389 DS plugin is a fixed set the server
+  ships: each would need its own proof, and none is in this release.
+- **The precondition is checked before the write.** OpenLDAP answers an overlay
+  whose module is missing with "handler exited with 1" -- after Alder has sent
+  something. Reading the loaded module list from the capture means the operator
+  is told what is actually wrong, first. Found by trying it against the harness
+  rather than by reading documentation.
+- **The new entry carries no position.** `olcOverlay=memberof,<database>` is
+  what is sent; slapd assigns `{n}` and stores it under the name it chose, which
+  Alder has reported as the resting DN since 1.4. Naming a position would be
+  inventing an ordering the server owns.
+- **A removal is derived only when it is named as one.** `--stage-deletion` for
+  the command line, a separate tick in the interface, nothing in bulk selection.
+  An overlay takes its settings with it, and recovery is unavailable for
+  configuration.
+- **389 DS plugin switching is decided by the tree, not by a list.** The server
+  accepted disabling its own `ldbm database` plugin with no error; the damage
+  would have appeared at the next start. So a plugin whose type the server needs
+  -- syntax, matching rule, database, password scheme -- and any plugin another
+  plugin names in `nsslapd-plugin-depends-on-named` are never offered. 26
+  plugins remain switchable on the harness, and the round-trip proof covers
+  every one of them.
+- **The harness loads memberof and leaves the overlay unconfigured.** A proof of
+  creation needs something creatable; loading a module is not configuring an
+  overlay, which is exactly the distinction the feature rests on.
