@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ErrorNote } from "@/components/change-dialog";
 import { safeText } from "@/lib/display";
+import { SIGNATURE_LOOK, signerLine, worthShowing } from "@/lib/signature";
 import {
   CATEGORY_LABEL,
   CLASSIFICATION_LOOK,
@@ -150,6 +151,12 @@ function ReportView({ report }: { report: PreflightReport }) {
   const source = [SOURCE_LABEL[report.source.type] ?? report.source.type, report.source.vendor ? `from ${safeText(report.source.vendor)}` : ""]
     .filter(Boolean)
     .join(" ");
+  const signature = report.source.signature;
+  const signatureLine = worthShowing(signature)
+    ? ` · ${SIGNATURE_LOOK[signature.status].label}${
+        signature.signers?.length ? ` (${safeText(signature.signers.map(signerLine).join("; "))})` : ""
+      }`
+    : "";
 
   const reveal = (id: string) => {
     setCategory("all");
@@ -167,6 +174,7 @@ function ReportView({ report }: { report: PreflightReport }) {
         <p className="text-xs text-muted-foreground">
           {source} → {target || "this directory"}
           {report.source.title ? ` · ${safeText(report.source.title)}` : ""} · checksum {safeText(report.source.integrity)}
+          {signatureLine}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={look.variant} className="text-sm">

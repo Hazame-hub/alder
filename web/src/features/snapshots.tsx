@@ -31,6 +31,7 @@ import {
 import { safeText } from "@/lib/display";
 import { SCHEMA_KIND_LOOK, SchemaDiffView } from "@/features/schema-diff-view";
 import { ConfigDiffView } from "@/features/config-diff-view";
+import { SIGNATURE_LOOK, signerLine, worthShowing, type DocumentSignature } from "@/lib/signature";
 
 type Snapshot = components["schemas"]["Snapshot"];
 type SchemaSnapshot = components["schemas"]["SchemaSnapshot"];
@@ -501,6 +502,7 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
             <Badge variant="warning">partial: {s.counts.unparsed} unparsed</Badge>
           ) : null}
           {s.collections ? <Badge variant="outline">collections</Badge> : null}
+          <SignatureBadge signature={i.signature} />
           {slot.bytes > MAX_BODY ? <Badge variant="warning">too large to compare here</Badge> : null}
         </div>
       </div>
@@ -522,9 +524,27 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
         <Badge variant={i.integrity === "verified" ? "success" : "warning"}>checksum {i.integrity}</Badge>
         {i.operationalAttributes ? <Badge variant="outline">operational attributes</Badge> : null}
         {!i.schemaAvailable ? <Badge variant="warning">no schema</Badge> : null}
+        <SignatureBadge signature={i.signature} />
         {slot.bytes > MAX_BODY ? <Badge variant="warning">too large to compare here</Badge> : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * What a document's signature amounted to, where the server said anything.
+ * An unsigned document shows nothing: most documents are unsigned, and a badge
+ * on every one of them would say only that the world is normal.
+ */
+function SignatureBadge({ signature }: { signature?: DocumentSignature }) {
+  if (!worthShowing(signature)) return null;
+  const look = SIGNATURE_LOOK[signature.status];
+  const who = (signature.signers ?? []).map(signerLine).join("; ");
+  return (
+    <Badge variant={look.variant} title={who ? `${look.title}\n${who}` : look.title}>
+      {look.label}
+      {who ? ` · ${safeText(who)}` : ""}
+    </Badge>
   );
 }
 

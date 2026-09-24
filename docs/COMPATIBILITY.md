@@ -299,6 +299,31 @@ a preflight artifact, only by adding -- with one correction called out below:
   already holds and the published schema does not define.** 389 DS keeps its
   configuration in such attributes. The directory still judges the change.
 
+1.15 added signing, only by adding:
+
+- **A new document, not a change to any existing one.** `alder-signed` version 1
+  wraps a snapshot, change package or recovery bundle unchanged. Every existing
+  document is still read exactly as before, and a document's own checksum keeps
+  its meaning. A release before 1.15 refuses an envelope as a document it does
+  not recognise, rather than half-reading one, which is what the format field is
+  for.
+- **Two error identifiers:** `signature_invalid` for a document whose signature
+  does not match, and `signature_required` on a server started with
+  `--require-signature`.
+- **One optional field on four responses:** `signature` on a snapshot
+  inspection, a package inspection and a preflight report's source, and
+  `sourceSignature` / `targetSignature` on a comparison. Absent where no
+  document was read, and absent for an unsigned document, so every existing
+  client sees what it saw before.
+- **`DocumentSignatureStatus` may grow**, under the enum rule above. A client
+  that does not recognise a status should treat the document as it treats
+  `untrusted`.
+- **Two serve flags and three commands:** `alder serve --trusted-keys` and
+  `--require-signature`; `alder key`, `alder sign` and `alder verify`, which
+  take no connection flags because they need no server.
+- **Nothing is signed by default**, and nothing is required to be signed. A
+  deployment adopts signing by naming keys.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —

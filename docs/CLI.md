@@ -483,6 +483,38 @@ written atomically, and an existing file is never replaced without `--force`.
 
 ---
 
+## `alder key`, `alder sign`, `alder verify`
+
+```sh
+alder key generate --output ~/.alder/signing.pem
+alder sign config.json --key ~/.alder/signing.pem --signer "alice" --output config.signed.json
+alder verify config.signed.json --trusted-keys ~/keys/alice.pub.pem
+```
+
+Since 1.15. These three need no Alder server and no directory: they read files,
+and the private key is read, used and forgotten. None of them takes the
+connection flags.
+
+- **`alder key generate`** writes an Ed25519 private key to `--output` and the
+  public key beside it. `--public-output` says where instead. The private key is
+  written readable by you only, and never to standard output.
+- **`alder key show FILE`** prints a public key's key id. A private key is
+  refused.
+- **`alder sign DOCUMENT --key K --output F`** wraps a snapshot, change package
+  or recovery bundle in a signed envelope. Signing an already-signed document
+  adds a signature beside the first, so two people can sign one document; the
+  same key twice is refused. `--signer` records a label.
+- **`alder verify DOCUMENT --trusted-keys K`** exits 0 verified, 3 untrusted or
+  unsigned, 8 invalid. `--trusted-keys` takes a file, a file of several keys, or
+  a directory of `.pem` files, and repeats. `--json` prints the result and what
+  the document claims to be, never its contents.
+
+A server started with `alder serve --trusted-keys` reports what a document's
+signature amounted to wherever it reads one, and `--require-signature` makes it
+read signed documents only. See [SIGNING.md](SIGNING.md).
+
+---
+
 ## `alder preflight`
 
 Since 1.14 a configuration snapshot is read too. It is evaluated only against a

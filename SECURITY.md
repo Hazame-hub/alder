@@ -124,6 +124,26 @@ Alder already wrote through the ordinary plan: a document cannot make a setting
 writable, because the live server's own model has to agree. Comparing two
 different products' configuration compares nothing at all.
 
+**A signature says who made a document; the key stays with the person.** Signing
+(1.15) is done by `alder sign` on the operator's own machine with an Ed25519
+private key Alder's server never receives: no flag supplies one, no request
+carries one, and the server's configuration has nowhere to put one. The server
+verifies only, against public keys named at startup with `--trusted-keys`.
+
+A signature wraps a document rather than entering it, so nothing about a
+snapshot, package or bundle changes and their checksums keep their meaning. What
+is signed is the payload's compact form under a context line naming the format
+and version, so a signature cannot be lifted onto another document. A document
+whose signature does not match is refused before anything reads the payload; a
+valid signature by a key the server was not told to trust is reported as
+untrusted and the document is still read, because it is intact and only its
+provenance is unestablished. `--require-signature` refuses both.
+
+A signature authorises nothing: a verified document goes through the same plan,
+review and apply as any other, and no directory permission follows from it.
+There is no certificate chain, expiry or revocation list -- trust is the list of
+keys an operator named, and removing one is how trust ends.
+
 **Change packages hold no secret, and are never executed.** A change package
 (1.11) describes intended changes so they can be carried to another directory.
 It never contains a password, a hash, a reversible form of one, a placeholder

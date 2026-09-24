@@ -33,7 +33,11 @@ func (s *Server) InspectRecovery(c *fiber.Ctx) error {
 	if sess == nil {
 		return nil
 	}
-	bundle, integrity, err := recovery.Decode(c.Body())
+	document, signature, ok := s.openDocument(c, c.Body())
+	if !ok {
+		return nil
+	}
+	bundle, integrity, err := recovery.Decode(document)
 	if err != nil {
 		return recoveryRefusal(c, err)
 	}
@@ -74,6 +78,7 @@ func (s *Server) InspectRecovery(c *fiber.Ctx) error {
 		OriginMatches:  same,
 		Recoverability: RecoveryRecoverability(bundle.Recoverability),
 		Integrity:      SnapshotIntegrity(integrity),
+		Signature:      signatureView(signature),
 		Checksum:       bundle.Checksum,
 		Steps:          steps,
 		Changes:        requests,

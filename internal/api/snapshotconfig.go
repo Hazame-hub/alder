@@ -110,7 +110,7 @@ func (s *Server) diffConfig(c *fiber.Ctx, sess *session.Session, body diffBody) 
 
 	result := diff.CompareConfig(sides["source"].side, sides["target"].side,
 		diff.ConfigOptions{IncludeUnchanged: body.IncludeUnchanged})
-	return c.JSON(configDiffView(result, sides["source"], sides["target"]))
+	return c.JSON(signedDiff(configDiffView(result, sides["source"], sides["target"]), body))
 }
 
 // configDiffView renders a configuration comparison, with a candidate change

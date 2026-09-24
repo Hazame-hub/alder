@@ -258,7 +258,7 @@ func (s *Server) diffSchema(c *fiber.Ctx, sess *session.Session, body diffBody) 
 	}
 
 	result := diff.CompareSchema(sides["source"].side, sides["target"].side, diff.SchemaOptions{IncludeUnchanged: body.IncludeUnchanged})
-	return c.JSON(schemaDiffView(result, sides["source"], sides["target"], target))
+	return c.JSON(signedDiff(schemaDiffView(result, sides["source"], sides["target"], target), body))
 }
 
 // storedReader reads a schema entry's stored definitions once per entry and

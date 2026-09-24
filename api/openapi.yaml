@@ -1501,6 +1501,8 @@ components:
             - package_too_large
             - preflight_artifact_unsupported
             - config_model_unavailable
+            - signature_invalid
+            - signature_required
             - not_found
             - conflict
             - constraint_violation
@@ -2197,6 +2199,11 @@ components:
         title: { type: string }
         description: { type: string }
         integrity: { $ref: "#/components/schemas/SnapshotIntegrity" }
+        signature:
+          $ref: "#/components/schemas/DocumentSignature"
+          description: |
+            What this server concluded about the signature on the document
+            it was given. Absent from a response that read none. Added in 1.15.
         source: { $ref: "#/components/schemas/PackageProvenance" }
         assumptions: { $ref: "#/components/schemas/PackageAssumptions" }
         counts: { $ref: "#/components/schemas/PackageCounts" }
@@ -2406,6 +2413,12 @@ components:
       type: object
       required: [type, format, version, integrity, objects]
       properties:
+        signature:
+          $ref: "#/components/schemas/DocumentSignature"
+          description: |
+            What this server concluded about the signature on the document
+            it was given. Absent from a response that read none. Added in 1.15.
+
         type:
           type: string
           enum: [change_package, schema_snapshot, data_snapshot, config_snapshot]
@@ -2483,6 +2496,50 @@ components:
           type: array
           items: { $ref: "#/components/schemas/PreflightFinding" }
         truncated: { type: boolean }
+
+    DocumentSignatureStatus:
+      type: string
+      description: |
+        What verification concluded about a document Alder was given.
+        `unsigned`: it carried no signature, which is ordinary.
+        `verified`: a signature is valid and made by a key this server trusts.
+        `untrusted`: every signature is valid and none is by a key it was told
+        to trust; the document is intact, its provenance is not established.
+        `invalid` never reaches a response -- such a document is refused with
+        `signature_invalid`. Added in 1.15.
+      enum: [unsigned, verified, untrusted, invalid]
+      x-enum-varnames: [DocumentUnsigned, DocumentVerified, DocumentUntrusted, DocumentInvalid]
+
+    DocumentSigner:
+      type: object
+      required: [keyId, trusted]
+      description: One signature on a document, and whether its key is trusted here. Added in 1.15.
+      properties:
+        keyId:
+          type: string
+          description: The public key's identity, sha256 of its DER encoding, hex.
+        signer:
+          type: string
+          description: What the person who signed called themselves. A label; nothing is decided by it.
+        signedAt: { type: string }
+        trusted:
+          type: boolean
+          description: Whether this server was told to trust the key.
+
+    DocumentSignature:
+      type: object
+      required: [status]
+      description: |
+        What this server concluded about the signature on a document it was
+        given. Absent where no document was read. Added in 1.15.
+      properties:
+        status: { $ref: "#/components/schemas/DocumentSignatureStatus" }
+        signers:
+          type: array
+          items: { $ref: "#/components/schemas/DocumentSigner" }
+        detail:
+          type: string
+          description: Why a document is untrusted, for a person to read.
 
     ConfigSnapshotSource:
       type: object
@@ -2927,6 +2984,11 @@ components:
             For a schema snapshot (1.10): what it holds. The data fields then describe
             the read of the subschema entry: `source.base` is that entry, `scope` is
             `base`, `operationalAttributes` is true and `entryCount` is 1.
+        signature:
+          $ref: "#/components/schemas/DocumentSignature"
+          description: |
+            What this server concluded about the signature on the document
+            it was given. Absent from a response that read none. Added in 1.15.
 
     SchemaSnapshotSummary:
       type: object
@@ -3216,6 +3278,12 @@ components:
         config: { $ref: "#/components/schemas/ConfigDiff" }
         source: { $ref: "#/components/schemas/DiffSideSummary" }
         target: { $ref: "#/components/schemas/DiffSideSummary" }
+        sourceSignature:
+          $ref: "#/components/schemas/DocumentSignature"
+          description: What this server concluded about the source document's signature, when it was a file. Added in 1.15.
+        targetSignature:
+          $ref: "#/components/schemas/DocumentSignature"
+          description: What this server concluded about the target document's signature, when it was a file. Added in 1.15.
         complete: { type: boolean }
         reasons:
           type: array
@@ -4995,6 +5063,11 @@ components:
         originMatches:
           type: boolean
           description: Whether the vendor and naming contexts match this session's directory. Not proof either way.
+        signature:
+          $ref: "#/components/schemas/DocumentSignature"
+          description: |
+            What this server concluded about the signature on the bundle it was
+            given. Absent where it was unsigned. Added in 1.15.
         originDifferences:
           type: array
           items: { type: string }

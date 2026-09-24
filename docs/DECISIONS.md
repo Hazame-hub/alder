@@ -2815,3 +2815,43 @@ to contradict the plan — add an entry.
   `alder serve --trusted-keys`. The private key never reaches Alder, which stays
   stateless and holds no secret on disk. Staged: signing in 1.15, configuration
   entries after it.
+
+## 2026-09-23 — 1.15: signing, and where a key lives
+
+- **The key belongs to the person.** `alder sign` runs on the operator's
+  machine; the server verifies against public keys named at startup and holds no
+  private key. Chosen over server-side signing deliberately: a server that signs
+  holds a secret on disk, which is the one thing section 7 of the charter says
+  Alder does not do. The Config type has somewhere to put public keys and
+  nowhere to put a private one, and a test says so.
+- **A signature wraps a document; it never enters one.** `alder-signed` version
+  1 carries the payload unchanged. Putting a `signatures` field inside the
+  snapshot and package formats would have made every signed document unreadable
+  to an older Alder and changed what those formats mean; the envelope leaves
+  both alone, and an older release refuses it as a document it does not
+  recognise rather than half-reading one.
+- **What is signed is the payload's compact form**, under the context line
+  `alder-signed/1`. Found by a test: writing an envelope indents its payload, so
+  signing the exact bytes made a signature that could not survive being written
+  to a file. Compacting is whitespace-only -- the token sequence, the key order
+  and every escape are signed as they stand -- and the payload's own checksum
+  still covers its content. The context line stops a signature being replayed
+  onto another kind of document.
+- **Ed25519 only, from the standard library.** No dependency, no parameter to
+  get wrong. A second algorithm would be a second thing to get right, and a
+  signature naming one is invalid rather than ignored.
+- **Trust is a list, not a chain.** No certificates, no expiry, no revocation:
+  `--trusted-keys` names files or a directory, and removing a key is how trust
+  ends. A key id is the SHA-256 of the public key, which says which key and not
+  whose; the signer label is a label and decides nothing.
+- **Invalid is refused, untrusted is reported.** A signature that does not match
+  means the document changed after signing, so nothing downstream sees the
+  payload -- that is not policy. A valid signature by a key nobody named leaves
+  the document intact and its provenance unestablished, which is the operator's
+  question, so it is read and labelled. `--require-signature` is how a
+  deployment turns that into a refusal, and it will not start without keys.
+- **Unsigned stays ordinary.** Every document written before 1.15 is read
+  exactly as before, nothing is signed by default, and the interface shows no
+  badge for an unsigned document.
+- **A signature authorises nothing.** A verified document goes through the same
+  plan, review and apply, and no directory permission follows from it.

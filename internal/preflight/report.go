@@ -23,6 +23,7 @@ package preflight
 
 import (
 	"fmt"
+	"github.com/hazame-hub/alder/internal/signing"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -313,6 +314,10 @@ type SourceInfo struct {
 	// Objects is how many source objects the artifact holds: changes,
 	// definitions or entries.
 	Objects int `json:"objects"`
+	// Signature is what the server concluded about the artifact's signature,
+	// when it was given a signed one (1.15). A preflight decides nothing from
+	// it: whoever runs the report reads it.
+	Signature *signing.Result `json:"signature,omitempty"`
 }
 
 // TargetInfo describes the target. Vendor is display only.
