@@ -52,15 +52,21 @@ var ds389Model = model{
 			"nsslapd-accesslog-logmaxdiskspace", "nsslapd-errorlog-logmaxdiskspace", "nsslapd-auditlog-logmaxdiskspace",
 			"nsslapd-accesslog-logexpirationtime", "nsslapd-errorlog-logexpirationtime", "nsslapd-auditlog-logexpirationtime",
 			"nsslapd-accesslog-logrotationtime", "nsslapd-errorlog-logrotationtime", "nsslapd-auditlog-logrotationtime",
+			// Added in 1.16, and narrowed by switchablePlugins below.
+			"nsslapd-pluginenabled",
 		),
 		// Read-only mode on one backend stops writes to it. On the server's
 		// global entry it is the whole server, which is not a setting Alder
 		// should be one click away from.
 		writableOn: func(resource Resource, key string) bool {
-			if key != "nsslapd-readonly" {
-				return true
+			switch key {
+			case "nsslapd-readonly":
+				return resource.Kind == KindBackend && !strings.EqualFold(resource.Name, "ldbm")
+			case "nsslapd-pluginenabled":
+				// Decided per plugin, from the tree: see switchablePlugins.
+				return resource.Kind == KindPlugin
 			}
-			return resource.Kind == KindBackend && !strings.EqualFold(resource.Name, "ldbm")
+			return true
 		},
 		readOnly: set(
 			"nsslapd-backendconfig", "nsslapd-betype", "nsslapd-plugin", "nsslapd-privatenamespaces",
@@ -88,8 +94,58 @@ var ds389Model = model{
 		return strings.HasPrefix(text, "cn=monitor,") || text == "cn=monitor" ||
 			strings.Contains(text, ",cn=monitor,")
 	},
-	resource:        ds389Resource,
-	restartRequired: ds389RestartRequired,
+	resource:          ds389Resource,
+	restartRequired:   ds389RestartRequired,
+	switchablePlugins: ds389SwitchablePlugins,
+}
+
+// pluginTypesTheServerNeeds are the plugin types a 389 Directory Server does
+// not run without: the syntaxes and matching rules its schema is made of, the
+// backend it stores entries in, and the schemes it hashes passwords with.
+// Switching one off is accepted by the server and the damage appears at the
+// next start, so Alder does not offer it.
+var pluginTypesTheServerNeeds = map[string]bool{
+	"syntax": true, "matchingrule": true, "database": true,
+	"pwdstoragescheme": true, "reverpwdstoragescheme": true,
+	"ldbmentryfetchstore": true, "index": true, "entryuuid": true,
+}
+
+// ds389SwitchablePlugins decides which plugins Alder offers to switch, from
+// what the tree says rather than from a list kept here.
+//
+// Two facts decide it, and both come from the server: the plugin's type, and
+// whether another plugin names it as something it depends on. 389 DS accepts
+// disabling its own ldbm database plugin without complaint -- the server then
+// fails to start -- so the question cannot be left to the write.
+func ds389SwitchablePlugins(entries []*directory.Entry) map[string]bool {
+	dependedOn := map[string]bool{}
+	for _, entry := range entries {
+		for _, name := range entry.GetStrings("nsslapd-plugin-depends-on-named") {
+			dependedOn[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+	}
+	out := map[string]bool{}
+	for _, entry := range entries {
+		text := strings.ToLower(entry.DN.String())
+		if !strings.HasSuffix(text, ",cn=plugins,cn=config") {
+			continue
+		}
+		name := rdnValue(entry)
+		if name == "" || dependedOn[strings.ToLower(name)] {
+			continue
+		}
+		needed := false
+		for _, kind := range entry.GetStrings("nsslapd-pluginType") {
+			if pluginTypesTheServerNeeds[strings.ToLower(strings.TrimSpace(kind))] {
+				needed = true
+			}
+		}
+		if needed {
+			continue
+		}
+		out[KindPlugin+":"+strings.ToLower(pathName(entry.DN.String(), name))] = true
+	}
+	return out
 }
 
 // ds389RestartRequired reads the settings 389 DS says it applies only at

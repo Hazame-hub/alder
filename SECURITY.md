@@ -124,6 +124,17 @@ Alder already wrote through the ordinary plan: a document cannot make a setting
 writable, because the live server's own model has to agree. Comparing two
 different products' configuration compares nothing at all.
 
+**Creating or removing a configuration object is narrow, and never selected for
+you.** Since 1.16 Alder creates and removes exactly one kind of configuration
+entry: an OpenLDAP overlay whose module the server has already loaded. The
+precondition is checked before a write is sent. A removal is derived only when
+it is named as a removal -- selecting every difference on a page removes
+nothing -- and recovery stays unavailable for configuration changes, so an
+overlay taken away is put back by planning the opposite change. On 389
+Directory Server, a plugin the server needs to start is never offered for
+switching off: which those are is read from the server's own plugin types and
+dependencies, because the server accepts the write and fails at the next start.
+
 **A signature says who made a document; the key stays with the person.** Signing
 (1.15) is done by `alder sign` on the operator's own machine with an Ed25519
 private key Alder's server never receives: no flag supplies one, no request

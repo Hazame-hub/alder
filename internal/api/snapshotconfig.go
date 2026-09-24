@@ -134,6 +134,7 @@ func configDiffView(r *diff.ConfigResult, source, target *resolvedConfigSide) Di
 			Counts:           configCounts(r.Counts),
 			Sections:         make([]ConfigSectionCounts, 0, len(r.Sections)),
 			Items:            make([]ConfigDiffItem, 0, len(r.Items)),
+			Objects:          configObjects(r, source),
 			Source:           configProviderSummary(r.Source),
 			Target:           configProviderSummary(r.Target),
 		},
@@ -187,6 +188,35 @@ func configDiffView(r *diff.ConfigResult, source, target *resolvedConfigSide) Di
 			view.Candidate = candidateView(diff.Candidate{Records: candidate.Records, Blocked: candidate.Blocked})
 		}
 		out.Config.Items = append(out.Config.Items, view)
+	}
+	return out
+}
+
+// configObjects is what a comparison found about each configuration object,
+// with the change Alder would send where it has one. A removal carries its
+// change too, marked destructive: nothing selects one for the operator, and
+// the client that asks for it by name needs something to send.
+func configObjects(r *diff.ConfigResult, source *resolvedConfigSide) []ConfigDiffObject {
+	out := make([]ConfigDiffObject, 0, len(r.Objects))
+	for _, object := range r.Objects {
+		view := ConfigDiffObject{
+			Id: object.ID, Kind: DiffKind(object.Kind), Section: object.Section, Object: object.Object,
+			Name: object.Name, Settings: object.Settings, Actionable: ConfigActionable(object.Actionable),
+		}
+		optional(&view.Label, object.Label)
+		optional(&view.Dn, object.DN)
+		optional(&view.Refusal, object.Refusal)
+		if object.Destructive {
+			view.Destructive = ptr(true)
+		}
+		if source != nil && object.Actionable == diff.ActionableWritable {
+			candidate := diff.DeriveConfigObject(r, object, source.side, object.Destructive)
+			if len(candidate.Records) > 0 || candidate.Blocked != "" {
+				view.Candidate = candidateView(diff.Candidate{Records: candidate.Records,
+					Blocked: candidate.Blocked, Destructive: object.Destructive})
+			}
+		}
+		out = append(out, view)
 	}
 	return out
 }

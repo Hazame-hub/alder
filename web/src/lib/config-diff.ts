@@ -2,6 +2,7 @@ import type { components } from "@/lib/api.gen";
 
 export type ConfigDiff = components["schemas"]["ConfigDiff"];
 export type ConfigDiffItem = components["schemas"]["ConfigDiffItem"];
+export type ConfigDiffObject = components["schemas"]["ConfigDiffObject"];
 export type ConfigActionable = components["schemas"]["ConfigActionable"];
 export type DiffKind = components["schemas"]["DiffKind"];
 
@@ -61,6 +62,61 @@ export function stageableChanges(
     }
   }
   return out;
+}
+
+/**
+ * The configuration objects worth showing: the ones that differ. An object
+ * both sides hold is the ordinary case and says nothing.
+ */
+export function changedObjects(diff: ConfigDiff): ConfigDiffObject[] {
+  return diff.objects.filter((object) => object.kind !== "unchanged");
+}
+
+/**
+ * The changes for the objects selected, in the order the comparison gave.
+ *
+ * A removal is included only when it was selected as a removal: selecting
+ * everything on a page never removes anything from a server. Creating an
+ * object comes first and removing one last, which is the order a person would
+ * do it in by hand.
+ */
+export function stageableObjects(
+  diff: ConfigDiff,
+  selected: Set<string>,
+  removals: Set<string>,
+): { object: ConfigDiffObject; change: NonNullable<ConfigDiffObject["candidate"]>["changes"][number] }[] {
+  const additions: { object: ConfigDiffObject; change: NonNullable<ConfigDiffObject["candidate"]>["changes"][number] }[] = [];
+  const removes: typeof additions = [];
+  for (const object of diff.objects) {
+    if (object.actionable !== "writable") continue;
+    const wanted = object.destructive ? removals.has(object.id) : selected.has(object.id);
+    if (!wanted) continue;
+    for (const change of object.candidate?.changes ?? []) {
+      (object.destructive ? removes : additions).push({ object, change });
+    }
+  }
+  return [...additions, ...removes];
+}
+
+/** Why Alder cannot act on an object difference, in a person's words. */
+export function objectRefusal(object: ConfigDiffObject): string {
+  switch (object.refusal) {
+    case undefined:
+    case "":
+      return "";
+    case "module_not_loaded":
+      return "the server has not loaded the module this overlay needs";
+    case "not_creatable":
+      return "Alder does not create or remove objects of this kind";
+    case "parent_missing":
+      return "the database it belongs to is not on this server";
+    case "source_not_live":
+      return "a change is proposed only when the source is the directory itself";
+    case "not_present":
+      return "it is not on this server";
+    default:
+      return object.refusal;
+  }
 }
 
 /** What a value looks like in the interface, with a withheld one named as such. */

@@ -324,6 +324,21 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.16 added configuration objects, only by adding:
+
+- **One field on the configuration comparison:** `objects`, listing each
+  configuration object and what can be done about a difference. A client that
+  ignores it sees exactly what it saw before.
+- **`nsslapd-pluginEnabled` became writable** for the plugins a 389 Directory
+  Server can run without, decided from that server's own tree. A 1.15
+  comparison called every plugin read-only, so a 1.16 comparison of the same
+  documents may offer a change where 1.15 offered none.
+- **`alder diff --stage` and `--stage-deletion` take an object identifier.**
+  `--stage-deletion` was refused outright for configuration in 1.13 to 1.15;
+  it now selects the removal of a configuration object, and nothing else.
+- **No document changed.** A configuration snapshot is what it was; objects are
+  the resources it already recorded, compared.
+
 A response may be **streamed**, and a streamed one carries the same fields in a
 different order. `POST /api/v1/search` writes its entries first and the fields
 it cannot know until the search has finished — `truncated`, `cookie`, `took` —

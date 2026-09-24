@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { filterConfigItems, stageableChanges, valueText, type ConfigDiff, type ConfigDiffItem } from "./config-diff";
+import {
+  changedObjects,
+  filterConfigItems,
+  objectRefusal,
+  stageableChanges,
+  stageableObjects,
+  valueText,
+  type ConfigDiff,
+  type ConfigDiffItem,
+} from "./config-diff";
 
 function item(partial: Partial<ConfigDiffItem> & { id: string; key: string }): ConfigDiffItem {
   return {
@@ -47,6 +56,7 @@ const diff: ConfigDiff = {
     { section: "limits", counts: { compared: 1, added: 0, removed: 0, modified: 1, unchanged: 0, unknown: 0, actionable: 1 } },
   ],
   items: [idle, rootpw, paths],
+  objects: [],
   source: { provider: "openldap", completeness: "complete", settings: 88, resources: 6, sections: [] },
   target: { provider: "openldap", completeness: "complete", settings: 88, resources: 6, sections: [] },
 };
@@ -71,5 +81,59 @@ describe("configuration comparisons", () => {
     expect(valueText(rootpw, "source")).toBe("withheld");
     expect(valueText(idle, "target")).toBe("1800");
     expect(valueText(item({ id: "x", key: "y" }), "source")).toBe("(none)");
+  });
+});
+
+describe("configuration objects", () => {
+  const overlay = {
+    id: "overlay:dc=alder,dc=test/memberof",
+    kind: "added" as const,
+    section: "plugins",
+    object: "overlay",
+    name: "dc=alder,dc=test/memberof",
+    label: "memberof",
+    settings: 0,
+    actionable: "writable" as const,
+    candidate: { destructive: false, changes: [{ dn: "olcOverlay=memberof,olcDatabase={1}mdb,cn=config", type: "add" as const }] },
+  };
+  const ppolicy = {
+    id: "overlay:dc=alder,dc=test/ppolicy",
+    kind: "removed" as const,
+    section: "plugins",
+    object: "overlay",
+    name: "dc=alder,dc=test/ppolicy",
+    settings: 3,
+    actionable: "writable" as const,
+    destructive: true,
+    candidate: { destructive: true, changes: [{ dn: "olcOverlay={0}ppolicy,olcDatabase={1}mdb,cn=config", type: "delete" as const }] },
+  };
+  const database = {
+    id: "database:dc=second,dc=test",
+    kind: "added" as const,
+    section: "backend",
+    object: "database",
+    name: "dc=second,dc=test",
+    settings: 4,
+    actionable: "read_only" as const,
+    refusal: "not_creatable",
+  };
+  const unchanged = { ...database, id: "database:dc=alder,dc=test", kind: "unchanged" as const };
+  const withObjects: ConfigDiff = { ...diff, objects: [overlay, ppolicy, database, unchanged] };
+
+  it("shows only the objects that differ", () => {
+    expect(changedObjects(withObjects).map((o) => o.id)).toEqual([overlay.id, ppolicy.id, database.id]);
+  });
+
+  it("creates what was selected and removes only what was selected as a removal", () => {
+    const all = new Set([overlay.id, ppolicy.id, database.id]);
+    expect(stageableObjects(withObjects, all, new Set()).map((s) => s.object.id)).toEqual([overlay.id]);
+
+    const both = stageableObjects(withObjects, all, new Set([ppolicy.id]));
+    expect(both.map((s) => s.change.type)).toEqual(["add", "delete"]);
+  });
+
+  it("says why an object cannot be acted on", () => {
+    expect(objectRefusal(database)).toContain("does not create or remove");
+    expect(objectRefusal(overlay)).toBe("");
   });
 });

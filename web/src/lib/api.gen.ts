@@ -2026,6 +2026,37 @@ export interface components {
             resources: number;
             sections: components["schemas"]["ConfigSectionTotals"][];
         };
+        /**
+         * @description One configuration object -- a database, an overlay, a backend, a
+         *     plugin -- and what a comparison found about it. Added in 1.16.
+         *
+         *     Listing is what this does for almost everything. Alder creates and
+         *     removes exactly one kind of object, an OpenLDAP overlay whose module the
+         *     server has already loaded, and only then is `actionable` `writable`.
+         */
+        ConfigDiffObject: {
+            /** @description The object's identity: kind:name. */
+            id: string;
+            kind: components["schemas"]["DiffKind"];
+            section: string;
+            /** @description What it is in the provider's terms -- database, overlay, backend, plugin. */
+            object: string;
+            name: string;
+            label?: string;
+            dn?: string;
+            /** @description How many settings belong to it, across both sides. */
+            settings: number;
+            actionable: components["schemas"]["ConfigActionable"];
+            /**
+             * @description Why Alder cannot act on the difference: `not_creatable` (this
+             *     provider creates no object of that kind), `module_not_loaded`,
+             *     `parent_missing`, `unnamed`, `not_present`, `source_not_live`.
+             */
+            refusal?: string;
+            /** @description The difference is a removal. Never selected for anyone. */
+            destructive?: boolean;
+            candidate?: components["schemas"]["DiffCandidate"];
+        };
         ConfigDiffItem: {
             /**
              * @description The setting's identity within the provider's model: section,
@@ -2080,6 +2111,8 @@ export interface components {
             counts: components["schemas"]["ConfigDiffCounts"];
             sections: components["schemas"]["ConfigSectionCounts"][];
             items: components["schemas"]["ConfigDiffItem"][];
+            /** @description The configuration objects each side holds, and what can be done about a difference. Added in 1.16. */
+            objects: components["schemas"]["ConfigDiffObject"][];
             source: components["schemas"]["ConfigProviderSummary"];
             target: components["schemas"]["ConfigProviderSummary"];
         };

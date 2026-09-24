@@ -361,6 +361,41 @@ summaries and an explanation.
 
 ---
 
+## Configuration objects (1.16)
+
+A comparison lists the objects each side holds -- databases, overlays,
+backends, plugins -- as well as the settings on them, because "the target has
+no memberof overlay" is one fact rather than fourteen missing settings.
+
+Alder creates and removes **one kind**: an OpenLDAP overlay whose module the
+server has already loaded. Everything else is listed with the reason it is
+listed only.
+
+| Refusal | Meaning |
+|---|---|
+| `not_creatable` | This provider creates no object of that kind. A database is where the data lives, a module is a shared library the server must find, a 389 DS plugin is a fixed set the server ships |
+| `module_not_loaded` | The overlay's module is not loaded. OpenLDAP answers a write for one with "handler exited with 1", so Alder says so before sending anything |
+| `parent_missing` | The database it belongs to is not on this server |
+| `source_not_live` | Two files were compared; a change is proposed only against the directory itself |
+
+Creating one is an ordinary entry add: `objectClass: olcOverlayConfig` and
+`olcOverlay: <name>`, under the database's own DN. The name carries no
+position -- the server assigns one, and Alder reports where the entry came to
+rest. Removing one is an ordinary delete of the live server's own entry, and it
+is derived **only** when it is named with `--stage-deletion`, or ticked as a
+removal in the interface. Selecting everything on a page removes nothing.
+
+389 Directory Server has no overlays. What it has instead is plugins, and 1.16
+switches those with a setting rather than by creating anything:
+`nsslapd-pluginEnabled` is writable for the plugins the server can run
+without. Which those are is read from the tree, not from a list here: a plugin
+whose type the server needs -- a syntax, a matching rule, the backend, a
+password scheme -- and a plugin another plugin names in
+`nsslapd-plugin-depends-on-named` are never offered. The server accepts
+disabling its own `ldbm database` plugin without complaint and then fails to
+start, which is why this is decided before the write rather than left to it.
+Switching a plugin takes effect when the server restarts.
+
 ## Preflight (1.14)
 
 A configuration snapshot can be preflighted against the directory you are
@@ -381,10 +416,9 @@ evaluated, exactly as every other report does. See
   one server's software, not a specification.
 - **ACL analysis.** `olcAccess` and `aci` are captured, marked `raw`, and never
   interpreted. Alder still does not edit access control.
-- **Creating or removing configuration entries.** Adding a database, loading a
-  module, enabling a plugin: reported, never derived. A narrow list -- OpenLDAP
-  overlays whose module is already loaded, and switching 389 DS plugins on or
-  off -- is in scope for a later release; see the decisions log.
+- **Creating or removing anything but an overlay.** Adding a database, loading
+  a module, adding a 389 DS plugin: reported, never derived. See
+  [Configuration objects](#configuration-objects-116) for what is.
 - **Applying a configuration wholesale.** There is no "restore this
   configuration" button, as there is no "restore this subtree" one.
 - **Recovery for configuration changes**, which stays unavailable.

@@ -2735,6 +2735,41 @@ components:
           type: array
           items: { $ref: "#/components/schemas/ConfigSectionTotals" }
 
+    ConfigDiffObject:
+      type: object
+      required: [id, kind, section, object, name, settings, actionable]
+      description: |
+        One configuration object -- a database, an overlay, a backend, a
+        plugin -- and what a comparison found about it. Added in 1.16.
+
+        Listing is what this does for almost everything. Alder creates and
+        removes exactly one kind of object, an OpenLDAP overlay whose module the
+        server has already loaded, and only then is `actionable` `writable`.
+      properties:
+        id: { type: string, description: "The object's identity: kind:name." }
+        kind: { $ref: "#/components/schemas/DiffKind" }
+        section: { type: string }
+        object:
+          type: string
+          description: What it is in the provider's terms -- database, overlay, backend, plugin.
+        name: { type: string }
+        label: { type: string }
+        dn: { type: string }
+        settings:
+          type: integer
+          description: How many settings belong to it, across both sides.
+        actionable: { $ref: "#/components/schemas/ConfigActionable" }
+        refusal:
+          type: string
+          description: |
+            Why Alder cannot act on the difference: `not_creatable` (this
+            provider creates no object of that kind), `module_not_loaded`,
+            `parent_missing`, `unnamed`, `not_present`, `source_not_live`.
+        destructive:
+          type: boolean
+          description: The difference is a removal. Never selected for anyone.
+        candidate: { $ref: "#/components/schemas/DiffCandidate" }
+
     ConfigDiffItem:
       type: object
       required: [id, kind, section, key, actionable]
@@ -2783,7 +2818,7 @@ components:
 
     ConfigDiff:
       type: object
-      required: [providerMismatch, complete, crossVendor, counts, sections, items, source, target]
+      required: [providerMismatch, complete, crossVendor, counts, sections, items, objects, source, target]
       description: |
         A configuration comparison. When `providerMismatch` is true the two
         sides are different providers' configuration: nothing was compared
@@ -2802,6 +2837,10 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/ConfigDiffItem" }
+        objects:
+          type: array
+          description: The configuration objects each side holds, and what can be done about a difference. Added in 1.16.
+          items: { $ref: "#/components/schemas/ConfigDiffObject" }
         source: { $ref: "#/components/schemas/ConfigProviderSummary" }
         target: { $ref: "#/components/schemas/ConfigProviderSummary" }
 

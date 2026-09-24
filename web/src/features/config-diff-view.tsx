@@ -7,11 +7,15 @@ import { changeset } from "@/lib/changeset";
 import { safeText } from "@/lib/display";
 import {
   ACTION_LOOK,
+  changedObjects,
   configSections,
   filterConfigItems,
+  objectRefusal,
   stageableChanges,
+  stageableObjects,
   valueText,
   type ConfigDiffItem,
+  type ConfigDiffObject,
   type DiffKind,
 } from "@/lib/config-diff";
 import type { components } from "@/lib/api.gen";
@@ -60,6 +64,8 @@ export function ConfigDiffView({
   const [text, setText] = useState("");
   const [shown, setShown] = useState(PAGE);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [objects, setObjects] = useState<Set<string>>(new Set());
+  const [removals, setRemovals] = useState<Set<string>>(new Set());
   const [staged, setStaged] = useState<number | null>(null);
 
   const visible = useMemo(
@@ -106,13 +112,22 @@ export function ConfigDiffView({
   }
 
   const stage = () => {
-    const changes = stageableChanges(config, selected);
-    const result = changeset.addMany(
-      changes.map(({ item, change }) => ({ change, label: `config ${item.key} on ${item.dn ?? ""}` })),
-    );
+    const settingChanges = stageableChanges(config, selected).map(({ item, change }) => ({
+      change,
+      label: `config ${item.key} on ${item.dn ?? ""}`,
+    }));
+    const objectChanges = stageableObjects(config, objects, removals).map(({ object, change }) => ({
+      change,
+      label: `${object.destructive ? "remove" : "create"} ${object.object} ${object.name}`,
+    }));
+    // An object is created before the settings on it are touched, and removed
+    // after everything else, which stageableObjects already orders.
+    const result = changeset.addMany([...objectChanges, ...settingChanges]);
     setStaged(result.staged);
   };
-  const actionableSelected = stageableChanges(config, selected).length;
+  const actionableSelected =
+    stageableChanges(config, selected).length + stageableObjects(config, objects, removals).length;
+  const differingObjects = changedObjects(config);
 
   return (
     <section className="space-y-4 rounded-lg border p-4">
@@ -208,10 +223,38 @@ export function ConfigDiffView({
         </span>
       </div>
 
-      {selected.size > 0 ? (
+      {differingObjects.length > 0 ? (
+        <div className="space-y-2 rounded-md border p-3">
+          <div className="text-sm font-medium">Configuration objects</div>
+          <p className="text-xs text-muted-foreground">
+            Databases, overlays, backends and plugins one side has and the other does not. Alder creates and removes
+            one kind: an OpenLDAP overlay whose module the server has already loaded.
+          </p>
+          <ul className="space-y-1">
+            {differingObjects.map((object) => (
+              <ObjectRow
+                key={object.id}
+                object={object}
+                selected={object.destructive ? removals.has(object.id) : objects.has(object.id)}
+                onToggle={() => {
+                  const set = object.destructive ? new Set(removals) : new Set(objects);
+                  if (set.has(object.id)) set.delete(object.id);
+                  else set.add(object.id);
+                  if (object.destructive) setRemovals(set);
+                  else setObjects(set);
+                  setStaged(null);
+                }}
+              />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {selected.size > 0 || objects.size > 0 || removals.size > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-          {actionableSelected} change{actionableSelected === 1 ? "" : "s"} from {selected.size} selected setting
-          {selected.size === 1 ? "" : "s"}
+          {actionableSelected} change{actionableSelected === 1 ? "" : "s"} from {selected.size} setting
+          {selected.size === 1 ? "" : "s"} and {objects.size + removals.size} object
+          {objects.size + removals.size === 1 ? "" : "s"}
           <Button size="sm" onClick={stage} disabled={actionableSelected === 0}>
             <ListChecks />
             Stage for review
@@ -254,6 +297,49 @@ export function ConfigDiffView({
         directory and reviewed like every other change; recovery is not available for configuration changes.
       </p>
     </section>
+  );
+}
+
+/**
+ * One configuration object that differs.
+ *
+ * A removal has its own checkbox wording, and nothing about selecting rows in
+ * bulk can reach it: removing an overlay takes the settings on it with it.
+ */
+function ObjectRow({
+  object,
+  selected,
+  onToggle,
+}: {
+  object: ConfigDiffObject;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const selectable = object.actionable === "writable";
+  const refusal = objectRefusal(object);
+  return (
+    <li className="flex flex-wrap items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={selected}
+        disabled={!selectable}
+        onChange={onToggle}
+        aria-label={`${object.destructive ? "Remove" : "Create"} ${object.name}`}
+      />
+      <Badge variant="outline">{KIND_LABEL[object.kind]}</Badge>
+      <span className="text-xs text-muted-foreground">{safeText(object.object)}</span>
+      <span className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(object.label || object.name)}</span>
+      {object.settings > 0 ? (
+        <span className="text-xs text-muted-foreground">{object.settings} settings</span>
+      ) : null}
+      {selectable ? (
+        <Badge variant={object.destructive ? "warning" : "success"}>
+          {object.destructive ? "Alder can remove this" : "Alder can create this"}
+        </Badge>
+      ) : (
+        <span className="text-xs text-muted-foreground">reported only{refusal ? ` — ${safeText(refusal)}` : ""}</span>
+      )}
+    </li>
   );
 }
 
