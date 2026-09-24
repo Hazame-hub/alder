@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.15.0](https://github.com/Hazame-hub/alder/compare/v1.14.0...v1.15.0) (2026-09-24)
+
+
+### Features
+
+* a signed document is an alder-signed envelope carrying the payload unchanged, so every existing document, format and checksum keeps its meaning and a release before 1.15 refuses an envelope rather than half-reading one ([9e3cf85](https://github.com/Hazame-hub/alder/commit/9e3cf85b32553dac91c0611108b755ec32759305))
+* alder key generate, alder key show and alder verify, which need no server and no directory, and exit 0 verified, 3 untrusted or unsigned, 8 invalid ([9e3cf85](https://github.com/Hazame-hub/alder/commit/9e3cf85b32553dac91c0611108b755ec32759305))
+* alder serve --trusted-keys reports what a document's signature amounted to wherever it reads one, and --require-signature reads only documents signed by a trusted key ([9e3cf85](https://github.com/Hazame-hub/alder/commit/9e3cf85b32553dac91c0611108b755ec32759305))
+* sign a snapshot, change package or recovery bundle with alder sign, using an Ed25519 key that stays on your own machine; the server verifies against public keys named at startup and holds no private key ([9e3cf85](https://github.com/Hazame-hub/alder/commit/9e3cf85b32553dac91c0611108b755ec32759305))
+
+
+### Documentation
+
+* document signing, what a signature is worth and what it is not ([9e3cf85](https://github.com/Hazame-hub/alder/commit/9e3cf85b32553dac91c0611108b755ec32759305))
+
 ## [1.14.0](https://github.com/Hazame-hub/alder/compare/v1.13.1...v1.14.0) (2026-09-23)
 
 
