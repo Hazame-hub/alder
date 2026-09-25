@@ -1,19 +1,19 @@
 import { useMemo, useState } from "react";
-import { ListChecks } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { changeset } from "@/lib/changeset";
+import { ReviewActions } from "@/components/review-actions";
 import { safeText } from "@/lib/display";
 import {
   ACTION_LOOK,
-  changedObjects,
+  actionableCount,
   configSections,
   filterConfigItems,
   objectRefusal,
   stageableChanges,
   stageableObjects,
   valueText,
+  visibleObjects,
   type ConfigDiffItem,
   type ConfigDiffObject,
   type DiffKind,
@@ -50,11 +50,14 @@ export function ConfigDiffView({
   sourceLabel,
   targetLabel,
   onReviewChangeset,
+  onApplied,
 }: {
   diff: Diff;
   sourceLabel: string;
   targetLabel: string;
   onReviewChangeset: () => void;
+  /** A change was applied from here, so the comparison is out of date. */
+  onApplied?: () => void;
 }) {
   const config = diff.config;
   const [section, setSection] = useState<string | "all">("all");
@@ -66,7 +69,6 @@ export function ConfigDiffView({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [objects, setObjects] = useState<Set<string>>(new Set());
   const [removals, setRemovals] = useState<Set<string>>(new Set());
-  const [staged, setStaged] = useState<number | null>(null);
 
   const visible = useMemo(
     () => (config ? filterConfigItems(config.items, { section, kinds, actionableOnly, hideSensitive, text }) : []),
@@ -111,23 +113,19 @@ export function ConfigDiffView({
     );
   }
 
-  const stage = () => {
-    const settingChanges = stageableChanges(config, selected).map(({ item, change }) => ({
-      change,
-      label: `config ${item.key} on ${item.dn ?? ""}`,
-    }));
-    const objectChanges = stageableObjects(config, objects, removals).map(({ object, change }) => ({
-      change,
-      label: `${object.destructive ? "remove" : "create"} ${object.object} ${object.name}`,
-    }));
-    // An object is created before the settings on it are touched, and removed
-    // after everything else, which stageableObjects already orders.
-    const result = changeset.addMany([...objectChanges, ...settingChanges]);
-    setStaged(result.staged);
-  };
-  const actionableSelected =
-    stageableChanges(config, selected).length + stageableObjects(config, objects, removals).length;
-  const differingObjects = changedObjects(config);
+  const settingChanges = stageableChanges(config, selected).map(({ item, change }) => ({
+    change,
+    label: `config ${item.key} on ${item.dn ?? ""}`,
+  }));
+  const objectChanges = stageableObjects(config, objects, removals).map(({ object, change }) => ({
+    change,
+    label: `${object.destructive ? "remove" : "create"} ${object.object} ${object.name}`,
+  }));
+  // An object is created before the settings on it are touched, and removed
+  // after everything else, which stageableObjects already orders.
+  const chosenChanges = [...objectChanges, ...settingChanges];
+  const canChange = actionableCount(config);
+  const shownObjects = visibleObjects(config, actionableOnly);
 
   return (
     <section className="space-y-4 rounded-lg border p-4">
@@ -157,7 +155,12 @@ export function ConfigDiffView({
               {n} {label}
             </span>
           ))}
-        <span className="rounded-md border px-2 py-1">{config.counts.actionable} Alder can change</span>
+        <span className="rounded-md border px-2 py-1">
+          {canChange.total} Alder can change
+          {canChange.objects > 0
+            ? ` (${canChange.objects} object${canChange.objects === 1 ? "" : "s"})`
+            : ""}
+        </span>
       </div>
 
       {!config.complete ? (
@@ -223,7 +226,7 @@ export function ConfigDiffView({
         </span>
       </div>
 
-      {differingObjects.length > 0 ? (
+      {shownObjects.length > 0 ? (
         <div className="space-y-2 rounded-md border p-3">
           <div className="text-sm font-medium">Configuration objects</div>
           <p className="text-xs text-muted-foreground">
@@ -231,7 +234,7 @@ export function ConfigDiffView({
             one kind: an OpenLDAP overlay whose module the server has already loaded.
           </p>
           <ul className="space-y-1">
-            {differingObjects.map((object) => (
+            {shownObjects.map((object) => (
               <ObjectRow
                 key={object.id}
                 object={object}
@@ -242,7 +245,6 @@ export function ConfigDiffView({
                   else set.add(object.id);
                   if (object.destructive) setRemovals(set);
                   else setObjects(set);
-                  setStaged(null);
                 }}
               />
             ))}
@@ -252,21 +254,15 @@ export function ConfigDiffView({
 
       {selected.size > 0 || objects.size > 0 || removals.size > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-          {actionableSelected} change{actionableSelected === 1 ? "" : "s"} from {selected.size} setting
+          {chosenChanges.length} change{chosenChanges.length === 1 ? "" : "s"} from {selected.size} setting
           {selected.size === 1 ? "" : "s"} and {objects.size + removals.size} object
           {objects.size + removals.size === 1 ? "" : "s"}
-          <Button size="sm" onClick={stage} disabled={actionableSelected === 0}>
-            <ListChecks />
-            Stage for review
-          </Button>
-          {staged !== null ? (
-            <>
-              <span>{staged} staged.</span>
-              <Button size="sm" variant="outline" onClick={onReviewChangeset}>
-                Review the changeset
-              </Button>
-            </>
-          ) : null}
+          <ReviewActions
+            changes={chosenChanges}
+            onReviewChangeset={onReviewChangeset}
+            onApplied={onApplied}
+            destructive={removals.size > 0}
+          />
         </div>
       ) : null}
 
@@ -281,7 +277,6 @@ export function ConfigDiffView({
               if (next.has(item.id)) next.delete(item.id);
               else next.add(item.id);
               setSelected(next);
-              setStaged(null);
             }}
           />
         ))}
@@ -330,7 +325,9 @@ function ObjectRow({
       <span className="text-xs text-muted-foreground">{safeText(object.object)}</span>
       <span className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(object.label || object.name)}</span>
       {object.settings > 0 ? (
-        <span className="text-xs text-muted-foreground">{object.settings} settings</span>
+        <span className="text-xs text-muted-foreground">
+          {object.settings} setting{object.settings === 1 ? "" : "s"}
+        </span>
       ) : null}
       {selectable ? (
         <Badge variant={object.destructive ? "warning" : "success"}>

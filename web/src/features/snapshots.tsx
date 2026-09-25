@@ -6,7 +6,6 @@ import {
   Camera,
   ChevronDown,
   ChevronRight,
-  ListChecks,
   Loader2,
   Upload,
 } from "lucide-react";
@@ -18,7 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { DownloadButton } from "@/components/ldif-block";
-import { changeset } from "@/lib/changeset";
+import { ReviewActions } from "@/components/review-actions";
+import { bench, useBench, type AnySnapshot, type SideChoice, type Slot } from "@/lib/snapshot-bench";
 import {
   filterItems,
   itemDn,
@@ -33,27 +33,9 @@ import { SCHEMA_KIND_LOOK, SchemaDiffView } from "@/features/schema-diff-view";
 import { ConfigDiffView } from "@/features/config-diff-view";
 import { SIGNATURE_LOOK, signerLine, worthShowing, type DocumentSignature } from "@/lib/signature";
 
-type Snapshot = components["schemas"]["Snapshot"];
-type SchemaSnapshot = components["schemas"]["SchemaSnapshot"];
-type ConfigSnapshot = components["schemas"]["ConfigSnapshot"];
-/** A snapshot of any kind. Its `kind` tells them apart. */
-type AnySnapshot = Snapshot | SchemaSnapshot | ConfigSnapshot;
 type Inspection = components["schemas"]["SnapshotInspection"];
 type Diff = components["schemas"]["Diff"];
 type SnapshotValue = components["schemas"]["SnapshotValue"];
-
-type Slot = {
-  name: "A" | "B";
-  raw: string;
-  doc: AnySnapshot;
-  inspection: Inspection;
-  filename: string;
-  origin: "captured" | "uploaded";
-  /** The compact JSON the server is sent, which is what its request limit counts. */
-  bytes: number;
-};
-
-type SideChoice = "live" | "A" | "B";
 
 const PAGE = 50;
 
@@ -145,7 +127,10 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
   });
   const defaultBase = session.data?.capabilities?.namingContexts?.[0] ?? "";
 
-  const [slots, setSlots] = useState<Partial<Record<"A" | "B", Slot>>>({});
+  // The documents, the two sides and the last comparison live in a store with
+  // the lifetime of the tab, so that following "Review the changeset" and
+  // coming back finds the comparison still here. See lib/snapshot-bench.
+  const { slots, source, target, comparison } = useBench();
   const [base, setBase] = useState<string | null>(null);
   const [scope, setScope] = useState<"base" | "one" | "sub">("sub");
   const [filter, setFilter] = useState("");
@@ -154,8 +139,8 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
   const [schemaTarget, setSchemaTarget] = useState("");
   const schemaTargets = session.data?.capabilities?.schemaWrite?.targets ?? [];
   const [into, setInto] = useState<"A" | "B">("A");
-  const [source, setSource] = useState<SideChoice>("live");
-  const [target, setTarget] = useState<SideChoice>("A");
+  const setSource = (choice: SideChoice) => bench.setSide("source", choice);
+  const setTarget = (choice: SideChoice) => bench.setSide("target", choice);
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -210,7 +195,7 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
         captureKind === "schema" ? "alder-schema-snapshot" : captureKind === "config" ? "alder-config-snapshot" : "alder-snapshot";
       return { name: into, raw, doc, inspection, bytes, origin: "captured", filename: `${prefix}-${stamp}.json` };
     },
-    onSuccess: (slot) => setSlots((s) => ({ ...s, [slot.name]: slot })),
+    onSuccess: (slot) => bench.load(slot),
   });
 
   const upload = (file: File) => {
@@ -222,7 +207,7 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
         const { doc, inspection, bytes } = await inspect(raw, false);
         // The name shown is only ever a label; nothing is written anywhere by it.
         const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "snapshot.json";
-        setSlots((s) => ({ ...s, [into]: { name: into, raw, doc, inspection, bytes, origin: "uploaded", filename: safe } }));
+        bench.load({ name: into, raw, doc, inspection, bytes, origin: "uploaded", filename: safe });
       } catch (e) {
         setUploadError(e instanceof Error ? e.message : String(e));
       }
@@ -262,12 +247,16 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
             ? `Together that is ${mb(requestBytes)} MB to send, and the server reads at most ${mb(MAX_BODY)} MB in one request.`
             : null;
 
+  const sideLabel = (choice: SideChoice) => (choice === "live" ? "The directory now" : `Snapshot ${choice}`);
+
   const compare = useMutation<Diff, ApiFailure>({
     mutationFn: async () =>
       unwrap(await api.POST("/diff", { body: { source: sideBody(source), target: sideBody(target) } })),
+    // The result is kept in the store with the two sides as they were named
+    // when it was made, so it survives a visit to the changeset.
+    onSuccess: (diff) =>
+      bench.setComparison({ diff, sourceLabel: sideLabel(source), targetLabel: sideLabel(target) }),
   });
-
-  const sideLabel = (choice: SideChoice) => (choice === "live" ? "The directory now" : `Snapshot ${choice}`);
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-6">
@@ -419,27 +408,30 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
           the source is the directory now: they move it toward the target.
         </p>
         {compare.isError ? <ErrorNote title="The comparison failed" error={compare.error} /> : null}
-        {compare.data ? (
-          compare.data.kind === "config" ? (
+        {comparison ? (
+          comparison.diff.kind === "config" ? (
             <ConfigDiffView
-              diff={compare.data}
-              sourceLabel={sideLabel(source)}
-              targetLabel={sideLabel(target)}
+              diff={comparison.diff}
+              sourceLabel={comparison.sourceLabel}
+              targetLabel={comparison.targetLabel}
               onReviewChangeset={onReviewChangeset}
+              onApplied={() => compare.mutate()}
             />
-          ) : compare.data.kind === "schema" ? (
+          ) : comparison.diff.kind === "schema" ? (
             <SchemaDiffView
-              diff={compare.data}
-              sourceLabel={sideLabel(source)}
-              targetLabel={sideLabel(target)}
+              diff={comparison.diff}
+              sourceLabel={comparison.sourceLabel}
+              targetLabel={comparison.targetLabel}
               onReviewChangeset={onReviewChangeset}
+              onApplied={() => compare.mutate()}
             />
           ) : (
             <DiffView
-              diff={compare.data}
-              sourceLabel={sideLabel(source)}
-              targetLabel={sideLabel(target)}
+              diff={comparison.diff}
+              sourceLabel={comparison.sourceLabel}
+              targetLabel={comparison.targetLabel}
               onReviewChangeset={onReviewChangeset}
+              onApplied={() => compare.mutate()}
             />
           )
         ) : null}
@@ -586,11 +578,14 @@ function DiffView({
   sourceLabel,
   targetLabel,
   onReviewChangeset,
+  onApplied,
 }: {
   diff: Diff;
   sourceLabel: string;
   targetLabel: string;
   onReviewChangeset: () => void;
+  /** A change was applied from here, so the comparison is out of date. */
+  onApplied?: () => void;
 }) {
   const [kinds, setKinds] = useState<Set<DiffKind>>(new Set());
   const [dn, setDn] = useState("");
@@ -599,7 +594,6 @@ function DiffView({
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [chosen, setChosen] = useState<Set<number>>(new Set());
   const [deletions, setDeletions] = useState<Set<number>>(new Set());
-  const [staged, setStaged] = useState<number | null>(null);
 
   const visible = useMemo(() => filterItems(diff.items, { kinds, dn, attribute }), [diff.items, kinds, dn, attribute]);
   const pages = Math.max(1, Math.ceil(visible.length / PAGE));
@@ -716,37 +710,27 @@ function DiffView({
         <Button size="sm" variant="ghost" onClick={() => (setChosen(new Set()), setDeletions(new Set()))}>
           Clear
         </Button>
-        <Button
-          size="sm"
-          className="ml-auto"
-          disabled={changes.length === 0}
-          onClick={() => {
-            diff.items.forEach((item, index) => {
-              if (!selectable(item)) return;
+        <div className="ml-auto">
+          <ReviewActions
+            changes={diff.items.flatMap((item, index) => {
+              if (!selectable(item)) return [];
               const included = item.candidate?.destructive ? deletions.has(index) : chosen.has(index);
-              if (!included) return;
-              for (const change of item.candidate?.changes ?? []) {
-                changeset.add(change, `${KIND_LOOK[item.kind].label.toLowerCase()} ${itemDn(item)}`);
-              }
-            });
-            setStaged(changes.length);
-            setChosen(new Set());
-            setDeletions(new Set());
-          }}
-        >
-          <ListChecks />
-          Stage into changeset
-        </Button>
-      </div>
-      {staged !== null ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-          {staged} change{staged === 1 ? "" : "s"} staged. They are planned against the directory, and reviewed,
-          before anything is applied.
-          <Button size="sm" variant="outline" onClick={onReviewChangeset}>
-            Review the changeset
-          </Button>
+              if (!included) return [];
+              return (item.candidate?.changes ?? []).map((change) => ({
+                change,
+                label: `${KIND_LOOK[item.kind].label.toLowerCase()} ${itemDn(item)}`,
+              }));
+            })}
+            onReviewChangeset={onReviewChangeset}
+            onApplied={onApplied}
+            onStaged={() => {
+              setChosen(new Set());
+              setDeletions(new Set());
+            }}
+            destructive={deletions.size > 0}
+          />
         </div>
-      ) : null}
+      </div>
 
       <ol className="divide-y rounded-md border">
         {shown.length === 0 ? (

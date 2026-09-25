@@ -42,6 +42,7 @@ import { ObjectListPanel } from "@/features/objects";
 import { OverviewPanel } from "@/features/overview";
 import { isDirectoryView, type AppSearch, type AppView } from "@/lib/route";
 import { useChangeset } from "@/lib/changeset";
+import { bench } from "@/lib/snapshot-bench";
 import { SourceLink } from "@/components/source-link";
 import { safeText } from "@/lib/display";
 
@@ -312,6 +313,9 @@ function TopBar({
     await api.DELETE("/session");
     await queryClient.invalidateQueries();
     queryClient.setQueryData(["session"], { connected: false });
+    // Snapshot documents describe the server just left, and the next session
+    // in this tab may be a different operator on a different directory.
+    bench.clear();
   };
 
   const staged = useChangeset();
