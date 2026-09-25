@@ -113,11 +113,21 @@ export function ConfigDiffView({
     );
   }
 
-  const settingChanges = stageableChanges(config, selected).map(({ item, change }) => ({
+  // Applying from here re-runs the comparison, and what was applied is no
+  // longer in it. A selection that outlived its row would keep the action bar
+  // open over nothing, so the selection is read against what is on the screen.
+  const present = new Set(config.items.map((item) => item.id));
+  const presentObjects = new Set(config.objects.map((object) => object.id));
+  const keep = (ids: Set<string>, within: Set<string>) => new Set([...ids].filter((id) => within.has(id)));
+  const chosenSettings = keep(selected, present);
+  const chosenObjects = keep(objects, presentObjects);
+  const chosenRemovals = keep(removals, presentObjects);
+
+  const settingChanges = stageableChanges(config, chosenSettings).map(({ item, change }) => ({
     change,
     label: `config ${item.key} on ${item.dn ?? ""}`,
   }));
-  const objectChanges = stageableObjects(config, objects, removals).map(({ object, change }) => ({
+  const objectChanges = stageableObjects(config, chosenObjects, chosenRemovals).map(({ object, change }) => ({
     change,
     label: `${object.destructive ? "remove" : "create"} ${object.object} ${object.name}`,
   }));
@@ -252,16 +262,16 @@ export function ConfigDiffView({
         </div>
       ) : null}
 
-      {selected.size > 0 || objects.size > 0 || removals.size > 0 ? (
+      {chosenSettings.size > 0 || chosenObjects.size > 0 || chosenRemovals.size > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-          {chosenChanges.length} change{chosenChanges.length === 1 ? "" : "s"} from {selected.size} setting
-          {selected.size === 1 ? "" : "s"} and {objects.size + removals.size} object
-          {objects.size + removals.size === 1 ? "" : "s"}
+          {chosenChanges.length} change{chosenChanges.length === 1 ? "" : "s"} from {chosenSettings.size} setting
+          {chosenSettings.size === 1 ? "" : "s"} and {chosenObjects.size + chosenRemovals.size} object
+          {chosenObjects.size + chosenRemovals.size === 1 ? "" : "s"}
           <ReviewActions
             changes={chosenChanges}
             onReviewChangeset={onReviewChangeset}
             onApplied={onApplied}
-            destructive={removals.size > 0}
+            destructive={chosenRemovals.size > 0}
           />
         </div>
       ) : null}
