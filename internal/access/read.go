@@ -132,16 +132,38 @@ func readOlcAccess(ctx context.Context, r Reader, target dn.DN) ([]Rule, []Unrea
 
 	req := directory.SearchRequest{
 		BaseDN: base,
-		Scope:  directory.ScopeOneLevel,
+		// A subtree search, not one level: rules live on the database entry,
+		// and they can also live on an entry beneath it -- an overlay's own.
+		// A one-level search found the first and dropped the second without
+		// saying so, which is the answer this whole feature exists not to
+		// give.
+		Scope:  directory.ScopeSubtree,
 		Filter: filter.Present("olcAccess"),
 		// The rule's suffix decides which database's rules bear on the entry,
 		// and the naming attribute says which database it is.
 		Attributes: []string{"olcAccess", "olcSuffix", "olcDatabase"},
-		Limit:      200,
+		Limit:      500,
 	}
 	res, err := r.Search(ctx, req)
 	if err != nil {
 		return nil, []Unread{{Where: root, Reason: "the configuration tree could not be searched for access rules"}}
+	}
+	var unread []Unread
+	if res.Truncated {
+		unread = append(unread, Unread{Where: root,
+			Reason: "there are more entries carrying access rules than one search returns, so this is not the whole list"})
+	}
+
+	// The databases whose suffix holds this entry. Their rules are the entry's,
+	// and so are the rules on anything beneath them.
+	covering := map[string]bool{}
+	for _, entry := range res.Entries {
+		for _, suffix := range entry.GetStrings("olcSuffix") {
+			if dnUnder(target.String(), suffix) {
+				covering[strings.ToLower(entry.DN.String())] = true
+				break
+			}
+		}
 	}
 
 	type source struct {
@@ -155,30 +177,30 @@ func readOlcAccess(ctx context.Context, r Reader, target dn.DN) ([]Rule, []Unrea
 		if len(values) == 0 {
 			continue
 		}
+		at := strings.ToLower(entry.DN.String())
 		name := strings.ToLower(entry.GetOne("olcDatabase"))
-		suffixes := entry.GetStrings("olcSuffix")
+		under := false
+		for db := range covering {
+			if at != db && dnUnder(at, db) {
+				under = true
+				break
+			}
+		}
 		switch {
-		case len(suffixes) > 0:
+		case covering[at]:
 			// A database's rules bear on the entries it holds, and on nothing
 			// else. A database whose suffix is elsewhere is not this entry's.
-			covers := false
-			for _, suffix := range suffixes {
-				if dnUnder(target.String(), suffix) {
-					covers = true
-					break
-				}
-			}
-			if !covers {
-				continue
-			}
 			sources = append(sources, source{dn: entry.DN.String(), order: 0, rules: values})
+		case under:
+			// An overlay on that database, which has rules of its own.
+			sources = append(sources, source{dn: entry.DN.String(), order: 1, rules: values})
 		case strings.Contains(name, "frontend"):
 			// The frontend's rules are consulted after the database's, so
 			// they are reported after them.
-			sources = append(sources, source{dn: entry.DN.String(), order: 1, rules: values})
+			sources = append(sources, source{dn: entry.DN.String(), order: 2, rules: values})
 		default:
-			// The configuration database's own rules, or another database with
-			// no suffix: they do not bear on a data entry.
+			// The configuration database's own rules, or another database's:
+			// they do not bear on this entry.
 			continue
 		}
 	}
@@ -200,5 +222,5 @@ func readOlcAccess(ctx context.Context, r Reader, target dn.DN) ([]Rule, []Unrea
 		})
 		rules = append(rules, parsed...)
 	}
-	return rules, nil
+	return rules, unread
 }

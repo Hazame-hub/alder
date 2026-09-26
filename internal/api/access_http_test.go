@@ -38,7 +38,13 @@ func accessRig(t *testing.T, style string) *testRig {
 		other := configEntry(t, "olcDatabase={2}mdb,cn=config",
 			"objectClass", "olcMdbConfig", "olcDatabase", "{2}mdb", "olcSuffix", "dc=other,dc=test")
 		other.Set("olcAccess", [][]byte{[]byte(`{0}to *  by * none`)})
-		entries = append(entries, db, other)
+		// An overlay on the database that holds the entry can carry rules of
+		// its own, two levels down. A one-level search found the database and
+		// dropped these without saying so.
+		overlay := configEntry(t, "olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config",
+			"objectClass", "olcOverlayConfig", "olcOverlay", "{0}memberof")
+		overlay.Set("olcAccess", [][]byte{[]byte(`{0}to attrs=memberOf  by * read`)})
+		entries = append(entries, db, other, overlay)
 	case "unreadableConfig":
 		caps.VendorName = "OpenLDAP"
 		caps.ConfigContext = "cn=config"
@@ -86,13 +92,19 @@ func TestAccessReportsACIsFromTheEntryAndAbove(t *testing.T) {
 
 func TestAccessReportsOlcAccessInServerOrder(t *testing.T) {
 	report := accessReport(t, accessRig(t, "olcAccess"))
-	if len(report.Rules) != 3 {
-		t.Fatalf("the database holding this entry has three rules, got %d: %+v", len(report.Rules), report.Rules)
+	if len(report.Rules) != 4 {
+		t.Fatalf("three rules on the database and one on its overlay, got %d: %+v", len(report.Rules), report.Rules)
 	}
-	for i, rule := range report.Rules {
+	for i, rule := range report.Rules[:3] {
 		if rule.Index == nil || *rule.Index != i {
 			t.Fatalf("rule %d is out of the server's order: %+v", i, rule)
 		}
+	}
+	// The overlay's rule is reported, after the database's and with its own
+	// source, because an operator cannot fix a rule they were never shown.
+	last := report.Rules[3]
+	if !strings.Contains(last.Source, "olcOverlay") {
+		t.Errorf("the overlay's own rule is missing: %+v", report.Rules)
 	}
 	// A rule about a subtree this entry is not in is reported, and reported as
 	// not bearing on it: what an operator needs is the whole ordered list with

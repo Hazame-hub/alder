@@ -2828,7 +2828,7 @@ components:
           items: { $ref: "#/components/schemas/AccessGrant" }
         applies:
           type: string
-          enum: [yes, maybe, no]
+          enum: ["yes", "maybe", "no"]
           x-enum-varnames: [AccessAppliesYes, AccessAppliesMaybe, AccessAppliesNo]
           description: |
             Whether the rule bears on the entry asked about. `maybe` is an
