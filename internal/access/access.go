@@ -113,12 +113,40 @@ type Rule struct {
 	Inherited bool `json:"inherited,omitempty"`
 }
 
+// Effective is the server's own answer about one identity on this entry,
+// where the server will answer at all.
+//
+// It outranks everything else in a report. The rules are what is written; this
+// is what the directory will do, computed by the code that will do it.
+type Effective struct {
+	// Subject is the identity asked about, empty for the session's own.
+	Subject string `json:"subject"`
+	// Entry is the entry-level answer in the server's letters, with the gloss
+	// beside it rather than instead of it.
+	Entry      string           `json:"entry"`
+	EntryWords []string         `json:"entryWords,omitempty"`
+	Attributes []AttributeRight `json:"attributes,omitempty"`
+}
+
+// AttributeRight is what the identity may do with one attribute.
+type AttributeRight struct {
+	Name   string   `json:"name"`
+	Rights string   `json:"rights"`
+	Words  []string `json:"words,omitempty"`
+}
+
 // Report is what bears on one entry.
 type Report struct {
 	DN string `json:"dn"`
 	// Styles found, in the order they were looked for.
 	Styles []string `json:"styles"`
 	Rules  []Rule   `json:"rules"`
+	// Effective is the server's own verdict, where it gave one.
+	Effective *Effective `json:"effective,omitempty"`
+	// RightsNote says why there is no verdict, in a person's words. A server
+	// that cannot answer and a server that declined are different facts, and
+	// neither is "no rights".
+	RightsNote string `json:"rightsNote,omitempty"`
 	// Unread says a place rules could live could not be read, so the answer is
 	// not the whole answer. The most common one by far: the configuration tree
 	// needs its own identity, and this session has none.

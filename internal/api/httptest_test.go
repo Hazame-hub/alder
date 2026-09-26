@@ -59,6 +59,12 @@ type fakeSession struct {
 	readErr   error
 	applyErr  error
 
+	// What the server answers for the Get Effective Rights control, for the
+	// sessions whose capabilities say it publishes one.
+	rights      *directory.EffectiveRights
+	rightsErr   error
+	rightsAsked string
+
 	// readDNs records what was asked for, in order.
 	readDNs []string
 
@@ -226,6 +232,22 @@ func (f *fakeSession) Apply(_ context.Context, ch directory.ChangeRecord) error 
 	}
 	f.applied = append(f.applied, ch)
 	return nil
+}
+
+// EffectiveRights answers the way a server that publishes the control does.
+// Whether it is asked at all is decided by the capability, exactly as in the
+// driver: a fake that answers regardless would hide the gate.
+func (f *fakeSession) EffectiveRights(_ context.Context, _ dn.DN, subject string) (*directory.EffectiveRights, error) {
+	f.rightsAsked = subject
+	if f.rightsErr != nil {
+		return nil, f.rightsErr
+	}
+	if f.rights == nil {
+		return nil, directory.ErrRightsUnanswered
+	}
+	out := *f.rights
+	out.Subject = subject
+	return &out, nil
 }
 
 func (f *fakeSession) Close() error { return nil }

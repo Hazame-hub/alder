@@ -324,6 +324,15 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.20 added to the access report, only by adding:
+
+- **`effective` and `rightsNote` on `AccessReport`**, and the `as` parameter on
+  `GET /access`: the server's own answer to what an identity may do, from the
+  Get Effective Rights control, where the server publishes it. A client that
+  ignores the new fields sees exactly what 1.19 returned.
+- **`effectiveRights` on the session capabilities**, true where the server
+  publishes that control.
+
 1.19 added one endpoint and changed nothing else:
 
 - **`GET /access?dn=`** reports the access control rules a server holds that

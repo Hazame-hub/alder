@@ -233,6 +233,10 @@ type Capabilities struct {
 	// passwords with it rather than writing a hash into userPassword, so the
 	// server applies its own policy and chooses its own scheme.
 	PasswordModify bool `json:"passwordModify"`
+	// EffectiveRights reports the Get Effective Rights control. Where a server
+	// offers it, "what may this identity do here" has an authoritative answer
+	// and Alder asks for it rather than leaving an operator to read rules.
+	EffectiveRights bool `json:"effectiveRights"`
 
 	// SchemaWrite says where a schema definition would have to be written, and
 	// whether this session can write it.
@@ -356,6 +360,11 @@ const (
 	OIDWhoAmI          = "1.3.6.1.4.1.4203.1.11.3"
 	OIDPasswordModify  = "1.3.6.1.4.1.4203.1.11.1"
 	OIDAllOpAttributes = "1.3.6.1.4.1.4203.1.5.1"
+	// OIDEffectiveRights is 389 Directory Server's Get Effective Rights
+	// control. A server that publishes it will answer what a named identity
+	// may do on an entry -- the directory's own verdict, which no amount of
+	// reading its access rules can be.
+	OIDEffectiveRights = "1.3.6.1.4.1.42.2.27.9.5.2"
 )
 
 // Has reports whether a string appears in a capability list, case-insensitively
@@ -378,6 +387,7 @@ func (c *Capabilities) Derive() {
 	c.WhoAmI = has(c.SupportedExtensions, OIDWhoAmI)
 	c.AllOperional = has(c.SupportedExtensions, OIDAllOpAttributes)
 	c.PasswordModify = has(c.SupportedExtensions, OIDPasswordModify)
+	c.EffectiveRights = has(c.SupportedControls, OIDEffectiveRights)
 }
 
 // Scope is the search scope of RFC 4511 section 4.5.1.2.

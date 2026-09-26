@@ -380,7 +380,10 @@ nothing, rather than producing a thousand differences that are artefacts of the
 comparison. Alder also reads the access control rules a server holds and shows
 which of them bear on an entry -- `aci` attributes up the tree, `olcAccess` in
 the configuration tree -- in the server's own order and its own words; it never
-writes them and never claims to evaluate them. A comparison also lists the
+writes them and never claims to evaluate them. Where a server answers the real
+question itself -- 389 Directory Server publishes the Get Effective Rights
+control -- Alder asks it, and shows the directory's own verdict above the
+rules. A comparison also lists the
 configuration objects each side has --
 databases, overlays, backends, plugins -- and Alder creates and removes one
 kind of them: an OpenLDAP overlay whose module the server has already loaded.

@@ -28,7 +28,7 @@ func accessFor(t *testing.T, sess directory.Session, target string) *access.Repo
 	if err != nil {
 		t.Fatalf("dn %q: %v", target, err)
 	}
-	report, err := access.For(ctx(t), sess, parsed)
+	report, err := access.For(ctx(t), sess, parsed, access.Options{})
 	if err != nil {
 		t.Fatalf("reading access rules for %s: %v", target, err)
 	}
@@ -128,6 +128,66 @@ func TestAccessSeparatesWhatBearsOnAnEntryFromWhatDoesNot(t *testing.T) {
 		if !hit {
 			t.Errorf("%s: the rule about ou=services does not bear on an entry inside it", s.name)
 		}
+	})
+}
+
+// 1.20: where a server answers what an identity may do, Alder asks it.
+//
+// This is the proof that matters most in the whole access feature, and it is
+// only possible against a real server: the harness's acis take alderTeam and
+// userPassword away from svc-alder, and the server's own effective-rights
+// answer says exactly that. The rules said it; the directory confirms it.
+func TestEffectiveRightsAreTheServersOwnAnswer(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		target := "uid=user0002,ou=people," + suffix
+		parsed, err := dn.Parse(target)
+		if err != nil {
+			t.Fatalf("dn: %v", err)
+		}
+		svc := "cn=svc-alder,ou=services," + suffix
+		report, err := access.For(ctx(t), sess, parsed, access.Options{Subject: svc})
+		if err != nil {
+			t.Fatalf("reading access for %s: %v", target, err)
+		}
+
+		if !sess.Capabilities().EffectiveRights {
+			// OpenLDAP has no equivalent control, and the report must say so
+			// rather than leave the rules looking like a verdict.
+			if report.Effective != nil {
+				t.Errorf("%s: a verdict from a server that cannot give one: %+v", s.name, report.Effective)
+			}
+			if report.RightsNote == "" {
+				t.Errorf("%s: no verdict and no reason", s.name)
+			}
+			return
+		}
+
+		if report.Effective == nil {
+			t.Fatalf("%s: the server publishes the control and gave no answer (%s)", s.name, report.RightsNote)
+		}
+		rights := report.Effective
+		if rights.Subject != svc {
+			t.Errorf("answered about %q, asked about %q", rights.Subject, svc)
+		}
+		if rights.Entry == "" {
+			t.Error("no entry-level answer")
+		}
+		byName := map[string]string{}
+		for _, a := range rights.Attributes {
+			byName[strings.ToLower(a.Name)] = a.Rights
+		}
+		// What the harness's acis take away, confirmed by the server itself.
+		for _, denied := range []string{"alderteam", "userpassword"} {
+			if got, ok := byName[denied]; !ok || got != "none" {
+				t.Errorf("%s: the acis deny %s to svc-alder and the server answers %q (present=%v)",
+					s.name, denied, got, ok)
+			}
+		}
+		// And what they leave alone.
+		if got := byName["cn"]; got == "" || got == "none" {
+			t.Errorf("%s: cn should be readable by svc-alder, server says %q", s.name, got)
+		}
+		t.Logf("%s: entry %q, %d attributes answered", s.name, rights.Entry, len(rights.Attributes))
 	})
 }
 

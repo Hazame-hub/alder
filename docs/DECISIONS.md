@@ -2996,3 +2996,40 @@ against an entry.
   this bind do here" from the server itself; OpenLDAP has no equivalent. Asking
   a server that can answer is worth doing, and it is a different feature from
   reading the rules: one is the directory's verdict, the other is the text.
+
+## 2026-09-26 — 1.20: asking the server what an identity may do
+
+1.19 read the rules. This asks the directory.
+
+- **Where a server answers the question, Alder asks it rather than reasoning.**
+  389 Directory Server publishes the Get Effective Rights control; the answer
+  is computed by the same code that will refuse the operation, which no amount
+  of rule reading can be. It sits above the rules in the report and is marked
+  as the server's.
+- **The control value is the authorization identity as text, not a BER
+  structure around it.** Both readings of the specification were tried against
+  the harness: the plain form answers, the wrapped form makes 389 DS reply with
+  a numeric code in place of the rights. The kind of thing only a real server
+  tells you, and the reason the harness exists.
+- **Never critical.** A server that publishes the control and declines this
+  request should still return the entry; the rights are an addition to the
+  answer, not the answer.
+- **The letters are kept beside the gloss.** `v`, `rsc`, `none` are what the
+  server said. A letter this release has never seen is shown as it came rather
+  than dropped: a right nobody here recognises still exists on the server.
+- **Three different silences, three different notes.** A server that cannot
+  answer, a server that declined, and a question that failed are distinct
+  facts, and none of them is "no rights". Turning any of them into a verdict is
+  the failure this whole feature is written to avoid.
+- **An optional interface, not a new method on Session.** A driver that cannot
+  ask should not have to pretend it can, so `internal/access` type-asserts for
+  it and the report says which it got. Section 6's `Driver` and `Session` are
+  untouched.
+- **The default subject is the session's own bind.** "Why can't I write this?"
+  is asked about oneself; `as=` is the administrator's version, and whether it
+  is allowed is the server's decision, reported as the server's.
+- **Proved by contradiction on the harness.** The acis take `alderTeam` and
+  `userPassword` away from svc-alder, and the server's own answer says `none`
+  for exactly those two among 61 attributes. The rules said it; the directory
+  confirms it. On OpenLDAP the same test asserts the honest absence of a
+  verdict.

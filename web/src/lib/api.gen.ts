@@ -1336,6 +1336,13 @@ export interface components {
              */
             passwordModify?: boolean;
             /**
+             * @description The Get Effective Rights control (1.20). Where a server offers it,
+             *     "what may this identity do on this entry" has an authoritative
+             *     answer from the directory itself, and the access report carries it
+             *     beside the rules. Only 389 Directory Server publishes it today.
+             */
+            effectiveRights?: boolean;
+            /**
              * @description The DN of the server's own configuration tree, when it publishes
              *     one. Its presence is how Alder knows the subschema subentry is a
              *     generated view rather than the schema itself.
@@ -2076,11 +2083,41 @@ export interface components {
              *     identity.
              */
             unread?: components["schemas"]["AccessUnread"][];
+            effective?: components["schemas"]["EffectiveRights"];
+            /**
+             * @description Why there is no verdict from the server: it cannot answer that
+             *     question, or it declined this one. Neither is "no rights".
+             */
+            rightsNote?: string;
             /**
              * @description One sentence saying what the report is and is not, so every surface
              *     says the same thing.
              */
             disclaimer: string;
+        };
+        /**
+         * @description What the server itself says an identity may do on this entry, from the
+         *     Get Effective Rights control (1.19 reads rules; this is the directory's
+         *     own verdict, added in 1.20). It outranks the rules: the rules are what
+         *     is written, this is what the server will do.
+         */
+        EffectiveRights: {
+            /** @description The identity asked about; empty means the session's own. */
+            subject: string;
+            /**
+             * @description The entry-level answer in the server's own letters, such as `v` or
+             *     `vadn`. The letters are kept because they are what the server said.
+             */
+            entry: string;
+            /** @description Those letters glossed, in the order the server gave them. */
+            entryWords?: string[];
+            attributes?: components["schemas"]["EffectiveAttributeRight"][];
+        };
+        EffectiveAttributeRight: {
+            name: string;
+            /** @description As the server wrote them: `rsc`, `rscwo`, `none`. */
+            rights: string;
+            words?: string[];
         };
         AccessRule: {
             /** @description `aci` or `olcAccess`. */
@@ -4811,6 +4848,15 @@ export interface operations {
         parameters: {
             query: {
                 dn: string;
+                /**
+                 * @description The identity to ask the server about, where the server answers
+                 *     that question at all. The default is the one this session is bound
+                 *     as, which is the common case: "why can't I write this?" is asked
+                 *     about oneself. Asking about another identity is the server's
+                 *     decision, and a server that declines is reported as declining --
+                 *     which is not the same as an answer of no rights.
+                 */
+                as?: string;
             };
             header?: never;
             path?: never;
