@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.20.0](https://github.com/Hazame-hub/alder/compare/v1.19.0...v1.20.0) (2026-09-26)
+
+
+### Features
+
+* the session reports whether the server can be asked that question at all, so a screen never presents the absence of an answer as an answer ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
+* where a server answers what an identity may do -- 389 Directory Server publishes the Get Effective Rights control -- Alder asks it, and the access report carries the directory's own verdict above the rules it reads ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
+
+
+### Fixes
+
+* a server that cannot answer, one that declined the question, and a question that failed are reported as three different facts, none of them as "no rights" ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
+
+
+### Documentation
+
+* document the server's verdict, why the letters are kept beside the gloss, and why Alder still does not evaluate a rule itself ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
+
 ## [1.19.0](https://github.com/Hazame-hub/alder/compare/v1.18.0...v1.19.0) (2026-09-26)
 
 
