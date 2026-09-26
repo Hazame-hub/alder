@@ -25,6 +25,7 @@ import {
   itemDn,
   nonDestructive,
   selectable,
+  selectedChangeItems,
   selectedChanges,
   type DiffItem,
   type DiffKind,
@@ -788,15 +789,10 @@ function DiffView({
         </Button>
         <div className="ml-auto">
           <ReviewActions
-            changes={diff.items.flatMap((item, index) => {
-              if (!selectable(item)) return [];
-              const included = item.candidate?.destructive ? deletions.has(index) : chosen.has(index);
-              if (!included) return [];
-              return (item.candidate?.changes ?? []).map((change) => ({
-                change,
-                label: `${KIND_LOOK[item.kind].label.toLowerCase()} ${itemDn(item)}`,
-              }));
-            })}
+            changes={selectedChangeItems(diff.items, chosen, deletions).map(({ item, change }) => ({
+              change,
+              label: `${KIND_LOOK[item.kind].label.toLowerCase()} ${itemDn(item)}`,
+            }))}
             onReviewChangeset={onReviewChangeset}
             onApplied={onApplied}
             onStaged={() => {
