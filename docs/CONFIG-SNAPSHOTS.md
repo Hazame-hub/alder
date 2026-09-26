@@ -354,10 +354,24 @@ summarised from the document itself; comparing is where it is decoded strictly
 and its checksum checked.
 
 The comparison view filters by text, section and kind of difference, and has
-"Only what Alder can change" and "Hide withheld". Only a `writable` row can be
-selected; selected rows stage into the changeset and go to the review screen
-like any other change. A provider mismatch replaces the whole list with the two
-summaries and an explanation.
+"Only what Alder can change" -- which hides the objects Alder cannot act on as
+well as the settings -- and "Hide withheld". The count of what Alder can change
+includes the objects it can create or remove, not settings alone. Only a
+`writable` row can be selected. A provider mismatch replaces the whole list with
+the two summaries and an explanation.
+
+**Review N changes** takes the selection to a review: one change opens the same
+dialog an edit does anywhere else in Alder -- planned, shown as the server's own
+LDIF and the Ansible task, applied from there -- and several go to the changeset,
+to be read as one document and applied in order. **Add to changeset** stages
+without leaving, for a selection built from more than one comparison. Either
+way the change is planned against the directory and seen before it is applied;
+applying from the dialog re-runs the comparison, so what is left is what still
+differs.
+
+The documents loaded and the comparison made last as long as the browser tab
+does: going to the changeset and coming back finds them still here. They are
+dropped on Disconnect, and never written to browser storage.
 
 ---
 

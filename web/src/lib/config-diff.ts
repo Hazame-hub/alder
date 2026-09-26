@@ -73,6 +73,33 @@ export function changedObjects(diff: ConfigDiff): ConfigDiffObject[] {
 }
 
 /**
+ * What the comparison offers to change, settings and objects together.
+ *
+ * The server counts settings, because that is what it compared setting by
+ * setting. Counting only those made a comparison whose one actionable
+ * difference was an overlay read "0 Alder can change" directly above a row
+ * offering to create it, which is how an operator decides there is nothing
+ * here for them.
+ */
+export function actionableCount(diff: ConfigDiff): { settings: number; objects: number; total: number } {
+  const objects = actionableObjects(diff).length;
+  return { settings: diff.counts.actionable, objects, total: diff.counts.actionable + objects };
+}
+
+/** The differing objects Alder could create or remove. */
+export function actionableObjects(diff: ConfigDiff): ConfigDiffObject[] {
+  return changedObjects(diff).filter((object) => object.actionable === "writable");
+}
+
+/**
+ * The objects to show. "Only what Alder can change" is about what Alder can
+ * act on, so it hides the objects it cannot act on as well as the settings.
+ */
+export function visibleObjects(diff: ConfigDiff, actionableOnly: boolean): ConfigDiffObject[] {
+  return actionableOnly ? actionableObjects(diff) : changedObjects(diff);
+}
+
+/**
  * The changes for the objects selected, in the order the comparison gave.
  *
  * A removal is included only when it was selected as a removal: selecting

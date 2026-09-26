@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, ListChecks } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import type { components } from "@/lib/api.gen";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui";
-import { changeset } from "@/lib/changeset";
+import { ReviewActions } from "@/components/review-actions";
 import { safeText } from "@/lib/display";
 import {
   filterSchemaItems,
@@ -68,11 +68,14 @@ export function SchemaDiffView({
   sourceLabel,
   targetLabel,
   onReviewChangeset,
+  onApplied,
 }: {
   diff: Diff;
   sourceLabel: string;
   targetLabel: string;
   onReviewChangeset: () => void;
+  /** A change was applied from here, so the comparison is out of date. */
+  onApplied?: () => void;
 }) {
   const schema = diff.schema;
   const [text, setText] = useState("");
@@ -83,7 +86,6 @@ export function SchemaDiffView({
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [deletions, setDeletions] = useState<Set<string>>(new Set());
-  const [staged, setStaged] = useState<number | null>(null);
 
   const items = useMemo(() => schema?.items ?? [], [schema]);
   const visible = useMemo(
@@ -248,23 +250,25 @@ export function SchemaDiffView({
         <Button size="sm" variant="ghost" onClick={() => (setChosen(new Set()), setDeletions(new Set()))}>
           Clear
         </Button>
-        <Button
-          size="sm"
-          className="ml-auto"
-          disabled={changeCount === 0 || missing.length > 0 || unplaced.length > 0}
-          onClick={() => {
-            for (const { item, changes } of ordered) {
-              const label = `${SCHEMA_KIND_LOOK[item.kind].label.toLowerCase()} ${ELEMENT_LABEL[item.element]} ${safeText(schemaItemLabel(item))}`;
-              for (const c of changes) changeset.add(c, label);
-            }
-            setStaged(changeCount);
-            setChosen(new Set());
-            setDeletions(new Set());
-          }}
-        >
-          <ListChecks />
-          Stage into changeset
-        </Button>
+        <div className="ml-auto">
+          <ReviewActions
+            changes={ordered.flatMap(({ item, changes }) =>
+              changes.map((change) => ({
+                change,
+                label: `${SCHEMA_KIND_LOOK[item.kind].label.toLowerCase()} ${ELEMENT_LABEL[item.element]} ${safeText(schemaItemLabel(item))}`,
+              })),
+            )}
+            onReviewChangeset={onReviewChangeset}
+            onApplied={onApplied}
+            onStaged={() => {
+              setChosen(new Set());
+              setDeletions(new Set());
+            }}
+            destructive={deletions.size > 0}
+            disabled={missing.length > 0 || unplaced.length > 0}
+            stagedNote="In dependency order."
+          />
+        </div>
       </div>
       {missing.length > 0 ? (
         <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning-tint-foreground">
@@ -285,16 +289,6 @@ export function SchemaDiffView({
           The comparison gave no order for {unplaced.map(nameOf).join(", ")}, so nothing can be staged.
         </p>
       ) : null}
-      {staged !== null ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-          {staged} change{staged === 1 ? "" : "s"} staged in dependency order. They are planned against the directory,
-          and reviewed, before anything is applied.
-          <Button size="sm" variant="outline" onClick={onReviewChangeset}>
-            Review the changeset
-          </Button>
-        </div>
-      ) : null}
-
       <ol className="divide-y rounded-md border">
         {shown.length === 0 ? <li className="p-3 text-sm text-muted-foreground">No differences match.</li> : null}
         {shown.map((index) => (

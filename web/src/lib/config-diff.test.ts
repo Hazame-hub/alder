@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  actionableCount,
   changedObjects,
   filterConfigItems,
   objectRefusal,
   stageableChanges,
   stageableObjects,
   valueText,
+  visibleObjects,
   type ConfigDiff,
   type ConfigDiffItem,
 } from "./config-diff";
@@ -135,5 +137,21 @@ describe("configuration objects", () => {
   it("says why an object cannot be acted on", () => {
     expect(objectRefusal(database)).toContain("does not create or remove");
     expect(objectRefusal(overlay)).toBe("");
+  });
+
+  it("counts an object Alder can act on as something Alder can change", () => {
+    // The server counts settings; a comparison whose only actionable
+    // difference is an overlay would otherwise say "0 Alder can change" above
+    // a row offering to create it.
+    expect(actionableCount(diff)).toEqual({ settings: 1, objects: 0, total: 1 });
+    expect(actionableCount(withObjects)).toEqual({ settings: 1, objects: 2, total: 3 });
+
+    const settingsOnly: ConfigDiff = { ...withObjects, counts: { ...withObjects.counts, actionable: 0 } };
+    expect(actionableCount(settingsOnly).total).toBe(2);
+  });
+
+  it("hides the objects it cannot act on when only actionable ones are wanted", () => {
+    expect(visibleObjects(withObjects, false).map((o) => o.id)).toEqual([overlay.id, ppolicy.id, database.id]);
+    expect(visibleObjects(withObjects, true).map((o) => o.id)).toEqual([overlay.id, ppolicy.id]);
   });
 });
