@@ -79,8 +79,14 @@ OpenLDAP keeps an ordered list on the database entry inside `cn=config`:
 
 The order *is* the mechanism — the server stops at the first match — so the
 index is always reported and the rules are never sorted into something tidier.
-Only the rules of the database whose suffix holds the entry are shown, followed
-by the frontend's, which the server consults after them.
+What is shown is the rules of the database whose suffix holds the entry, then
+the rules of anything beneath it that carries some -- an overlay's own -- then
+the frontend's, which the server consults after the database's. Another
+database's rules are not this entry's and are left out. Each rule says which
+entry it is written on, so a rule an operator has to change can be found.
+
+If there are more entries carrying rules than one search returns, the report
+says so rather than presenting a short list as the whole one.
 
 Reading them needs an identity that may read the configuration tree. A session
 without one gets a report that **says the tree could not be read**, rather than
