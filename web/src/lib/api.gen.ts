@@ -669,6 +669,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/config/entry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the configuration model says about one entry
+         * @description Answers, for one entry of the server's own configuration, what the
+         *     provider's model states about each of its attributes: writable,
+         *     read-only or unknown, whether the server said it takes effect only
+         *     after a restart, and whether its value is one a capture withholds.
+         *     Introduced in Alder 1.18.
+         *
+         *     It is the same model, read the same way, that a configuration capture
+         *     and a configuration comparison use -- so an editor and a comparison
+         *     cannot disagree about a setting. Reading it reads the configuration
+         *     tree, because the answer depends on the tree: which settings need a
+         *     restart is what the server says about itself, which plugins it can run
+         *     without is read from its plugin entries, and an overlay is named after
+         *     the database above it.
+         *
+         *     It is not a statement about this session's rights. What a bind may
+         *     write is the directory's answer, given when a change is applied.
+         *
+         *     A DN outside the configuration tree, or one the model reads as
+         *     something else -- the schema, a task, a monitor -- is `404`.
+         */
+        get: operations["getConfigEntryModel"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/snapshots/capture": {
         parameters: {
             query?: never;
@@ -704,8 +742,12 @@ export interface paths {
          *     Attribute types and object classes are captured for comparison; LDAP
          *     syntaxes, matching rules, matching rule uses, DIT content rules and name
          *     forms as context. A definition that does not parse is kept verbatim and
-         *     makes the snapshot `partial`. Server configuration is never captured, and
-         *     there is no `kind: config`.
+         *     makes the snapshot `partial`.
+         *
+         *     With `kind: config` (1.13) the server's own configuration is captured
+         *     instead, as that server's software arranges it. Secrets are counted and
+         *     never recorded, runtime state is left out, and the schema keeps its own
+         *     kind. See `docs/CONFIG-SNAPSHOTS.md`.
          *
          *     Nothing is kept on the server. The snapshot is returned and belongs to
          *     the caller.
@@ -1968,6 +2010,40 @@ export interface components {
             resources: components["schemas"]["ConfigResource"][];
             settings: components["schemas"]["ConfigSetting"][];
             checksum?: string;
+        };
+        /**
+         * @description What a provider's configuration model says about one entry of the
+         *     server's own configuration.
+         */
+        ConfigEntryModel: {
+            dn: string;
+            provider: components["schemas"]["ConfigProvider"];
+            resource: components["schemas"]["ConfigResource"];
+            attributes: components["schemas"]["ConfigAttributeModel"][];
+            /**
+             * @description The configuration tree could not be read in full, so the resource
+             *     this entry belongs to was named from less than the whole picture.
+             */
+            incomplete?: boolean;
+        };
+        /** @description What the model says about one attribute of one entry. */
+        ConfigAttributeModel: {
+            name: string;
+            section: string;
+            mutability: components["schemas"]["ConfigMutability"];
+            /**
+             * @description The server named this setting as one that takes effect only at its
+             *     next start, which is why the model calls it read-only: a change
+             *     that does nothing until a restart is not a change Alder makes.
+             */
+            restartRequired?: boolean;
+            /** @description A value a capture withholds, counting it rather than recording it. */
+            sensitive?: boolean;
+            /**
+             * @description Not configuration at all: runtime state, or an attribute the
+             *     directory maintains.
+             */
+            excluded?: boolean;
         };
         /**
          * @description The configuration model a snapshot belongs to. Configuration is
@@ -4598,6 +4674,32 @@ export interface operations {
             };
         };
     };
+    getConfigEntryModel: {
+        parameters: {
+            query: {
+                dn: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the model says about that entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigEntryModel"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     captureSnapshot: {
         parameters: {
             query?: never;
@@ -4617,7 +4719,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Snapshot"] | components["schemas"]["SchemaSnapshot"];
+                    "application/json": components["schemas"]["Snapshot"] | components["schemas"]["SchemaSnapshot"] | components["schemas"]["ConfigSnapshot"];
                 };
             };
             400: components["responses"]["BadRequest"];

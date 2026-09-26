@@ -61,7 +61,7 @@ import { ExpandMembersButton } from "@/features/members";
 import { CompareButton } from "@/features/compare";
 import { DeleteSubtreeButton } from "@/features/delete-subtree";
 import { configPlace, inConfigTree } from "@/lib/config-tree";
-import { AddAttribute, AttributeEditor } from "@/components/attribute-editor";
+import { AddAttribute, AttributeEditor, type ConfigMark } from "@/components/attribute-editor";
 import { computeMods, snapshot, type Draft } from "@/lib/mods";
 import { CreateEntryDialog } from "@/features/create-entry";
 import { CopyButton, LdifBlock } from "@/components/ldif-block";
@@ -900,6 +900,30 @@ function EntryEditor({
     );
   }, [queryClient, entry.dn]);
 
+  // What the configuration model says about this entry, when it is one of the
+  // server's own. The editor marks its fields from it and blocks nothing: the
+  // model states what Alder changes, and the directory decides what it takes.
+  const inConfig = inConfigTree(queryClient.getQueryData<SessionInfo>(["session"]), entry.dn);
+  const configModel = useQuery({
+    queryKey: ["config-entry", entry.dn],
+    enabled: inConfig,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => unwrap(await api.GET("/config/entry", { params: { query: { dn: entry.dn } } })),
+  });
+  const configMarks = useMemo(() => {
+    const marks = new Map<string, ConfigMark>();
+    for (const a of configModel.data?.attributes ?? []) {
+      marks.set(a.name.toLowerCase(), {
+        mutability: a.mutability,
+        restartRequired: a.restartRequired === true,
+        excluded: a.excluded === true,
+      });
+    }
+    return marks;
+  }, [configModel.data]);
+  const markFor = (name: string) => configMarks.get(name.toLowerCase());
+
   const [original] = useState<Draft>(() => snapshot(entry.attributes));
   const [draft, setDraft] = useState<Draft>(() => snapshot(entry.attributes));
   const [added, setAdded] = useState<string[]>([]);
@@ -990,14 +1014,15 @@ function EntryEditor({
         Editing. Nothing is sent until you review the LDIF and confirm it.
       </div>
 
-      {inConfigTree(queryClient.getQueryData<SessionInfo>(["session"]), entry.dn) ? (
+      {inConfig ? (
         <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
           This is the server's own configuration, not directory data. Every attribute the object
           classes permit is offered here and the server decides what it accepts — some settings
           take effect immediately, some only at the next start, and some are accepted and then
           stop the server from starting. Which ones Alder has proved it can write, and which need
-          a restart, is what <span className="font-medium">Snapshots &amp; drift → Configuration</span>{" "}
-          answers.
+          a restart, is marked on the fields below, and{" "}
+          <span className="font-medium">Snapshots &amp; drift → Configuration</span> is where a
+          difference from a capture becomes a change.
         </div>
       ) : null}
 
@@ -1019,6 +1044,7 @@ function EntryEditor({
             values={draft[attr.name] ?? []}
             pickerBase={pickerBase}
             distinctiveDescs={distinctiveDescs}
+            configMark={markFor(attr.name)}
             onChange={(values) => setDraft((d) => ({ ...d, [attr.name]: values }))}
           />
         ))}
@@ -1038,6 +1064,7 @@ function EntryEditor({
             values={draft[name] ?? [""]}
             pickerBase={pickerBase}
             distinctiveDescs={distinctiveDescs}
+            configMark={markFor(name)}
             isNew
             onRemove={() => {
               setAdded((a) => a.filter((n) => n !== name));

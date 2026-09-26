@@ -418,6 +418,35 @@ disabling its own `ldbm database` plugin without complaint and then fails to
 start, which is why this is decided before the write rather than left to it.
 Switching a plugin takes effect when the server restarts.
 
+## In the entry editor (1.18)
+
+An entry of the server's own configuration can be opened in the ordinary entry
+editor, and until 1.18 it looked like any other entry: forty identical fields,
+with nothing to say which of them Alder changes, which take effect only at the
+next start, and which the directory maintains.
+
+`GET /config/entry?dn=` answers that, from the same model a capture and a
+comparison read -- over the same tree, so the two cannot disagree on screen.
+Each field is marked:
+
+| Mark | Meaning |
+|---|---|
+| **Alder changes this** | The round-trip proof covers this setting on this server software; a comparison offers it |
+| **next start** | The server itself says the setting takes effect only when it restarts, which is why the model calls it read-only |
+| **not changed by Alder** | The model states it is not a setting Alder changes: the server maintains it, it is fixed at start, or it is narrowed away on this resource |
+| **not in Alder's model** | The model has no answer for this setting |
+| **not configuration** | Runtime state, or an attribute the directory owns |
+
+The marks mark; they never block. The model is deliberately conservative -- it
+states what Alder changes, not what the directory accepts -- so a field it has
+no answer for is still editable, and the change goes through the same plan,
+LDIF preview and apply as any other. The endpoint says nothing about this
+session's rights: what a bind may write is the directory's answer, given when
+the change is applied.
+
+A DN outside the configuration tree, or one the model reads as something else
+-- the schema, a task, a monitor -- is answered `404`.
+
 ## Preflight (1.14)
 
 A configuration snapshot can be preflighted against the directory you are

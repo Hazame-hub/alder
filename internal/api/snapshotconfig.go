@@ -263,3 +263,57 @@ func optional(field **string, value string) {
 		*field = ptr(value)
 	}
 }
+
+// GetConfigEntryModel answers what the provider's configuration model says
+// about one entry of the server's own configuration.
+//
+// The editor asks this when the entry it has open is in the configuration
+// tree. It is the same model a capture and a comparison read, so the two
+// cannot disagree about a setting -- and it reads the tree for the same reason
+// a capture does: which settings need a restart, and which plugins the server
+// can run without, are facts about this server rather than a list in Alder.
+func (s *Server) GetConfigEntryModel(c *fiber.Ctx, params GetConfigEntryModelParams) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	target, ok := parseDNParam(c, params.Dn)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+
+	model, err := config.Describe(ctx, sess.Conn, target)
+	if errors.Is(err, config.ErrNotConfiguration) {
+		return writeError(c, fiber.StatusNotFound, ErrorErrorNotFound,
+			"That entry is not part of this server's configuration model.",
+			"A configuration model covers the server's own configuration tree. The schema, the task queue and a monitor live there too, and are not configuration.")
+	}
+	if err != nil {
+		return configRefusal(c, s, err)
+	}
+
+	out := ConfigEntryModel{
+		Dn: model.DN, Provider: ConfigProvider(model.Provider),
+		Resource:   configResource(model.Resource),
+		Attributes: make([]ConfigAttributeModel, 0, len(model.Attributes)),
+	}
+	out.Incomplete = ptrIfTrue(model.Incomplete)
+	for _, a := range model.Attributes {
+		out.Attributes = append(out.Attributes, ConfigAttributeModel{
+			Name: a.Name, Section: a.Section, Mutability: ConfigMutability(a.Mutability),
+			RestartRequired: ptrIfTrue(a.RestartRequired), Sensitive: ptrIfTrue(a.Sensitive),
+			Excluded: ptrIfTrue(a.Excluded),
+		})
+	}
+	return c.JSON(out)
+}
+
+// configResource is one resource on the wire.
+func configResource(r snapshot.ConfigResource) ConfigResource {
+	out := ConfigResource{Section: r.Section, Kind: r.Kind, Name: r.Name}
+	out.Dn = ptrIfSet(r.DN)
+	out.Label = ptrIfSet(r.Label)
+	return out
+}
