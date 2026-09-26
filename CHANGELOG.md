@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.18.0](https://github.com/Hazame-hub/alder/compare/v1.15.0...v1.18.0) (2026-09-26)
+
+
+### Features
+
+* a comparison folds its capture form away once there is a result to read, shows its filters only when the result is long enough to need them, and names the two sides in words with a Swap where there is only one pair worth comparing ([997f40d](https://github.com/Hazame-hub/alder/commit/997f40d074f0f24b2cbd66d1becb6bb67c05a6bf))
+* a comparison offers "Review N changes" -- one change opens the same review dialog an edit does anywhere else in Alder, several go to the changeset in one click -- because the screen that found a drift could previously only stage it, while the plain entry editor applied the same change from one dialog ([41a6879](https://github.com/Hazame-hub/alder/commit/41a6879f6b3197d871bef50205f8646a205d6e6a))
+* a configuration comparison lists the objects each side holds -- databases, overlays, backends and plugins -- as added, removed or unchanged, each with the settings that belong to it and the reason Alder can or cannot act on it ([e9c3313](https://github.com/Hazame-hub/alder/commit/e9c33135f3421ee6ff19ead3a6021f64e9aa0d9f))
+* Alder creates and removes one kind of configuration object, an OpenLDAP overlay whose module the server has already loaded; the precondition is checked before any write, the server assigns the position in the new entry's name, and a removal is derived only when it is named as one ([e9c3313](https://github.com/Hazame-hub/alder/commit/e9c33135f3421ee6ff19ead3a6021f64e9aa0d9f))
+* configuration is named where an operator looks for it -- the tab is "Snapshots & drift", its intro says what it captures, and the Overview's Configuration card links straight to the comparison instead of only to the raw entry ([997f40d](https://github.com/Hazame-hub/alder/commit/997f40d074f0f24b2cbd66d1becb6bb67c05a6bf))
+* nsslapd-pluginEnabled is writable for the plugins a 389 Directory Server can run without, decided from the server's own plugin types and dependencies, because the server accepts disabling the backend it needs and fails at the next start ([e9c3313](https://github.com/Hazame-hub/alder/commit/e9c33135f3421ee6ff19ead3a6021f64e9aa0d9f))
+* the entry editor marks each field of a configuration entry from the model a comparison reads -- writable, read-only, needing a restart, or not configuration at all -- through a new GET /config/entry, so the editor and a comparison cannot disagree about a setting ([ff65d75](https://github.com/Hazame-hub/alder/commit/ff65d756c8fca0bbb473b5b24359281d711e3f19))
+* the entry editor says when an entry is inside the server's own configuration, and the configuration root no longer offers Rename, Delete or "Delete with contents" ([997f40d](https://github.com/Hazame-hub/alder/commit/997f40d074f0f24b2cbd66d1becb6bb67c05a6bf))
+* the snapshot documents loaded and the last comparison last as long as the browser tab, so following "Review the changeset" and coming back no longer finds two empty slots; they are dropped on Disconnect and never written to browser storage ([41a6879](https://github.com/Hazame-hub/alder/commit/41a6879f6b3197d871bef50205f8646a205d6e6a))
+
+
+### Fixes
+
+* a comparison forgets a selection whose row a refreshed comparison no longer has ([41a6879](https://github.com/Hazame-hub/alder/commit/41a6879f6b3197d871bef50205f8646a205d6e6a))
+* a document loaded into a slot becomes the side compared, so loading into B no longer leaves the screen asking for an empty snapshot A ([997f40d](https://github.com/Hazame-hub/alder/commit/997f40d074f0f24b2cbd66d1becb6bb67c05a6bf))
+* a plan that recovers nothing no longer offers to prepare a recovery bundle ([997f40d](https://github.com/Hazame-hub/alder/commit/997f40d074f0f24b2cbd66d1becb6bb67c05a6bf))
+* a setting Alder cannot act on says why in a sentence, with the stable code on the row's tooltip ([997f40d](https://github.com/Hazame-hub/alder/commit/997f40d074f0f24b2cbd66d1becb6bb67c05a6bf))
+* a snapshot card reports its capture time as a capture time, formatted, and says separately that the document was loaded from a file ([997f40d](https://github.com/Hazame-hub/alder/commit/997f40d074f0f24b2cbd66d1becb6bb67c05a6bf))
+* the count of what Alder can change includes the configuration objects it can create or remove, and "Only what Alder can change" hides the objects it cannot act on, because a comparison whose one actionable difference was an overlay read "0 Alder can change" above a row offering to create it ([41a6879](https://github.com/Hazame-hub/alder/commit/41a6879f6b3197d871bef50205f8646a205d6e6a))
+* the OpenAPI description of /snapshots/capture no longer says configuration is never captured, and its response lists the configuration snapshot it has returned since 1.13 ([ff65d75](https://github.com/Hazame-hub/alder/commit/ff65d756c8fca0bbb473b5b24359281d711e3f19))
+
+
+### Documentation
+
+* document configuration objects, the four reasons one is reported only, and why plugin switching is read from the tree ([e9c3313](https://github.com/Hazame-hub/alder/commit/e9c33135f3421ee6ff19ead3a6021f64e9aa0d9f))
+* document the entry model, its marks, and why they mark rather than block ([ff65d75](https://github.com/Hazame-hub/alder/commit/ff65d756c8fca0bbb473b5b24359281d711e3f19))
+* record the UI audit of the configuration drift task, its interaction count and its ten findings ([41a6879](https://github.com/Hazame-hub/alder/commit/41a6879f6b3197d871bef50205f8646a205d6e6a))
+
+
+### Chores
+
+* the compatibility notes say 1.16 and 1.17 were never tagged ([#129](https://github.com/Hazame-hub/alder/issues/129)) ([a391a30](https://github.com/Hazame-hub/alder/commit/a391a30deec42d46a285ab1c3bab13cd6fa71076))
+
 ## [1.15.0](https://github.com/Hazame-hub/alder/compare/v1.14.0...v1.15.0) (2026-09-24)
 
 
