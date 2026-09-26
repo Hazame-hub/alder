@@ -2941,3 +2941,12 @@ against a real task -- a configuration setting drifted, find it and put it back
 - **The configuration root offers no Rename, Delete or "Delete with contents".**
   Taking away `cn=config` takes the server's configuration with it, and no
   confirmation dialog makes that a thing to offer beside "Copy".
+
+- **1.16 and 1.17 are milestone numbers, not tags.** Nothing had been released
+  since 1.15.0, so release-please had configuration objects, the UI audit and
+  the entry model queued as one 1.16.0. The documentation, the decisions above,
+  the OpenAPI descriptions and the compatibility notes each name the milestone
+  they were written for, and every one of those statements is true of the code;
+  shipping the lot as 1.16.0 would have made all three untrue at once. The
+  release is 1.18.0, and 1.16 and 1.17 are numbers a reader will find in the
+  notes and not in the tags, which costs them nothing.
