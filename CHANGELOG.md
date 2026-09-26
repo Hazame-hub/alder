@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.19.0](https://github.com/Hazame-hub/alder/compare/v1.18.0...v1.19.0) (2026-09-26)
+
+
+### Features
+
+* a place where rules could live and could not be read is reported as unread, because a confident report of no access rules is the most dangerous answer this feature could give ([9ba02a2](https://github.com/Hazame-hub/alder/commit/9ba02a278a4bea379e6f9b2d1f8665684ecb5ac3))
+* a rule says whether it bears on the entry, with "maybe" as an honest answer where deciding would need evaluating a regular expression, a filter or a group, and a rule Alder did not take apart is reported whole rather than half-read ([9ba02a2](https://github.com/Hazame-hub/alder/commit/9ba02a278a4bea379e6f9b2d1f8665684ecb5ac3))
+* Alder reads the access control rules a server holds and shows which of them bear on an entry -- aci attributes on the entry and its ancestors, olcAccess on the database entry in the configuration tree -- in the server's own order and its own words, through a new GET /access and an Access button on every entry ([9ba02a2](https://github.com/Hazame-hub/alder/commit/9ba02a278a4bea379e6f9b2d1f8665684ecb5ac3))
+
+
+### Fixes
+
+* the preflight report no longer says access control is never read, which stopped being true ([9ba02a2](https://github.com/Hazame-hub/alder/commit/9ba02a278a4bea379e6f9b2d1f8665684ecb5ac3))
+
+
+### Documentation
+
+* document what reading access control is, what it is not, and why writing it stays out of scope ([9ba02a2](https://github.com/Hazame-hub/alder/commit/9ba02a278a4bea379e6f9b2d1f8665684ecb5ac3))
+* the access control document says that an overlay's own rules are read, and that a search which cannot return every rule-bearing entry reports it ([01dc91d](https://github.com/Hazame-hub/alder/commit/01dc91d42978dd2939feacf0c5e243d6c33b6ccb))
+
 ## [1.18.0](https://github.com/Hazame-hub/alder/compare/v1.15.0...v1.18.0) (2026-09-26)
 
 
