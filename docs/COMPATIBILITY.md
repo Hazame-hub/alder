@@ -324,6 +324,11 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+**1.16 and 1.17 were never tagged.** Nothing was released between 1.15.0 and
+1.18.0, so a reader upgrading from 1.15.0 gets everything the three sections
+below describe in one step. The milestone numbers are kept because each
+statement is true of the release it names.
+
 1.18 added one endpoint and changed nothing else:
 
 - **`GET /config/entry?dn=`** answers what the configuration model says about
