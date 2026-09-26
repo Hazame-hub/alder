@@ -62,6 +62,21 @@ func TestLettersAreGlossedAndNeverTranslatedAway(t *testing.T) {
 	}
 }
 
+func TestANumberWhereTheLettersGoIsNotAnAnswer(t *testing.T) {
+	// 389 DS answers a request it cannot compute with a code in place of the
+	// rights. "12" glossed as two unknown letters would read as a verdict.
+	for _, code := range []string{"12", "1", "0"} {
+		if !RightsErrorCode(code) {
+			t.Errorf("%q is a code, not rights", code)
+		}
+	}
+	for _, rights := range []string{"v", "rsc", "none", "", "rscwo"} {
+		if RightsErrorCode(rights) {
+			t.Errorf("%q is rights, not a code", rights)
+		}
+	}
+}
+
 func equalFold(a, b string) bool { return lower(a) == lower(b) }
 
 func lower(s string) string {

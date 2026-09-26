@@ -96,6 +96,27 @@ func words(letters string, gloss map[byte]string) []string {
 	return out
 }
 
+// RightsErrorCode reports a value that is an error code rather than a set of
+// rights.
+//
+// 389 Directory Server answers a request it cannot compute by putting a number
+// where the letters go -- "entryLevelRights: 12", "attributeLevelRights:
+// *:12" -- which is easy to read as a verdict and is not one. Found by sending
+// the control two ways against a real server: the malformed request came back
+// looking exactly like an answer.
+func RightsErrorCode(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // ParseAttributeLevelRights reads the server's attributeLevelRights value:
 //
 //	"objectClass:rsc, userPassword:none, alderTeam:none"

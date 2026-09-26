@@ -2,6 +2,7 @@ package ldapdriver
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
@@ -102,5 +103,21 @@ func (s *session) EffectiveRights(ctx context.Context, target dn.DN, subject str
 		// verdict.
 		return nil, directory.ErrRightsUnanswered
 	}
+	// A number where the letters go is 389 DS reporting that it could not
+	// compute the answer -- for a subject it could not parse, among other
+	// reasons. It looks exactly like an answer, so it is caught here rather
+	// than glossed into one.
+	if directory.RightsErrorCode(out.Entry) {
+		return nil, fmt.Errorf("%w: the server answered with code %s in place of the rights",
+			directory.ErrRightsUnanswered, out.Entry)
+	}
+	kept := out.Attributes[:0]
+	for _, a := range out.Attributes {
+		if directory.RightsErrorCode(a.Rights) {
+			continue
+		}
+		kept = append(kept, a)
+	}
+	out.Attributes = kept
 	return out, nil
 }
