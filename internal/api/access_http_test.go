@@ -219,3 +219,89 @@ func TestAccessNeedsAnEntryAndASession(t *testing.T) {
 		t.Errorf("status %d: reading access rules needs a session", res.Status)
 	}
 }
+
+// GET /policy: which policy applies, where it is written, and what the server
+// records about the account.
+
+func policyRig(t *testing.T) *testRig {
+	t.Helper()
+	caps := defaultCaps()
+	caps.VendorName = "OpenLDAP"
+	caps.ConfigContext = "cn=config"
+	caps.Config = directory.ConfigAccess{DN: "cn=config", Readable: true}
+
+	account := configEntry(t, "uid=alice,ou=people,dc=alder,dc=test",
+		"objectClass", "person", "uid", "alice",
+		"pwdPolicySubentry", "cn=strict,ou=policies,dc=alder,dc=test",
+		"pwdAccountLockedTime", "20260101000000Z",
+		"pwdChangedTime", "20251201090000Z")
+	strict := configEntry(t, "cn=strict,ou=policies,dc=alder,dc=test",
+		"objectClass", "pwdPolicy", "cn", "strict",
+		"pwdMinLength", "16", "pwdMaxAge", "2592000", "pwdLockout", "TRUE")
+	plain := configEntry(t, "uid=bob,ou=people,dc=alder,dc=test", "objectClass", "person", "uid", "bob")
+	def := configEntry(t, "cn=default,ou=policies,dc=alder,dc=test",
+		"objectClass", "pwdPolicy", "cn", "default", "pwdMinLength", "8")
+	overlay := configEntry(t, "olcOverlay={0}ppolicy,olcDatabase={1}mdb,cn=config",
+		"objectClass", "olcPPolicyConfig", "olcPPolicyDefault", "cn=default,ou=policies,dc=alder,dc=test")
+
+	entries := []*directory.Entry{account, strict, plain, def, overlay}
+	byDN := map[string]*directory.Entry{}
+	for _, e := range entries {
+		byDN[strings.ToLower(e.DN.String())] = e
+	}
+	return newRig(t, Config{}, &fakeSession{caps: caps, entries: entries, byDN: byDN})
+}
+
+func TestPolicyReportsTheOneTheEntryNames(t *testing.T) {
+	rig := policyRig(t)
+	res := rig.do(t, http.MethodGet, "/api/v1/policy?dn=uid%3Dalice%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest", nil)
+	if res.Status != http.StatusOK {
+		t.Fatalf("status %d: %s", res.Status, res.Body)
+	}
+	report := decode[PolicyReport](t, res)
+
+	if report.Policy == nil || report.Policy.Source != PolicySourceEntry {
+		t.Fatalf("the entry names its own policy: %+v", report.Policy)
+	}
+	if report.Policy.Dn == nil || *report.Policy.Dn != "cn=strict,ou=policies,dc=alder,dc=test" {
+		t.Errorf("a policy nobody can find: %+v", report.Policy.Dn)
+	}
+	// The value as the server holds it, and a reading of it beside.
+	var age PolicySetting
+	for _, s := range report.Policy.Settings {
+		if strings.EqualFold(s.Key, "pwdMaxAge") {
+			age = s
+		}
+	}
+	if age.Values[0] != "2592000" {
+		t.Errorf("maximum age %v", age.Values)
+	}
+	if age.Detail == nil || *age.Detail != "30 days" {
+		t.Errorf("30 days is what 2592000 seconds is: %v", age.Detail)
+	}
+
+	if !report.State.Locked || report.State.LockedDetail == nil {
+		t.Errorf("the account carries pwdAccountLockedTime and the report says %+v", report.State)
+	}
+	if report.State.Changed == nil {
+		t.Error("the server records when the password changed and the report drops it")
+	}
+	if !strings.Contains(report.Disclaimer, "not a decision") {
+		t.Errorf("every report says what it is not: %q", report.Disclaimer)
+	}
+}
+
+func TestPolicyFallsBackToTheServersDefault(t *testing.T) {
+	rig := policyRig(t)
+	res := rig.do(t, http.MethodGet, "/api/v1/policy?dn=uid%3Dbob%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest", nil)
+	report := decode[PolicyReport](t, res)
+	if report.Policy == nil || report.Policy.Source != PolicySourceDefault {
+		t.Fatalf("an account naming no policy gets the server's: %+v", report.Policy)
+	}
+	if report.Policy.Dn == nil || *report.Policy.Dn != "cn=default,ou=policies,dc=alder,dc=test" {
+		t.Errorf("the default is found through the overlay that names it: %+v", report.Policy.Dn)
+	}
+	if report.State.Locked {
+		t.Error("bob is not locked")
+	}
+}

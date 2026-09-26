@@ -1,0 +1,55 @@
+# Password policy for the OpenLDAP side of the harness.
+#
+# Vendor-specific on purpose, and applied only here. The two servers keep
+# identical *data*; password policy is configuration, and the two express it in
+# mechanisms that have nothing in common. OpenLDAP's ppolicy overlay reads a
+# policy from an entry in the data tree and points at a default from
+# slapd.conf; 389 Directory Server keeps its global policy in cn=config. This
+# file is OpenLDAP's half, the way the schema install and the aci file are each
+# one server's half of something the other does differently.
+#
+# Two policies, because one proves only half of what Alder has to report: one
+# an account points at, and one it does not. The overlay is deliberately given
+# no ppolicy_default -- see slapd.conf for the slapd crash that caused -- so
+# on this side the case Alder is proved against is the per-entry pointer,
+# which is the harder and more interesting one: the rule in force on the
+# account in front of you is not the rule everybody else gets.
+
+dn: ou=policies,dc=alder,dc=test
+objectClass: top
+objectClass: organizationalUnit
+ou: policies
+description: Password policies, read by the ppolicy overlay
+
+dn: cn=default,ou=policies,dc=alder,dc=test
+objectClass: top
+objectClass: device
+objectClass: pwdPolicy
+cn: default
+description: The policy every account gets unless it names another
+pwdAttribute: userPassword
+pwdMinLength: 8
+pwdMaxAge: 7776000
+pwdInHistory: 3
+pwdMaxFailure: 5
+pwdLockout: TRUE
+pwdLockoutDuration: 900
+pwdGraceAuthNLimit: 2
+pwdMustChange: FALSE
+pwdAllowUserChange: TRUE
+
+dn: cn=strict,ou=policies,dc=alder,dc=test
+objectClass: top
+objectClass: device
+objectClass: pwdPolicy
+cn: strict
+description: For accounts that are held to more than the default
+pwdAttribute: userPassword
+pwdMinLength: 16
+pwdMaxAge: 2592000
+pwdInHistory: 10
+pwdMaxFailure: 3
+pwdLockout: TRUE
+pwdLockoutDuration: 3600
+pwdMustChange: TRUE
+pwdAllowUserChange: TRUE

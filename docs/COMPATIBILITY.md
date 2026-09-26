@@ -324,6 +324,16 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.21 added one endpoint, and changed how one DN is written:
+
+- **`GET /policy?dn=`** reports the password policy in force on an entry and
+  what the server records about the account. Read-only.
+- **A DN value containing `=` is now rendered escaped** -- `cn\=x` rather than
+  `cn=x` inside an RDN value. RFC 4514 allows either; 389 Directory Server
+  answers "no such object" to the bare form of a DN it gave you escaped, so an
+  entry whose RDN value contains `=` was unreachable. A snapshot holding such
+  a DN will have a different checksum after this release; nothing else moves.
+
 1.20 added to the access report, only by adding:
 
 - **`effective` and `rightsNote` on `AccessReport`**, and the `as` parameter on

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/hazame-hub/alder/internal/access"
+	"github.com/hazame-hub/alder/internal/policy"
 )
 
 // Reading access control (1.19).
@@ -107,6 +108,67 @@ func accessRule(rule access.Rule) AccessRule {
 			})
 		}
 		out.Grants = &grants
+	}
+	return out
+}
+
+// GetPasswordPolicy reports the password policy in force on an entry and what
+// the server records about that account.
+//
+// The sibling of the access report, and the same discipline: it says what the
+// server holds and where, and it does not decide whether a bind would succeed.
+func (s *Server) GetPasswordPolicy(c *fiber.Ctx, params GetPasswordPolicyParams) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	target, ok := parseDNParam(c, params.Dn)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+
+	report, err := policy.For(ctx, sess.Conn, target)
+	if errors.Is(err, policy.ErrNoEntry) {
+		return s.fail(c, errors.Unwrap(err))
+	}
+	if err != nil {
+		return s.fail(c, err)
+	}
+
+	out := PolicyReport{Dn: report.DN, Disclaimer: policy.Disclaimer}
+	if p := report.Policy; p != nil {
+		rendered := PasswordPolicy{Source: PasswordPolicySource(p.Source), Why: p.Why,
+			Settings: policySettings(p.Settings)}
+		rendered.Dn = ptrIfSet(p.DN)
+		out.Policy = &rendered
+	}
+	if st := report.State; st != nil {
+		out.State = AccountState{Locked: st.Locked, MustChange: st.MustChange,
+			Attributes: policySettings(st.Attributes)}
+		out.State.LockedDetail = ptrIfSet(st.LockedDetail)
+		out.State.Expiry = ptrIfSet(st.Expiry)
+		out.State.Failures = ptrIfSet(st.Failures)
+		out.State.Changed = ptrIfSet(st.Changed)
+	}
+	if len(report.Unread) > 0 {
+		unread := make([]AccessUnread, 0, len(report.Unread))
+		for _, u := range report.Unread {
+			unread = append(unread, AccessUnread{Where: u.Where, Reason: u.Reason})
+		}
+		out.Unread = &unread
+	}
+	return c.JSON(out)
+}
+
+func policySettings(in []policy.Setting) []PolicySetting {
+	out := make([]PolicySetting, 0, len(in))
+	for _, s := range in {
+		setting := PolicySetting{Key: s.Key, Values: s.Values}
+		setting.Label = ptrIfSet(s.Label)
+		setting.Detail = ptrIfSet(s.Detail)
+		out = append(out, setting)
 	}
 	return out
 }

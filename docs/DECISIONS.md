@@ -3033,3 +3033,49 @@ against an entry.
   for exactly those two among 61 attributes. The rules said it; the directory
   confirms it. On OpenLDAP the same test asserts the honest absence of a
   verdict.
+
+## 2026-09-26 — 1.21: the password policy in force, and a DN that could not be read
+
+The sibling of 1.19's access rules: the other question a directory answers
+badly is "why can't this user log in?", and the facts that answer it are
+spread across three places nobody looks by accident.
+
+- **Report the policy and the state; decide nothing.** Which policy applies,
+  where it is written, and what the server records on the account — locked,
+  must change, last changed, failures. Alder does not work out whether a bind
+  would succeed, and no server offers to answer that one the way 389 DS
+  answers effective rights.
+- **Where the policy is written is half the answer.** A policy an operator
+  cannot find is a policy they cannot change, so every report names the entry
+  it came from, and says whether the account chose it or inherited the
+  server's default.
+- **A setting Alder does not recognise is still reported.** The label is
+  absent, the value is not: a policy attribute nobody here has heard of is
+  still in force. A duration is glossed beside the value -- 7776000 *(90
+  days)* -- and never instead of it.
+- **The lock is shown before anything is opened.** An account the server holds
+  locked is badged in the entry header, read from attributes already in hand,
+  because that is the fact worth not having to hunt for at 2am.
+- **The harness grew a policy on each side.** OpenLDAP gets two policy entries
+  and a `ppolicy_default`; 389 DS gets local policies switched on and a
+  subentry for the same account. Two mechanisms, one intent, which is what
+  makes the conformance suite's assertions worth anything. Password policy is
+  now the third confined vendor-specific step in the seed, beside the schema
+  install and the aci file.
+- **The conformance suite locks an account and puts it back.** A seeded
+  account records nothing, so the state half would have been tested against an
+  empty answer; the test makes the one thing happen that an operator most
+  often has to diagnose.
+
+And the find that mattered more than the feature:
+
+- **A DN value containing `=` is now rendered escaped.** RFC 4514 leaves that
+  optional and Alder left it bare, which is legal and unreachable: 389
+  Directory Server stores such a DN with `\3D` and answers "no such object" to
+  the bare form. Any entry whose RDN value contains `=` -- a 389 DS per-entry
+  password policy subentry, among others -- could not be read by Alder at all.
+  Escaping costs nothing, the standard permits escaping any character, and
+  both servers accept the escaped form. It changes the checksum of a snapshot
+  holding such a DN, which is a price worth paying for entries that were
+  invisible. Found by the harness, not by reading the standard: the standard
+  says Alder was right.

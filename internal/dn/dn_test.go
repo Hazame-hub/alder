@@ -22,8 +22,12 @@ func TestParseAndRender(t *testing.T) {
 		{name: "escaped trailing space", in: `cn=trailing\ ,dc=test`},
 		{name: "escaped leading hash", in: `cn=\#notahex,dc=test`},
 		{name: "hex pair escape", in: `cn=a\2Cb,dc=test`, want: `cn=a\,b,dc=test`},
-		{name: "escaped equals renders bare", in: `cn=a\=b,dc=test`, want: `cn=a=b,dc=test`},
-		{name: "bare equals in value", in: `cn=a=b,dc=test`},
+		// '=' inside a value is rendered escaped, both ways round. RFC 4514
+		// allows it bare and Alder used to render it bare, which is legal and
+		// unreachable: 389 Directory Server answers "no such object" to the
+		// bare form of a DN it gave you escaped.
+		{name: "escaped equals stays escaped", in: `cn=a\=b,dc=test`},
+		{name: "bare equals is escaped on render", in: `cn=a=b,dc=test`, want: `cn=a\=b,dc=test`},
 		{name: "multi-valued rdn", in: "cn=Alice+uid=alice,dc=test"},
 		{name: "numeric oid type", in: "2.5.4.3=Alice,dc=test"},
 		{name: "attribute option", in: "cn;lang-en=Alice,dc=test"},
@@ -252,6 +256,10 @@ func TestEscapeValue(t *testing.T) {
 		`a\b`:      `a\\b`,
 		"a\x00b":   `a\00b`,
 		" ":        `\ `,
+		// RFC 4514 leaves '=' optional inside a value. Alder escapes it,
+		// because 389 Directory Server will not match the bare form: a DN
+		// the server gave you has to be a DN you can send back.
+		"cn=nsPwPolicyEntry,uid=bob": `cn\=nsPwPolicyEntry\,uid\=bob`,
 	}
 	for in, want := range tests {
 		if got := dn.EscapeValue(in); got != want {

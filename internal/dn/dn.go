@@ -251,7 +251,15 @@ func EscapeValue(v string) string {
 	for i := 0; i < len(v); i++ {
 		c := v[i]
 		switch {
-		case c == '\\' || c == '"' || c == '+' || c == ',' || c == ';' || c == '<' || c == '>':
+		// The set RFC 4514 requires, plus '='. The standard leaves '=' optional
+		// inside a value and Alder left it bare, which is legal and
+		// unreachable: 389 Directory Server stores such a DN with the escape
+		// and answers "no such object" to the bare form, so an entry whose RDN
+		// value contains '=' -- a per-entry password policy subentry, among
+		// others -- could not be read at all. Escaping it costs nothing: the
+		// standard permits escaping any character, and both servers accept the
+		// escaped form.
+		case c == '\\' || c == '"' || c == '+' || c == ',' || c == ';' || c == '<' || c == '>' || c == '=':
 			b.WriteByte('\\')
 			b.WriteByte(c)
 		case c == ' ' && (i == 0 || i == len(v)-1):
