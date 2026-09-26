@@ -104,6 +104,77 @@ function FieldDoc({
   );
 }
 
+/**
+ * What the configuration model says about this field, where the entry is one
+ * of the server's own configuration entries.
+ *
+ * It marks, and never blocks. The model is deliberately conservative -- it
+ * states what Alder changes, not what the directory accepts -- so turning it
+ * into a disabled field would make the editor less capable than the server it
+ * is editing. What it buys is that "Alder changes this one" and "this one does
+ * nothing until the server restarts" are visible before the change is made,
+ * rather than in a comparison on another screen.
+ */
+export type ConfigMark = {
+  mutability: "writable" | "read_only" | "unknown";
+  restartRequired?: boolean;
+  excluded?: boolean;
+};
+
+function ConfigBadges({ mark }: { mark: ConfigMark }) {
+  if (mark.excluded) {
+    return <Badge variant="outline">not configuration</Badge>;
+  }
+  return (
+    <>
+      {mark.mutability === "writable" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="success" className="cursor-help">
+              Alder changes this
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-xs leading-relaxed">
+              The test suite writes this setting on this server software and reads it back, which is
+              what a configuration comparison offers to change.
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+      {mark.restartRequired ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="warning" className="cursor-help">
+              next start
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-xs leading-relaxed">
+              The server itself says this setting takes effect only when it restarts.
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      ) : mark.mutability !== "writable" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className="cursor-help">
+              {mark.mutability === "unknown" ? "not in Alder's model" : "not changed by Alder"}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-xs leading-relaxed">
+              {mark.mutability === "unknown"
+                ? "Alder's model of this server's configuration does not cover this setting. Editing it here sends what you type; the server decides."
+                : "Alder's configuration model does not change this setting. Editing it here sends what you type; the server decides."}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </>
+  );
+}
+
 export function AttributeEditor({
   name,
   kind,
@@ -114,6 +185,7 @@ export function AttributeEditor({
   isNew,
   pickerBase,
   distinctiveDescs,
+  configMark,
 }: {
   name: string;
   kind: EntryAttribute["kind"];
@@ -126,6 +198,8 @@ export function AttributeEditor({
   pickerBase?: string;
   /** The descriptions worth showing beside a field, rather than on hover. */
   distinctiveDescs?: Set<string>;
+  /** What the configuration model says, on a configuration entry. */
+  configMark?: ConfigMark;
 }) {
   const single = kind.singleValue === true;
   const asText = multiline(kind, values.map(textValue));
@@ -207,6 +281,7 @@ export function AttributeEditor({
           </Tooltip>
         ) : null}
         {kind.sensitive ? <Badge variant="destructive">secret</Badge> : null}
+        {configMark ? <ConfigBadges mark={configMark} /> : null}
         {onRemove ? (
           <Button
             variant="ghost"

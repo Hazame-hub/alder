@@ -324,6 +324,13 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.18 added one endpoint and changed nothing else:
+
+- **`GET /config/entry?dn=`** answers what the configuration model says about
+  one entry's attributes. Nothing else moved: the same model, the same words,
+  the same values a capture already reported.
+- **A client that does not call it sees no difference at all.**
+
 1.16 added configuration objects, only by adding:
 
 - **One field on the configuration comparison:** `objects`, listing each

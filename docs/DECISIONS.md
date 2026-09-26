@@ -2890,3 +2890,54 @@ to contradict the plan — add an entry.
 - **The harness loads memberof and leaves the overlay unconfigured.** A proof of
   creation needs something creatable; loading a module is not configuring an
   overlay, which is exactly the distinction the feature rests on.
+
+## 2026-09-26 — 1.17 and 1.18: an audit of the running product, and the editor reading the model
+
+The 1.17 changes were not planned; they came from auditing the running product
+against a real task -- a configuration setting drifted, find it and put it back
+-- and counting. The audit is `docs/ui-audits/2026-09-24-config-drift/`.
+
+- **The task took 11 interactions across 4 screens against a stated ideal of 5.**
+  What the count found was not a confusing product but a long one: the screen
+  that knew what had changed could only stage it, and the plain entry editor
+  two clicks away applied the same change from one dialog with the same
+  guardrails. A comparison now offers "Review N changes": one opens that same
+  dialog, several go to the changeset in one click. The rule underneath is
+  untouched -- a plan is made, seen, and only then applied.
+- **A comparison outlives the screen that made it.** Following the comparison's
+  own "Review the changeset" used to empty both snapshot slots, and the
+  comparison is the only record of what else differed. The documents and the
+  last comparison now live as long as the tab, like the changeset, in memory
+  and never in browser storage, and are dropped on Disconnect.
+- **The summary counts what Alder can act on, objects included.** A comparison
+  whose one actionable difference was an overlay read "0 Alder can change"
+  directly above a row offering to create it.
+- **Auditing the product is worth doing from outside it.** Every finding above
+  is invisible from the code: each screen is correct on its own, and the cost
+  only appears when one task crosses four of them. The report's ten findings
+  are all fixed bar one, and that one is 1.18.
+
+1.18 is the other half of the audit's fifth finding: the entry editor treated
+`cn=config` like directory data.
+
+- **The editor marks fields from the same model a comparison reads.**
+  `GET /config/entry?dn=` answers per attribute -- writable, read-only or
+  unknown, and whether the server said it takes effect only at the next start.
+  A second implementation written for the editor would have drifted from the
+  one a comparison uses, and the two would have disagreed on screen; the
+  conformance suite asserts they agree, setting by setting, on both servers.
+- **It reads the tree, because the answer is in the tree.** Which settings need
+  a restart is what the server says about itself, which plugins it can run
+  without is read from its plugin entries, and an overlay is named after the
+  database above it. Answering from the one entry would mean answering from a
+  list of vendor facts, which is what this package exists not to do.
+- **The marks mark and never block.** The model is deliberately conservative:
+  it states what Alder changes, not what the directory accepts. A disabled
+  field would make the editor less capable than the server it is editing, so an
+  unmarked or read-only attribute is still editable and the change goes through
+  the same plan, preview and apply as any other.
+- **It says nothing about this session's rights.** What a bind may write is the
+  directory's answer, and Alder does not guess it.
+- **The configuration root offers no Rename, Delete or "Delete with contents".**
+  Taking away `cn=config` takes the server's configuration with it, and no
+  confirmation dialog makes that a thing to offer beside "Copy".

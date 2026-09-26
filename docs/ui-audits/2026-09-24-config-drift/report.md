@@ -291,13 +291,14 @@ document loaded into a slot becomes the side compared. A setting Alder cannot
 act on says why in a sentence. A snapshot card says "captured <time> · loaded
 from file". A plan that recovers nothing offers no recovery bundle.
 
-**Finding 5 is half done, deliberately.** The entry editor now says what tree it
-is in and stops offering Rename, Delete and "Delete with contents" on the
-configuration root. It still shows every attribute as a plain field: marking
-each one writable, read-only or restart-required needs the provider model's
-answer for a single entry, which the server exposes only through a capture
-today. That is an API addition, not a copy change, and it is the one piece of
-this audit left on the table.
+**Finding 5** was done in two parts. The editor first said what tree it was in
+and stopped offering Rename, Delete and "Delete with contents" on the
+configuration root; 1.18 then gave it the model's answer per attribute, through
+a new `GET /config/entry?dn=`, so each field is marked writable, read-only,
+restart-required or not-in-the-model. The marks mark and never block: the model
+states what Alder changes, and the directory decides what it accepts.
+
+Every finding in this report is now addressed.
 
 ## If only two things are changed
 

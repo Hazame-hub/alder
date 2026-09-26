@@ -121,8 +121,22 @@ func (o Options) now() time.Time {
 	return o.Now()
 }
 
-// Capture reads a server's configuration and returns it as a snapshot.
-func Capture(ctx context.Context, r Reader, opts Options) (*snapshot.ConfigSnapshot, error) {
+// tree is a configuration tree as it was read, with the provider's model
+// chosen for it.
+//
+// Reading the tree, deciding which model it follows and building the
+// classifier over it are the same three steps whether the answer wanted is a
+// whole snapshot or what the model says about one entry. They are here once so
+// the two answers cannot come from different readings of the same server.
+type tree struct {
+	caps      directory.Capabilities
+	base      dn.DN
+	entries   []*directory.Entry
+	truncated bool
+	model     model
+}
+
+func readModel(ctx context.Context, r Reader, opts Options) (*tree, error) {
 	caps := r.Capabilities()
 	root := caps.Config.DN
 	if root == "" {
@@ -151,6 +165,39 @@ func Capture(ctx context.Context, r Reader, opts Options) (*snapshot.ConfigSnaps
 	if !ok {
 		return nil, ErrNoModel
 	}
+	// Entries in DN order, shortest first, so a parent is always known before
+	// the entries beneath it: an overlay is named after its database.
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i].DN.String(), entries[j].DN.String()
+		if strings.Count(a, ",") != strings.Count(b, ",") {
+			return strings.Count(a, ",") < strings.Count(b, ",")
+		}
+		return strings.ToLower(a) < strings.ToLower(b)
+	})
+	return &tree{caps: caps, base: base, entries: entries, truncated: truncated, model: m}, nil
+}
+
+// classify is the provider's classifier with what this particular server says
+// about itself folded in: which settings need a restart, which plugins it can
+// run without.
+func (t *tree) classify() classifier {
+	c := t.model.classifier
+	if t.model.restartRequired != nil {
+		c.restart = t.model.restartRequired(t.entries)
+	}
+	if t.model.switchablePlugins != nil {
+		c.switchable = t.model.switchablePlugins(t.entries)
+	}
+	return c
+}
+
+// Capture reads a server's configuration and returns it as a snapshot.
+func Capture(ctx context.Context, r Reader, opts Options) (*snapshot.ConfigSnapshot, error) {
+	read, err := readModel(ctx, r, opts)
+	if err != nil {
+		return nil, err
+	}
+	caps, base, entries, truncated, m := read.caps, read.base, read.entries, read.truncated, read.model
 
 	capture := snapshot.ConfigCapture{
 		Provider: m.provider, Vendor: caps.VendorName, VendorVersion: caps.VendorVersion,
@@ -168,23 +215,7 @@ func Capture(ctx context.Context, r Reader, opts Options) (*snapshot.ConfigSnaps
 			Reason: snapshot.IncompleteAccess, Scope: base.String(), Detail: caps.Config.Reason})
 	}
 
-	// Entries in DN order, shortest first, so a parent is always known before
-	// the entries beneath it: an overlay is named after its database.
-	sort.SliceStable(entries, func(i, j int) bool {
-		a, b := entries[i].DN.String(), entries[j].DN.String()
-		if strings.Count(a, ",") != strings.Count(b, ",") {
-			return strings.Count(a, ",") < strings.Count(b, ",")
-		}
-		return strings.ToLower(a) < strings.ToLower(b)
-	})
-
-	classify := m.classifier
-	if m.restartRequired != nil {
-		classify.restart = m.restartRequired(entries)
-	}
-	if m.switchablePlugins != nil {
-		classify.switchable = m.switchablePlugins(entries)
-	}
+	classify := read.classify()
 
 	resources := map[string]Resource{}
 	byDN := map[string]Resource{}
