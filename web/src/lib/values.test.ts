@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { booleanPairFor, displayText, rdnOf, parentOf, splitDN } from "./values";
+import { booleanPairFor, displayText, formatInstant, parentOf, rdnOf, splitDN } from "./values";
 
 describe("booleanPairFor", () => {
   it("recognises the vocabularies a directory actually uses", () => {
@@ -77,5 +77,13 @@ describe("DN handling", () => {
     expect(rdnOf("ou=Zweigstelle München,ou=services,dc=alder,dc=test")).toBe(
       "ou=Zweigstelle München",
     );
+  });
+
+  it("reads back an instant Alder wrote, and hands back anything else as it stands", () => {
+    // A snapshot's createdAt, on the card that says when it was captured.
+    const shown = formatInstant("2026-09-23T18:18:12Z");
+    expect(shown).toContain("2026");
+    expect(shown).not.toContain("T18:18:12Z");
+    expect(formatInstant("not a time")).toBe("not a time");
   });
 });

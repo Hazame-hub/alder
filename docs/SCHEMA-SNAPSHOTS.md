@@ -17,7 +17,7 @@ Diff → Plan model already used for directory data; see
 [SNAPSHOTS.md](SNAPSHOTS.md) and [PLAN.md](PLAN.md).
 
 It is the same three endpoints with `kind: schema`, the **Schema** option in the
-Snapshots tab, and `alder snapshot --kind schema` and `alder diff` from a shell.
+Snapshots & drift tab, and `alder snapshot --kind schema` and `alder diff` from a shell.
 Nothing is stored on the server.
 
 ---

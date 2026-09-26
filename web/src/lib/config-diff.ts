@@ -125,6 +125,38 @@ export function stageableObjects(
   return [...additions, ...removes];
 }
 
+/**
+ * Why Alder cannot act on a setting, in a person's words.
+ *
+ * The comparison carries stable codes -- no_write_path, not_read -- and a row
+ * used to print them, or, where a setting was "Unknown" and carried no code at
+ * all, to print nothing. A badge saying "Unknown" with nothing beside it reads
+ * as a fault in Alder rather than a fact about the setting.
+ */
+export function itemReason(item: ConfigDiffItem): string {
+  if (item.actionable === "writable") return "";
+  for (const problem of item.problems ?? []) {
+    switch (problem) {
+      case "not_read":
+        return "part of one side could not be read, so its absence here says nothing";
+      case "sensitive_withheld":
+        return "the value is a secret: a comparison counts them, and never writes one back";
+      case "not_comparable":
+        return "nothing here parses this value, so the two sides are compared as text";
+      case "no_write_path":
+        return "Alder has no proven way to write this setting on this server";
+      case "resource_missing":
+        return "the database, overlay or plugin it belongs to is not on both sides";
+      case "provider_specific":
+        return "this setting belongs to one server's software and has no counterpart on the other";
+    }
+  }
+  if (item.actionable === "unknown") {
+    return "Alder's model of this server's configuration does not cover this setting";
+  }
+  return "";
+}
+
 /** Why Alder cannot act on an object difference, in a person's words. */
 export function objectRefusal(object: ConfigDiffObject): string {
   switch (object.refusal) {

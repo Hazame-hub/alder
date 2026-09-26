@@ -60,6 +60,7 @@ import { ReferencedByButton } from "@/features/referenced-by";
 import { ExpandMembersButton } from "@/features/members";
 import { CompareButton } from "@/features/compare";
 import { DeleteSubtreeButton } from "@/features/delete-subtree";
+import { configPlace, inConfigTree } from "@/lib/config-tree";
 import { AddAttribute, AttributeEditor } from "@/components/attribute-editor";
 import { computeMods, snapshot, type Draft } from "@/lib/mods";
 import { CreateEntryDialog } from "@/features/create-entry";
@@ -247,6 +248,10 @@ function EntryHeader({
     connected: true,
   };
   const canSetPassword = session.capabilities?.passwordModify === true;
+  // The root of the server's own configuration is not an entry to delete or
+  // rename: taking it away takes the server's configuration with it, and no
+  // dialog makes that a thing to offer next to "Copy".
+  const configHere = configPlace(session, entry.dn);
 
   // The picker searches the naming context this entry sits in. Searching from
   // the entry itself would only ever find the entry.
@@ -340,7 +345,7 @@ function EntryHeader({
                   void queryClient.invalidateQueries({ queryKey: ["entry", entry.dn] })
                 }
               />
-              {entry.hasChildren && onReviewChangeset ? (
+              {entry.hasChildren && onReviewChangeset && configHere !== "root" ? (
                 <DeleteSubtreeButton
                   dn={entry.dn}
                   info={session}
@@ -365,21 +370,25 @@ function EntryHeader({
                   Password
                 </Button>
               ) : null}
-              <Button variant="outline" size="sm" onClick={() => setRenaming(true)}>
-                <Tag />
-                Rename
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-destructive hover:bg-destructive/10"
-                onClick={() =>
-                  setDeleteChange({ dn: entry.dn, type: "delete" })
-                }
-              >
-                <Trash2 />
-                Delete
-              </Button>
+              {configHere === "root" ? null : (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setRenaming(true)}>
+                    <Tag />
+                    Rename
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:bg-destructive/10"
+                    onClick={() =>
+                      setDeleteChange({ dn: entry.dn, type: "delete" })
+                    }
+                  >
+                    <Trash2 />
+                    Delete
+                  </Button>
+                </>
+              )}
               <Button size="sm" onClick={onEdit}>
                 <Pencil />
                 Edit
@@ -980,6 +989,17 @@ function EntryEditor({
       <div className="rounded-md border border-primary/30 bg-primary/6 px-3 py-2 text-sm">
         Editing. Nothing is sent until you review the LDIF and confirm it.
       </div>
+
+      {inConfigTree(queryClient.getQueryData<SessionInfo>(["session"]), entry.dn) ? (
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
+          This is the server's own configuration, not directory data. Every attribute the object
+          classes permit is offered here and the server decides what it accepts — some settings
+          take effect immediately, some only at the next start, and some are accepted and then
+          stop the server from starting. Which ones Alder has proved it can write, and which need
+          a restart, is what <span className="font-medium">Snapshots &amp; drift → Configuration</span>{" "}
+          answers.
+        </div>
+      ) : null}
 
       {drifted.length ? (
         <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">

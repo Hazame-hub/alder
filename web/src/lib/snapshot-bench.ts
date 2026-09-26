@@ -79,9 +79,18 @@ function subscribe(listener: () => void) {
 export const bench = {
   state: () => state,
 
-  /** Put a captured or uploaded document in its slot. */
+  /**
+   * Put a captured or uploaded document in its slot, and point the comparison
+   * at it.
+   *
+   * A document loaded into B while the target was A left the screen asking for
+   * a side that was empty. What somebody just loaded is what they want
+   * compared, so it becomes the target -- unless it is already the source, in
+   * which case they have said what they mean.
+   */
   load(slot: Slot) {
-    set({ slots: { ...state.slots, [slot.name]: slot }, comparison: null });
+    const side = state.source === slot.name ? {} : { target: slot.name };
+    set({ slots: { ...state.slots, [slot.name]: slot }, comparison: null, ...side });
   },
 
   setSide(which: "source" | "target", choice: SideChoice) {

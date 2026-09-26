@@ -16,7 +16,8 @@ into ordinary change requests that go through the same plan and apply as every
 other write.
 
 It is the same three endpoints with `kind: config`, the **Configuration**
-option in the Snapshots tab, and `alder snapshot --kind config` and `alder diff`
+option in the Snapshots & drift tab -- which the Overview's Configuration card
+links to -- and `alder snapshot --kind config` and `alder diff`
 from a shell. Nothing is stored on the server.
 
 **The rule this whole feature is built on:**
@@ -193,7 +194,7 @@ later 1.x release will keep reading version 1 of it.
 ## Comparing
 
 `POST /diff` with two configuration sides, or `alder diff a.json b.json`, or the
-Snapshots tab. Two documents need no directory and no LDAP credentials; a live
+Snapshots & drift tab. Two documents need no directory and no LDAP credentials; a live
 side needs the session.
 
 **Source is where you are, target is what you are comparing with**, as
@@ -349,9 +350,16 @@ See [CLI.md](CLI.md).
 
 ## In the browser
 
-Snapshots tab → **Configuration** → Capture. A captured or loaded document is
+Snapshots & drift tab → **Configuration** → Capture, or the Overview's
+Configuration card, which links straight here. A captured or loaded document is
 summarised from the document itself; comparing is where it is decoded strictly
-and its checksum checked.
+and its checksum checked. The capture form folds away once a comparison is on
+the screen, and the filters appear when a result is long enough to need them.
+
+A setting Alder cannot act on says why in a sentence -- the value is a secret,
+nothing here parses it, part of a side could not be read, or Alder's model of
+this server does not cover the setting -- with the stable code still on the
+row's tooltip.
 
 The comparison view filters by text, section and kind of difference, and has
 "Only what Alder can change" -- which hides the objects Alder cannot act on as

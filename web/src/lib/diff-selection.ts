@@ -52,12 +52,26 @@ export function selectedChanges(
   chosen: ReadonlySet<number>,
   deletions: ReadonlySet<number>,
 ): ChangeRequest[] {
-  const out: ChangeRequest[] = [];
+  return selectedChangeItems(items, chosen, deletions).map((s) => s.change);
+}
+
+/**
+ * The same selection, each change with the item it came from, for a caller
+ * that has to name them -- the changeset wants a label per change. One
+ * traversal decides what is selected; a second one written beside it is how
+ * the two drift apart.
+ */
+export function selectedChangeItems(
+  items: readonly DiffItem[],
+  chosen: ReadonlySet<number>,
+  deletions: ReadonlySet<number>,
+): { item: DiffItem; change: ChangeRequest }[] {
+  const out: { item: DiffItem; change: ChangeRequest }[] = [];
   items.forEach((item, index) => {
     if (!selectable(item)) return;
     const destructive = item.candidate?.destructive === true;
     if (destructive ? !deletions.has(index) : !chosen.has(index)) return;
-    out.push(...(item.candidate?.changes ?? []));
+    for (const change of item.candidate?.changes ?? []) out.push({ item, change });
   });
   return out;
 }

@@ -9,6 +9,7 @@ import {
   actionableCount,
   configSections,
   filterConfigItems,
+  itemReason,
   objectRefusal,
   stageableChanges,
   stageableObjects,
@@ -33,6 +34,13 @@ const KIND_LABEL: Record<DiffKind, string> = {
 };
 
 const PAGE = 50;
+
+/**
+ * How many rows a comparison needs before its filters earn their space. Six
+ * controls over two rows of result is furniture; the same six over a hundred
+ * are how the answer is found.
+ */
+const FILTER_FROM = 20;
 
 /**
  * A configuration comparison.
@@ -180,7 +188,7 @@ export function ConfigDiffView({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={config.items.length >= FILTER_FROM ? "flex flex-wrap items-center gap-2" : "hidden"}>
         <Input
           value={text}
           onChange={(e) => {
@@ -361,6 +369,7 @@ function ConfigRow({
 }) {
   const look = ACTION_LOOK[item.actionable];
   const selectable = item.actionable === "writable";
+  const reason = itemReason(item);
   return (
     <li className="px-3 py-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -388,11 +397,11 @@ function ConfigRow({
         {item.comparison === "raw" ? (
           <div className="text-muted-foreground">compared as text: nothing here parses this value</div>
         ) : null}
-        {(item.problems ?? []).map((p) => (
-          <div key={p} className="text-warning-tint-foreground">
-            {safeText(p)}
+        {reason ? (
+          <div className="text-warning-tint-foreground" title={(item.problems ?? []).join(", ")}>
+            {reason}
           </div>
-        ))}
+        ) : null}
       </div>
     </li>
   );

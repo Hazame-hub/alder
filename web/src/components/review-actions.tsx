@@ -59,8 +59,14 @@ export function ReviewActions({
   stagedNote?: ReactNode;
 }) {
   const [reviewing, setReviewing] = useState(false);
-  const [staged, setStaged] = useState<number | null>(null);
+  const [staged, setStaged] = useState<{ for: string; count: number } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
+
+  // What was staged is said about the selection it was staged from. Tick
+  // another row and "3 staged" is about a set that no longer exists, which is
+  // how somebody stages the same change twice.
+  const signature = JSON.stringify(changes.map((c) => [c.change.dn, c.label]));
+  const stagedNow = staged?.for === signature ? staged.count : null;
 
   const one = reviewsInDialog(changes.length) ? changes[0] : null;
 
@@ -73,7 +79,7 @@ export function ReviewActions({
       return false;
     }
     setRefused(null);
-    setStaged(result.staged);
+    setStaged({ for: signature, count: result.staged });
     onStaged?.();
     return true;
   };
@@ -102,10 +108,10 @@ export function ReviewActions({
         <ListChecks />
         Add to changeset
       </Button>
-      {staged !== null ? (
+      {stagedNow !== null ? (
         <>
           <span className="text-sm">
-            {staged} staged.{stagedNote ? <> {stagedNote}</> : null}
+            {stagedNow} staged.{stagedNote ? <> {stagedNote}</> : null}
           </span>
           <Button size="sm" variant="ghost" onClick={onReviewChangeset}>
             Review the changeset
@@ -122,7 +128,7 @@ export function ReviewActions({
         destructive={destructive}
         onApplied={() => onApplied?.()}
         onStaged={() => {
-          setStaged(1);
+          setStaged({ for: signature, count: 1 });
           onStaged?.();
         }}
       />

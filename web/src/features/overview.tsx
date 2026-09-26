@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Activity,
   Check,
+  GitCompareArrows,
   Hash,
   Lock,
   Minus,
@@ -39,10 +40,14 @@ export function OverviewPanel({
   info,
   onBrowse,
   onView,
+  onCompareConfig,
 }: {
   info: SessionInfo;
   onBrowse: (dn: string) => void;
   onView: (v: AppView) => void;
+  /** Go to the configuration comparison, which is what "the configuration
+   * drifted" actually needs; the DN above only opens the raw entry. */
+  onCompareConfig: () => void;
 }) {
   const caps = info.capabilities;
   const contexts = caps?.namingContexts ?? [];
@@ -155,6 +160,18 @@ export function OverviewPanel({
                   </span>
                 )}
               </Row>
+              {caps.config.readable ? (
+                <div className="pt-2">
+                  <Button size="sm" variant="outline" onClick={onCompareConfig}>
+                    <GitCompareArrows />
+                    Compare the configuration
+                  </Button>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Capture it, or compare it with a capture you kept, to see what has drifted and
+                    put it back.
+                  </p>
+                </div>
+              ) : null}
             </>
           ) : (
             <p className="text-sm text-muted-foreground">

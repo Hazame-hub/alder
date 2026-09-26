@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { filterItems, nonDestructive, selectable, selectedChanges, type DiffItem } from "./diff-selection";
+import {
+  filterItems,
+  nonDestructive,
+  selectable,
+  selectedChangeItems,
+  selectedChanges,
+  type DiffItem,
+} from "./diff-selection";
 
 const modify: DiffItem = {
   kind: "modified",
@@ -59,5 +66,14 @@ describe("selection", () => {
 
   it("a blocked deletion stays out even when chosen", () => {
     expect(selectedChanges(items, new Set(), new Set([3]))).toEqual([]);
+  });
+
+  it("names each change with the item it came from, and agrees with the plain list", () => {
+    // The comparison screens label every staged change, and a second
+    // traversal written beside this one is how a label ends up on the wrong
+    // change.
+    const picked = selectedChangeItems(items, new Set([0, 1]), new Set([2]));
+    expect(picked.map((p) => p.change.type)).toEqual(selectedChanges(items, new Set([0, 1]), new Set([2])).map((c) => c.type));
+    expect(picked.map((p) => p.item.kind)).toEqual(["modified", "added", "removed"]);
   });
 });
