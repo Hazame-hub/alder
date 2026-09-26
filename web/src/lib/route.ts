@@ -50,6 +50,8 @@ export type AppSearch = {
   dn?: string;
   /** Open that entry straight into the editor. Not persisted past a reload. */
   edit?: boolean;
+  /** Which kind the Snapshots view opens on, so "compare the configuration" is a link. */
+  capture?: "data" | "schema" | "config";
   /** The search page's base, scope and filter, so a search is a link. */
   base?: string;
   scope?: SearchScope;
@@ -71,6 +73,10 @@ export function validateAppSearch(raw: Record<string, unknown>): AppSearch {
   const dn = asText(raw.dn);
   if (dn) out.dn = dn;
   if (raw.edit === true || raw.edit === "true") out.edit = true;
+
+  if (raw.capture === "data" || raw.capture === "schema" || raw.capture === "config") {
+    out.capture = raw.capture;
+  }
 
   const base = asText(raw.base);
   if (base) out.base = base;

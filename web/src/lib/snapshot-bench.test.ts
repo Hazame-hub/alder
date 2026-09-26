@@ -47,6 +47,18 @@ describe("the snapshot bench", () => {
     expect(bench.state().target).toBe("B");
   });
 
+  it("compares against the document just loaded", () => {
+    bench.load(slot("B"));
+    expect(bench.state().target).toBe("B");
+    expect(bench.state().source).toBe("live");
+
+    // Unless that side is the one being compared from.
+    bench.setSide("source", "A");
+    bench.load(slot("A"));
+    expect(bench.state().source).toBe("A");
+    expect(bench.state().target).toBe("B");
+  });
+
   it("starts from the directory as it is now, against snapshot A", () => {
     expect(bench.state().source).toBe("live");
     expect(bench.state().target).toBe("A");

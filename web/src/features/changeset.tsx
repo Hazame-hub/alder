@@ -89,6 +89,12 @@ export function ChangesetView({
     },
   });
 
+  const recovery = current ? overallRecovery(current.items) : null;
+  // A plan that says nothing here is recoverable is a plan whose bundle would
+  // be empty. Offering one anyway, two lines under "Recovery unavailable",
+  // invited the operator to tick a box that could not do anything.
+  const canRecover = recovery === null || recovery.recoverability !== "unavailable";
+
   /**
    * What applying sends.
    *
@@ -100,12 +106,11 @@ export function ChangesetView({
    */
   const applyBody: { changes: ChangeRequest[]; recovery?: boolean } = {
     ...(current ? { changes: changesFromPlan(current, body.changes) } : body),
-    ...(prepareRecovery ? { recovery: true } : {}),
+    ...(prepareRecovery && canRecover ? { recovery: true } : {}),
   };
   // A change with an expectation -- one from a recovery bundle -- is only ever
   // applied through a checked plan; the server refuses it otherwise.
   const needsPlan = staged.some((s) => s.change.expect !== undefined);
-  const recovery = current ? overallRecovery(current.items) : null;
 
   const apply = useMutation({
     mutationFn: async () =>
@@ -396,15 +401,21 @@ export function ChangesetView({
             {assessmentLine(recovery)}
           </span>
         ) : null}
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
-            checked={prepareRecovery}
-            onChange={(e) => setPrepareRecovery(e.target.checked)}
-          />
-          Prepare a recovery bundle
-        </label>
+        {canRecover ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={prepareRecovery}
+              onChange={(e) => setPrepareRecovery(e.target.checked)}
+            />
+            Prepare a recovery bundle
+          </label>
+        ) : (
+          <span className="text-sm text-muted-foreground">
+            No recovery bundle: nothing in this plan can be put back from one.
+          </span>
+        )}
         <Button
           disabled={!data || apply.isPending || stalePlan !== null || (needsPlan && !current) || (current !== null && applyBody.changes.length === 0)}
           onClick={() => {

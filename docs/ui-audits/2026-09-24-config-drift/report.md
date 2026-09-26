@@ -275,11 +275,29 @@ against a live server each time.
 
 ## Since this audit
 
-Findings 1, 2 and 3 were fixed in the branch that carries this report: a
+**Findings 1, 2 and 3** were fixed in the branch that carried this report: a
 comparison offers "Review N changes" -- one opens the dialog every other screen
 uses, several go to the changeset in one click -- the loaded documents and the
 last comparison last as long as the tab, and the summary counts the objects
-Alder can act on. The rest stand.
+Alder can act on.
+
+**Findings 4 and 6 to 10** followed. Configuration is named where an operator
+looks for it: the tab is "Snapshots & drift", the intro says what it captures,
+and the Overview's Configuration card links straight to the comparison. The
+capture form folds away once a comparison is on the screen and the filters
+appear only when a result is long enough to need them. With one document loaded
+the two selects give way to "The directory now → Snapshot A" with Swap, and a
+document loaded into a slot becomes the side compared. A setting Alder cannot
+act on says why in a sentence. A snapshot card says "captured <time> · loaded
+from file". A plan that recovers nothing offers no recovery bundle.
+
+**Finding 5 is half done, deliberately.** The entry editor now says what tree it
+is in and stops offering Rename, Delete and "Delete with contents" on the
+configuration root. It still shows every attribute as a plain field: marking
+each one writable, read-only or restart-required needs the provider model's
+answer for a single entry, which the server exposes only through a capture
+today. That is an API addition, not a copy change, and it is the one piece of
+this audit left on the table.
 
 ## If only two things are changed
 

@@ -98,6 +98,24 @@ export function formatGeneralizedTime(raw: string): string | null {
   });
 }
 
+/**
+ * An RFC 3339 instant as a person reads it, for the times Alder itself wrote
+ * into a document: when a snapshot was captured, when a bundle was made.
+ * The raw string is returned when it cannot be parsed, because a timestamp
+ * nobody can read still beats no timestamp.
+ */
+export function formatInstant(raw: string): string {
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** rdnOf returns the leftmost RDN of a DN string, respecting escaping. */
 export function rdnOf(dn: string): string {
   return splitDN(dn)[0] ?? dn;

@@ -138,6 +138,7 @@ export function App() {
                 info={info}
                 onBrowse={(dn) => openEntry(dn)}
                 onView={(v) => go({ view: v })}
+                onCompareConfig={() => go({ view: "snapshots", capture: "config" })}
               />
             </main>
           ) : view === "browse" ? (
@@ -214,7 +215,10 @@ export function App() {
             </main>
           ) : view === "snapshots" ? (
             <main className="min-w-0 flex-1 overflow-y-auto">
-              <SnapshotsPanel onReviewChangeset={() => go({ view: "changeset" })} />
+              <SnapshotsPanel
+                onReviewChangeset={() => go({ view: "changeset" })}
+                openWith={search.capture}
+              />
             </main>
           ) : view === "packages" ? (
             <main className="min-w-0 flex-1 overflow-y-auto">
@@ -327,7 +331,7 @@ function TopBar({
     ["schema", "Schema", Layers],
     ["changeset", "Changeset", ListChecks],
     ["import", "Import", FileUp],
-    ["snapshots", "Snapshots", Camera],
+    ["snapshots", "Snapshots & drift", Camera],
     ["packages", "Packages", Package],
     ["preflight", "Preflight", ClipboardCheck],
   ];

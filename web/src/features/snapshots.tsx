@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   ArrowRight,
   Camera,
   ChevronDown,
@@ -29,6 +30,7 @@ import {
   type DiffKind,
 } from "@/lib/diff-selection";
 import { safeText } from "@/lib/display";
+import { formatInstant } from "@/lib/values";
 import { SCHEMA_KIND_LOOK, SchemaDiffView } from "@/features/schema-diff-view";
 import { ConfigDiffView } from "@/features/config-diff-view";
 import { SIGNATURE_LOOK, signerLine, worthShowing, type DocumentSignature } from "@/lib/signature";
@@ -120,7 +122,14 @@ const KIND_LOOK = SCHEMA_KIND_LOOK;
  * are only staged into the changeset, which plans them against the directory
  * as it is and applies them through the same review as every other write.
  */
-export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () => void }) {
+export function SnapshotsPanel({
+  onReviewChangeset,
+  openWith,
+}: {
+  onReviewChangeset: () => void;
+  /** Which kind to open on, when the link that led here asked for one. */
+  openWith?: "data" | "schema" | "config";
+}) {
   const session = useQuery({
     queryKey: ["session"],
     queryFn: async () => unwrap(await api.GET("/session")),
@@ -135,10 +144,18 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
   const [scope, setScope] = useState<"base" | "one" | "sub">("sub");
   const [filter, setFilter] = useState("");
   const [operational, setOperational] = useState(false);
-  const [captureKind, setCaptureKind] = useState<"data" | "schema" | "config">("data");
+  const [captureKind, setCaptureKind] = useState<"data" | "schema" | "config">(openWith ?? "data");
   const [schemaTarget, setSchemaTarget] = useState("");
   const schemaTargets = session.data?.capabilities?.schemaWrite?.targets ?? [];
   const [into, setInto] = useState<"A" | "B">("A");
+  // The form that produced a comparison is furniture once the comparison is on
+  // the screen, and it is tall. It folds away, and opens again on request or
+  // when there is nothing to read.
+  const [showCapture, setShowCapture] = useState(() => bench.state().comparison === null);
+  // Two ways to name the same two sides is one too many. With a single
+  // document loaded there is only one sensible pair, so the selects appear on
+  // request; with two, or once asked for, they are back.
+  const [chooseSides, setChooseSides] = useState(false);
   const setSource = (choice: SideChoice) => bench.setSide("source", choice);
   const setTarget = (choice: SideChoice) => bench.setSide("target", choice);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -248,29 +265,44 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
             : null;
 
   const sideLabel = (choice: SideChoice) => (choice === "live" ? "The directory now" : `Snapshot ${choice}`);
+  // With one document loaded there is one pair worth comparing -- it against
+  // the directory -- so the two selects stay out of the way until a second
+  // document, or the operator, gives them something to decide.
+  const loaded = (["A", "B"] as const).filter((n) => slots[n]).length;
+  const pickSides = chooseSides || loaded > 1;
 
   const compare = useMutation<Diff, ApiFailure>({
     mutationFn: async () =>
       unwrap(await api.POST("/diff", { body: { source: sideBody(source), target: sideBody(target) } })),
     // The result is kept in the store with the two sides as they were named
     // when it was made, so it survives a visit to the changeset.
-    onSuccess: (diff) =>
-      bench.setComparison({ diff, sourceLabel: sideLabel(source), targetLabel: sideLabel(target) }),
+    onSuccess: (diff) => {
+      bench.setComparison({ diff, sourceLabel: sideLabel(source), targetLabel: sideLabel(target) });
+      setShowCapture(false);
+    },
   });
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-6">
       <header>
-        <h2 className="text-lg font-semibold">Snapshots</h2>
+        <h2 className="text-lg font-semibold">Snapshots &amp; drift</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Capture a subtree or the schema as a versioned snapshot you keep, compare it with another snapshot
-          or with the directory as it is now, and stage selected differences as changes. Nothing is stored on the
-          server, and nothing is applied from here.
+          Capture a subtree, the schema, or the server's own configuration as a versioned snapshot you keep;
+          compare it with another snapshot or with the directory as it is now; and review the differences you
+          select as changes. This is where a drift is found and put back. Nothing is stored on the server.
         </p>
       </header>
 
       <section className="space-y-3 rounded-lg border p-4">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
+        {!showCapture ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <Button size="sm" variant="outline" onClick={() => setShowCapture(true)}>
+              <Camera />
+              Capture or upload another snapshot
+            </Button>
+          </div>
+        ) : null}
+        <div className={showCapture ? "flex flex-wrap items-center gap-2 text-sm" : "hidden"}>
           <span className="font-medium">Load into</span>
           {(["A", "B"] as const).map((n) => (
             <Button key={n} size="sm" variant={into === n ? "default" : "outline"} onClick={() => setInto(n)}>
@@ -284,7 +316,7 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
             </Button>
           ))}
         </div>
-        {captureKind === "data" ? (
+        {!showCapture ? null : captureKind === "data" ? (
         <>
         <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr]">
           <Input
@@ -333,7 +365,7 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
             syntaxes, matching rules and the rest as context. Server configuration has its own kind.
           </p>
         )}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={showCapture ? "flex flex-wrap items-center gap-2" : "hidden"}>
           <Button
             onClick={() => capture.mutate()}
             disabled={capture.isPending || (captureKind === "data" && !(base ?? defaultBase).trim())}
@@ -373,9 +405,36 @@ export function SnapshotsPanel({ onReviewChangeset }: { onReviewChangeset: () =>
       <section className="space-y-3 rounded-lg border p-4">
         <h3 className="font-medium">Compare</h3>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <SideSelect label="Source" value={source} onChange={setSource} slots={slots} />
-          <ArrowRight className="size-4 text-muted-foreground" />
-          <SideSelect label="Target" value={target} onChange={setTarget} slots={slots} />
+          {pickSides ? (
+            <>
+              <SideSelect label="Source" value={source} onChange={setSource} slots={slots} />
+              <ArrowRight className="size-4 text-muted-foreground" />
+              <SideSelect label="Target" value={target} onChange={setTarget} slots={slots} />
+            </>
+          ) : (
+            <>
+              <span>
+                <span className="font-medium">{sideLabel(source)}</span>{" "}
+                <ArrowRight className="inline size-4 text-muted-foreground" />{" "}
+                <span className="font-medium">{sideLabel(target)}</span>
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const wasSource = source;
+                  setSource(target);
+                  setTarget(wasSource);
+                }}
+              >
+                <ArrowLeftRight />
+                Swap
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setChooseSides(true)}>
+                Choose sides
+              </Button>
+            </>
+          )}
           <Button onClick={() => compare.mutate()} disabled={compare.isPending || compareProblem !== null}>
             {compare.isPending ? <Loader2 className="animate-spin" /> : null}
             Compare
@@ -462,7 +521,7 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
         </div>
         <div className="text-xs text-muted-foreground">
           {c.counts.settings} settings · {c.counts.resources} resources ·{" "}
-          {safeText(c.source.vendor) || "server not identified"} · {slot.origin} {c.createdAt}
+          {safeText(c.source.vendor) || "server not identified"} · <Captured slot={slot} at={c.createdAt} />
         </div>
         <div className="flex flex-wrap gap-1">
           {c.counts.withheld > 0 ? <Badge variant="outline">{c.counts.withheld} withheld</Badge> : null}
@@ -486,7 +545,7 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
         </div>
         <div className="text-xs text-muted-foreground">
           {s.counts.attributeTypes} attribute types · {s.counts.objectClasses} object classes ·{" "}
-          {safeText(i.source.vendor) || "server not identified"} · {slot.origin} {i.createdAt}
+          {safeText(i.source.vendor) || "server not identified"} · <Captured slot={slot} at={i.createdAt} />
         </div>
         <div className="flex flex-wrap gap-1">
           <Badge variant={i.integrity === "verified" ? "success" : "warning"}>checksum {i.integrity}</Badge>
@@ -510,7 +569,8 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
         {i.source.scope} of {safeText(i.source.base)}
       </div>
       <div className="text-xs text-muted-foreground">
-        {i.entryCount} entries · {i.source.vendor ?? "server not identified"} · {slot.origin} {i.createdAt}
+        {i.entryCount} entries · {i.source.vendor ?? "server not identified"} ·{" "}
+        <Captured slot={slot} at={i.createdAt} />
       </div>
       <div className="flex flex-wrap gap-1">
         <Badge variant={i.integrity === "verified" ? "success" : "warning"}>checksum {i.integrity}</Badge>
@@ -520,6 +580,22 @@ function SlotCard({ name, slot }: { name: "A" | "B"; slot?: Slot }) {
         {slot.bytes > MAX_BODY ? <Badge variant="warning">too large to compare here</Badge> : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * When a snapshot was taken, and how it got here.
+ *
+ * The card used to say "uploaded <createdAt>", which names the moment the
+ * document was captured and labels it as the moment it was loaded. For a
+ * drift investigation the capture time is the one that matters.
+ */
+function Captured({ slot, at }: { slot: Slot; at: string }) {
+  return (
+    <span title={at}>
+      captured {formatInstant(at)}
+      {slot.origin === "uploaded" ? " · loaded from file" : ""}
+    </span>
   );
 }
 

@@ -133,7 +133,7 @@ Every endpoint that reads a document unwraps it first: `POST /snapshots/inspect`
   signature_required`. It refuses to start without `--trusted-keys`, since every
   document would be refused.
 
-In the interface, a snapshot loaded into the Snapshots tab and an artifact in
+In the interface, a snapshot loaded into the Snapshots & drift tab and an artifact in
 the Preflight tab carry a badge for what their signature amounted to. An
 unsigned document shows nothing: most documents are unsigned, and a badge on
 every one of them would say only that the world is normal.
