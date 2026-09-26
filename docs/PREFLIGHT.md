@@ -289,7 +289,9 @@ target has is not a finding.
 
 A secret is `sensitive_value_not_migratable`, excluded, as everywhere else.
 Access rules produce no finding: access control is not evaluated, in every
-report. A configuration preflight lists `config_read` among the capabilities,
+report. Since 1.19 the rules a server holds can be read against one entry --
+see [Access control](ACCESS-CONTROL.md) -- which is a different thing from
+comparing or evaluating them, and preflight still does neither. A configuration preflight lists `config_read` among the capabilities,
 available when the target's whole configuration tree was read.
 
 ### Artifact

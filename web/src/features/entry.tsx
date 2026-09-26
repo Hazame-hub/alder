@@ -57,6 +57,7 @@ import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
 import { ReferencedByButton } from "@/features/referenced-by";
+import { AccessButton } from "@/features/access";
 import { ExpandMembersButton } from "@/features/members";
 import { CompareButton } from "@/features/compare";
 import { DeleteSubtreeButton } from "@/features/delete-subtree";
@@ -324,6 +325,7 @@ function EntryHeader({
               onSearch={onSearch}
             />
           ) : null}
+          <AccessButton dn={entry.dn} />
           <ExportButton dn={entry.dn} />
           {readOnly ? (
             <Badge variant="outline" className="gap-1">
