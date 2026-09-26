@@ -57,6 +57,10 @@ tags:
       a schema snapshot or a data snapshot against the connected directory and
       reporting what would carry across. Analysis only: nothing here writes,
       transforms the artifact, or produces anything a plan or an apply reads.
+  - name: access
+    description: |
+      Reading the access control rules a server holds (1.19). Read-only, and
+      never an evaluation: what a bind may do is the directory's answer.
   - name: config
     description: |
       The server's own configuration, as the provider's model reads it (1.18).
@@ -896,6 +900,55 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+
+  /access:
+    get:
+      tags: [access]
+      operationId: getAccessRules
+      summary: The access control rules that bear on an entry
+      description: |
+        Reports the access control rules a server holds that bear on one entry,
+        in the server's own order and its own words. Introduced in Alder 1.19.
+        Read-only: Alder does not write access control, and this endpoint is
+        the whole of what it does with it.
+
+        **It is not an evaluation.** Alder does not decide what a bind may do;
+        the directory decides that, and says so when an operation is tried.
+        What this gives an operator is the rules to read: which ones name this
+        entry, where each is written, and in what order the server consults
+        them.
+
+        The two servers keep access control in different places, and both are
+        looked in rather than chosen by vendor name:
+
+        - `aci` attributes on the entry and on its ancestors, which is where
+          389 Directory Server keeps them. An aci on an ancestor is in force
+          here, and is reported as inherited.
+        - `olcAccess` on the database entry in the configuration tree, which is
+          where OpenLDAP keeps them. They are ordered and the first match wins,
+          so the index is always reported. Reading them needs an identity that
+          may read the configuration tree; when the session has none, the
+          report says so rather than reporting no rules.
+
+        Each rule carries its raw value exactly as the server holds it. The
+        parsed structure beside it is filled in only where Alder read the rule
+        with confidence: a regular expression target, a set specification or a
+        syntax newer than this parser is reported whole, and `parsed` is false.
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The rules that bear on that entry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessReport" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /config/entry:
     get:
@@ -2710,6 +2763,128 @@ components:
           type: array
           items: { $ref: "#/components/schemas/ConfigSetting" }
         checksum: { type: string }
+
+    AccessReport:
+      type: object
+      required: [dn, styles, rules, disclaimer]
+      description: |
+        The access control rules that bear on one entry. Not an evaluation of
+        anyone's rights.
+      properties:
+        dn: { type: string }
+        styles:
+          type: array
+          description: |
+            The mechanisms rules were found in, named after the attribute that
+            carries them: `aci`, `olcAccess`.
+          items: { type: string }
+        rules:
+          type: array
+          items: { $ref: "#/components/schemas/AccessRule" }
+        unread:
+          type: array
+          description: |
+            Places rules could live that this session could not read, so the
+            report is not the whole answer. The common one: OpenLDAP keeps its
+            rules in the configuration tree, which usually needs its own
+            identity.
+          items: { $ref: "#/components/schemas/AccessUnread" }
+        disclaimer:
+          type: string
+          description: |
+            One sentence saying what the report is and is not, so every surface
+            says the same thing.
+      x-go-type-skip-optional-pointer: true
+
+    AccessRule:
+      type: object
+      required: [style, source, raw, parsed, applies]
+      properties:
+        style:
+          type: string
+          description: "`aci` or `olcAccess`."
+        source:
+          type: string
+          description: The entry the rule is written on.
+        index:
+          type: integer
+          description: |
+            Its position where the server orders them. OpenLDAP consults its
+            rules in this order and stops at the first match.
+        name:
+          type: string
+          description: What the rule calls itself, where the syntax has a name.
+        raw:
+          type: string
+          description: The rule exactly as the server holds it.
+        parsed:
+          type: boolean
+          description: |
+            Whether the structure below was read with confidence. False means
+            the raw value is all Alder is willing to say about it.
+        target: { $ref: "#/components/schemas/AccessTarget" }
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/AccessGrant" }
+        applies:
+          type: string
+          enum: ["yes", "maybe", "no"]
+          x-enum-varnames: [AccessAppliesYes, AccessAppliesMaybe, AccessAppliesNo]
+          description: |
+            Whether the rule bears on the entry asked about. `maybe` is an
+            honest answer, not a missing one: a regular expression, a filter or
+            a group membership is something Alder does not evaluate.
+        why:
+          type: string
+          description: That answer, in a person's words.
+        inherited:
+          type: boolean
+          description: Written on an ancestor of the entry rather than on it.
+      x-go-type-skip-optional-pointer: true
+
+    AccessTarget:
+      type: object
+      description: What a rule is written about, as written.
+      properties:
+        scope: { type: string }
+        dn: { type: string }
+        attributes:
+          type: array
+          description: |
+            The attributes the rule narrows to, as written. A leading `!` is
+            kept: an aci's `targetattr!=` excludes rather than includes.
+          items: { type: string }
+        filter: { type: string }
+      x-go-type-skip-optional-pointer: true
+
+    AccessGrant:
+      type: object
+      required: [subject, access, kind]
+      description: "One clause of a rule: somebody, and what they get."
+      properties:
+        subject:
+          type: string
+          description: "Who, in the rule's own words: self, users, anonymous, a DN, a group."
+        access:
+          type: string
+          description: What they get, as written.
+        kind:
+          type: string
+          enum: [allow, deny, level]
+          x-enum-varnames: [AccessKindAllow, AccessKindDeny, AccessKindLevel]
+          description: |
+            `allow` and `deny` are an aci's words. `level` is OpenLDAP's: a by
+            clause grants a level, and the first matching rule wins, so a level
+            is neither an allow nor a deny.
+      x-go-type-skip-optional-pointer: true
+
+    AccessUnread:
+      type: object
+      required: [where, reason]
+      properties:
+        where: { type: string }
+        reason: { type: string }
+      x-go-type-skip-optional-pointer: true
 
     ConfigEntryModel:
       type: object

@@ -2950,3 +2950,49 @@ against a real task -- a configuration setting drifted, find it and put it back
   shipping the lot as 1.16.0 would have made all three untrue at once. The
   release is 1.18.0, and 1.16 and 1.17 are numbers a reader will find in the
   notes and not in the tags, which costs them nothing.
+
+## 2026-09-26 — 1.19: reading access control, and why it stops there
+
+Section 2 of CLAUDE.md puts ACL editing out of scope for v1, and it stays out.
+What moved, on the record, is reading: the rules a server holds are now shown
+against an entry.
+
+- **The question is "why can't I write this?", and Alder had no answer at all.**
+  The preflight report listed access control among the things it neither reads
+  nor translates, which was true and unhelpful. Reading the rules is most of
+  what an operator needs: which ones name this entry, where each is written, and
+  in what order the server consults them.
+- **Reading is not evaluating, and the difference is stated on every surface.**
+  Evaluation depends on group membership, filters, connection security, rule
+  order across databases, and rules Alder may not be able to read. A verdict
+  would be believed; a wrong verdict about access control is worse than silence.
+  One sentence says so in the API response, in the interface and in the
+  document, from one constant, so the three cannot drift apart.
+- **Writing stays out, and not for lack of appetite.** Access control is the one
+  thing in a directory that can lock every administrator out of it, including
+  the one making the change. The ordering semantics that make a rule effective
+  -- first match wins in OpenLDAP, the deny-wins precedence of an aci -- mean a
+  correct-looking single-rule edit can change the meaning of every rule after
+  it, and Alder's whole claim is that what it applies is what the operator read.
+- **No shared model, again.** An ordered list in a configuration tree and an
+  attribute on an entry are different mechanisms with different evaluation
+  rules. Each is reported in its own words: an aci allows or denies, an
+  olcAccess by-clause grants a level and the first match wins. Nothing is
+  translated into the other, for the same reason configuration is not.
+- **Both places are looked in, on every server.** Nothing branches on a vendor
+  name: aci attributes up the tree and olcAccess in the configuration tree are
+  both read, and what answers is what is reported.
+- **"maybe" is an answer.** A regular expression target, a filter, a group
+  membership: the report says the rule may bear on the entry and says what could
+  not be decided, rather than guessing either way.
+- **A half-read rule is reported whole.** `parsed: false` means the raw value is
+  all Alder will say about it. A set specification read halfway invites a
+  decision made on the half that was understood.
+- **An unreadable place is said out loud.** OpenLDAP keeps its rules in the
+  configuration tree, which usually needs its own identity; a session without
+  one gets "this tree could not be read", never a confident report of no rules.
+- **Effective rights are the next piece, deliberately separate.** 389 Directory
+  Server publishes the Get Effective Rights control, which answers "what may
+  this bind do here" from the server itself; OpenLDAP has no equivalent. Asking
+  a server that can answer is worth doing, and it is a different feature from
+  reading the rules: one is the directory's verdict, the other is the text.

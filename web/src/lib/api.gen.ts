@@ -669,6 +669,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The access control rules that bear on an entry
+         * @description Reports the access control rules a server holds that bear on one entry,
+         *     in the server's own order and its own words. Introduced in Alder 1.19.
+         *     Read-only: Alder does not write access control, and this endpoint is
+         *     the whole of what it does with it.
+         *
+         *     **It is not an evaluation.** Alder does not decide what a bind may do;
+         *     the directory decides that, and says so when an operation is tried.
+         *     What this gives an operator is the rules to read: which ones name this
+         *     entry, where each is written, and in what order the server consults
+         *     them.
+         *
+         *     The two servers keep access control in different places, and both are
+         *     looked in rather than chosen by vendor name:
+         *
+         *     - `aci` attributes on the entry and on its ancestors, which is where
+         *       389 Directory Server keeps them. An aci on an ancestor is in force
+         *       here, and is reported as inherited.
+         *     - `olcAccess` on the database entry in the configuration tree, which is
+         *       where OpenLDAP keeps them. They are ordered and the first match wins,
+         *       so the index is always reported. Reading them needs an identity that
+         *       may read the configuration tree; when the session has none, the
+         *       report says so rather than reporting no rules.
+         *
+         *     Each rule carries its raw value exactly as the server holds it. The
+         *     parsed structure beside it is filled in only where Alder read the rule
+         *     with confidence: a regular expression target, a set specification or a
+         *     syntax newer than this parser is reported whole, and `parsed` is false.
+         */
+        get: operations["getAccessRules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/entry": {
         parameters: {
             query?: never;
@@ -2010,6 +2056,93 @@ export interface components {
             resources: components["schemas"]["ConfigResource"][];
             settings: components["schemas"]["ConfigSetting"][];
             checksum?: string;
+        };
+        /**
+         * @description The access control rules that bear on one entry. Not an evaluation of
+         *     anyone's rights.
+         */
+        AccessReport: {
+            dn: string;
+            /**
+             * @description The mechanisms rules were found in, named after the attribute that
+             *     carries them: `aci`, `olcAccess`.
+             */
+            styles: string[];
+            rules: components["schemas"]["AccessRule"][];
+            /**
+             * @description Places rules could live that this session could not read, so the
+             *     report is not the whole answer. The common one: OpenLDAP keeps its
+             *     rules in the configuration tree, which usually needs its own
+             *     identity.
+             */
+            unread?: components["schemas"]["AccessUnread"][];
+            /**
+             * @description One sentence saying what the report is and is not, so every surface
+             *     says the same thing.
+             */
+            disclaimer: string;
+        };
+        AccessRule: {
+            /** @description `aci` or `olcAccess`. */
+            style: string;
+            /** @description The entry the rule is written on. */
+            source: string;
+            /**
+             * @description Its position where the server orders them. OpenLDAP consults its
+             *     rules in this order and stops at the first match.
+             */
+            index?: number;
+            /** @description What the rule calls itself, where the syntax has a name. */
+            name?: string;
+            /** @description The rule exactly as the server holds it. */
+            raw: string;
+            /**
+             * @description Whether the structure below was read with confidence. False means
+             *     the raw value is all Alder is willing to say about it.
+             */
+            parsed: boolean;
+            target?: components["schemas"]["AccessTarget"];
+            grants?: components["schemas"]["AccessGrant"][];
+            /**
+             * @description Whether the rule bears on the entry asked about. `maybe` is an
+             *     honest answer, not a missing one: a regular expression, a filter or
+             *     a group membership is something Alder does not evaluate.
+             * @enum {string}
+             */
+            applies: "yes" | "maybe" | "no";
+            /** @description That answer, in a person's words. */
+            why?: string;
+            /** @description Written on an ancestor of the entry rather than on it. */
+            inherited?: boolean;
+        };
+        /** @description What a rule is written about, as written. */
+        AccessTarget: {
+            scope?: string;
+            dn?: string;
+            /**
+             * @description The attributes the rule narrows to, as written. A leading `!` is
+             *     kept: an aci's `targetattr!=` excludes rather than includes.
+             */
+            attributes?: string[];
+            filter?: string;
+        };
+        /** @description One clause of a rule: somebody, and what they get. */
+        AccessGrant: {
+            /** @description Who, in the rule's own words: self, users, anonymous, a DN, a group. */
+            subject: string;
+            /** @description What they get, as written. */
+            access: string;
+            /**
+             * @description `allow` and `deny` are an aci's words. `level` is OpenLDAP's: a by
+             *     clause grants a level, and the first matching rule wins, so a level
+             *     is neither an allow nor a deny.
+             * @enum {string}
+             */
+            kind: "allow" | "deny" | "level";
+        };
+        AccessUnread: {
+            where: string;
+            reason: string;
         };
         /**
          * @description What a provider's configuration model says about one entry of the
@@ -4672,6 +4805,32 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    getAccessRules: {
+        parameters: {
+            query: {
+                dn: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rules that bear on that entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getConfigEntryModel: {

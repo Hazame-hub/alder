@@ -377,7 +377,11 @@ settings Alder can actually change -- those go through the same plan and review
 as every other write, and nothing else is ever staged. Configuration belongs to
 the server's software: given two different products, Alder says so and compares
 nothing, rather than producing a thousand differences that are artefacts of the
-comparison. A comparison also lists the configuration objects each side has --
+comparison. Alder also reads the access control rules a server holds and shows
+which of them bear on an entry -- `aci` attributes up the tree, `olcAccess` in
+the configuration tree -- in the server's own order and its own words; it never
+writes them and never claims to evaluate them. A comparison also lists the
+configuration objects each side has --
 databases, overlays, backends, plugins -- and Alder creates and removes one
 kind of them: an OpenLDAP overlay whose module the server has already loaded.
 Every setting Alder offers to change is one the test suite has

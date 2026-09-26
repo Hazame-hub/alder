@@ -369,7 +369,8 @@ type Report struct {
 
 // Areas never assessed, always listed.
 var alwaysNotEvaluated = []NotEvaluated{
-	{Area: "access_control", Reason: "Access control semantics differ between servers and are not compared: aci values and olcAccess rules are neither read nor translated."},
+	{Area: "access_control", Reason: "Access control is read and shown against an entry (1.19) and never compared: " +
+		"aci values and olcAccess rules are different mechanisms, and Alder neither translates nor evaluates them."},
 	{Area: "server_configuration", Reason: "This artifact carries no server configuration, so settings the source relies on -- overlays, plugins, password policy, limits, indexes -- are not evaluated. A configuration snapshot of the same server software can be preflighted on its own."},
 	{Area: "secret_values", Reason: "Passwords and other sensitive values are never read into an artifact, so whether they would carry across cannot be assessed; they must be set on the target separately."},
 }
