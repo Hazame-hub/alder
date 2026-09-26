@@ -136,6 +136,82 @@ func TestAccessSaysWhenItCouldNotReadWhereRulesLive(t *testing.T) {
 	}
 }
 
+// A session whose server answers what an identity may do, and one whose
+// server does not. Both are ordinary: only 389 Directory Server publishes the
+// control, so the second case is most servers.
+func rightsRig(t *testing.T, answer *directory.EffectiveRights, err error) (*testRig, *fakeSession) {
+	t.Helper()
+	caps := defaultCaps()
+	caps.EffectiveRights = true
+	entry := configEntry(t, "uid=alice,ou=people,dc=alder,dc=test", "objectClass", "person", "uid", "alice")
+	fake := &fakeSession{
+		caps: caps, entries: []*directory.Entry{entry},
+		byDN:      map[string]*directory.Entry{strings.ToLower(entry.DN.String()): entry},
+		rights:    answer,
+		rightsErr: err,
+	}
+	return newRig(t, Config{}, fake), fake
+}
+
+func TestAccessCarriesTheServersOwnVerdict(t *testing.T) {
+	rig, sess := rightsRig(t, &directory.EffectiveRights{
+		Entry: "v",
+		Attributes: []directory.AttributeRights{
+			{Name: "cn", Rights: "rsc"},
+			{Name: "userPassword", Rights: "none"},
+		},
+	}, nil)
+
+	res := rig.do(t, http.MethodGet,
+		"/api/v1/access?dn=uid%3Dalice%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest&as=cn%3Dsvc-alder%2Cou%3Dservices%2Cdc%3Dalder%2Cdc%3Dtest", nil)
+	if res.Status != http.StatusOK {
+		t.Fatalf("status %d: %s", res.Status, res.Body)
+	}
+	report := decode[AccessReport](t, res)
+
+	if sess.rightsAsked != "cn=svc-alder,ou=services,dc=alder,dc=test" {
+		t.Errorf("the server was asked about %q", sess.rightsAsked)
+	}
+	if report.Effective == nil {
+		t.Fatalf("no verdict: %v", report.RightsNote)
+	}
+	if report.Effective.Entry != "v" {
+		t.Errorf("entry rights %q", report.Effective.Entry)
+	}
+	if report.Effective.EntryWords == nil || (*report.Effective.EntryWords)[0] != "view this entry" {
+		t.Errorf("the letters must be glossed as well as kept: %+v", report.Effective.EntryWords)
+	}
+	attrs := *report.Effective.Attributes
+	if len(attrs) != 2 || attrs[1].Rights != "none" {
+		t.Fatalf("attributes: %+v", attrs)
+	}
+	// "none" glosses to nothing at all, which is how the screen tells a denial
+	// from a right it does not recognise.
+	if attrs[1].Words != nil && len(*attrs[1].Words) != 0 {
+		t.Errorf("none should carry no words: %+v", attrs[1].Words)
+	}
+}
+
+func TestAccessSaysWhyThereIsNoVerdict(t *testing.T) {
+	// A server that declines the question. "No rights" would be a verdict,
+	// and this is not one.
+	rig, _ := rightsRig(t, nil, directory.ErrRightsUnanswered)
+	res := rig.do(t, http.MethodGet, "/api/v1/access?dn=uid%3Dalice%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest", nil)
+	report := decode[AccessReport](t, res)
+	if report.Effective != nil {
+		t.Fatalf("a verdict from a declined question: %+v", report.Effective)
+	}
+	if report.RightsNote == nil || !strings.Contains(*report.RightsNote, "declined") {
+		t.Errorf("the note must say the server declined: %v", report.RightsNote)
+	}
+
+	// And a server that cannot answer at all, which is most of them.
+	plain := accessReport(t, accessRig(t, "aci"))
+	if plain.RightsNote == nil || !strings.Contains(*plain.RightsNote, "does not answer") {
+		t.Errorf("a server without the control must say so: %v", plain.RightsNote)
+	}
+}
+
 func TestAccessNeedsAnEntryAndASession(t *testing.T) {
 	rig := accessRig(t, "aci")
 	res := rig.anonymous(t, http.MethodGet, "/api/v1/access?dn=dc%3Dalder%2Cdc%3Dtest")

@@ -1,9 +1,11 @@
 # Access control, read
 
 Alder reads the access control rules a server holds and shows you the ones that
-bear on an entry. It does not write them, and it does not evaluate them.
+bear on an entry, and — where the server will answer it — what a given identity
+may actually do there. It does not write access control, and it never evaluates
+the rules itself.
 
-Introduced in 1.19.
+Rules read in 1.19; the server's own verdict added in 1.20.
 
 ---
 
@@ -43,6 +45,42 @@ one thing in a directory that can lock every administrator out of it, including
 the one making the change. See the decisions log.
 
 ---
+
+## The server's own verdict
+
+Reading rules tells an operator what is *written*. It cannot tell them what the
+server will *do*: evaluation depends on group membership, filters, the
+connection's security strength, the order of rules across databases, and rules
+the reader may not be able to see at all.
+
+389 Directory Server publishes the **Get Effective Rights** control
+(`1.3.6.1.4.1.42.2.27.9.5.2`), which answers the real question from the
+directory itself — computed by the same code that will refuse the operation.
+Where a server publishes it, Alder asks, and the answer sits above the rules,
+marked as the server's:
+
+```
+this entry: view this entry            v
+cn                 read, search, compare
+userPassword       nothing
+alderTeam          nothing
+```
+
+- **Who is asked about** is the identity this session is bound as, by default:
+  *why can't **I** write this?* is the question being asked. `GET /access?as=`
+  names another identity instead, which is the administrator's version of the
+  question — and asking about somebody else is the server's decision to allow.
+- **The letters are kept** beside the gloss. `v`, `rsc`, `none` are what the
+  server said; the words are Alder's reading of them, and a letter this release
+  has never seen is shown as it came rather than dropped.
+- **A server that cannot answer says so.** OpenLDAP publishes no equivalent
+  control, and the report carries a note in place of a verdict. So does a
+  server that *declines* the question — usually because the bind may not ask
+  about that identity. Neither is an answer of "no rights", and neither is
+  reported as one.
+
+This is the one thing on the screen that is not Alder reading text, and it
+outranks everything below it.
 
 ## The two mechanisms
 
@@ -123,17 +161,17 @@ useful on its own.
 ## The API
 
 `GET /access?dn=<dn>` returns an `AccessReport`: the rules, the styles they came
-from, anywhere that could not be read, and the disclaimer. A DN this session
+from, anywhere that could not be read, the server's verdict in `effective` (or
+`rightsNote` saying why there is none), and the disclaimer. `as=<dn>` asks the
+server about another identity. The session capability `effectiveRights` says in
+advance whether the server answers that question at all. A DN this session
 cannot read answers with the directory's own refusal — the rules of an entry
 nobody can read would be a list with no subject.
 
 ## What is not here yet
 
-- **Effective rights.** 389 Directory Server publishes the Get Effective Rights
-  control (`1.3.6.1.4.1.42.2.27.9.5.2`), which answers "what may *this bind* do
-  on this entry" authoritatively, from the server. OpenLDAP has no equivalent.
-  Where a server can answer it, Alder should ask rather than leave the operator
-  reading rules — that is the next piece of this feature, and it is deliberately
-  separate from reading the rules themselves.
-- **Evaluation by Alder.** Not planned, for the reason above.
-- **Editing.** Out of scope for v1.
+- **Evaluation by Alder.** Not planned. Where a server answers the question,
+  Alder asks it; where none does, the rules are shown and left to the reader.
+  A verdict computed here would be believed, and being believed while wrong
+  about access control is worse than saying nothing.
+- **Editing.** Out of scope for v1, on the record in the decisions log.

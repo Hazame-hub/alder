@@ -265,7 +265,11 @@ func capabilitiesView(c directory.Capabilities) Capabilities {
 		// The editor reads this to decide whether to offer a password control
 		// at all, rather than offering one that can only fail.
 		PasswordModify: ptr(c.PasswordModify),
-		ConfigContext:  ptrIfSet(c.ConfigContext),
+		// The access view says whether the server can be asked what an
+		// identity may do before it asks, rather than presenting the absence
+		// of an answer as an answer.
+		EffectiveRights: ptr(c.EffectiveRights),
+		ConfigContext:   ptrIfSet(c.ConfigContext),
 		// Likewise: the schema browser offers editing only where there is
 		// somewhere to write, and says why when there is not.
 		SchemaWrite: ptr(schemaWriteView(c.SchemaWrite)),

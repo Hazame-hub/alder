@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/hazame-hub/alder/internal/access"
@@ -33,7 +34,13 @@ func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 
-	report, err := access.For(ctx, sess.Conn, target)
+	// Who to ask about: the identity named, or the one this session is bound
+	// as. A report about "you" is the question an operator is actually asking.
+	subject := deref(params.As)
+	if strings.TrimSpace(subject) == "" {
+		subject = sess.BindDN()
+	}
+	report, err := access.For(ctx, sess.Conn, target, access.Options{Subject: subject})
 	if errors.Is(err, access.ErrNoEntry) {
 		// The rules of an entry nobody can read would be a list with no
 		// subject; the directory's own refusal is the honest answer.
@@ -46,6 +53,21 @@ func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error
 	out := AccessReport{
 		Dn: report.DN, Styles: report.Styles, Disclaimer: access.Disclaimer,
 		Rules: make([]AccessRule, 0, len(report.Rules)),
+	}
+	out.RightsNote = ptrIfSet(report.RightsNote)
+	if e := report.Effective; e != nil {
+		rights := EffectiveRights{Subject: e.Subject, Entry: e.Entry}
+		rights.EntryWords = ptrIfAny(e.EntryWords)
+		if len(e.Attributes) > 0 {
+			attrs := make([]EffectiveAttributeRight, 0, len(e.Attributes))
+			for _, a := range e.Attributes {
+				attrs = append(attrs, EffectiveAttributeRight{
+					Name: a.Name, Rights: a.Rights, Words: ptrIfAny(a.Words),
+				})
+			}
+			rights.Attributes = &attrs
+		}
+		out.Effective = &rights
 	}
 	if len(report.Unread) > 0 {
 		unread := make([]AccessUnread, 0, len(report.Unread))

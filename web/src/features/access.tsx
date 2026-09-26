@@ -88,6 +88,14 @@ export function AccessButton({ dn }: { dn: string }) {
                 ))}
               </div>
 
+              {report.data.effective ? (
+                <Verdict effective={report.data.effective} />
+              ) : report.data.rightsNote ? (
+                <p className="rounded-md border p-3 text-xs text-muted-foreground">
+                  {safeText(report.data.rightsNote)}
+                </p>
+              ) : null}
+
               <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning-tint-foreground">
                 {report.data.disclaimer}
               </p>
@@ -122,6 +130,67 @@ export function AccessButton({ dn }: { dn: string }) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * What the server itself says this identity may do here.
+ *
+ * It goes above the rules and it is marked as the server's, because it is the
+ * one thing on this screen that is not Alder reading text: the directory
+ * computed it with the same code that will refuse the operation. Where a
+ * server cannot answer, the note in its place says so rather than leaving the
+ * rules to look like a verdict.
+ */
+function Verdict({ effective }: { effective: NonNullable<AccessReport["effective"]> }) {
+  const [all, setAll] = useState(false);
+  const attributes = effective.attributes ?? [];
+  // The attributes worth reading first are the ones that are not the same
+  // answer as everything else: a list of eighty "rsc" rows buries the "none".
+  const denied = attributes.filter((a) => !a.words?.length);
+  const shown = all ? attributes : denied.length > 0 ? denied : attributes.slice(0, 8);
+
+  return (
+    <div className="space-y-2 rounded-md border border-success/40 bg-success/5 p-3">
+      <div className="text-sm font-medium">
+        What the server says {effective.subject ? "this identity" : "you"} may do here
+      </div>
+      {effective.subject ? (
+        <div className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(effective.subject)}</div>
+      ) : null}
+      <p className="text-xs">
+        <span className="text-muted-foreground">this entry: </span>
+        {effective.entryWords?.length ? (
+          safeText(effective.entryWords.join(", "))
+        ) : (
+          <span className="text-muted-foreground">nothing</span>
+        )}
+        <code className="ml-1.5 font-mono text-[11px] text-muted-foreground">{safeText(effective.entry)}</code>
+      </p>
+      {attributes.length > 0 ? (
+        <>
+          <ul className="grid gap-x-4 gap-y-0.5 text-xs sm:grid-cols-2">
+            {shown.map((a) => (
+              <li key={a.name} className="flex flex-wrap items-baseline gap-1.5">
+                <code className="font-mono">{safeText(a.name)}</code>
+                <span className={a.words?.length ? "text-muted-foreground" : "text-destructive"}>
+                  {a.words?.length ? safeText(a.words.join(", ")) : "nothing"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {attributes.length > shown.length ? (
+            <Button variant="ghost" size="sm" onClick={() => setAll(true)}>
+              Show all {attributes.length} attributes
+            </Button>
+          ) : null}
+        </>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        The directory's own answer, from the Get Effective Rights control — not Alder reading the rules
+        below.
+      </p>
+    </div>
   );
 }
 
