@@ -42,8 +42,9 @@ export function ReplicationCard() {
   });
 
   return (
-    <section className="rounded-lg border border-border">
-      <header className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-sm font-medium">
+    <section className="screen-shell rounded-lg border border-border shadow-sm">
+      <header className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3 text-sm font-medium">
+        <span className="screen-kicker mr-1">Operations</span>
         <Radio className="size-4 text-muted-foreground" />
         Replication
         {report.data ? <RoleBadge role={report.data.role} /> : null}
