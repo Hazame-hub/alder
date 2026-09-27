@@ -3541,3 +3541,63 @@ not rediscovered: `Release-As` worked this time (nothing follows it in the
 message, which is what broke 1.18.0), and the version stamping is right —
 `.goreleaser.yaml` passes `-X main.version={{ .Version }}` and the workflow
 checks out the release tag, so a release build reports 1.26.0.
+
+### 2026-09-27 — 1.29, the two things the audit earned
+
+Both come from the black-box walk of "this account cannot log in, why", and
+both were measured before they were fixed.
+
+**Clearing a lock.** The report already names the attribute that holds the
+lock — it has to, to say the account is locked — and that is where it stopped.
+The entry viewer filed the attribute under "operational, kept by the
+directory, **yours to set**", no editor offered it, the password dialog did
+not mention it, and the only way out was a hand-written LDIF modify in the
+import screen. Seventeen interactions between knowing the answer and applying
+it, against three.
+
+- **The change is derived by the server**, carried on the report beside the
+  state it came from, for the reason every other change is: one code path
+  builds what gets sent, and the LDIF the operator confirms is rendered from
+  that record. The browser builds no LDIF.
+- **What is removed depends on what the entry holds.** `pwdAccountLockedTime`
+  takes `pwdFailureTime` with it, because the overlay re-locks at
+  `pwdMaxFailure` and an operator who unlocked an account does not expect the
+  next single failure to lock it again. `nsAccountLock` stands alone, and is
+  deleted rather than set to `false`, which would leave a value that reads as
+  though somebody meant something by it.
+- **An attribute the entry does not hold is never named.** A delete of an
+  absent attribute is an error on both servers, so naming it would turn a
+  working unlock into a refusal.
+- **A lock Alder does not recognise gets no change**, and the dialog says so.
+  A change invented for an attribute Alder has never seen would be a write
+  nobody asked for, on the screen whose whole point is that it reports.
+
+**Making a failure visible.** The audit reported nine failed requests with
+"zero words on screen and zero in the console", and proposed adding error
+surfaces. Reproducing it first showed the diagnosis was wrong in a useful way:
+the error surfaces exist and do render. What was wrong was the timing and the
+header.
+
+Measured, with the harness 389 DS paused: `POST /search` took **thirty
+seconds** to return 502, and the retry policy spent two more of them — ninety
+seconds before any screen was allowed to say something had gone wrong. And
+`GET /session` answered **200 in 1.6 milliseconds** reporting a healthy bind
+throughout, which is why the header went on saying "Bound as cn=Directory
+Manager" to a directory that had stopped answering.
+
+- **An answer the server gave is never retried.** An `ApiFailure` means Alder
+  answered; retrying costs another full operation timeout and changes
+  nothing. A failure that never reached Alder is worth one retry.
+- **Every failure is written to the console, unconditionally**, from the query
+  and mutation caches rather than from each view. The first place anybody
+  looks said nothing at all.
+- **The header watches what the requests are doing**, because it cannot ask
+  the session: a session is an object in memory. It shows nothing until
+  something fails upstream, and then names it and offers Reconnect — the cure
+  the interface had never suggested. A 403 or a 404 does not count: an
+  indicator that cries wolf over the ordinary business of the day gets
+  ignored, which is worse than not having one.
+
+The server-side thirty-second timeout is unchanged and deliberate: a real
+search can legitimately take that long. What changed is that Alder no longer
+waits three times over, and says so when it gives up.

@@ -84,6 +84,7 @@ func For(ctx context.Context, r Reader, target dn.DN) (*Report, error) {
 		return nil, errors.Join(ErrNoEntry, err)
 	}
 	report := &Report{DN: target.String(), State: stateOf(entry)}
+	report.Unlock = unlockFor(target, entry, report.State)
 
 	named := firstOf(entry, "pwdpolicysubentry")
 	if named != "" {

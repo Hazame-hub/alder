@@ -22,6 +22,37 @@ The **Policy** button on an entry puts the three together. An account the
 server currently holds locked is also marked in the entry header, before
 anything is opened, because that is the fact worth not having to look for.
 
+## Clearing a lock (1.29)
+
+Where the account is locked and Alder recognises the kind of lock, the dialog
+that found it offers **Unlock this account**, beside the line that names it.
+It opens the ordinary review dialog — the same LDIF, the same plan, the same
+apply as every other write — and the change is derived by the server, because
+there is one code path that builds what gets sent.
+
+Until 1.29 there was no way to do this in the product at all. The entry viewer
+filed the lock attribute under *"operational, kept by the directory, yours to
+set"*, no editor offered it, the password dialog did not mention it, and the
+only way to clear it was to hand-write an LDIF `changetype: modify` into the
+import screen. A black-box audit walked *"this account cannot log in, why"*
+and spent **seventeen interactions** between knowing the answer and applying
+it; the fix is three.
+
+What gets removed depends on what the entry actually carries:
+
+| Lock | Also cleared | Why |
+|---|---|---|
+| `pwdAccountLockedTime` (OpenLDAP ppolicy) | `pwdFailureTime` | the overlay re-locks at `pwdMaxFailure`, so leaving the counted failures behind means the next single failure locks it again |
+| `nsAccountLock` (389 DS) | — | deleting it is the unlock; setting it to `false` leaves a value that reads as though somebody meant something by it |
+| `accountUnlockTime` (389 DS lockout) | `passwordRetryCount` | clears the automatic lockout and the failure count behind it |
+
+An attribute the entry does not hold is never named: a delete of an absent
+attribute is an error on both servers, so naming it would turn a working
+unlock into a refusal. And **a lock Alder does not recognise gets no change** —
+the report says so and stops. A change invented for an attribute Alder has
+never seen would be a write nobody asked for, on the screen whose whole point
+is that it reports rather than decides.
+
 ## What it is not
 
 > This is what the server records about the account and the policy it names,

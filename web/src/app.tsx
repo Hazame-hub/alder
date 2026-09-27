@@ -46,6 +46,7 @@ import { bench } from "@/lib/snapshot-bench";
 import { setNavigator } from "@/lib/navigate";
 import { SourceLink } from "@/components/source-link";
 import { safeText } from "@/lib/display";
+import { resetHealth, useDirectoryHealth } from "@/lib/directory-health";
 
 /**
  * The top bar offers destinations, and the URL says which one you are on.
@@ -299,6 +300,36 @@ function DirectoryNav({
   );
 }
 
+/**
+ * Whether the directory is answering, in the one place that claims it is.
+ *
+ * The header says "Bound as cn=Directory Manager" and it reads that from
+ * GET /session, which is an object in Alder's own memory: measured with the
+ * harness 389 DS paused, it answered 200 in 1.6ms and reported a healthy bind
+ * while every directory call was timing out at thirty seconds. A header that
+ * reports health it has not checked is worse than one that reports nothing,
+ * because it sends the reader looking for their own mistake.
+ *
+ * So this watches what the requests are actually doing. It appears only when
+ * something has failed upstream, and it offers the cure, which the interface
+ * never used to suggest: disconnect and connect again.
+ */
+function DirectoryHealth({ onReconnect }: { onReconnect: () => void }) {
+  const health = useDirectoryHealth();
+  if (health.kind === "ok") return null;
+  return (
+    <div className="flex items-center gap-1.5">
+      <Badge variant="destructive" className="gap-1" title={safeText(health.message)}>
+        <ShieldAlert className="size-3" />
+        the directory is not answering
+      </Badge>
+      <Button variant="outline" size="sm" onClick={onReconnect}>
+        Reconnect
+      </Button>
+    </div>
+  );
+}
+
 function TopBar({
   info,
   view,
@@ -320,6 +351,7 @@ function TopBar({
   }, [dark]);
 
   const disconnect = async () => {
+    resetHealth();
     await api.DELETE("/session");
     await queryClient.invalidateQueries();
     queryClient.setQueryData(["session"], { connected: false });
@@ -381,6 +413,7 @@ function TopBar({
             unverified TLS
           </Badge>
         ) : null}
+        <DirectoryHealth onReconnect={() => void disconnect()} />
         <div className="hidden text-right text-xs leading-tight sm:block">
           <div className="font-dn">
             {safeText(info.host)}:{info.port}
