@@ -178,6 +178,10 @@
     padding-bottom: 1rem;
   }
 
+  .connect-screen {
+    background: radial-gradient(circle at 50% 35%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 42%);
+  }
+
   /* Syntax colouring for the LDIF preview. Deliberately three colours: the
      attribute name, the value, and the changetype line that says what the
      record does. Anything more turns a diff into a christmas tree. */

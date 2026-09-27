@@ -92,8 +92,8 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
   };
 
   return (
-    <div className="grid min-h-full place-items-center p-6">
-      <div className="w-full max-w-lg">
+    <div className="connect-screen grid min-h-full place-items-center p-6">
+      <div className="screen-shell w-full max-w-xl">
         <div className="mb-6 flex items-center gap-3">
           <AlderMark className="size-9" />
           <div>
