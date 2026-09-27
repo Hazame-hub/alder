@@ -232,9 +232,10 @@ function AddMemberDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add a member</DialogTitle>
+<DialogContent className="screen-shell">
+  <DialogHeader className="border-b border-border pb-4">
+  <p className="screen-kicker">Directory access</p>
+  <DialogTitle className="text-xl tracking-tight">Add a member</DialogTitle>
           <DialogDescription>
             to <span className="font-dn">{safeText(entry.dn)}</span>
           </DialogDescription>

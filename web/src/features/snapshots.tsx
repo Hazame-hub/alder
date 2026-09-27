@@ -284,9 +284,10 @@ export function SnapshotsPanel({
   });
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-6">
+    <div className="screen-shell mx-auto max-w-6xl space-y-6 p-6">
       <header>
-        <h2 className="text-lg font-semibold">Snapshots &amp; drift</h2>
+        <p className="screen-kicker">Version history</p>
+        <h2 className="text-2xl font-semibold tracking-tight">Snapshots &amp; drift</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Capture a subtree, the schema, or the server's own configuration as a versioned snapshot you keep;
           compare it with another snapshot or with the directory as it is now; and review the differences you

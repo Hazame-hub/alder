@@ -504,8 +504,9 @@ function SchemaOverview({ schema }: { schema: SchemaView }) {
     ["Name forms", c.nameForms],
   ];
   return (
-    <div className="p-6">
-      <h2 className="text-lg font-semibold">Schema</h2>
+      <div className="screen-shell p-6">
+        <div className="screen-kicker">Directory intelligence</div>
+        <h2 className="text-2xl font-semibold tracking-tight">Schema</h2>
       <p className="mt-1 font-dn text-sm text-muted-foreground">
         read from {safeText(schema.subschemaDn)}
       </p>

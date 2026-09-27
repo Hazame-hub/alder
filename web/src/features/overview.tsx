@@ -54,21 +54,28 @@ export function OverviewPanel({
   const contexts = caps?.namingContexts ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 px-6 py-6">
-      <header className="space-y-1">
-        <h2 className="text-lg font-semibold">
+    <div className="overview-screen mx-auto max-w-6xl space-y-6 px-6 py-8">
+      <header className="overview-hero flex items-end justify-between gap-6">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Workspace overview</p>
+          <h2 className="text-2xl font-semibold tracking-tight">
           {info.host}:{info.port}
         </h2>
-        <p className="text-sm text-muted-foreground">
-          {info.vendorName ? (
-            <>
-              {info.vendorName}
-              {info.vendorVersion ? ` · ${info.vendorVersion}` : ""}
-            </>
-          ) : (
-            "The server does not publish a vendor name."
-          )}
-        </p>
+          <p className="text-sm text-muted-foreground">
+            {info.vendorName ? (
+              <>
+                {info.vendorName}
+                {info.vendorVersion ? ` · ${info.vendorVersion}` : ""}
+              </>
+            ) : (
+              "The server does not publish a vendor name."
+            )}
+          </p>
+        </div>
+        <div className="hidden items-center gap-2 text-right text-xs text-muted-foreground sm:flex">
+          <span className="size-2 rounded-full bg-success" aria-hidden="true" />
+          Live directory session
+        </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-2">
