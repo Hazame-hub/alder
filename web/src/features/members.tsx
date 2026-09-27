@@ -93,9 +93,10 @@ function MembersDialog({ dn, onClose, onNavigate }: {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent wide>
-        <DialogHeader>
-          <DialogTitle>Members</DialogTitle>
+<DialogContent wide className="screen-shell">
+  <DialogHeader className="border-b border-border pb-4">
+  <p className="screen-kicker">Directory access</p>
+  <DialogTitle className="text-xl tracking-tight">Members</DialogTitle>
           <DialogDescription>
             Everyone in <span className="font-dn">{safeText(dn)}</span>, including through
             nested groups.

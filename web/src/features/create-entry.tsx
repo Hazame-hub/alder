@@ -154,9 +154,10 @@ export function CreateEntryDialog({
   return (
     <>
       <Dialog open={open && change === null} onOpenChange={onOpenChange}>
-        <DialogContent wide>
-          <DialogHeader>
-            <DialogTitle>New entry</DialogTitle>
+<DialogContent wide className="screen-shell">
+  <DialogHeader className="border-b border-border pb-4">
+  <p className="screen-kicker">Directory authoring</p>
+  <DialogTitle className="text-xl tracking-tight">New entry</DialogTitle>
             <DialogDescription>
               under <span className="font-dn">{safeText(parentDN)}</span>
             </DialogDescription>

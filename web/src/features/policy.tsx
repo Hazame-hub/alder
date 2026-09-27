@@ -73,9 +73,10 @@ export function PolicyDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Password policy and account state</DialogTitle>
+        <DialogContent className="screen-shell max-w-3xl">
+          <DialogHeader className="border-b border-border pb-4">
+            <p className="screen-kicker">Account protection</p>
+            <DialogTitle className="text-xl tracking-tight">Password policy and account state</DialogTitle>
             <DialogDescription>
               <span className="font-dn">{safeText(dn)}</span>
             </DialogDescription>

@@ -146,6 +146,20 @@
 }
 
 @layer components {
+  .overview-screen {
+    animation: alder-fade-in 240ms ease-out both;
+  }
+
+  .overview-hero {
+    border-bottom: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+    padding-bottom: 1.25rem;
+  }
+
+  @keyframes alder-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   .screen-shell {
     animation: alder-fade-in 240ms ease-out both;
   }
@@ -159,13 +173,13 @@
     text-transform: uppercase;
   }
 
-  .connect-screen {
-    background: radial-gradient(circle at 50% 35%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 42%);
+  .inventory-dialog [data-slot="dialog-header"] {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
   }
 
-  @keyframes alder-fade-in {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
+  .connect-screen {
+    background: radial-gradient(circle at 50% 35%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 42%);
   }
 
   /* Syntax colouring for the LDIF preview. Deliberately three colours: the
