@@ -162,3 +162,120 @@ func deniedAttributes(e *api.EffectiveRights) []string {
 	}
 	return out
 }
+
+// TestAskingWhatAnUnauthenticatedClientMayDo.
+//
+// The exposure question, and the one that could not be asked until 1.28: it
+// has no DN to name, because the effective-rights control identifies an
+// unauthenticated requester by an authorization identity carrying no DN at
+// all. `as=anonymous` is the one reserved value of the parameter, and it
+// cannot collide with a DN because a DN always contains an equals sign.
+//
+// What makes it worth having: on the harness, anonymous can read nothing at
+// all here, and the only way to be sure of that was to try binding as nobody
+// and looking.
+func TestAskingWhatAnUnauthenticatedClientMayDo(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		client, base := alderSession(t, s, true)
+		target := "uid=user0002,ou=people," + suffix
+
+		report, res := accessAs(t, client, base, target, "anonymous")
+		if res.status != 0 && res.status != http.StatusOK {
+			t.Fatalf("%s: the anonymous question answered %d\n%s", s.name, res.status, res.body)
+		}
+
+		// Alder says what it asked, whatever the server echoes -- and for this
+		// question the server correctly echoes nothing, because there is no DN.
+		if report.AskedAbout == nil || *report.AskedAbout != "anonymous" {
+			t.Errorf("%s: the report does not say it asked anonymously: %s", s.name, mustEncode(t, report.AskedAbout))
+		}
+		// A plain question about oneself still names the bind DN, so the field
+		// distinguishes the three cases rather than only marking this one.
+		mine, _ := accessAs(t, client, base, target, "")
+		if mine.AskedAbout == nil || !strings.EqualFold(*mine.AskedAbout, s.bindDN) {
+			t.Errorf("%s: asking about myself reports %v, want the bind DN", s.name, mine.AskedAbout)
+		}
+
+		if !sess.Capabilities().EffectiveRights {
+			if report.Effective != nil {
+				t.Errorf("%s answers no effective rights and produced a verdict", s.name)
+			}
+			t.Logf("%s: no effective-rights control, so the question has the same honest non-answer", s.name)
+			return
+		}
+
+		if report.Effective == nil {
+			t.Fatalf("%s publishes the control and gave no anonymous verdict: %s", s.name, mustEncode(t, report))
+		}
+		// The shape only the real anonymous answer has, not just its size.
+		//
+		// "Narrower than the administrator's" was the only assertion here, and
+		// it is satisfied by any subject less privileged than the bind DN: a
+		// handler that sent some other real DN in place of the empty one kept
+		// this green while the dialog printed "what an unauthenticated client
+		// may do" over a bound service account's rights. Proved by mutation,
+		// which is why the two fields that identify the answer uniquely are
+		// asserted rather than logged.
+		if report.Effective.Subject != "" {
+			t.Errorf("%s: the anonymous question came back about %q; there is no DN to send or echo",
+				s.name, report.Effective.Subject)
+		}
+		if !strings.EqualFold(report.Effective.Entry, "none") {
+			t.Errorf("%s: an unauthenticated client has entry rights %q here, and the harness grants none",
+				s.name, report.Effective.Entry)
+		}
+
+		// The harness lets nobody read anything without binding, which is what
+		// the seeded access rules say, so this is the answer that proves the
+		// question was really asked rather than defaulted to the session.
+		denied := deniedAttributes(report.Effective)
+		if len(denied) == 0 {
+			t.Errorf("%s: anonymous is denied everything here and the verdict shows nothing denied: %s",
+				s.name, mustEncode(t, report.Effective))
+		}
+		if mine.Effective != nil && len(deniedAttributes(mine.Effective)) >= len(denied) {
+			t.Errorf("%s: the anonymous answer is no narrower than the administrator's, so it was not asked",
+				s.name)
+		}
+		t.Logf("%s: anonymous is denied %d attributes here; entry rights %q",
+			s.name, len(denied), report.Effective.Entry)
+	})
+}
+
+// TestTheAnonymousWordIsFoldedTheSameWayEverywhere.
+//
+// The server matched the sentinel with strings.EqualFold, which applies
+// Unicode simple folding and treats U+017F LATIN SMALL LETTER LONG S as "s";
+// the browser folds with toLowerCase, which does not. So "anonymouſ"
+// reached the server as the reserved word while the interface read it as an
+// identity of that name, and the screen headed a genuinely anonymous verdict
+// with a name nobody had asked about.
+//
+// ASCII folding on both sides is the rule, and this is the case that holds
+// the server to it.
+func TestTheAnonymousWordIsFoldedTheSameWayEverywhere(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, _ directory.Session) {
+		client, base := alderSession(t, s, true)
+		target := "uid=user0002,ou=people," + suffix
+
+		// ASCII case is the sentinel, whatever the shift key did.
+		for _, spelling := range []string{"anonymous", "ANONYMOUS", "Anonymous", " anonymous "} {
+			report, res := accessAs(t, client, base, target, spelling)
+			if res.status != 0 && res.status != http.StatusOK {
+				t.Fatalf("%s: %q answered %d", s.name, spelling, res.status)
+			}
+			if report.AskedAbout == nil || *report.AskedAbout != "anonymous" {
+				t.Errorf("%s: %q was not read as the reserved word: %v", s.name, spelling, report.AskedAbout)
+			}
+		}
+
+		// And nothing else is. A Unicode fold would take this one; the
+		// interface would not, and the two would disagree about what is on
+		// screen.
+		_, res := accessAs(t, client, base, target, "anonymouſ")
+		if res.status != http.StatusBadRequest {
+			t.Errorf("%s: a look-alike of the reserved word answered %d, want 400: %s",
+				s.name, res.status, res.body)
+		}
+	})
+}

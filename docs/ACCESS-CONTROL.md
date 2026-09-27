@@ -188,7 +188,25 @@ the full DN, and, where the server answers about a different identity than was
 asked, says that too. A verdict attributed to the wrong person is worse than no
 verdict.
 
-An identity that is not a distinguished name is refused with a 400. The only
+**Anyone unauthenticated (1.28).** "What can someone who has not bound at all
+read here?" is the exposure question, and it is the only one with no DN to
+name: the control identifies such a requester by an authorization identity
+carrying no DN in it. So it is a word — `as=anonymous`, one reserved value,
+which cannot collide with a DN because a DN always contains `=`. The button
+beside the field asks it in one click, because an operator looking at an entry
+they did not expect to be readable has nothing to type.
+
+On the harness, 389 DS answers that an unauthenticated client may do nothing
+at all here — entry rights `none`, all 61 attributes denied — which is the
+seeded access rules being confirmed rather than assumed.
+
+`askedAbout` on the report says what Alder put the question about: a DN, or
+`anonymous`. It is present even when there is no verdict — when the server
+cannot answer, or declines — which is exactly when nothing else in the
+response says who was asked about.
+
+An identity that is neither a distinguished name nor `anonymous` is refused
+with a 400. The only
 authzID the driver builds is `dn: <DN>`, so anything else is a question no
 server can be asked; 389 DS answers such a control with an error code where the
 rights letters go, which would otherwise reach the reader as "the server
@@ -199,10 +217,17 @@ declined to say" — a sentence about access, describing a typo.
 `GET /access?dn=<dn>` returns an `AccessReport`: the rules, the styles they came
 from, anywhere that could not be read, the server's verdict in `effective` (or
 `rightsNote` saying why there is none), and the disclaimer. `as=<dn>` asks the
-server about another identity, and changes nothing else in the response; it
-must be a distinguished name, and is refused with a 400 otherwise. The session
-capability `effectiveRights` says in advance whether the server answers that
-question at all, and is what decides whether the interface offers to ask. A DN this session
+server about another identity, and changes nothing else in the response;
+`as=anonymous` asks what an unauthenticated client may do. Anything else is
+refused with a 400. `askedAbout` on the report says which of the three was
+asked — a DN, or `anonymous` — and is present even when there is no verdict,
+which is when nothing else in the response would say. The session capability
+`effectiveRights` says in advance whether the server answers the question at
+all, and is what decides whether the interface offers to ask.
+
+`effective.subject` is **not** the server's word for who it answered about.
+The Get Effective Rights response carries only the rights, so there is no
+subject in it; what comes back is the value Alder sent. Read `askedAbout`. A DN this session
 cannot read answers with the directory's own refusal — the rules of an entry
 nobody can read would be a list with no subject.
 

@@ -22,6 +22,33 @@ import (
 // the rules in front of the person who has to reason about them, in the
 // server's order, with the raw value always beside whatever Alder read.
 
+// asciiLower folds for the sentinel comparison, in ASCII only.
+//
+// Not strings.EqualFold, which applies Unicode simple folding: it matches
+// U+017F LATIN SMALL LETTER LONG S against "s", so "anonymou\u017f" reached
+// the server as the reserved word while the browser -- which folds with
+// toLowerCase, and does not -- treated the same text as an identity called
+// "anonymou\u017f". The screen then headed a genuinely anonymous verdict with
+// a name nobody asked about. The two sides have to fold the same way, and
+// ASCII is the rule both can keep.
+func asciiLower(s string) string {
+	out := []byte(s)
+	for i, c := range out {
+		if c >= 'A' && c <= 'Z' {
+			out[i] = c + ('a' - 'A')
+		}
+	}
+	return string(out)
+}
+
+// SubjectAnonymous is the one value of the `as` parameter that is not a
+// distinguished name. It asks what an unauthenticated client may do, which is
+// a question with no DN in it: the effective-rights control names such a
+// requester by an authorization identity carrying no DN at all.
+//
+// It cannot be mistaken for a DN, because a DN always contains an equals sign.
+const SubjectAnonymous = "anonymous"
+
 // GetAccessRules reports the access control rules that bear on one entry.
 func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error {
 	sess := s.require(c)
@@ -45,11 +72,23 @@ func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error
 	// reader as "the server declined to say", a sentence that describes
 	// access rather than a typo. Refusing it here says what actually
 	// happened.
-	subject := deref(params.As)
-	if strings.TrimSpace(subject) == "" {
-		subject = sess.BindDN()
-	} else if _, ok := parseDNParam(c, subject); !ok {
-		return nil
+	//
+	// The exception is the anonymous question, which has no DN to name: the
+	// control names an unauthenticated requester with an authorization
+	// identity carrying no DN, which the driver builds from an empty subject.
+	// So it needs a word, and the word cannot collide with a DN because a DN
+	// always contains an equals sign.
+	asked := strings.TrimSpace(deref(params.As))
+	subject := asked
+	switch {
+	case asked == "":
+		asked, subject = sess.BindDN(), sess.BindDN()
+	case asciiLower(asked) == SubjectAnonymous:
+		asked, subject = SubjectAnonymous, ""
+	default:
+		if _, ok := parseDNParam(c, asked); !ok {
+			return nil
+		}
 	}
 	report, err := access.For(ctx, sess.Conn, target, access.Options{Subject: subject})
 	if errors.Is(err, access.ErrNoEntry) {
@@ -72,6 +111,7 @@ func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error
 		Dn: report.DN, Styles: report.Styles, Disclaimer: access.Disclaimer,
 		Rules: make([]AccessRule, 0, len(report.Rules)),
 	}
+	out.AskedAbout = ptrIfSet(asked)
 	out.RightsNote = ptrIfSet(report.RightsNote)
 	if e := report.Effective; e != nil {
 		rights := EffectiveRights{Subject: e.Subject, Entry: e.Entry}

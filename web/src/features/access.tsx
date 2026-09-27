@@ -5,12 +5,13 @@ import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { SessionInfo } from "@/lib/api";
 import type { components } from "@/lib/api.gen";
 import {
+  ANONYMOUS,
   accessQuery,
   accessQueryKey,
   canAskAboutAnotherIdentity,
   rulesScopeNote,
   searchBaseFor,
-  shortDn,
+  subjectLabel,
   subjectView,
   type SubjectView,
 } from "@/lib/access-subject";
@@ -220,34 +221,38 @@ export function Verdict({
   // Somebody else's verdict is not reassurance about you, so it does not get
   // the success tint. Neutral rather than warning: nothing is wrong, the
   // panel is simply about a different person.
-  const other = view.kind === "other";
+  const other = view.kind !== "you";
   const tint = other ? "border-border" : "border-success/40 bg-success/5";
 
-  // The server echoes a subject back. Where it disagrees with what was asked,
-  // say so rather than trusting either: a verdict attributed to the wrong
-  // identity is worse than no verdict.
+  // effective.subject is not the server's word for who it answered about: the
+  // Get Effective Rights response carries only the rights, so there is no
+  // subject in it, and what comes back is the string Alder sent. There used
+  // to be a warning here comparing the two to catch a verdict attributed to
+  // the wrong identity; both sides came from the same request, so it could
+  // never fire, and a guard that cannot fire is worse than none -- it reads,
+  // to whoever maintains this next, as a check that has been done.
   const echoed = effective.subject ?? "";
-  const mismatch = other && echoed !== "" && echoed.trim().toLowerCase() !== view.dn.trim().toLowerCase();
 
   return (
     <div className={`space-y-2 rounded-md border p-3 ${tint}`}>
       <div className="text-sm font-medium">
         {other ? (
           <>
-            What the server says {safeText(shortDn(view.dn))} may do here —{" "}
+            What the server says {safeText(subjectLabel(view))} may do here —{" "}
             <span className="text-muted-foreground">not you</span>
           </>
         ) : (
           "What the server says you may do here"
         )}
       </div>
-      <div className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(view.dn || echoed)}</div>
-      {mismatch ? (
-        <p className="text-xs text-warning-tint-foreground">
-          The server answered about <span className="font-dn">{safeText(echoed)}</span>, which is not
-          what was asked. Read the verdict as that identity's, not this one's.
-        </p>
-      ) : null}
+      {view.kind === "anonymous" ? (
+        <div className="text-xs text-muted-foreground">
+          Anyone who can reach this server without binding at all.
+        </div>
+      ) : (
+        <div className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(view.dn || echoed)}</div>
+      )}
+
       <p className="text-xs">
         <span className="text-muted-foreground">this entry: </span>
         {effective.entryWords?.length ? (
@@ -321,16 +326,20 @@ export function SubjectRow({
       <div className="flex flex-wrap items-center gap-2">
         <UserRound className="size-4 text-muted-foreground" />
         <span className="text-sm">
-          Rights for{" "}
-          <span className="font-medium">
-            {view.kind === "other" ? safeText(shortDn(view.dn)) : "you"}
-          </span>
+          Rights for <span className="font-medium">{safeText(subjectLabel(view))}</span>
         </span>
-        {view.kind === "other" ? (
+        {view.kind !== "you" ? (
           <Button variant="ghost" size="sm" onClick={() => onAsk("")}>
             Back to my own rights
           </Button>
-        ) : null}
+        ) : (
+          // The exposure question, one click away, because it is the one an
+          // operator asks about an entry they did not expect to be readable
+          // and it has no DN to type.
+          <Button variant="ghost" size="sm" onClick={() => onAsk(ANONYMOUS)}>
+            Ask about anyone unauthenticated
+          </Button>
+        )}
       </div>
 
       <form

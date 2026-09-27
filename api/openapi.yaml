@@ -948,6 +948,21 @@ paths:
             about oneself. Asking about another identity is the server's
             decision, and a server that declines is reported as declining --
             which is not the same as an answer of no rights.
+
+            A distinguished name, or the single reserved word `anonymous`,
+            which asks what an unauthenticated client may do here. That is a
+            question with no DN to name -- the control names an anonymous
+            requester by an authorization identity with no DN in it -- so a
+            word is needed rather than a value. `anonymous` cannot collide
+            with a DN, because a DN always contains `=`.
+
+            Anything else that is not a distinguished name is refused with a
+            400. The only authorization identity the driver builds is
+            `dn: <DN>`, so anything else is a question no server can be asked,
+            and 389 Directory Server answers such a control with an error code
+            where the rights letters go -- which would reach the reader as
+            "the server declined to say", a sentence about access describing a
+            typo.
           schema: { type: string }
       responses:
         "200":
@@ -3296,6 +3311,16 @@ components:
             rules in the configuration tree, which usually needs its own
             identity.
           items: { $ref: "#/components/schemas/AccessUnread" }
+        askedAbout:
+          type: string
+          description: |
+            The identity Alder put the question about: a DN, or `anonymous`.
+            Added in 1.28.
+
+            Present whether or not there is a verdict, which is what makes it
+            worth having: `effective` is absent entirely when the server
+            cannot answer or declines, and then nothing else in the response
+            says who was asked about.
         effective: { $ref: "#/components/schemas/EffectiveRights" }
         rightsNote:
           type: string
@@ -3319,7 +3344,18 @@ components:
       properties:
         subject:
           type: string
-          description: The identity asked about; empty means the session's own.
+          description: |
+            The identity Alder asked about, as Alder sent it -- not an
+            attestation by the server. The Get Effective Rights response
+            carries only the rights themselves; there is no subject in it to
+            echo, so this is the request value coming back. Empty for the
+            anonymous question, which has no DN, and empty where the session's
+            own identity was the subject and the session is unauthenticated.
+
+            Do not compare it against what you asked for to detect a verdict
+            attributed to the wrong identity: it is the same string you sent,
+            so the check cannot fail. `askedAbout` on the report is the same
+            fact stated honestly, and is the one to read.
         entry:
           type: string
           description: |

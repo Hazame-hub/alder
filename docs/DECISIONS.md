@@ -3656,3 +3656,59 @@ feature useless in the only case it was built for.
 
 The re-walk of the audited task measured **2 interactions**, not the 3 the
 change claimed, and the same 2 on both servers.
+### 2026-09-27 — 1.28, asking about anyone unauthenticated
+
+The piece 1.27 left open, and it needed a wire-contract change, which is why
+it waited for a decision.
+
+- **A reserved word, not an authzID and not a second parameter.** The
+  effective-rights control identifies an unauthenticated requester by an
+  authorization identity carrying no DN at all, so the question genuinely has
+  no DN to put in `as`. The options were exposing the authzID forms (`dn:`,
+  `u:`) in the API for the sake of one case, a second boolean parameter that
+  can contradict the first, or one reserved value. `as=anonymous` is the
+  reserved value, and it is safe to reserve because a DN always contains an
+  equals sign — nothing a person could legitimately type collides with it.
+- **`askedAbout` on the report.** Alder describing its own request, which is
+  unambiguous where `effective.subject` is not: a server answering the
+  anonymous question echoes no subject, because there is none, and so does a
+  server that declines. Without it a client could not tell the anonymous
+  answer from a declined one.
+- **It is worth having, and that was checked before it was built.** 389 DS
+  answers the question meaningfully — on the harness, entry rights `none` and
+  all 61 attributes denied for an unauthenticated client. That is the seeded
+  access rules being confirmed rather than assumed, and it is the one question
+  on this screen an operator asks about an entry they did not expect to be
+  readable.
+- **One click, not a field to type into.** The identity has no name, so
+  there is nothing to type; the button sits where the reset sits when a
+  subject is in force.
+
+### 2026-09-27 — what the review of 1.28 found, and one thing it found in 1.20
+
+- **`effective.subject` is Alder's own request value, not the server's.** The
+  Get Effective Rights response carries only the rights; there is no subject
+  in it to echo. The 1.28 prose said the opposite — in `api/openapi.yaml`,
+  which is the contract third parties read — and the documentation and a test
+  comment repeated it. Corrected, and the schema's own description now says
+  plainly not to compare the field against what you asked for.
+- **The consequence, which is older than 1.28:** the warning in the verdict
+  panel that says "the server answered about X, which is not what was asked"
+  can never fire. Both sides of the comparison come from the same request
+  string, unnormalised on either side. It shipped with effective rights in
+  1.20 and has been dead ever since. Deleted rather than repaired: a guard
+  that cannot fire is worse than none, because it reads as a check that has
+  been done. `askedAbout` is the honest version of the same idea.
+- **`strings.EqualFold` and `toLowerCase` do not agree.** EqualFold applies
+  Unicode simple folding and matches U+017F LATIN SMALL LETTER LONG S against
+  "s", so `anonymouſ` reached the server as the reserved word while the
+  browser read it as an identity of that name — and the screen headed a
+  genuinely anonymous verdict with a name nobody had asked about. The match is
+  ASCII-only now, on both sides, and a conformance case holds the server to
+  it.
+- **"Strictly narrower than the administrator's" was not enough.** Proved by
+  mutation: replacing the empty subject with a real service account's DN kept
+  the test green while the dialog printed "what an unauthenticated client may
+  do" over a bound account's rights. The assertions are now the two things
+  only the real anonymous answer has — no subject at all, and entry rights
+  `none`.
