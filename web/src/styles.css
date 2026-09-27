@@ -146,6 +146,24 @@
 }
 
 @layer components {
+  .screen-shell {
+    animation: alder-fade-in 240ms ease-out both;
+  }
+
+  .screen-kicker {
+    color: var(--primary);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  @keyframes alder-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   /* Syntax colouring for the LDIF preview. Deliberately three colours: the
      attribute name, the value, and the changetype line that says what the
      record does. Anything more turns a diff into a christmas tree. */
