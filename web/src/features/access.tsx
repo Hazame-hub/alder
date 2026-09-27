@@ -111,7 +111,9 @@ export function AccessDialog({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="screen-shell max-w-3xl">
           <DialogHeader className="border-b border-border pb-4">
-            <p className="screen-kicker">Access control</p>
+            {/* Not "Access control" again: the eyebrow said it, the title
+                said it, and a screen reader read the dialog's name twice. */}
+            <p className="screen-kicker">What the server holds</p>
             <DialogTitle className="text-xl tracking-tight">Access control</DialogTitle>
             <DialogDescription>
               <span className="font-dn">{safeText(dn)}</span>

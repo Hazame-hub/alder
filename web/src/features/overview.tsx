@@ -72,9 +72,22 @@ export function OverviewPanel({
             )}
           </p>
         </div>
-        <div className="hidden items-center gap-2 text-right text-xs text-muted-foreground sm:flex">
-          <span className="size-2 rounded-full bg-success" aria-hidden="true" />
-          Live directory session
+        {/*
+          No status light here.
+
+          A green dot beside "live directory session" is a claim, and this one
+          was hard-coded: it stayed green while the directory was unreachable
+          and the header two inches away said so. That is the exact fault the
+          health badge was built to remove in 1.29 -- a session object in
+          Alder's own memory answering for a directory that had stopped
+          answering -- and a decorative version of it is worse, because it
+          does not even read the session.
+
+          The header carries the real one, and says nothing while there is
+          nothing wrong, which is the only honest way to render "fine".
+        */}
+        <div className="hidden text-right text-xs text-muted-foreground sm:block">
+          {info.readOnly ? "read-only session" : "read and write session"}
         </div>
       </header>
 

@@ -182,6 +182,19 @@
     background: radial-gradient(circle at 50% 35%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 42%);
   }
 
+  /*
+    Every screen fades in, unless the reader has said not to.
+    prefers-reduced-motion is not a preference about decoration; for some
+    people it is the difference between using the page and feeling ill, and
+    an administration tool has no business spending that on a 240ms flourish.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    .overview-screen,
+    .screen-shell {
+      animation: none;
+    }
+  }
+
   /* Syntax colouring for the LDIF preview. Deliberately three colours: the
      attribute name, the value, and the changetype line that says what the
      record does. Anything more turns a diff into a christmas tree. */
