@@ -17,7 +17,6 @@ package replication
 
 import (
 	"encoding/hex"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -422,17 +421,4 @@ func parseGeneralizedTime(value string) time.Time {
 		}
 	}
 	return time.Time{}
-}
-
-// Age is a duration in the words a person uses for it.
-func Age(d time.Duration) string {
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-	}
-	return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
 }
