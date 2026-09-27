@@ -324,16 +324,18 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
-1.27 to 1.30 reach a release together, the way 1.16 and 1.17 reached one in
-1.18.0. Between them they added four fields, stopped sending one, and hold
-back two attributes the entry editor used to offer. Everything below is an
-addition unless it says otherwise.
+1.28, 1.29 and 1.30 reach a release together, the way 1.16 and 1.17 reached
+one in 1.18.0. Between them they added three fields, stopped sending one, and
+hold back two attributes the entry editor used to offer. Everything below is
+an addition unless it says otherwise. (1.27 is not in this list: asking
+`GET /access` about another identity shipped inside 1.26.0, and is described
+in that section.)
 
-- **`as=` on `GET /access`** asks what another identity may do on an entry,
-  where the server answers that question at all (1.27), and **`as=anonymous`**
-  asks what an unauthenticated client may do (1.28). The word is reserved: a
-  DN always contains an equals sign, so no DN can collide with it, and it is
-  folded ASCII-only on both sides.
+- **`as=anonymous` on `GET /access`** asks what an unauthenticated client may
+  do, which is the one question on that screen with no distinguished name to
+  put in it (1.28). The word is reserved: a DN always contains an equals
+  sign, so no DN can collide with it, and it is folded ASCII-only on both
+  sides.
 - **`askedAbout` on the access report** says which identity Alder put the
   question about, which is the only way to tell the anonymous answer from one
   the server declined (1.28).
