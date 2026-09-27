@@ -1,6 +1,15 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiFailure } from "./api";
-import { readHealth, recordFailure, recordSuccess, resetHealth, shouldRetry } from "./directory-health";
+import {
+  SLOW_AFTER_MS,
+  noteFetchEnd,
+  noteFetchStart,
+  readHealth,
+  recordFailure,
+  recordSuccess,
+  resetHealth,
+  shouldRetry,
+} from "./directory-health";
 
 // Whether the header may claim the directory is answering.
 //
@@ -63,6 +72,82 @@ describe("whether the directory is answering", () => {
       recordSuccess(key);
       expect(readHealth().kind, `a successful ${key} query`).toBe("unreachable");
     }
+  });
+});
+
+describe("while a request is still in flight", () => {
+  // The other half of the same failure, and the half that was still there
+  // after the badge was built. An LDAP operation gets thirty seconds, so a
+  // directory that has stopped answering produces about forty seconds of a
+  // screen showing nothing at all before anything is allowed to say so. A
+  // badge that arrives then is a post-mortem.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-27T12:00:00Z"));
+    resetHealth();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("says nothing about a request that has only just started", () => {
+    noteFetchStart("entry-1", "entry");
+    expect(readHealth().kind).toBe("ok");
+    vi.advanceTimersByTime(SLOW_AFTER_MS - 1);
+    expect(readHealth().kind).toBe("ok");
+  });
+
+  it("says so once one has been outstanding too long, without being asked again", () => {
+    // No second event arrives: the request is outstanding, which is exactly
+    // why nothing was happening. The state has to change on a timer or it
+    // never changes at all.
+    noteFetchStart("entry-1", "entry");
+    vi.advanceTimersByTime(SLOW_AFTER_MS);
+    expect(readHealth().kind).toBe("waiting");
+  });
+
+  it("counts the seconds, because 'how long has this been?' is the next question", () => {
+    noteFetchStart("entry-1", "entry");
+    vi.advanceTimersByTime(SLOW_AFTER_MS + 3000);
+    const health = readHealth();
+    expect(health.kind).toBe("waiting");
+    if (health.kind === "waiting") expect(health.seconds).toBe((SLOW_AFTER_MS + 3000) / 1000);
+  });
+
+  it("stops when the request comes back", () => {
+    noteFetchStart("entry-1", "entry");
+    vi.advanceTimersByTime(SLOW_AFTER_MS);
+    expect(readHealth().kind).toBe("waiting");
+    noteFetchEnd("entry-1");
+    expect(readHealth().kind).toBe("ok");
+  });
+
+  it("times the oldest request, not the newest", () => {
+    // A screen that keeps issuing requests while one of them hangs would
+    // otherwise reset the clock on every keystroke and never report it.
+    noteFetchStart("slow", "search");
+    vi.advanceTimersByTime(SLOW_AFTER_MS - 500);
+    noteFetchStart("quick", "tree");
+    vi.advanceTimersByTime(500);
+    expect(readHealth().kind).toBe("waiting");
+  });
+
+  it("does not blame the directory for a request Alder answers from memory", () => {
+    // /session is answered out of Alder's own memory. A slow one means the
+    // browser or Alder is busy, not that the directory has stopped
+    // answering, and saying otherwise is the false claim in reverse.
+    noteFetchStart("session-1", "session");
+    vi.advanceTimersByTime(SLOW_AFTER_MS * 3);
+    expect(readHealth().kind).toBe("ok");
+  });
+
+  it("keeps reporting a failure while the retry is in flight", () => {
+    // Waiting is a fact still being established; not answering is one
+    // already established. Downgrading the second to the first as soon as
+    // somebody clicks again walks the indicator backwards while things are
+    // getting worse.
+    recordFailure(failure(502));
+    noteFetchStart("entry-1", "entry");
+    vi.advanceTimersByTime(SLOW_AFTER_MS);
+    expect(readHealth().kind).toBe("unreachable");
   });
 });
 

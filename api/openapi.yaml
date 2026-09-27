@@ -1829,7 +1829,14 @@ components:
           description: Extra context, such as the LDIF line a parse failed on.
         ldapCode:
           type: integer
-          description: The LDAP result code, where the failure came from the directory.
+          description: |
+            The LDAP result code, where the failure came from the directory.
+
+            Absent when it did not. A dead connection or an unparseable reply
+            produces no result code at all; the client library numbers those
+            conditions from 200 in the same field, and reporting one of them
+            here put "LDAP result code 200" in front of an operator for a
+            failure the directory never answered.
         hint:
           type: string
           description: |
@@ -4245,6 +4252,16 @@ components:
           type: boolean
           description: A secret. Values are withheld and never logged.
         obsolete: { type: boolean }
+        elsewhere:
+          type: string
+          description: |
+            Why the entry editor does not offer this attribute, in a sentence
+            fit to print beside it. Absent means the editor offers it.
+
+            Distinct from `readOnly`, which is the server's refusal. This is
+            Alder's: an access rule is read and never written, and a schema
+            definition is written by the schema editor one definition at a
+            time rather than by replacing a thousand of them in a text box.
         known:
           type: boolean
           description: False when the schema does not define this attribute.

@@ -106,10 +106,44 @@ describe("snapshot", () => {
   });
 
   it("excludes what the server owns, so an edit never tries to write it", () => {
+    // NO-USER-MODIFICATION, which arrives as readOnly, is the server's own
+    // answer to "may a client write this" and the only one worth taking.
     const attrs = [
       attr("cn", ["alice"]),
-      { ...attr("entryUUID", ["u"]), kind: kind({ name: "entryUUID", operational: true }) },
+      {
+        ...attr("entryUUID", ["u"]),
+        kind: kind({ name: "entryUUID", operational: true, readOnly: true }),
+      },
       { ...attr("creatorsName", ["c"]), kind: kind({ name: "creatorsName", readOnly: true }) },
+    ];
+    expect(Object.keys(snapshot(attrs))).toEqual(["cn"]);
+  });
+
+  it("keeps an operational attribute the server lets a client set", () => {
+    // The one that matters: nsAccountLock is operational, and 389 DS does not
+    // mark it NO-USER-MODIFICATION because setting it is how an account is
+    // locked and clearing it is how an account is unlocked. Excluding every
+    // operational attribute meant the editor could not do either, while the
+    // viewer above it said "yours to set".
+    const attrs = [
+      attr("cn", ["alice"]),
+      {
+        ...attr("nsAccountLock", ["true"]),
+        kind: kind({ name: "nsAccountLock", operational: true, readOnly: false }),
+      },
+    ];
+    expect(snapshot(attrs)).toEqual({ cn: ["alice"], nsAccountLock: ["true"] });
+  });
+
+  it("excludes an attribute Alder has decided not to write", () => {
+    // Writable, and still not offered: an access rule is read here and
+    // changed somewhere that is not a text box beside telephoneNumber.
+    const attrs = [
+      attr("cn", ["alice"]),
+      {
+        ...attr("aci", ["(targetattr=...)"]),
+        kind: kind({ name: "aci", operational: true, elsewhere: "Alder reads access rules and does not write them." }),
+      },
     ];
     expect(Object.keys(snapshot(attrs))).toEqual(["cn"]);
   });

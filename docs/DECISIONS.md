@@ -3712,3 +3712,76 @@ it waited for a decision.
   do" over a bound account's rights. The assertions are now the two things
   only the real anonymous answer has — no subject at all, and entry rights
   `none`.
+
+### 2026-09-27 — 1.30, the last three audit findings, and what closing them exposed
+
+The audit's two critical findings were closed in 1.29. These are the three
+that were left, plus a scope violation found while closing the second one.
+
+- **The unlock is offered where the badge is.** The red "account locked" badge
+  is read from attributes already in hand, so it costs nothing and appears
+  before anything is opened; the change that clears the lock is derived by the
+  server, so the header asks for it. One extra request on a locked entry and
+  none on any other. It renders nothing until the report says there is a lock
+  it knows how to clear — a button that appears and then fails is worse than
+  no button, because the Policy dialog is where an unrecognised lock gets
+  explained in words. Locked entry to cleared lock: **two interactions**,
+  against the seventeen the audit measured.
+
+- **Operational is not the question the editor was asking.** Whether the
+  server will accept a write is answered by NO-USER-MODIFICATION and nothing
+  else. The editor excluded every operational attribute instead, so the
+  viewer's heading — "operational, kept by the directory, **yours to set**" —
+  was contradicted by the editor one click away, and a locked account could
+  not be unlocked from the screen that named the attribute. The exclusion is
+  now `readOnly`, a withheld secret, or Alder's own decision; a settable
+  operational field carries a "kept by the directory" badge, because the
+  server may change it back and an operator should know that before typing.
+
+- **Two attributes were writable that the decisions log says Alder does not
+  write.** Found while doing the above, and older. `aci` is operational and
+  settable, so the attribute picker offered it on every 389 DS entry that did
+  not already carry one; `olcAccess` is an *ordinary* attribute of an OpenLDAP
+  database entry, so nothing filtered it anywhere and `olcDatabase={1}mdb`
+  opened as four editable text boxes of access rules, `{0}` ordering prefixes
+  included. Reading access rules is 1.19; writing them is out of scope, and
+  the reason is that an access rule is the one change that can lock every
+  administrator out, with first-match-wins ordering that makes a
+  correct-looking single edit change the meaning of every rule after it. The
+  new `elsewhere` field on an attribute's kind carries *why* an attribute is
+  shown and not editable, so the viewer prints a sentence instead of leaving
+  an absence to be discovered — which is the same dead end the audit found
+  around `nsAccountLock`, from the other direction. The subschema definition
+  attributes are held back the same way, and for a related reason: a schema
+  change is an add or a delete of one definition, and a text box holding a
+  thousand of them can only express a replacement of the lot.
+
+  By name, which section 3 otherwise forbids. That rule is about detecting
+  what a server can do; this is a statement about what Alder chooses to write,
+  and both attributes are named in the charter itself.
+
+- **"Still waiting" is a status; the failure badge was a post-mortem.** An
+  LDAP operation gets thirty seconds, so the honest version of the badge has
+  to appear while the request is outstanding rather than after it has given
+  up. The query cache reports what is in flight, the header names the oldest
+  such request after four seconds and counts the seconds after that. Per
+  request rather than by a count of them: a count never reaches zero during
+  ordinary navigation, which would make every busy moment look like a stall.
+  A failure outranks a wait — "not answering" is established, "still waiting"
+  is being established, and letting a retry downgrade the first would walk the
+  indicator backwards while things got worse.
+
+- **`(code 200)` was not a result code.** go-ldap numbers its own client-side
+  conditions from 200 in the same field the protocol's result codes live in: a
+  dead socket is 200 "Network Error". The audit read it as an HTTP 200 in a
+  message about a failure, which is a fair reading. Those numbers are no
+  longer printed as result codes and no longer sent as `ldapCode`, and the
+  message for one says the directory did not answer rather than that it
+  returned an error — two different things to go and look at.
+
+- **The policy attributes are asked for the way each server spells them.** A
+  search returns an attribute name as it was requested, and the unlock is
+  built from the name the entry came back with, so asking in lower case
+  produced an LDIF preview reading `delete: nsaccountlock` under a viewer that
+  had just said `nsAccountLock`. Matching is still on the folded name, as it
+  has to be.

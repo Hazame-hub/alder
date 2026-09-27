@@ -8,7 +8,13 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { ApiFailure } from "@/lib/api";
-import { recordFailure, recordSuccess, shouldRetry } from "@/lib/directory-health";
+import {
+  noteFetchEnd,
+  noteFetchStart,
+  recordFailure,
+  recordSuccess,
+  shouldRetry,
+} from "@/lib/directory-health";
 import { validateAppSearch } from "@/lib/route";
 import { App } from "@/app";
 import "@/styles.css";
@@ -64,6 +70,50 @@ const queryClient = new QueryClient({
     },
     mutations: { retry: false },
   },
+});
+
+/**
+ * What is in flight, so the header can say "still waiting" rather than
+ * waiting silently.
+ *
+ * A subscription to the cache rather than a hook: every request on every
+ * screen counts, and the alternative -- each view reporting its own -- is the
+ * arrangement that produced a header claiming a healthy bind while six calls
+ * were failing underneath it.
+ *
+ * The cache reports a fetch as an `updated` event carrying the action that
+ * caused it. `fetch` opens one; `success`, `error` and `failed` close it.
+ * Anything else about the query -- a component mounting, data going stale --
+ * arrives here too and is ignored.
+ */
+queryClient.getQueryCache().subscribe((event) => {
+  if (event.type !== "updated") return;
+  const hash = event.query.queryHash;
+  switch (event.action.type) {
+    case "fetch":
+      noteFetchStart(hash, event.query.queryKey[0]);
+      break;
+    case "success":
+    case "error":
+    case "failed":
+      // `failed` is a retry, not an end. The request is still outstanding and
+      // the clock should keep running: a retried request is exactly the case
+      // where somebody is waiting and nothing is happening.
+      if (event.action.type !== "failed") noteFetchEnd(hash);
+      break;
+  }
+});
+
+queryClient.getMutationCache().subscribe((event) => {
+  if (event.type !== "updated") return;
+  const hash = `mutation:${event.mutation.mutationId}`;
+  switch (event.mutation.state.status) {
+    case "pending":
+      noteFetchStart(hash, event.mutation.options.mutationKey?.[0]);
+      break;
+    default:
+      noteFetchEnd(hash);
+  }
 });
 
 /**

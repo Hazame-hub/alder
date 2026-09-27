@@ -352,11 +352,33 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
+	// The number, only when it is one the directory sent.
+	//
+	// "(code 200)" was printed on a failure where nothing had answered at
+	// all, and a UI audit read it as an HTTP 200 in a message about a
+	// failure -- which is a fair reading, because 200 there means nothing an
+	// operator has ever seen in a directory log either.
+	if e.IsClientSide() {
+		if e.Message == "" {
+			return "the directory did not answer"
+		}
+		return e.Message
+	}
 	if e.Message == "" {
 		return fmt.Sprintf("LDAP result code %d", e.Code)
 	}
 	return fmt.Sprintf("%s (code %d)", e.Message, e.Code)
 }
+
+// IsClientSide reports a failure that carries no LDAP result code, because no
+// result ever arrived.
+//
+// go-ldap numbers its own conditions from 200 -- a dead socket is 200
+// "Network Error", an unparseable reply is 205 -- in the same uint16 as the
+// protocol's result codes, which stop at 123 (and 4096 for sync refresh
+// required). They are not result codes: the directory did not send them, and
+// 200 in particular is not "success" in any protocol Alder speaks.
+func (e *Error) IsClientSide() bool { return e.Code >= 200 && e.Code < 4096 }
 
 // IsNoSuchObject reports the result code for an entry that does not exist, so
 // the API can answer 404 rather than 500.

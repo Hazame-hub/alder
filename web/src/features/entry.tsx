@@ -58,7 +58,7 @@ import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
 import { ReferencedByButton } from "@/features/referenced-by";
 import { AccessButton } from "@/features/access";
-import { PolicyButton, looksLocked } from "@/features/policy";
+import { EntryUnlockButton, PolicyButton, looksLocked } from "@/features/policy";
 import { EntryReplicationButton } from "@/features/replication";
 import { ExpandMembersButton } from "@/features/members";
 import { CompareButton } from "@/features/compare";
@@ -282,9 +282,13 @@ function EntryHeader({
             )}
             {entry.hasChildren ? <Badge variant="outline">has children</Badge> : null}
             {looksLocked(entry.attributes) ? (
-              <Badge variant="destructive" title="The server holds an attribute on this entry that locks the account">
-                account locked
-              </Badge>
+              <>
+                <Badge variant="destructive" title="The server holds an attribute on this entry that locks the account">
+                  account locked
+                </Badge>
+                {/* The badge announced the problem and offered nothing. */}
+                <EntryUnlockButton dn={entry.dn} readOnly={readOnly} />
+              </>
             ) : null}
           </div>
           <div className="mt-1 flex items-center gap-1.5">
@@ -756,6 +760,15 @@ function AttributeRow({
         {attr.values.length === 0 && !attr.withheld ? (
           <span className="text-sm italic text-muted-foreground">no values</span>
         ) : null}
+        {/*
+          Why there is no field for this in the editor, said here rather than
+          left to be discovered by its absence. An attribute shown and not
+          editable, with nothing saying why, is the dead end the audit walked
+          into from the other direction.
+        */}
+        {attr.kind.elsewhere ? (
+          <p className="text-xs text-muted-foreground">{safeText(attr.kind.elsewhere)}</p>
+        ) : null}
       </dd>
     </div>
   );
@@ -861,11 +874,21 @@ function groupAttributes(attributes: EntryAttribute[]) {
     },
     {
       title: "Operational — kept by the directory, yours to set",
-      items: attributes.filter((a) => a.kind.operational && !a.kind.readOnly),
+      items: attributes.filter(
+        (a) => a.kind.operational && !a.kind.readOnly && !a.kind.elsewhere,
+      ),
     },
     {
       title: "Operational — the directory owns these",
       items: attributes.filter((a) => a.kind.operational && a.kind.readOnly),
+    },
+    {
+      // Writable, and Alder still does not offer a field for it. Its own
+      // heading rather than a footnote under "yours to set", because "yours
+      // to set" and "not editable here" in the same group is the
+      // contradiction this whole split exists to remove.
+      title: "Shown here, edited elsewhere",
+      items: attributes.filter((a) => !a.kind.readOnly && a.kind.elsewhere),
     },
   ];
 }
@@ -881,10 +904,17 @@ function EntryEditor({
   onDone: () => void;
   onNavigate: (dn: string) => void;
 }) {
+  // What the editor offers a field for, and the same rule snapshot() uses:
+  // the server's refusal (readOnly), a withheld secret, or Alder's own
+  // decision not to write this one. Operational is not on the list. An
+  // operational attribute the server says a client may set -- nsAccountLock,
+  // accountUnlockTime, an OpenLDAP pwdAccountLockedTime -- is the attribute
+  // an administrator most often needs to change by hand, and it was the one
+  // the editor refused to show.
   const editable = useMemo(
     () =>
       entry.attributes.filter(
-        (a) => !a.kind.operational && !a.kind.readOnly && !a.withheld,
+        (a) => !a.kind.readOnly && !a.withheld && !a.kind.elsewhere,
       ),
     [entry.attributes],
   );

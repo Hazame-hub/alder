@@ -34,31 +34,39 @@ type Reader interface {
 var ErrNoEntry = errors.New("policy: that entry could not be read")
 
 // stateAttributes are what each server records on the account.
+//
+// Spelled the way each server's own documentation spells it, because the
+// spelling travels further than it looks: a search returns the attribute name
+// as it was asked for, and the unlock is built from the name the entry came
+// back with. Asking in lower case produced an LDIF preview that said
+// `delete: nsaccountlock` under a viewer that had just said `nsAccountLock`,
+// which is a change an operator has to stop and think about. Matching is done
+// on the folded name, as it has to be -- the wire is case-insensitive.
 var stateAttributes = []struct {
 	key   string
 	label string
 	kind  string // time, times, bool, count, lock
 }{
 	// OpenLDAP ppolicy.
-	{"pwdaccountlockedtime", "locked since", "lock"},
-	{"pwdchangedtime", "password last changed", "time"},
-	{"pwdreset", "must be changed at the next bind", "bool"},
-	{"pwdfailuretime", "failed binds recorded", "times"},
-	{"pwdgraceusetime", "grace logins used", "times"},
-	{"pwdlastsuccess", "last successful bind", "time"},
-	{"pwdstarttime", "usable from", "time"},
-	{"pwdendtime", "usable until", "time"},
-	{"pwdpolicysubentry", "policy named by this entry", ""},
+	{"pwdAccountLockedTime", "locked since", "lock"},
+	{"pwdChangedTime", "password last changed", "time"},
+	{"pwdReset", "must be changed at the next bind", "bool"},
+	{"pwdFailureTime", "failed binds recorded", "times"},
+	{"pwdGraceUseTime", "grace logins used", "times"},
+	{"pwdLastSuccess", "last successful bind", "time"},
+	{"pwdStartTime", "usable from", "time"},
+	{"pwdEndTime", "usable until", "time"},
+	{"pwdPolicySubentry", "policy named by this entry", ""},
 
 	// 389 Directory Server.
-	{"nsaccountlock", "administratively locked", "lock"},
-	{"passwordexpirationtime", "password expires", "time"},
-	{"passwordretrycount", "failed binds recorded", "count"},
-	{"retrycountresettime", "failure count resets at", "time"},
-	{"accountunlocktime", "unlocks at", "time"},
-	{"passwordallowchangetime", "may be changed from", "time"},
-	{"passwordgraceusertime", "grace logins used", "count"},
-	{"passwordexpwarned", "expiry warning sent", "count"},
+	{"nsAccountLock", "administratively locked", "lock"},
+	{"passwordExpirationTime", "password expires", "time"},
+	{"passwordRetryCount", "failed binds recorded", "count"},
+	{"retryCountResetTime", "failure count resets at", "time"},
+	{"accountUnlockTime", "unlocks at", "time"},
+	{"passwordAllowChangeTime", "may be changed from", "time"},
+	{"passwordGraceUserTime", "grace logins used", "count"},
+	{"passwordExpWarned", "expiry warning sent", "count"},
 	{"pwdpolicysubentry", "policy named by this entry", ""},
 }
 
@@ -66,10 +74,11 @@ func stateAttributeNames() []string {
 	seen := map[string]bool{}
 	out := []string{}
 	for _, a := range stateAttributes {
-		if seen[a.key] {
+		folded := strings.ToLower(a.key)
+		if seen[folded] {
 			continue
 		}
-		seen[a.key] = true
+		seen[folded] = true
 		out = append(out, a.key)
 	}
 	return out
@@ -161,12 +170,13 @@ func stateOf(entry *directory.Entry) *State {
 	// must be reported once. Reported twice it reads as two different facts.
 	seen := map[string]bool{}
 	for _, a := range stateAttributes {
+		folded := strings.ToLower(a.key)
 		values := entry.GetStrings(a.key)
-		if len(values) == 0 || seen[a.key] {
+		if len(values) == 0 || seen[folded] {
 			continue
 		}
-		seen[a.key] = true
-		setting := Setting{Key: a.key, Values: values, Label: a.label}
+		seen[folded] = true
+		setting := Setting{Key: folded, Values: values, Label: a.label}
 		switch a.kind {
 		case "time", "lock":
 			setting.Detail = readableTime(values[0])
@@ -175,7 +185,7 @@ func stateOf(entry *directory.Entry) *State {
 		}
 		state.Attributes = append(state.Attributes, setting)
 
-		switch strings.ToLower(a.key) {
+		switch folded {
 		case "pwdaccountlockedtime":
 			state.Locked = true
 			// 000001010000Z is ppolicy's "locked until an administrator says

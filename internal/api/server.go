@@ -224,8 +224,16 @@ func (s *Server) fail(c *fiber.Ctx, err error) error {
 			return writeErrorWithLDAP(c, fiber.StatusUnprocessableEntity, ErrorErrorConstraintViolation,
 				"The directory rejected the change.", ldapErr.Error(), code)
 		default:
+			// "Returned an error" is wrong when nothing was returned. The
+			// header badge shows this sentence and nothing else, and a
+			// connection that died and a directory that refused are two
+			// different things to go and look at.
+			message := "The directory returned an error."
+			if ldapErr.IsClientSide() {
+				message = "The directory did not answer."
+			}
 			return writeErrorWithLDAP(c, fiber.StatusBadGateway, ErrorErrorUpstream,
-				"The directory returned an error.", ldapErr.Error(), code)
+				message, ldapErr.Error(), code)
 		}
 	}
 
@@ -285,8 +293,15 @@ const hintLocal = "alder.ldap.hint"
 const remedyLocal = "alder.ldap.remedy"
 
 func writeErrorWithLDAP(c *fiber.Ctx, status int, code ErrorError, message, detail string, ldapCode uint16) error {
-	n := int(ldapCode)
-	body := Error{Error: code, Message: message, Detail: &detail, LdapCode: &n}
+	body := Error{Error: code, Message: message, Detail: &detail}
+	// A result code only when the directory produced one. go-ldap numbers its
+	// own client-side conditions from 200 in the same field, and sending one
+	// of those put "LDAP result code 200" on the screen for a connection that
+	// had died -- a number the server never said, that reads as success.
+	if e := (&ldapdriver.Error{Code: ldapCode}); !e.IsClientSide() {
+		n := int(ldapCode)
+		body.LdapCode = &n
+	}
 	if hint, ok := c.Locals(hintLocal).(string); ok && hint != "" {
 		body.Hint = &hint
 	}

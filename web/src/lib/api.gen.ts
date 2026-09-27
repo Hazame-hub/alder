@@ -3170,6 +3170,16 @@ export interface components {
             /** @description A secret. Values are withheld and never logged. */
             sensitive?: boolean;
             obsolete?: boolean;
+            /**
+             * @description Why the entry editor does not offer this attribute, in a sentence
+             *     fit to print beside it. Absent means the editor offers it.
+             *
+             *     Distinct from `readOnly`, which is the server's refusal. This is
+             *     Alder's: an access rule is read and never written, and a schema
+             *     definition is written by the schema editor one definition at a
+             *     time rather than by replacing a thousand of them in a text box.
+             */
+            elsewhere?: string;
             /** @description False when the schema does not define this attribute. */
             known: boolean;
         };

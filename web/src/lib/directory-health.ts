@@ -25,16 +25,58 @@ import { ApiFailure } from "@/lib/api";
 export type Health =
   /** Nothing has failed since the last success. */
   | { kind: "ok" }
+  /**
+   * A request to the directory has been outstanding long enough to say so.
+   *
+   * The audit's second finding was not only that a failure was silent: it was
+   * that the silence lasted about forty seconds, because the LDAP operation
+   * timeout is thirty and nothing said anything until it expired. A badge
+   * that appears after the fact is a post-mortem. This is the status.
+   */
+  | { kind: "waiting"; since: number; seconds: number }
   /** The directory answered badly, or did not answer. */
   | { kind: "unreachable"; status: number; message: string; at: number };
+
+/** How long a directory request may take before the header says so. */
+export const SLOW_AFTER_MS = 4000;
 
 let health: Health = { kind: "ok" };
 const listeners = new Set<() => void>();
 
+/**
+ * The failure, held separately from what is published.
+ *
+ * Because the two states are not a sequence: a request can be in flight while
+ * the last one is still known to have failed, and a failure outranks a wait.
+ * "Not answering" is a fact already established; "still waiting" is a fact
+ * still being established, and replacing the first with the second would walk
+ * the indicator backwards while things got worse.
+ */
+let failure: Extract<Health, { kind: "unreachable" }> | null = null;
+
+/**
+ * Directory requests currently in flight, by the query cache's hash for them,
+ * and when each started.
+ *
+ * Per request rather than a count, because a count that never reaches zero
+ * during ordinary navigation would make every busy moment look like a stall.
+ * What matters is whether any *one* request has been outstanding too long.
+ */
+const inFlight = new Map<string, number>();
+let timer: ReturnType<typeof setTimeout> | undefined;
+
 function publish(next: Health) {
-  if (next.kind === health.kind && next.kind === "ok") return;
+  if (same(next, health)) return;
   health = next;
   listeners.forEach((l) => l());
+}
+
+function same(a: Health, b: Health): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "waiting" && b.kind === "waiting") {
+    return a.since === b.since && a.seconds === b.seconds;
+  }
+  return a.kind === "ok";
 }
 
 /**
@@ -49,16 +91,22 @@ export function recordFailure(error: unknown) {
   if (!(error instanceof ApiFailure)) {
     // A failure reaching Alder itself rather than the directory: the page is
     // still loaded, so the server or the network between is the problem.
-    publish({ kind: "unreachable", status: 0, message: "Alder itself did not answer.", at: Date.now() });
+    failure = { kind: "unreachable", status: 0, message: "Alder itself did not answer.", at: Date.now() };
+    recompute();
     return;
   }
   if (error.status === 502 || error.status === 504 || error.code === "upstream") {
-    publish({
+    failure = {
       kind: "unreachable",
       status: error.status,
-      message: error.detail || error.message,
+      // The server's own sentence, not its detail. `detail` is the client
+      // library's text, and on the failure this badge exists for it is
+      // "Network Error" wrapped in whatever call produced it -- protocol
+      // noise in a place with room for one line.
+      message: error.message,
       at: Date.now(),
-    });
+    };
+    recompute();
   }
 }
 
@@ -89,13 +137,79 @@ const answeredFromMemory = new Set(["session", "schema", "source"]);
  * actually reached the directory.
  */
 export function recordSuccess(key?: unknown) {
-  if (typeof key === "string" && answeredFromMemory.has(key)) return;
-  if (health.kind !== "ok") publish({ kind: "ok" });
-  health = { kind: "ok" };
+  if (answersFromMemory(key)) return;
+  failure = null;
+  recompute();
+}
+
+/**
+ * Whether a query key names something Alder answers without asking the
+ * directory. Exported because the same question decides two things: whether a
+ * success clears the failure, and whether a slow request is the directory's
+ * fault.
+ */
+export function answersFromMemory(key: unknown): boolean {
+  return typeof key === "string" && answeredFromMemory.has(key);
+}
+
+/**
+ * A request to the directory started.
+ *
+ * `hash` identifies this request to the cache -- the same query refetching is
+ * the same hash, which is what keeps a refetch from counting twice.
+ */
+export function noteFetchStart(hash: string, key: unknown, now = Date.now()) {
+  if (answersFromMemory(key)) return;
+  if (!inFlight.has(hash)) inFlight.set(hash, now);
+  recompute(now);
+}
+
+/** It finished, whichever way. */
+export function noteFetchEnd(hash: string) {
+  if (!inFlight.delete(hash)) return;
+  recompute();
+}
+
+/**
+ * Work out what the header should say, and schedule the next time it might
+ * change.
+ *
+ * One timer, reset each time, rather than one per request: while nothing is
+ * slow it fires once at the moment the oldest request would become slow, and
+ * while something is slow it ticks once a second so the badge can count. A
+ * waiting badge with no number is a spinner with a border, and the question
+ * an operator has after five seconds is "how long has this been?".
+ */
+function recompute(now = Date.now()) {
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    timer = undefined;
+  }
+
+  let oldest = Infinity;
+  for (const since of inFlight.values()) oldest = Math.min(oldest, since);
+
+  if (failure) {
+    publish(failure);
+  } else if (oldest !== Infinity && now - oldest >= SLOW_AFTER_MS) {
+    publish({ kind: "waiting", since: oldest, seconds: Math.floor((now - oldest) / 1000) });
+  } else {
+    publish({ kind: "ok" });
+  }
+
+  if (oldest === Infinity) return;
+  const untilSlow = oldest + SLOW_AFTER_MS - now;
+  timer = setTimeout(() => recompute(), untilSlow > 0 ? untilSlow : 1000);
 }
 
 /** Reset, for a disconnect and for tests. */
 export function resetHealth() {
+  failure = null;
+  inFlight.clear();
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    timer = undefined;
+  }
   health = { kind: "ok" };
   listeners.forEach((l) => l());
 }

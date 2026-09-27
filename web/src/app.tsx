@@ -317,6 +317,21 @@ function DirectoryNav({
 function DirectoryHealth({ onReconnect }: { onReconnect: () => void }) {
   const health = useDirectoryHealth();
   if (health.kind === "ok") return null;
+  // Still going. Said while it is happening rather than after it has failed:
+  // the operation timeout is thirty seconds, so the honest version of this
+  // badge has to appear long before the failure does.
+  if (health.kind === "waiting") {
+    return (
+      <Badge
+        variant="warning"
+        className="gap-1"
+        title="A request to the directory has not come back yet. Alder gives one thirty seconds before it gives up."
+      >
+        <Loader2 className="size-3 animate-spin" />
+        waiting for the directory — {health.seconds}s
+      </Badge>
+    );
+  }
   return (
     <div className="flex items-center gap-1.5">
       <Badge variant="destructive" className="gap-1" title={safeText(health.message)}>
