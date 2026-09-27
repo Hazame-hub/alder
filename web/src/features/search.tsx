@@ -111,8 +111,9 @@ export function SearchPanel({
     onChange({ base: draftBase, filter: draftFilter, limit: draftLimit, scope });
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 space-y-3 border-b border-border p-4">
+    <div className="screen-shell flex h-full min-h-0 flex-col">
+      <div className="shrink-0 space-y-3 border-b border-border p-5">
+        <p className="screen-kicker">Directory intelligence</p>
         <div className="grid gap-3 md:grid-cols-[1fr_10rem_7rem]">
           <div className="space-y-1.5">
             <Label htmlFor="base">Search base</Label>

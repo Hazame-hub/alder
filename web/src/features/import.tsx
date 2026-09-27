@@ -104,9 +104,10 @@ export function ImportPanel({
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 p-6">
+    <div className="screen-shell mx-auto max-w-5xl space-y-5 p-6">
       <header>
-        <h2 className="text-lg font-semibold">Import LDIF</h2>
+        <p className="screen-kicker">Bring data in safely</p>
+        <h2 className="text-2xl font-semibold tracking-tight">Import LDIF</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Paste or drop an LDIF document. It is parsed and shown back to you as
           individual changes; nothing is applied until you confirm each one.

@@ -160,10 +160,11 @@ export function ObjectListPanel({
 
   const columns = chosen[viewId] ?? view.columns;
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-border px-4 py-3">
+    <div className="screen-shell flex h-full min-h-0 flex-col">
+      <header className="shrink-0 border-b border-border px-5 py-4">
+        <p className="screen-kicker mb-1">Directory view</p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h2 className="text-base font-semibold">{view.label}</h2>
+          <h2 className="text-xl font-semibold tracking-tight">{view.label}</h2>
           {view.description ? (
             <span className="text-sm text-muted-foreground">{view.description}</span>
           ) : null}
