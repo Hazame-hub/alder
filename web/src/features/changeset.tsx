@@ -175,8 +175,11 @@ export function ChangesetView({
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-6">
-      <div className="mb-4 flex items-baseline justify-between gap-4">
+      <div className="screen-shell mx-auto max-w-6xl px-6 py-8">
+        <div className="mb-6 flex items-end justify-between gap-4 border-b border-border pb-5">
+          <div className="screen-kicker">Review workspace</div>
+        </div>
+        <div className="mb-4 flex items-baseline justify-between gap-4">
         <div>
           <h2 className="text-lg font-medium">
             {staged.length} staged change{staged.length === 1 ? "" : "s"}
