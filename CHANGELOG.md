@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.26.0](https://github.com/Hazame-hub/alder/compare/v1.19.0...v1.26.0) (2026-09-27)
+
+
+### Features
+
+* a change the directory refuses now says where to look as well as what the code means -- the access rules on that entry, the password policy in force, the schema definition, or the parent that is missing -- and the interface offers the way in ([cffd1b9](https://github.com/Hazame-hub/alder/commit/cffd1b9baacd6c665fd61456e473cee8a54c3e30))
+* an account the server holds locked is marked in the entry header, read from what has already been fetched, so the fact costs no request ([674fb82](https://github.com/Hazame-hub/alder/commit/674fb824264f89314a1c51971df3ed6da005df5e))
+* **config:** create and remove indexes on both servers ([#137](https://github.com/Hazame-hub/alder/issues/137)) ([6175ba2](https://github.com/Hazame-hub/alder/commit/6175ba22a4241138ea94c7b825351dce3a440be8))
+* **replication:** report what a server says about its own replication ([#139](https://github.com/Hazame-hub/alder/issues/139)) ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
+* the password policy in force on an account is read and shown with where it is written -- OpenLDAP's ppolicy entries and 389 Directory Server's cn=config and subentries -- beside what the server records about that account: locked, must change, last changed, failed binds ([674fb82](https://github.com/Hazame-hub/alder/commit/674fb824264f89314a1c51971df3ed6da005df5e))
+* the refusal reaches an operator through both shapes of failure, the error body of a single change and the per-change outcome of a changeset run, because a stopped run is where an unexplained refusal costs most ([cffd1b9](https://github.com/Hazame-hub/alder/commit/cffd1b9baacd6c665fd61456e473cee8a54c3e30))
+* the session reports whether the server can be asked that question at all, so a screen never presents the absence of an answer as an answer ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
+* where a server answers what an identity may do -- 389 Directory Server publishes the Get Effective Rights control -- Alder asks it, and the access report carries the directory's own verdict above the rules it reads ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
+
+
+### Fixes
+
+* a DN value containing "=" is written escaped, because 389 Directory Server answers "no such object" to the bare form of a DN it gave you escaped, making any such entry unreachable ([674fb82](https://github.com/Hazame-hub/alder/commit/674fb824264f89314a1c51971df3ed6da005df5e))
+* a server that cannot answer, one that declined the question, and a question that failed are reported as three different facts, none of them as "no rights" ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
+* no remedy is offered where there is nothing useful to say, such as a constraint violation on an attribute that is not a password, rather than guessing at a screen ([cffd1b9](https://github.com/Hazame-hub/alder/commit/cffd1b9baacd6c665fd61456e473cee8a54c3e30))
+
+
+### Documentation
+
+* correct the note that blamed a ppolicy default for a slapd crash, and record what is actually known about it ([cffd1b9](https://github.com/Hazame-hub/alder/commit/cffd1b9baacd6c665fd61456e473cee8a54c3e30))
+* document the password policy report, what it is not, and why the harness configures no ppolicy default ([674fb82](https://github.com/Hazame-hub/alder/commit/674fb824264f89314a1c51971df3ed6da005df5e))
+* document the server's verdict, why the letters are kept beside the gloss, and why Alder still does not evaluate a rule itself ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
+
 ## [1.19.0](https://github.com/Hazame-hub/alder/compare/v1.18.0...v1.19.0) (2026-09-26)
 
 
