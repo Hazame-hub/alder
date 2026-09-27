@@ -33,6 +33,27 @@ passwordMaxFailure: 5
 -
 replace: passwordLockoutDuration
 passwordLockoutDuration: 900
+-
+# Lockout state has to replicate, or replication stops.
+#
+# When binds fail, the server writes accountUnlockTime, passwordRetryCount and
+# retryCountResetTime on the account, and tries to replicate them like any
+# other change. A consumer REFUSES a replicated password-policy operation
+# unless this is on:
+#
+#   ERR - do_modify - Rejecting replicated password policy operation ...
+#   To allow these changes to be accepted, set passwordIsGlobalPolicy to 'on'
+#
+# and the agreement then falls into "Error (16) ... connection error. Backing
+# off" -- which stalls the whole agreement, not just those attributes. So one
+# locked-out account silently stops replication for everything.
+#
+# The harness found this the first time a test locked an account out by
+# failing binds rather than by writing the attribute, which is why the test
+# does it that way. Any replicated 389 DS where accounts are ever locked out
+# needs this set; the harness sets it because that is the real shape.
+replace: passwordIsGlobalPolicy
+passwordIsGlobalPolicy: on
 
 dn: cn=nsPwPolicyContainer,ou=people,dc=alder,dc=test
 changetype: add

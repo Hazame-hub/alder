@@ -3541,3 +3541,118 @@ not rediscovered: `Release-As` worked this time (nothing follows it in the
 message, which is what broke 1.18.0), and the version stamping is right —
 `.goreleaser.yaml` passes `-X main.version={{ .Version }}` and the workflow
 checks out the release tag, so a release build reports 1.26.0.
+
+### 2026-09-27 — 1.29, the two things the audit earned
+
+Both come from the black-box walk of "this account cannot log in, why", and
+both were measured before they were fixed.
+
+**Clearing a lock.** The report already names the attribute that holds the
+lock — it has to, to say the account is locked — and that is where it stopped.
+The entry viewer filed the attribute under "operational, kept by the
+directory, **yours to set**", no editor offered it, the password dialog did
+not mention it, and the only way out was a hand-written LDIF modify in the
+import screen. Seventeen interactions between knowing the answer and applying
+it, against three.
+
+- **The change is derived by the server**, carried on the report beside the
+  state it came from, for the reason every other change is: one code path
+  builds what gets sent, and the LDIF the operator confirms is rendered from
+  that record. The browser builds no LDIF.
+- **What is removed depends on what the entry holds.** `pwdAccountLockedTime`
+  takes `pwdFailureTime` with it, because the overlay re-locks at
+  `pwdMaxFailure` and an operator who unlocked an account does not expect the
+  next single failure to lock it again. `nsAccountLock` stands alone, and is
+  deleted rather than set to `false`, which would leave a value that reads as
+  though somebody meant something by it.
+- **An attribute the entry does not hold is never named.** A delete of an
+  absent attribute is an error on both servers, so naming it would turn a
+  working unlock into a refusal.
+- **A lock Alder does not recognise gets no change**, and the dialog says so.
+  A change invented for an attribute Alder has never seen would be a write
+  nobody asked for, on the screen whose whole point is that it reports.
+
+**Making a failure visible.** The audit reported nine failed requests with
+"zero words on screen and zero in the console", and proposed adding error
+surfaces. Reproducing it first showed the diagnosis was wrong in a useful way:
+the error surfaces exist and do render. What was wrong was the timing and the
+header.
+
+Measured, with the harness 389 DS paused: `POST /search` took **thirty
+seconds** to return 502, and the retry policy spent two more of them — ninety
+seconds before any screen was allowed to say something had gone wrong. And
+`GET /session` answered **200 in 1.6 milliseconds** reporting a healthy bind
+throughout, which is why the header went on saying "Bound as cn=Directory
+Manager" to a directory that had stopped answering.
+
+- **An answer the server gave is never retried.** An `ApiFailure` means Alder
+  answered; retrying costs another full operation timeout and changes
+  nothing. A failure that never reached Alder is worth one retry.
+- **Every failure is written to the console, unconditionally**, from the query
+  and mutation caches rather than from each view. The first place anybody
+  looks said nothing at all.
+- **The header watches what the requests are doing**, because it cannot ask
+  the session: a session is an object in memory. It shows nothing until
+  something fails upstream, and then names it and offers Reconnect — the cure
+  the interface had never suggested. A 403 or a 404 does not count: an
+  indicator that cries wolf over the ordinary business of the day gets
+  ignored, which is worse than not having one.
+
+The server-side thirty-second timeout is unchanged and deliberate: a real
+search can legitimately take that long. What changed is that Alder no longer
+waits three times over, and says so when it gives up.
+
+### 2026-09-27 — what the review of 1.29 found
+
+Eight findings survived refutation. Three mattered, and one of them made the
+feature useless in the only case it was built for.
+
+- **`pwdFailureTime` is `NO-USER-MODIFICATION`, and the unlock was deleting
+  it.** The reasoning had been: the overlay re-locks at `pwdMaxFailure`, so
+  clear the counted failures too. The directory owns that attribute, so the
+  server refused the modify with a constraint violation — and a modify is
+  atomic, so the lock was not cleared either. An account only carries
+  `pwdFailureTime` when the overlay is what locked it, so **every real
+  OpenLDAP lockout was unfixable**. It was also unnecessary: deleting
+  `pwdAccountLockedTime` alone unlocks, and the overlay discards the failure
+  times itself.
+- **The conformance case could not see it, because it faked a lock shape the
+  server never produces.** Writing the attribute as an administrator gives
+  `pwdAccountLockedTime` with no `pwdFailureTime`. There is now a case that
+  makes the *server* do the locking — five bad binds against the one account
+  the harness holds to a strict policy — and it fails on the old code with
+  `Constraint Violation (code 19)`. The lesson generalises: a fixture built by
+  writing the state a server would have written is not the same as the state,
+  and the difference is exactly where the defects live.
+- **389 DS's automatic lockout was reported as no lock at all.** The state
+  reader only looked at `nsAccountLock`, so the commonest lock on that server
+  — failed binds reaching `passwordMaxFailure`, after which the server sets
+  `accountUnlockTime` — left the dialog with nothing to say, and the table
+  entry meant to clear it could never be reached. It is a lock while that
+  time is still in the future.
+- **A consumer refuses replicated password-policy operations.** Found because
+  the new test locks an account by failing binds, which makes the supplier
+  write lockout state and try to replicate it. 389 DS rejects that on the
+  consumer unless `passwordIsGlobalPolicy` is on — and the agreement then
+  falls into "Error (16) … connection error. Backing off", which stalls the
+  **whole** agreement. One locked-out account silently stops replication for
+  everything. The harness sets it on the consumer, in `replicate.sh` rather
+  than in the policy seed, because `cn=config` does not replicate: it has to
+  go on the server doing the rejecting. Any replicated 389 DS where accounts
+  are ever locked out needs the same.
+- **Any success cleared the health badge, including from requests that never
+  touch the directory.** `/session`, `/schema` and `/source` all answer 200
+  from memory in single-digit milliseconds while the directory is down —
+  `/session` refetches on window focus, so looking away and back restored
+  exactly the false claim the indicator was built to remove. They are
+  excluded by name, which is the weak point and is written down as such; the
+  honest fix is for the server to say which responses involved directory I/O.
+- **The new console line logged `error.detail`, which can quote a password.**
+  An LDIF parse error echoes the offending source line, and a line can be
+  `userPassword: …`. Verified against the running server. It logs the status,
+  the code and the message now — the dialog still shows `detail` on screen,
+  where it is not written down. Rule 6 does not stop being true because the
+  log is in a browser.
+
+The re-walk of the audited task measured **2 interactions**, not the 3 the
+change claimed, and the same 2 on both servers.

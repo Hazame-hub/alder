@@ -22,6 +22,53 @@ The **Policy** button on an entry puts the three together. An account the
 server currently holds locked is also marked in the entry header, before
 anything is opened, because that is the fact worth not having to look for.
 
+## Clearing a lock (1.29)
+
+Where the account is locked and Alder recognises the kind of lock, the dialog
+that found it offers **Unlock this account**, beside the line that names it.
+It opens the ordinary review dialog — the same LDIF, the same plan, the same
+apply as every other write — and the change is derived by the server, because
+there is one code path that builds what gets sent.
+
+Until 1.29 there was no way to do this in the product at all. The entry viewer
+filed the lock attribute under *"operational, kept by the directory, yours to
+set"*, no editor offered it, the password dialog did not mention it, and the
+only way to clear it was to hand-write an LDIF `changetype: modify` into the
+import screen. A black-box audit walked *"this account cannot log in, why"*
+and spent **seventeen interactions** between knowing the answer and applying
+it; the fix is three.
+
+What gets removed depends on what the entry actually carries:
+
+| Lock | Also cleared | Why |
+|---|---|---|
+| `pwdAccountLockedTime` (OpenLDAP ppolicy) | **nothing** | the overlay discards `pwdFailureTime` itself when the lock goes, and naming it would make the server refuse the whole modify — it is `NO-USER-MODIFICATION` |
+| `nsAccountLock` (389 DS) | — | deleting it is the unlock; setting it to `false` leaves a value that reads as though somebody meant something by it |
+| `accountUnlockTime` (389 DS lockout) | `passwordRetryCount`, `retryCountResetTime` | clears the automatic lockout and the failure count behind it, which are ordinary writable attributes on this server |
+
+The OpenLDAP row is the one that had to be learned the hard way. The first
+version cleared `pwdFailureTime` too, reasoning that the overlay re-locks at
+`pwdMaxFailure`. The directory owns that attribute, so the server refused the
+modify with a constraint violation — and because a modify is atomic, the lock
+was not cleared either. **The button failed in exactly the case it existed
+for**, because an account only carries `pwdFailureTime` when the overlay is
+what locked it. The conformance suite stayed green because it fabricated the
+lock by writing the attribute, which is a shape the overlay never produces;
+there is now a case that makes the server do the locking.
+
+389 DS's automatic lockout — failed binds reaching `passwordMaxFailure`, after
+which the server sets `accountUnlockTime` to when it will release itself — was
+reported as **not locked at all** until 1.29, so the dialog said nothing
+rather than saying it could not help. It is a lock while that time is still in
+the future, and a record of one that has released after.
+
+An attribute the entry does not hold is never named: a delete of an absent
+attribute is an error on both servers, so naming it would turn a working
+unlock into a refusal. And **a lock Alder does not recognise gets no change** —
+the report says so and stops. A change invented for an attribute Alder has
+never seen would be a write nobody asked for, on the screen whose whole point
+is that it reports rather than decides.
+
 ## What it is not
 
 > This is what the server records about the account and the policy it names,

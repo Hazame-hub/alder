@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, ShieldAlert, Timer } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { LockOpen, Loader2, ShieldAlert, Timer } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { components } from "@/lib/api.gen";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ErrorNote } from "@/components/change-dialog";
+import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { safeText } from "@/lib/display";
 
 type PolicyReport = components["schemas"]["PolicyReport"];
@@ -92,10 +92,24 @@ export function PolicyDialog({
           {report.data ? (
             <div className="space-y-3">
               {state?.locked ? (
-                <p className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/8 p-3 text-sm text-destructive">
-                  <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-                  <span>{safeText(state.lockedDetail) || "This account is locked."}</span>
-                </p>
+                <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/8 p-3">
+                  <p className="flex items-start gap-2 text-sm text-destructive">
+                    <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+                    <span>{safeText(state.lockedDetail) || "This account is locked."}</span>
+                  </p>
+                  {/* The screen that knows the answer can now act on it. It
+                      used to hand the reader to the import screen to type an
+                      LDIF modify by hand -- seventeen interactions between
+                      knowing and fixing, measured in an audit. */}
+                  {report.data.unlock ? (
+                    <UnlockAction dn={dn} unlock={report.data.unlock} />
+                  ) : (
+                    <p className="text-xs text-destructive/80">
+                      Alder does not recognise this kind of lock, so it offers no change for it —
+                      clearing it is a change to make by hand.
+                    </p>
+                  )}
+                </div>
               ) : null}
               {state?.mustChange ? (
                 <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning-tint-foreground">
@@ -202,4 +216,49 @@ export function looksLocked(attributes: { name: string; values: { text?: string 
     }
   }
   return false;
+}
+
+/**
+ * Clear the lock, through the same plan and the same review as every other
+ * write.
+ *
+ * The change itself is the server's: the report carries it, derived from the
+ * attribute the report already had to read in order to say the account is
+ * locked. Nothing here builds LDIF, which is the rule -- one code path builds
+ * what gets sent, and what the operator confirms is rendered from it.
+ */
+function UnlockAction({
+  dn,
+  unlock,
+}: {
+  dn: string;
+  unlock: NonNullable<PolicyReport["unlock"]>;
+}) {
+  const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <LockOpen />
+          Unlock this account
+        </Button>
+        <span className="text-xs text-destructive/80">
+          {safeText(unlock.why)} — {safeText(unlock.attributes.join(", "))}
+        </span>
+      </div>
+      <ChangeDialog
+        change={unlock.change}
+        open={open}
+        onOpenChange={setOpen}
+        title="Unlock this account"
+        onApplied={() => {
+          // The lock is what this dialog is about, so the dialog has to be
+          // wrong the moment it is gone.
+          void queryClient.invalidateQueries({ queryKey: ["policy", dn] });
+          void queryClient.invalidateQueries({ queryKey: ["entry"] });
+        }}
+      />
+    </>
+  );
 }

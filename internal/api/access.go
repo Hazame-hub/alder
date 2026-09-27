@@ -177,6 +177,11 @@ func (s *Server) GetPasswordPolicy(c *fiber.Ctx, params GetPasswordPolicyParams)
 		}
 		out.Unread = &unread
 	}
+	if u := report.Unlock; u != nil {
+		out.Unlock = &AccountUnlock{
+			Attributes: u.Attributes, Why: u.Why, Change: changeRequest(u.Record),
+		}
+	}
 	return c.JSON(out)
 }
 

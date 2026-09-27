@@ -2258,6 +2258,7 @@ export interface components {
             state: components["schemas"]["AccountState"];
             /** @description Where the policy might be that could not be read. */
             unread?: components["schemas"]["AccessUnread"][];
+            unlock?: components["schemas"]["AccountUnlock"];
             disclaimer: string;
         };
         /**
@@ -2390,6 +2391,28 @@ export interface components {
             reason?: string;
             /** @enum {string} */
             kind: "naming" | "missing-parent" | "other";
+        };
+        /**
+         * @description The change that would clear the lock on this account. Added in 1.29.
+         *     Present only when the account is locked and Alder knows how to clear
+         *     that kind of lock; a lock it does not recognise gets no change rather
+         *     than an invented one.
+         *
+         *     This is derived by the server, not the client, for the reason every
+         *     other change is: there is one code path that builds what gets sent,
+         *     and the LDIF the operator confirms is rendered from that record. It is
+         *     an ordinary `ChangeRequest` and goes through the same plan, the same
+         *     review and the same apply as any other write.
+         */
+        AccountUnlock: {
+            /**
+             * @description The attributes the change removes, in the order it removes them,
+             *     so a caller can say what it is about to do without reading LDIF.
+             */
+            attributes: string[];
+            /** @description What clearing them means, in a person's words. */
+            why: string;
+            change: components["schemas"]["ChangeRequest"];
         };
         PasswordPolicy: {
             /**

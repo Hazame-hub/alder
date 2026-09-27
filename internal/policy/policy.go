@@ -96,6 +96,11 @@ type Report struct {
 	Policy *Policy  `json:"policy,omitempty"`
 	State  *State   `json:"state"`
 	Unread []Unread `json:"unread,omitempty"`
+	// Unlock is the change that would clear the lock, where the account is
+	// locked and Alder knows how to clear that kind of lock. Nil otherwise,
+	// which includes a lock it does not recognise -- a change invented for
+	// one of those would be a change nobody asked for.
+	Unlock *Unlock `json:"unlock,omitempty"`
 }
 
 // Disclaimer is what this report is and is not, in one sentence, so the API,
