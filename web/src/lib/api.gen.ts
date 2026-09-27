@@ -1409,7 +1409,15 @@ export interface components {
             affected?: components["schemas"]["ErrorAffected"][];
             /** @description Extra context, such as the LDIF line a parse failed on. */
             detail?: string;
-            /** @description The LDAP result code, where the failure came from the directory. */
+            /**
+             * @description The LDAP result code, where the failure came from the directory.
+             *
+             *     Absent when it did not. A dead connection or an unparseable reply
+             *     produces no result code at all; the client library numbers those
+             *     conditions from 200 in the same field, and reporting one of them
+             *     here put "LDAP result code 200" in front of an operator for a
+             *     failure the directory never answered.
+             */
             ldapCode?: number;
             /**
              * @description What that result code usually means for the operation that was
