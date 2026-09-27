@@ -3861,3 +3861,43 @@ when it folds equal to one of five ASCII constants, and no character
 every rendered directory string is a habit worth keeping unconditional, and
 an exception that needs a paragraph to justify is an exception somebody will
 get wrong later.
+
+### 2026-09-27 — releasing 1.30.0, and why the changelog nearly said three lines
+
+- **`BEGIN_COMMIT_OVERRIDE` is ignored when the squash subject is itself a
+  conventional commit.** Three for three each way, in this repository's own
+  history: `A refusal says where to look (#136)`, `Password policy and
+  account state, read (#135)` and `Effective rights: asking the server
+  (#133)` all carried an override block under a subject release-please
+  cannot parse, and every line of every block reached the 1.26.0 changelog.
+  `feat(access): … (#140)`, `feat(policy): … (#142)` and `feat(entry): …
+  (#144)` carried blocks of five, seven and twelve lines under subjects it
+  can parse, and all three were dropped for the subject alone — twenty-four
+  changes rendered as three lines.
+
+  So the rule for this project is: **a squash whose body carries an override
+  block must have a subject that is not a conventional commit.** The subject
+  is what the tool reaches for first, and a parseable one stops it looking
+  further. The note in the 1.26.0 changelog blamed a missing block for that
+  release's single line; this is the other way to get the same result, and it
+  is the easier mistake to make, because a conventional subject is what every
+  other rule in this repository asks for.
+
+  `Release-As:` is unaffected — it is read from the raw message whatever the
+  subject looks like, which is how `chore: release as 1.18.0 (#128)` worked.
+
+- **Released as 1.30.0.** release-please proposed 1.27.0, being one minor bump
+  from 1.26.0, while the documentation names 1.28, 1.29 and 1.30 as the
+  milestones since. Forced to the highest of them, exactly as 1.18.0 was, so
+  that no statement already written becomes untrue; 1.28 and 1.29 are
+  milestone numbers with no tag of their own.
+
+  1.27 is *not* one of them, and the compatibility notes said it was. Asking
+  `GET /access` about another identity shipped inside 1.26.0 — it was part of
+  commit `6d74230`, which is where that release's eight-changes-one-line
+  problem came from. Corrected in `docs/COMPATIBILITY.md`.
+
+- **The changelog for this release was written before the tag, not after it.**
+  1.26.0 was corrected afterwards, with a note in the changelog explaining
+  why the entries appeared late. Doing that twice would make it a habit
+  rather than an accident.
