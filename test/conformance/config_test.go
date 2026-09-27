@@ -5,8 +5,10 @@ package conformance
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hazame-hub/alder/internal/api"
 	"github.com/hazame-hub/alder/internal/directory"
@@ -379,5 +381,55 @@ func TestConfigResourcesAreIdentifiedByName(t *testing.T) {
 		if !named {
 			t.Errorf("no resource is named after the suffix %s: %s", wanted, mustEncode(t, snap.Resources))
 		}
+	})
+}
+
+// TestAConfigurationCaptureIsStableWhileReplicationRuns.
+//
+// The sibling case above captures twice and compares. This one makes sure
+// something is actually happening in between: a replicating 389 DS rewrites
+// counters and timestamps on its replica entry and its agreements every time
+// it exchanges anything, and those live on configuration entries. Captured,
+// they would make a snapshot of a server differ from itself seconds later,
+// and nothing about drift works if a capture is not stable.
+//
+// The harness only grew a replica in 1.24, which is when the plain
+// capture-twice case started failing in CI and passing locally -- it depended
+// on whether an exchange happened to land between the two reads. This one
+// does not depend on luck.
+func TestAConfigurationCaptureIsStableWhileReplicationRuns(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		if !sess.Capabilities().Config.Readable || s.replicaPort == 0 {
+			t.Skip("this server has no consumer, so nothing replicates while we look")
+		}
+		client, base := alderSession(t, s, true)
+
+		target := mustDN(t, "uid=user0104,ou=people,"+suffix)
+		t.Cleanup(func() {
+			_ = sess.Apply(ctx(t), directory.ChangeRecord{
+				DN: target, Type: directory.ChangeModify,
+				Mods: []directory.Mod{{Op: directory.ModDelete, Name: "description"}},
+			})
+		})
+
+		first := configChecksum(t, client, base)
+		// Three writes, so the supplier really does exchange something with
+		// its consumer between the two captures.
+		for i := range 3 {
+			if err := sess.Apply(ctx(t), directory.ChangeRecord{
+				DN: target, Type: directory.ChangeModify,
+				Mods: []directory.Mod{{Op: directory.ModReplace, Name: "description",
+					Values: [][]byte{[]byte("churn " + strconv.Itoa(i))}}},
+			}); err != nil {
+				t.Fatalf("%s: writing: %v", s.name, err)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		if second := configChecksum(t, client, base); second != first {
+			t.Fatalf("%s: the configuration changed because replication ran:\n  %s\n  %s",
+				s.name, first, second)
+		}
+		t.Logf("%s: the capture held still across three replicated writes", s.name)
 	})
 }

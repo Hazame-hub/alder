@@ -81,6 +81,35 @@ var ds389Model = model{
 			"nsslapd-allowed-sasl-mechanisms", "nsslapd-anonlimitsdn", "aci", "nsslapd-haproxy-trusted-ip"),
 		sensitive: set("nsslapd-rootpw", "nsds5replicacredentials", "nsds5replicabindcredentials",
 			"nsmultiplexorcredentials", "nsslapd-keypassword"),
+		// Replication's running state, which lives on configuration entries
+		// and is not configuration.
+		//
+		// A replica entry and its agreements carry counters and timestamps
+		// that the server rewrites every time it exchanges anything. Captured,
+		// they make a snapshot of a replicating server different from itself
+		// seconds later -- the conformance suite caught exactly that, once the
+		// harness grew a replica, on the case that asserts two captures of an
+		// unchanged configuration are the same document. Nothing about drift
+		// works if a capture is not stable, and these are the one part of
+		// cn=config that never is.
+		//
+		// They are not lost: internal/replication reports every one of them,
+		// as state, which is what they are. Measured against the running
+		// harness rather than guessed -- nsState, nsds5ReplicaChangeCount,
+		// nsds5replicaChangesSentSinceStartup and the update timestamps all
+		// moved across a single write.
+		skipped: set(
+			"nsstate", "nsds5replicachangecount", "nsds5replicachangessentsincestartup",
+			"nsds5replicalastupdatestart", "nsds5replicalastupdateend",
+			"nsds5replicalastupdatestatus", "nsds5replicalastupdatestatusjson",
+			"nsds5replicaupdateinprogress",
+			"nsds5replicalastinitstart", "nsds5replicalastinitend",
+			"nsds5replicalastinitstatus", "nsds5replicalastinitstatusjson",
+			"nsds5replicareapactive", "nsds50ruv", "nsruvreplicalastmodified",
+			// Generated per instance, so two servers never agree on it and a
+			// comparison would report a difference nobody can act on.
+			"nsds5replicaname",
+		),
 	},
 	skipTree: func(entry *directory.Entry) bool {
 		text := strings.ToLower(entry.DN.String())

@@ -3475,3 +3475,35 @@ something has checked that it can go red.
   line that connects them. The request and its cache key are now built by
   `accessQuery` / `accessQueryKey` — a function a test can hold to account,
   where a literal buried in a `queryFn` could not be.
+
+### 2026-09-27 — replication's running state is not configuration
+
+CI caught this the first time the replication branch was tested against a
+main that already had the four-server harness in it: two captures of an
+unchanged 389 DS configuration produced different checksums. It passed
+locally and failed in CI, which is the signature of a race, and the race was
+real — whether an exchange happened to land between the two reads.
+
+A replica entry and its agreements sit in `cn=config` and carry counters and
+timestamps the server rewrites every time it replicates anything. Measured
+against the running harness rather than guessed: `nsState`,
+`nsds5ReplicaChangeCount`, `nsds5replicaChangesSentSinceStartup`,
+`nsds5replicaLastUpdateStart` and `...End` all moved across a single write.
+`nsDS5ReplicaName` goes with them for a different reason — it is generated
+per instance, so two servers never agree on it and a comparison would report
+a difference nobody can act on.
+
+They are skipped now, through the `skipped` set the classifier already had
+and neither model used. Nothing is lost: `internal/replication` reports every
+one of them, as state, which is what they are.
+
+The wider point is the one worth keeping. **This was not a bug the replication
+feature introduced; it was a bug the replication harness exposed.** Any 389 DS
+that actually replicates — which is most of them — had an unstable
+configuration snapshot, and snapshot-and-compare is a headline feature. Two
+servers alone could never have shown it. That is the harness doing the job it
+was doubled for, on the first run after the merge.
+
+The conformance case that found it depended on timing, so there is now one
+that does not: three writes between the two captures, so the supplier really
+does exchange something with its consumer while we look.
