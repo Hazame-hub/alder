@@ -3901,3 +3901,62 @@ get wrong later.
   1.26.0 was corrected afterwards, with a note in the changelog explaining
   why the entries appeared late. Doing that twice would make it a habit
   rather than an accident.
+
+### 2026-09-28 — the correction to yesterday's release note, from the tool's own log
+
+The entry above claimed `Release-As:` is read whatever the subject looks
+like. It is not, and the run that was supposed to act on it says so:
+
+```
+commit could not be parsed: af47513 Release 1.30.0, and the reason its
+  changelog nearly said three lines (#149)
+error message: Error: unexpected token ' ' at 1:2
+...
+PR #143 remained the same
+```
+
+An unparseable subject does not make release-please look harder; it makes
+release-please **drop the commit entirely**, footer and all. So the version
+stayed at 1.27.0 and the release did not move.
+
+The complete rule, which the two halves only make sense together:
+
+- A commit whose subject is a conventional commit is read from the subject,
+  and a `BEGIN_COMMIT_OVERRIDE` block in its body is ignored.
+- A commit whose subject is not is dropped, **unless** it carries an override
+  block, which then supplies the conventional lines in its place. That is how
+  `A refusal says where to look (#136)` put two entries in the 1.26.0
+  changelog.
+- `Release-As:` is only honoured on a commit that survives one of those two
+  paths. `chore: release as 1.18.0 (#128)` did; this one did not.
+
+So an override block needs an unparseable subject, and a `Release-As:` footer
+needs either a parseable one or an override block to travel with. Getting
+that backwards costs a release cycle and is invisible until the version does
+not change.
+
+### 2026-09-28 — the UI refresh, and the status light in it
+
+Eight pull requests restyled the screens: a fade-in shell, an eyebrow label
+above each title, larger headings, a gradient behind the connection form.
+Merged, with three things put right afterwards.
+
+- **A green dot labelled "Live directory session", hard-coded.** It would
+  have stayed green while the directory was unreachable and the header two
+  inches away said "the directory is not answering". That is the fault 1.29
+  was built to remove -- a session object in Alder's own memory answering for
+  a directory that had stopped answering -- and a decorative version is
+  worse, because it does not even read the session. Replaced with the one
+  thing the overview can state from what it holds: whether the session is
+  read-only.
+- **The access dialog announced its own name twice**, as eyebrow and as
+  title, which a screen reader reads out in full both times.
+- **The fade-in ignored `prefers-reduced-motion`.** For some readers that
+  setting is the difference between using a page and feeling ill, and an
+  administration tool has no business spending it on a 240ms flourish.
+
+The eyebrow wording is left as it arrived -- "Directory intelligence",
+"Portable intent", "Safe migration planning" -- because it is taste rather
+than a claim, and it is not mine to overrule. It is worth saying that it
+reads like a brochure beside the rest of the product's voice, which is plain
+to the point of flatness on purpose.
