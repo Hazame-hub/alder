@@ -160,6 +160,24 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
+  .screen-shell {
+    animation: alder-fade-in 240ms ease-out both;
+  }
+
+  .screen-kicker {
+    color: var(--primary);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .inventory-dialog [data-slot="dialog-header"] {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1rem;
+  }
+
   /* Syntax colouring for the LDIF preview. Deliberately three colours: the
      attribute name, the value, and the changetype line that says what the
      record does. Anything more turns a diff into a christmas tree. */
