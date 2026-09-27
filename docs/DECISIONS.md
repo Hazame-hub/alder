@@ -3507,3 +3507,37 @@ was doubled for, on the first run after the merge.
 The conformance case that found it depended on timing, so there is now one
 that does not: three writes between the two captures, so the supplier really
 does exchange something with its consumer while we look.
+
+### 2026-09-27 — the release notes were wrong, and why
+
+A check of what v1.26.0 actually shipped, run independently of anyone's account
+of it, found that commit `6d74230` (#139) carried **eight distinct changes**
+under one `feat(replication):` subject with no `BEGIN_COMMIT_OVERRIDE` block.
+release-please therefore emitted exactly one changelog line for roughly 7,100
+added lines across 39 files.
+
+Unannounced, among them: a **credential-disclosure fix** — the entry viewer and
+every LDIF export had been serving `olcRootPW` and a whole `olcSyncrepl` value,
+which carries the consumer's bind password in the clear. `SECURITY.md` promises
+the changelog will say so plainly, and it did not. Also unannounced: a
+user-facing access-control feature, an input validation narrowing on an existing
+endpoint, the 500-instead-of-404 fix, the hexadecimal change-sequence fix, and
+the `/assets/` 404.
+
+The changelog and `docs/COMPATIBILITY.md` are corrected by hand, marked as
+added after the release, with the reason stated at the top of the section
+rather than quietly. The release itself is untouched.
+
+**The rule this leaves.** The override block is not decorative and it is not
+only for the version number. A squash whose body is a list is a squash that
+needs `BEGIN_COMMIT_OVERRIDE`, with one conventional-commit line per change
+inside it — the three PRs merged before this one each carried the block and
+each produced three to five changelog lines. A stacked branch is exactly where
+this goes wrong, because the branch accumulates changes that have nothing to do
+with its title.
+
+Two smaller things from the same check, both correct and recorded so they are
+not rediscovered: `Release-As` worked this time (nothing follows it in the
+message, which is what broke 1.18.0), and the version stamping is right —
+`.goreleaser.yaml` passes `-X main.version={{ .Version }}` and the workflow
+checks out the release tag, so a release build reports 1.26.0.

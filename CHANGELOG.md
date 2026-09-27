@@ -2,6 +2,31 @@
 
 ## [1.26.0](https://github.com/Hazame-hub/alder/compare/v1.19.0...v1.26.0) (2026-09-27)
 
+> **Note added after the release.** Commit `6d74230` carried eight distinct
+> changes under one subject and no `BEGIN_COMMIT_OVERRIDE` block, so
+> release-please generated a single line for all of them. The entries marked
+> *(added after release)* below were written by hand afterwards, from that
+> commit, so the changelog says what actually shipped. One of them is a
+> credential-disclosure fix, which `SECURITY.md` promises the changelog will
+> state plainly. Nothing about the release itself changed.
+
+
+### Security
+
+* **(added after release)** a configuration entry no longer serves its secrets
+  to the browser or into an LDIF export. `olcRootPW`, `olcSyncrepl`,
+  `olcDbCryptKey`, `nsDS5ReplicaBindCredentials`, `nsMultiplexorCredentials`
+  and `nsslapd-keyPassword` were missing from the one list every generic value
+  path gates on, so `GET /entry` returned them in the clear and
+  `GET /export/ldif` wrote them to a file. An `olcSyncrepl` value carries the
+  consumer's bind password in plain text. Anyone who could read a
+  configuration entry could read those values; a configuration identity is
+  usually separate from the one that administers a suffix, so this is a
+  disclosure to whoever held it, not an escalation past the directory's own
+  access control. Upgrade if any account that can read `cn=config` should not
+  see those passwords, and rotate them if an LDIF export left your machine
+  ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
+
 
 ### Features
 
@@ -11,12 +36,19 @@
 * **replication:** report what a server says about its own replication ([#139](https://github.com/Hazame-hub/alder/issues/139)) ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
 * the password policy in force on an account is read and shown with where it is written -- OpenLDAP's ppolicy entries and 389 Directory Server's cn=config and subentries -- beside what the server records about that account: locked, must change, last changed, failed binds ([674fb82](https://github.com/Hazame-hub/alder/commit/674fb824264f89314a1c51971df3ed6da005df5e))
 * the refusal reaches an operator through both shapes of failure, the error body of a single change and the per-change outcome of a changeset run, because a stopped run is where an unexplained refusal costs most ([cffd1b9](https://github.com/Hazame-hub/alder/commit/cffd1b9baacd6c665fd61456e473cee8a54c3e30))
+* **(added after release)** the access view can ask what another identity may do on an entry, where the server answers the question at all -- a DN typed or picked, the verdict relabelled as that identity's and not yours, and the rules list explicitly marked as unchanged by the question, because access rules are about an entry rather than about a person ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
 * the session reports whether the server can be asked that question at all, so a screen never presents the absence of an answer as an answer ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
 * where a server answers what an identity may do -- 389 Directory Server publishes the Get Effective Rights control -- Alder asks it, and the access report carries the directory's own verdict above the rules it reads ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
 
 
 ### Fixes
 
+* **(added after release)** an entry that cannot be read answers with the directory's own refusal again, rather than "Something went wrong" with a 500. `errors.Unwrap` returns nil for a value built with `errors.Join`, so the result code never reached the mapping that turns it into a 404 or a 403 -- on the two screens where telling a typo from a permissions problem is the whole point ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
+* **(added after release)** an OpenLDAP change sequence's server id is read as hexadecimal, which is how slapd writes it. Server 16 was reported as 10, and server 10 as the letter a, on the one screen built to be compared against another server ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
+* **(added after release)** replication's running state is no longer captured as configuration. A replica entry and its agreements carry counters and timestamps the server rewrites on every exchange, so a 389 Directory Server that actually replicates had a configuration snapshot that differed from itself seconds later ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
+* **(added after release)** a request for a missing file under `/assets/` answers 404 rather than the application page with a 200, so a tab left open across a deploy reports a missing chunk instead of a syntax error in a valid file ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
+* **(added after release)** preflight reports a missing index as a change Alder can make rather than manual work that blocks portability, which it has been since indexes became creatable in this release ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
+* **(added after release)** the `as` parameter on `GET /access` is refused with a 400 when it is not a distinguished name. It was passed to the server, which answers a malformed authorization identity with an error code where the rights letters go -- reaching the reader as "the server declined to say", a sentence about access describing a typo ([6d74230](https://github.com/Hazame-hub/alder/commit/6d74230a7e1b57fc62c29f71ce73994c646112eb))
 * a DN value containing "=" is written escaped, because 389 Directory Server answers "no such object" to the bare form of a DN it gave you escaped, making any such entry unreachable ([674fb82](https://github.com/Hazame-hub/alder/commit/674fb824264f89314a1c51971df3ed6da005df5e))
 * a server that cannot answer, one that declined the question, and a question that failed are reported as three different facts, none of them as "no rights" ([d4a1a56](https://github.com/Hazame-hub/alder/commit/d4a1a561081de1f57a7716e86a7c7e9bfa3150cf))
 * no remedy is offered where there is nothing useful to say, such as a constraint violation on an attribute that is not a password, rather than guessing at a screen ([cffd1b9](https://github.com/Hazame-hub/alder/commit/cffd1b9baacd6c665fd61456e473cee8a54c3e30))
