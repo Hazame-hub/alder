@@ -207,6 +207,24 @@ func TestAskingWhatAnUnauthenticatedClientMayDo(t *testing.T) {
 		if report.Effective == nil {
 			t.Fatalf("%s publishes the control and gave no anonymous verdict: %s", s.name, mustEncode(t, report))
 		}
+		// The shape only the real anonymous answer has, not just its size.
+		//
+		// "Narrower than the administrator's" was the only assertion here, and
+		// it is satisfied by any subject less privileged than the bind DN: a
+		// handler that sent some other real DN in place of the empty one kept
+		// this green while the dialog printed "what an unauthenticated client
+		// may do" over a bound service account's rights. Proved by mutation,
+		// which is why the two fields that identify the answer uniquely are
+		// asserted rather than logged.
+		if report.Effective.Subject != "" {
+			t.Errorf("%s: the anonymous question came back about %q; there is no DN to send or echo",
+				s.name, report.Effective.Subject)
+		}
+		if !strings.EqualFold(report.Effective.Entry, "none") {
+			t.Errorf("%s: an unauthenticated client has entry rights %q here, and the harness grants none",
+				s.name, report.Effective.Entry)
+		}
+
 		// The harness lets nobody read anything without binding, which is what
 		// the seeded access rules say, so this is the answer that proves the
 		// question was really asked rather than defaulted to the session.
@@ -221,5 +239,43 @@ func TestAskingWhatAnUnauthenticatedClientMayDo(t *testing.T) {
 		}
 		t.Logf("%s: anonymous is denied %d attributes here; entry rights %q",
 			s.name, len(denied), report.Effective.Entry)
+	})
+}
+
+// TestTheAnonymousWordIsFoldedTheSameWayEverywhere.
+//
+// The server matched the sentinel with strings.EqualFold, which applies
+// Unicode simple folding and treats U+017F LATIN SMALL LETTER LONG S as "s";
+// the browser folds with toLowerCase, which does not. So "anonymouſ"
+// reached the server as the reserved word while the interface read it as an
+// identity of that name, and the screen headed a genuinely anonymous verdict
+// with a name nobody had asked about.
+//
+// ASCII folding on both sides is the rule, and this is the case that holds
+// the server to it.
+func TestTheAnonymousWordIsFoldedTheSameWayEverywhere(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, _ directory.Session) {
+		client, base := alderSession(t, s, true)
+		target := "uid=user0002,ou=people," + suffix
+
+		// ASCII case is the sentinel, whatever the shift key did.
+		for _, spelling := range []string{"anonymous", "ANONYMOUS", "Anonymous", " anonymous "} {
+			report, res := accessAs(t, client, base, target, spelling)
+			if res.status != 0 && res.status != http.StatusOK {
+				t.Fatalf("%s: %q answered %d", s.name, spelling, res.status)
+			}
+			if report.AskedAbout == nil || *report.AskedAbout != "anonymous" {
+				t.Errorf("%s: %q was not read as the reserved word: %v", s.name, spelling, report.AskedAbout)
+			}
+		}
+
+		// And nothing else is. A Unicode fold would take this one; the
+		// interface would not, and the two would disagree about what is on
+		// screen.
+		_, res := accessAs(t, client, base, target, "anonymouſ")
+		if res.status != http.StatusBadRequest {
+			t.Errorf("%s: a look-alike of the reserved word answered %d, want 400: %s",
+				s.name, res.status, res.body)
+		}
 	})
 }

@@ -55,10 +55,17 @@ describe("whose rights the verdict is about", () => {
     expect(html).not.toContain("bg-success/5");
   });
 
-  it("reports a server that answered about a different identity than was asked", () => {
-    // A verdict attributed to the wrong person is worse than no verdict.
+  it("does not pretend the server attributed the verdict", () => {
+    // There used to be a warning here comparing effective.subject against
+    // what was asked. It could never fire: the Get Effective Rights response
+    // carries no subject, so that field is the string Alder sent, and both
+    // sides of the comparison came from the same request. A guard that
+    // cannot fire is worse than none — it reads as a check that has been
+    // done.
     const html = markup(<Verdict effective={effective("cn=someone-else")} view={subjectView(OTHER, ME)} />);
-    expect(textOf(html)).toContain("which is not what was asked");
+    expect(textOf(html)).not.toContain("which is not what was asked");
+    // What it does say is whose question it was, which is the honest part.
+    expect(textOf(html)).toContain("cn=svc-alder");
   });
 });
 

@@ -3683,3 +3683,32 @@ it waited for a decision.
 - **One click, not a field to type into.** The identity has no name, so
   there is nothing to type; the button sits where the reset sits when a
   subject is in force.
+
+### 2026-09-27 — what the review of 1.28 found, and one thing it found in 1.20
+
+- **`effective.subject` is Alder's own request value, not the server's.** The
+  Get Effective Rights response carries only the rights; there is no subject
+  in it to echo. The 1.28 prose said the opposite — in `api/openapi.yaml`,
+  which is the contract third parties read — and the documentation and a test
+  comment repeated it. Corrected, and the schema's own description now says
+  plainly not to compare the field against what you asked for.
+- **The consequence, which is older than 1.28:** the warning in the verdict
+  panel that says "the server answered about X, which is not what was asked"
+  can never fire. Both sides of the comparison come from the same request
+  string, unnormalised on either side. It shipped with effective rights in
+  1.20 and has been dead ever since. Deleted rather than repaired: a guard
+  that cannot fire is worse than none, because it reads as a check that has
+  been done. `askedAbout` is the honest version of the same idea.
+- **`strings.EqualFold` and `toLowerCase` do not agree.** EqualFold applies
+  Unicode simple folding and matches U+017F LATIN SMALL LETTER LONG S against
+  "s", so `anonymouſ` reached the server as the reserved word while the
+  browser read it as an identity of that name — and the screen headed a
+  genuinely anonymous verdict with a name nobody had asked about. The match is
+  ASCII-only now, on both sides, and a conformance case holds the server to
+  it.
+- **"Strictly narrower than the administrator's" was not enough.** Proved by
+  mutation: replacing the empty subject with a real service account's DN kept
+  the test green while the dialog printed "what an unauthenticated client may
+  do" over a bound account's rights. The assertions are now the two things
+  only the real anonymous answer has — no subject at all, and entry rights
+  `none`.

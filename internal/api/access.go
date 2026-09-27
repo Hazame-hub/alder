@@ -22,6 +22,25 @@ import (
 // the rules in front of the person who has to reason about them, in the
 // server's order, with the raw value always beside whatever Alder read.
 
+// asciiLower folds for the sentinel comparison, in ASCII only.
+//
+// Not strings.EqualFold, which applies Unicode simple folding: it matches
+// U+017F LATIN SMALL LETTER LONG S against "s", so "anonymou\u017f" reached
+// the server as the reserved word while the browser -- which folds with
+// toLowerCase, and does not -- treated the same text as an identity called
+// "anonymou\u017f". The screen then headed a genuinely anonymous verdict with
+// a name nobody asked about. The two sides have to fold the same way, and
+// ASCII is the rule both can keep.
+func asciiLower(s string) string {
+	out := []byte(s)
+	for i, c := range out {
+		if c >= 'A' && c <= 'Z' {
+			out[i] = c + ('a' - 'A')
+		}
+	}
+	return string(out)
+}
+
 // SubjectAnonymous is the one value of the `as` parameter that is not a
 // distinguished name. It asks what an unauthenticated client may do, which is
 // a question with no DN in it: the effective-rights control names such a
@@ -64,7 +83,7 @@ func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error
 	switch {
 	case asked == "":
 		asked, subject = sess.BindDN(), sess.BindDN()
-	case strings.EqualFold(asked, SubjectAnonymous):
+	case asciiLower(asked) == SubjectAnonymous:
 		asked, subject = SubjectAnonymous, ""
 	default:
 		if _, ok := parseDNParam(c, asked); !ok {

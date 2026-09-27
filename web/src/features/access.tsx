@@ -224,15 +224,14 @@ export function Verdict({
   const other = view.kind !== "you";
   const tint = other ? "border-border" : "border-success/40 bg-success/5";
 
-  // The server echoes a subject back. Where it disagrees with what was asked,
-  // say so rather than trusting either: a verdict attributed to the wrong
-  // identity is worse than no verdict.
-  //
-  // Not for the anonymous question: there the server correctly echoes nothing,
-  // because there is no DN to echo.
+  // effective.subject is not the server's word for who it answered about: the
+  // Get Effective Rights response carries only the rights, so there is no
+  // subject in it, and what comes back is the string Alder sent. There used
+  // to be a warning here comparing the two to catch a verdict attributed to
+  // the wrong identity; both sides came from the same request, so it could
+  // never fire, and a guard that cannot fire is worse than none -- it reads,
+  // to whoever maintains this next, as a check that has been done.
   const echoed = effective.subject ?? "";
-  const mismatch =
-    view.kind === "other" && echoed !== "" && echoed.trim().toLowerCase() !== view.dn.trim().toLowerCase();
 
   return (
     <div className={`space-y-2 rounded-md border p-3 ${tint}`}>
@@ -253,12 +252,7 @@ export function Verdict({
       ) : (
         <div className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(view.dn || echoed)}</div>
       )}
-      {mismatch ? (
-        <p className="text-xs text-warning-tint-foreground">
-          The server answered about <span className="font-dn">{safeText(echoed)}</span>, which is not
-          what was asked. Read the verdict as that identity's, not this one's.
-        </p>
-      ) : null}
+
       <p className="text-xs">
         <span className="text-muted-foreground">this entry: </span>
         {effective.entryWords?.length ? (

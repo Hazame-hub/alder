@@ -2478,11 +2478,12 @@ export interface components {
             unread?: components["schemas"]["AccessUnread"][];
             /**
              * @description The identity Alder put the question about: a DN, or `anonymous`.
-             *     Added in 1.28. This is Alder describing its own request, so it is
-             *     unambiguous where `effective.subject` -- which is whatever the
-             *     server echoed -- is not: a server answering the anonymous question
-             *     echoes no subject at all, and a server that declines echoes
-             *     nothing either.
+             *     Added in 1.28.
+             *
+             *     Present whether or not there is a verdict, which is what makes it
+             *     worth having: `effective` is absent entirely when the server
+             *     cannot answer or declines, and then nothing else in the response
+             *     says who was asked about.
              */
             askedAbout?: string;
             effective?: components["schemas"]["EffectiveRights"];
@@ -2504,7 +2505,19 @@ export interface components {
          *     is written, this is what the server will do.
          */
         EffectiveRights: {
-            /** @description The identity asked about; empty means the session's own. */
+            /**
+             * @description The identity Alder asked about, as Alder sent it -- not an
+             *     attestation by the server. The Get Effective Rights response
+             *     carries only the rights themselves; there is no subject in it to
+             *     echo, so this is the request value coming back. Empty for the
+             *     anonymous question, which has no DN, and empty where the session's
+             *     own identity was the subject and the session is unauthenticated.
+             *
+             *     Do not compare it against what you asked for to detect a verdict
+             *     attributed to the wrong identity: it is the same string you sent,
+             *     so the check cannot fail. `askedAbout` on the report is the same
+             *     fact stated honestly, and is the one to read.
+             */
             subject: string;
             /**
              * @description The entry-level answer in the server's own letters, such as `v` or
