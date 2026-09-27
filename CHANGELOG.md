@@ -1,13 +1,43 @@
 # Changelog
 
-## [1.27.0](https://github.com/Hazame-hub/alder/compare/v1.26.0...v1.27.0) (2026-09-27)
+## [1.30.0](https://github.com/Hazame-hub/alder/compare/v1.26.0...v1.30.0) (2026-09-28)
+
+
+The interface was also restyled across eight pull requests ([#145](https://github.com/Hazame-hub/alder/issues/145) to [#153](https://github.com/Hazame-hub/alder/issues/153)): a fade-in shell, an eyebrow label above each screen title, larger headings. No behaviour changed with them.
 
 
 ### Features
 
-* **access:** ask what anyone unauthenticated may do here ([#140](https://github.com/Hazame-hub/alder/issues/140)) ([0355232](https://github.com/Hazame-hub/alder/commit/03552326410c12e5645393a1df69c708c4aa8ce8))
-* **entry:** unlock from the header, and stop the editor offering what Alder does not write ([#144](https://github.com/Hazame-hub/alder/issues/144)) ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
-* **policy:** clear a lock from the report that found it, and make a failure visible ([#142](https://github.com/Hazame-hub/alder/issues/142)) ([379ebdc](https://github.com/Hazame-hub/alder/commit/379ebdc6c8eb03faba10f8a45b802ec14aab3d4c))
+* the access view can ask what an unauthenticated client may do on an entry, through one reserved value of the `as` parameter, because that question has no distinguished name to put in it ([0355232](https://github.com/Hazame-hub/alder/commit/03552326410c12e5645393a1df69c708c4aa8ce8))
+* the access report says which identity Alder put the question about, which is the only way to tell the anonymous answer from one the server declined ([0355232](https://github.com/Hazame-hub/alder/commit/03552326410c12e5645393a1df69c708c4aa8ce8))
+* a locked account can be unlocked from the dialog that found the lock, through the same LDIF preview and apply as every other write, with the change derived by the server from whichever attribute the entry actually carries ([379ebdc](https://github.com/Hazame-hub/alder/commit/379ebdc6c8eb03faba10f8a45b802ec14aab3d4c))
+* 389 Directory Server's automatic lockout is reported as a lock while its release time is still in the future, where it used to be reported as no lock at all -- so the commonest lock on that server had nothing said about it ([379ebdc](https://github.com/Hazame-hub/alder/commit/379ebdc6c8eb03faba10f8a45b802ec14aab3d4c))
+* the header says when the directory has stopped answering and offers to reconnect, instead of reporting a healthy bind read from a session object in Alder's own memory ([379ebdc](https://github.com/Hazame-hub/alder/commit/379ebdc6c8eb03faba10f8a45b802ec14aab3d4c))
+* **entry:** an account the server holds locked can be unlocked from the entry header, beside the badge that says so, through the same plan and review as every other change ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **entry:** the editor offers the operational attributes the server says a client may set, including on an entry that already carries one, so the viewer's "yours to set" is true of the editor as well ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+
+
+### Fixes
+
+* effective.subject is documented as what Alder asked rather than as the server's attestation, because the Get Effective Rights response carries no subject at all ([0355232](https://github.com/Hazame-hub/alder/commit/03552326410c12e5645393a1df69c708c4aa8ce8))
+* the verdict panel no longer carries a mismatch warning that could never fire, since both sides of its comparison came from the same request ([0355232](https://github.com/Hazame-hub/alder/commit/03552326410c12e5645393a1df69c708c4aa8ce8))
+* the reserved word is folded the same way on both sides, so a Unicode look-alike is no longer read as the word by the server and as an identity by the browser ([0355232](https://github.com/Hazame-hub/alder/commit/03552326410c12e5645393a1df69c708c4aa8ce8))
+* a failed request is never retried when the server itself answered, so a screen reports an unreachable directory after one operation timeout rather than three ([379ebdc](https://github.com/Hazame-hub/alder/commit/379ebdc6c8eb03faba10f8a45b802ec14aab3d4c))
+* every failed request is written to the browser console, with the status and the code and never the server's detail text, which for an LDIF error quotes the offending source line ([379ebdc](https://github.com/Hazame-hub/alder/commit/379ebdc6c8eb03faba10f8a45b802ec14aab3d4c))
+* an unlock never names an attribute the directory owns, so a real OpenLDAP lockout can be cleared -- naming pwdFailureTime made the server refuse the whole modify and leave the lock in place ([379ebdc](https://github.com/Hazame-hub/alder/commit/379ebdc6c8eb03faba10f8a45b802ec14aab3d4c))
+* **entry:** the entry editor no longer offers to write an access rule, in the picker or on an entry that holds one, because Alder reads those and does not write them ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **entry:** the entry editor no longer offers a whole-schema replace through OpenLDAP's olcAttributeTypes and olcObjectClasses, which the schema editor writes one definition at a time ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **entry:** a copied entry does not carry an access rule onto the entry it creates ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **entry:** an attribute shown but not editable says why, rather than leaving an absence to be discovered ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **entry:** the overwrite warning no longer fires on an attribute the server moves by itself, such as a failure count bumped by somebody mistyping their own password ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **ui:** the header reports a request that has not come back yet, with the seconds, rather than only reporting the failure thirty seconds later ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **ui:** an in-flight request that ends without an event -- a cancelled query, a browser gone offline -- no longer pins the waiting badge on for the rest of the session ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **api:** a failure that never reached the directory carries no LDAP result code, because the client library's own numbers start at 200 and read as a success ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **api:** the message for such a failure says the directory did not answer rather than that it returned an error ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **policy:** the unlock names the attribute the way the server spells it, so the LDIF preview does not rename what the viewer just showed ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **ui:** the overview no longer shows a hard-coded "live directory session" light, which stayed green while the header beside it said the directory was not answering ([76440dc](https://github.com/Hazame-hub/alder/commit/76440dc48371dbaa72047cc758d27f6b0f7c49fc))
+* **ui:** the access dialog no longer announces its own name twice, once as an eyebrow and once as a title ([76440dc](https://github.com/Hazame-hub/alder/commit/76440dc48371dbaa72047cc758d27f6b0f7c49fc))
+* **ui:** the screen fade-in respects `prefers-reduced-motion` ([76440dc](https://github.com/Hazame-hub/alder/commit/76440dc48371dbaa72047cc758d27f6b0f7c49fc))
 
 ## [1.26.0](https://github.com/Hazame-hub/alder/compare/v1.19.0...v1.26.0) (2026-09-27)
 
