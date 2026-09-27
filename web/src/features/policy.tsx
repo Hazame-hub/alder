@@ -32,6 +32,33 @@ type PolicySetting = components["schemas"]["PolicySetting"];
  */
 export function PolicyButton({ dn }: { dn: string }) {
   const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        title="The password policy in force here, and what the server records about this account"
+      >
+        <Timer />
+        Policy
+      </Button>
+      <PolicyDialog dn={dn} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+/** The same report, opened by a refusal that points here. */
+export function PolicyDialog({
+  dn,
+  open,
+  onOpenChange,
+}: {
+  dn: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const setOpen = onOpenChange;
 
   const report = useQuery<PolicyReport, ApiFailure>({
     queryKey: ["policy", dn],
@@ -45,16 +72,6 @@ export function PolicyButton({ dn }: { dn: string }) {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setOpen(true)}
-        title="The password policy in force here, and what the server records about this account"
-      >
-        <Timer />
-        Policy
-      </Button>
-
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>

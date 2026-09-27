@@ -3057,8 +3057,8 @@ spread across three places nobody looks by accident.
   locked is badged in the entry header, read from attributes already in hand,
   because that is the fact worth not having to hunt for at 2am.
 - **The harness grew a policy on each side.** OpenLDAP gets two policy entries
-  and a `ppolicy_default`; 389 DS gets local policies switched on and a
-  subentry for the same account. Two mechanisms, one intent, which is what
+  and a `pwdPolicySubentry` on one account; 389 DS gets local policies switched
+  on and a subentry for the same account. Two mechanisms, one intent, which is what
   makes the conformance suite's assertions worth anything. Password policy is
   now the third confined vendor-specific step in the seed, beside the schema
   install and the aci file.
@@ -3079,3 +3079,56 @@ And the find that mattered more than the feature:
   holding such a DN, which is a price worth paying for entries that were
   invisible. Found by the harness, not by reading the standard: the standard
   says Alder was right.
+
+## 2026-09-27 — 1.22: a refusal says where to look
+
+The last three releases taught Alder to answer "why can't I write this?" and
+"why can't this user log in?". This connects them to the moment those
+questions are actually asked, which is when the directory says no.
+
+- **The hint says what; the remedy says where.** A result code and a sentence
+  were all a refusal carried. Now it also names the screen that answers it --
+  the access rules on that entry, the password policy in force, the schema
+  definition, the parent that is missing -- and the interface offers the way
+  in.
+- **A pointer, not a diagnosis.** Alder is not claiming the access rules are
+  the reason a write failed; it is saying they are where somebody would look
+  next. The distinction is the same one the access report itself makes, and
+  the wording keeps it.
+- **Silence where there is nothing useful to say.** A constraint violation on
+  an attribute that is not a password could be any rule the server keeps, so
+  no remedy is offered: pointing at the password policy would be a guess
+  dressed as help. The tests pin the silence as firmly as the pointers.
+- **The refusal that needs no screen.** No rights in the configuration tree
+  is answered by connecting with a configuration identity, not by reading
+  anything, so that remedy is a sentence with no button behind it.
+- **It reaches an operator through both shapes of failure.** A single change
+  fails as an error body; a changeset run reports each change's outcome
+  inside a success. The remedy rides on both, because a changeset is where an
+  unexplained refusal costs most: the run has stopped and part of it applied.
+- **The parent comes from the DN type.** Cutting a DN at the first comma names
+  a parent that does not exist whenever an RDN contains one, and sends
+  somebody hunting for it.
+- **One module-level navigator, deliberately.** The error note is rendered in
+  a dozen places, several of them three levels inside a dialog, and threading
+  a navigation callback through all of them for a button that appears on a
+  fraction of a percent of renders was the wrong trade. It is not a general
+  escape hatch: anything that navigates as part of its ordinary job still
+  takes a prop.
+
+### 2026-09-27 — a correction to the entry above
+
+The 1.21 notes said a `ppolicy_default` crashes this slapd build. That was
+written after the crash appeared with one configured; it happened again after
+the default was removed, so the default is not the cause. What is known: this
+build sometimes aborts in the mdb backend when a bind arrives immediately
+after a password modify on the same entry, it has done so twice on one
+developer machine and never in CI, and a clean harness runs the whole suite
+green. The harness still configures no default -- it proves nothing the
+per-entry pointer does not -- and `slapd.conf` now says why in those terms
+rather than the wrong ones.
+
+A crash also leaves the suite's test bases behind, which makes the *next* run
+fail with "entry already exists" on five unrelated tests. That is worth
+knowing before chasing them: `task compose:down && task compose:up` is the
+fix, and the failures are debris rather than a regression.

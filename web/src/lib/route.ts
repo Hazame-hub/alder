@@ -52,6 +52,8 @@ export type AppSearch = {
   edit?: boolean;
   /** Which kind the Snapshots view opens on, so "compare the configuration" is a link. */
   capture?: "data" | "schema" | "config";
+  /** What the schema browser opens looking for, so a refusal can point at it. */
+  find?: string;
   /** The search page's base, scope and filter, so a search is a link. */
   base?: string;
   scope?: SearchScope;
@@ -77,6 +79,8 @@ export function validateAppSearch(raw: Record<string, unknown>): AppSearch {
   if (raw.capture === "data" || raw.capture === "schema" || raw.capture === "config") {
     out.capture = raw.capture;
   }
+  const find = asText(raw.find);
+  if (find) out.find = find;
 
   const base = asText(raw.base);
   if (base) out.base = base;

@@ -91,6 +91,8 @@ export class ApiFailure extends Error {
   readonly cause?: ApiError["cause"];
   /** The changes or records the error is about, by position and DN. */
   readonly affected?: ApiError["affected"];
+  /** Where to look about the refusal: which screen answers it, for which entry. */
+  readonly remedy?: ApiError["remedy"];
 
   constructor(status: number, body?: ApiError) {
     super(body?.message ?? `Request failed with status ${status}`);
@@ -102,6 +104,7 @@ export class ApiFailure extends Error {
     this.hint = body?.hint;
     this.cause = body?.cause;
     this.affected = body?.affected;
+    this.remedy = body?.remedy;
   }
 
   /**

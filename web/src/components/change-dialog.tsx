@@ -19,6 +19,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { DownloadButton, LdifBlock } from "@/components/ldif-block";
 import { PlanImpactList, PlanRow } from "@/components/plan-summary";
 import { changeset } from "@/lib/changeset";
+import { canNavigate, navigate } from "@/lib/navigate";
+import { AccessDialog } from "@/features/access";
+import { PolicyDialog } from "@/features/policy";
 import { safeText } from "@/lib/display";
 
 /**
@@ -414,6 +417,53 @@ export function ErrorNote({ title, error }: { title: string; error: ApiFailure }
           LDAP result code {error.ldapCode}
         </p>
       ) : null}
+      {error.remedy ? <RemedyAction remedy={error.remedy} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Where to look about a refusal.
+ *
+ * The hint above says what the code usually means. This is the way into the
+ * screen that answers it -- the access rules on the entry, the password policy
+ * in force, the schema definition, the parent that is not there. It is a
+ * pointer and says so: opening it is reading, never a retry, and nothing here
+ * changes what was refused.
+ */
+function RemedyAction({ remedy }: { remedy: NonNullable<ApiFailure["remedy"]> }) {
+  const [open, setOpen] = useState(false);
+  const dn = remedy.dn ?? "";
+
+  // Not a screen: the session needs a second identity, which is a decision
+  // made at the connection, so there is nowhere to send anybody.
+  if (remedy.kind === "config-identity") {
+    return <p className="mt-2 text-sm">{safeText(remedy.label)}.</p>;
+  }
+  if (!dn) return null;
+
+  const act = () => {
+    switch (remedy.kind) {
+      case "access":
+      case "policy":
+        setOpen(true);
+        return;
+      case "schema":
+        navigate({ view: "schema", find: remedy.attribute });
+        return;
+      case "parent":
+        navigate({ view: "browse", dn });
+        return;
+    }
+  };
+
+  return (
+    <div className="mt-2">
+      <Button variant="outline" size="sm" onClick={act} disabled={!canNavigate() && remedy.kind !== "access" && remedy.kind !== "policy"}>
+        {safeText(remedy.label)}
+      </Button>
+      {remedy.kind === "access" ? <AccessDialog dn={dn} open={open} onOpenChange={setOpen} /> : null}
+      {remedy.kind === "policy" ? <PolicyDialog dn={dn} open={open} onOpenChange={setOpen} /> : null}
     </div>
   );
 }

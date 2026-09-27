@@ -1707,6 +1707,7 @@ components:
             allowed to know exist, and some echo part of the request back. A
             result code alone is rarely enough to act on, which is what this is
             for.
+        remedy: { $ref: "#/components/schemas/Remedy" }
 
     ErrorAffected:
       type: object
@@ -2826,6 +2827,36 @@ components:
           type: array
           items: { $ref: "#/components/schemas/ConfigSetting" }
         checksum: { type: string }
+
+    Remedy:
+      type: object
+      required: [kind, label]
+      description: |
+        Where to look about a refusal (1.22). The hint says what the result
+        code usually means; this says which screen answers it, and for which
+        entry. It is a pointer, not a diagnosis: Alder is not claiming the
+        access rules are the reason, only that they are where somebody would
+        look next.
+      properties:
+        kind:
+          type: string
+          enum: [access, policy, schema, parent, config-identity]
+          x-enum-varnames:
+            [RemedyAccess, RemedyPolicy, RemedySchema, RemedyParent, RemedyConfigIdentity]
+          description: |
+            `access`, `policy` and `schema` each name a view of the entry in
+            `dn`. `parent` names the entry above the one that could not be
+            added. `config-identity` is not a screen: the session needs a
+            second identity, supplied when connecting.
+        dn:
+          type: string
+          description: The entry the screen should be opened on.
+        attribute:
+          type: string
+          description: The attribute the refusal was about, where one was.
+        label:
+          type: string
+          description: What to call the way in, in a person's words.
 
     PolicyReport:
       type: object

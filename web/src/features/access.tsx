@@ -35,6 +35,36 @@ type AccessRule = components["schemas"]["AccessRule"];
  */
 export function AccessButton({ dn }: { dn: string }) {
   const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        title="The access control rules the server holds for this entry"
+      >
+        <KeyRound />
+        Access
+      </Button>
+      <AccessDialog dn={dn} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+/**
+ * The same report, opened by something other than the button beside it -- a
+ * refusal that points here, since 1.22.
+ */
+export function AccessDialog({
+  dn,
+  open,
+  onOpenChange,
+}: {
+  dn: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const setOpen = onOpenChange;
 
   const report = useQuery<AccessReport, ApiFailure>({
     queryKey: ["access", dn],
@@ -48,16 +78,6 @@ export function AccessButton({ dn }: { dn: string }) {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setOpen(true)}
-        title="The access control rules the server holds for this entry"
-      >
-        <KeyRound />
-        Access
-      </Button>
-
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>

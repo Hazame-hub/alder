@@ -358,6 +358,12 @@ func errorBody(err error, record directory.ChangeRecord, caps directory.Capabili
 		if hint := ldapHint(ldapErr.Code, record, caps); hint != "" {
 			body.Hint = &hint
 		}
+		// And where to look, the same as a single change gets. A changeset is
+		// where this matters most: the run stopped, part of it applied, and
+		// the operator has to decide what to do next.
+		if remedy := ldapRemedy(ldapErr.Code, record, caps); remedy != nil {
+			body.Remedy = remedy
+		}
 	}
 	return body
 }
