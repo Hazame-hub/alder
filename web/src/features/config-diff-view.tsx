@@ -342,6 +342,11 @@ function ObjectRow({
       <Badge variant="outline">{KIND_LABEL[object.kind]}</Badge>
       <span className="text-xs text-muted-foreground">{safeText(object.object)}</span>
       <span className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(object.label || object.name)}</span>
+      {/* An index for equality and an index for substrings are not the same
+          index, so what it covers is on the row rather than a click away. */}
+      {object.types && object.types.length > 0 ? (
+        <span className="text-xs text-muted-foreground">{safeText(object.types.join(", "))}</span>
+      ) : null}
       {object.settings > 0 ? (
         <span className="text-xs text-muted-foreground">
           {object.settings} setting{object.settings === 1 ? "" : "s"}

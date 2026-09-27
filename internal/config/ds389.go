@@ -204,8 +204,13 @@ func ds389Section(resource Resource, attribute string) string {
 		return SectionBackend
 	case strings.HasPrefix(key, "nsslapd-plugin") || key == "nsslapd-pluginenabled":
 		return SectionPlugins
+	case key == "nsindextype" || key == "nssystemindex" || key == "nsmatchingrule" ||
+		key == "nsindexidlistscanlimit":
+		return SectionPerformance
 	}
 	switch resource.Kind {
+	case KindIndex:
+		return SectionPerformance
 	case KindPlugin:
 		return SectionPlugins
 	case KindBackend:
@@ -223,13 +228,25 @@ func ds389Section(resource Resource, attribute string) string {
 	return SectionServer
 }
 
-func ds389Resource(entry *directory.Entry, _ map[string]Resource) (Resource, bool) {
+func ds389Resource(entry *directory.Entry, parents map[string]Resource) (Resource, bool) {
 	d := entry.DN
 	text := strings.ToLower(d.String())
 	name := rdnValue(entry)
 	switch {
 	case text == "cn=config":
 		return Resource{Section: SectionServer, Kind: KindGlobal, Name: "global", DN: d.String(), Label: "server"}, true
+	case ds389IsIndex(d):
+		// An index, which 389 DS keeps as an entry of its own beneath the
+		// backend. It is reported as an index rather than as one more entry
+		// under the backend, so that it compares against an OpenLDAP index --
+		// written as a value, not an entry -- as the same kind of thing.
+		if backend, ok := ds389IndexBackend(entry.DN, parents); ok {
+			return indexResource(backend, name, d.String()), true
+		}
+		// The backend above it was not read, so there is nothing to name the
+		// index after. Reported as it is written rather than guessed at.
+		return Resource{Section: SectionBackend, Kind: KindBackend, Name: pathName(text, name),
+			DN: d.String(), Label: name}, true
 	case strings.HasSuffix(text, ",cn=ldbm database,cn=plugins,cn=config"):
 		// A backend, or one of the entries beneath it -- an index, a
 		// container. The backend itself is named by its suffix; the entries

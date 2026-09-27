@@ -70,6 +70,7 @@ const (
 	KindMappingTree = "mapping-tree"
 	KindReplication = "replication"
 	KindArea        = "area"
+	KindIndex       = "index"
 )
 
 // Value types. Display and comparison read them; nothing branches on them.

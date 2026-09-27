@@ -41,6 +41,11 @@ type ConfigObject struct {
 	Refusal string `json:"refusal,omitempty"`
 	// Destructive marks a removal, which is never selected for anyone.
 	Destructive bool `json:"destructive,omitempty"`
+	// Types are what an index covers -- eq, sub, pres -- read from whichever
+	// side holds it. An index is identified by the attribute it indexes, but
+	// it cannot be created without them: an index for equality and an index
+	// for substrings are not the same index. Empty for every other kind.
+	Types []string `json:"types,omitempty"`
 }
 
 // compareObjects lists what objects each side holds, and what Alder could do
@@ -93,6 +98,15 @@ func compareObjects(source, target *snapshot.ConfigSnapshot, live ConfigSide) []
 			object.Kind = Removed
 			object.Destructive = true
 		}
+		if resource.Kind == config.KindIndex {
+			// From the side that has it: for an addition that is the target,
+			// which is the side the live server is being made to match.
+			holder := target
+			if object.Kind == Removed {
+				holder = source
+			}
+			object.Types = config.IndexTypesOf(resource, holder.Settings)
+		}
 		object.Actionable, object.Refusal = objectAction(object, live)
 		out = append(out, object)
 	}
@@ -112,7 +126,7 @@ func objectAction(object ConfigObject, live ConfigSide) (string, string) {
 		DN: object.DN, Label: object.Label}
 	var refusal string
 	if object.Kind == Added {
-		_, refusal = config.CreateRecord(live.Snapshot, want)
+		_, refusal = config.CreateRecord(live.Snapshot, want, object.Types)
 	} else {
 		_, refusal = config.RemoveRecord(live.Snapshot, want)
 	}
@@ -143,7 +157,7 @@ func DeriveConfigObject(r *ConfigResult, object ConfigObject, source ConfigSide,
 	var record directory.ChangeRecord
 	var refusal string
 	if object.Kind == Added {
-		record, refusal = config.CreateRecord(source.Snapshot, want)
+		record, refusal = config.CreateRecord(source.Snapshot, want, object.Types)
 	} else {
 		record, refusal = config.RemoveRecord(source.Snapshot, want)
 	}

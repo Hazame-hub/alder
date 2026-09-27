@@ -3132,3 +3132,49 @@ A crash also leaves the suite's test bases behind, which makes the *next* run
 fail with "entry already exists" on five unrelated tests. That is worth
 knowing before chasing them: `task compose:down && task compose:up` is the
 fix, and the failures are debris rather than a regression.
+
+### 2026-09-27 — 1.23, indexes
+
+The first object Alder creates on **both** servers, and the first where the
+two write nothing alike.
+
+- **The same kind, two writes.** OpenLDAP holds an index as a value of
+  `olcDbIndex` on the database entry; 389 DS holds it as an entry beneath the
+  backend. Neither is translated into the other. A comparison reports both as
+  an index on an attribute of a backend, because "this server indexes `mail`
+  and that one does not" is the question an operator has, and derives each
+  server's own change from that. Reporting them as what each server calls them
+  would have made the comparison useless across the two, which is the whole
+  point of the harness.
+- **Named by backend and attribute, never by position.** `index:dc=alder,dc=test/mail`
+  on both. The alternative on OpenLDAP -- "the third value of `olcDbIndex`" --
+  is not something anyone can act on, and it changes when a different index is
+  removed.
+- **The types travel with the object.** An index for equality and an index for
+  substrings are not the same index, so a comparison that omitted them would
+  offer to create the wrong thing. They are on the row rather than a click
+  away. One with nothing recorded is created for equality, which is what both
+  servers' own tooling does.
+- **The setting keeps the value as written, not the types alone.** On OpenLDAP
+  the value is the unit -- `uid,cn eq,sub` is one value and two indexes -- and
+  what can be done to `cn`'s index depends on `uid` sharing it. Splitting the
+  types out at capture time would have thrown away the fact the refusal needs.
+- **Two removals are refused rather than attempted.** `index_value_shared`
+  where an OpenLDAP value names other attributes, because the write would be a
+  rewrite of somebody else's index rather than a deletion; `system_index`
+  where 389 DS marks it as its own. The first cannot arise from a
+  `slapd.conf` -- `slaptest` splits those lines one attribute per value -- so
+  the harness writes such a value offline, on purpose, and the refusal is
+  proved against a real server rather than only in a unit test.
+- **The removal deletes the value the server holds, character for character,**
+  rather than one rebuilt from its parts. slapd matches on the value, and a
+  rebuilt one differing by a space deletes nothing while reporting success.
+- **`olcDbIndex` is read-only, and now says so.** It used to be *unknown*,
+  which means "Alder has no answer". Alder does have one: the index is created
+  and removed as an object, and the attribute is never replaced, because a
+  replace rewrites every index on that database at once and leaves the ones it
+  did not mean to touch stale on disk. The entry editor says "not changed by
+  Alder" instead of "not in Alder's model", and those are different sentences.
+- **Reindexing is not Alder's.** Neither server rebuilds an index on its own
+  when one is added; that is `reindex` on 389 DS and `slapindex` on OpenLDAP,
+  and both are operations on a server rather than changes to a directory.
