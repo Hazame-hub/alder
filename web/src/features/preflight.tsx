@@ -73,9 +73,10 @@ export function PreflightPanel() {
   });
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-6">
+    <div className="screen-shell mx-auto max-w-6xl space-y-6 p-6">
       <header>
-        <h2 className="text-lg font-semibold">Migration preflight</h2>
+        <p className="screen-kicker">Safe migration planning</p>
+        <h2 className="text-2xl font-semibold tracking-tight">Migration preflight</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Read a change package, a schema snapshot or a data snapshot against this directory, and see what
           would carry across: what is already here, what could be added, what needs something first, what
