@@ -2476,6 +2476,15 @@ export interface components {
              *     identity.
              */
             unread?: components["schemas"]["AccessUnread"][];
+            /**
+             * @description The identity Alder put the question about: a DN, or `anonymous`.
+             *     Added in 1.28. This is Alder describing its own request, so it is
+             *     unambiguous where `effective.subject` -- which is whatever the
+             *     server echoed -- is not: a server answering the anonymous question
+             *     echoes no subject at all, and a server that declines echoes
+             *     nothing either.
+             */
+            askedAbout?: string;
             effective?: components["schemas"]["EffectiveRights"];
             /**
              * @description Why there is no verdict from the server: it cannot answer that
@@ -5260,6 +5269,21 @@ export interface operations {
                  *     about oneself. Asking about another identity is the server's
                  *     decision, and a server that declines is reported as declining --
                  *     which is not the same as an answer of no rights.
+                 *
+                 *     A distinguished name, or the single reserved word `anonymous`,
+                 *     which asks what an unauthenticated client may do here. That is a
+                 *     question with no DN to name -- the control names an anonymous
+                 *     requester by an authorization identity with no DN in it -- so a
+                 *     word is needed rather than a value. `anonymous` cannot collide
+                 *     with a DN, because a DN always contains `=`.
+                 *
+                 *     Anything else that is not a distinguished name is refused with a
+                 *     400. The only authorization identity the driver builds is
+                 *     `dn: <DN>`, so anything else is a question no server can be asked,
+                 *     and 389 Directory Server answers such a control with an error code
+                 *     where the rights letters go -- which would reach the reader as
+                 *     "the server declined to say", a sentence about access describing a
+                 *     typo.
                  */
                 as?: string;
             };

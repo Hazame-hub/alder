@@ -3656,3 +3656,30 @@ feature useless in the only case it was built for.
 
 The re-walk of the audited task measured **2 interactions**, not the 3 the
 change claimed, and the same 2 on both servers.
+### 2026-09-27 — 1.28, asking about anyone unauthenticated
+
+The piece 1.27 left open, and it needed a wire-contract change, which is why
+it waited for a decision.
+
+- **A reserved word, not an authzID and not a second parameter.** The
+  effective-rights control identifies an unauthenticated requester by an
+  authorization identity carrying no DN at all, so the question genuinely has
+  no DN to put in `as`. The options were exposing the authzID forms (`dn:`,
+  `u:`) in the API for the sake of one case, a second boolean parameter that
+  can contradict the first, or one reserved value. `as=anonymous` is the
+  reserved value, and it is safe to reserve because a DN always contains an
+  equals sign — nothing a person could legitimately type collides with it.
+- **`askedAbout` on the report.** Alder describing its own request, which is
+  unambiguous where `effective.subject` is not: a server answering the
+  anonymous question echoes no subject, because there is none, and so does a
+  server that declines. Without it a client could not tell the anonymous
+  answer from a declined one.
+- **It is worth having, and that was checked before it was built.** 389 DS
+  answers the question meaningfully — on the harness, entry rights `none` and
+  all 61 attributes denied for an unauthenticated client. That is the seeded
+  access rules being confirmed rather than assumed, and it is the one question
+  on this screen an operator asks about an entry they did not expect to be
+  readable.
+- **One click, not a field to type into.** The identity has no name, so
+  there is nothing to type; the button sits where the reset sits when a
+  subject is in force.

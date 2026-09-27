@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "@/lib/api.gen";
 import {
+  ANONYMOUS,
   accessQuery,
   accessQueryKey,
   canAskAboutAnotherIdentity,
@@ -8,6 +9,7 @@ import {
   rulesScopeNote,
   searchBaseFor,
   shortDn,
+  subjectLabel,
   subjectView,
 } from "./access-subject";
 
@@ -59,6 +61,37 @@ describe("who the verdict is about", () => {
     expect(note).toContain("the same list whoever you ask about");
     expect(note).not.toContain("the verdict above");
     expect(note).toContain("gave no verdict about cn=svc-alder");
+  });
+});
+
+describe("asking about an unauthenticated client", () => {
+  it("is its own kind, because there is no DN to name", () => {
+    // The effective-rights control identifies such a requester by an
+    // authorization identity carrying no DN at all, so the question cannot be
+    // spelled as a subject. The word cannot collide with a DN: a DN always
+    // contains an equals sign.
+    expect(ANONYMOUS).not.toContain("=");
+    expect(subjectView(ANONYMOUS, "cn=admin,dc=alder,dc=test").kind).toBe("anonymous");
+    expect(subjectView("ANONYMOUS", "cn=admin,dc=alder,dc=test").kind).toBe("anonymous");
+  });
+
+  it("is named in words rather than as an empty DN", () => {
+    expect(subjectLabel(subjectView(ANONYMOUS, "cn=admin,dc=x"))).toBe("an unauthenticated client");
+    expect(subjectLabel(subjectView("", "cn=admin,dc=x"))).toBe("you");
+    expect(subjectLabel(subjectView("cn=svc,ou=services,dc=x", "cn=admin,dc=x"))).toBe("cn=svc");
+  });
+
+  it("puts the rules back in scope, the same as any other identity", () => {
+    const view = subjectView(ANONYMOUS, "cn=admin,dc=x");
+    expect(rulesScopeNote(view, true)).toContain("only the verdict above is about an unauthenticated client");
+    expect(rulesScopeNote(view, false)).toContain("gave no verdict about an unauthenticated client");
+  });
+
+  it("travels as the reserved word, not as a blank", () => {
+    // A blank means "me". If the sentinel were dropped on the way to the
+    // request, the panel would say "an unauthenticated client" over the
+    // session's own verdict.
+    expect(accessQuery("uid=a,dc=x", ANONYMOUS)).toEqual({ dn: "uid=a,dc=x", as: "anonymous" });
   });
 });
 

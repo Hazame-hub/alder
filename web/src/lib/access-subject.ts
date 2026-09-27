@@ -92,13 +92,26 @@ export function accessQueryKey(dn: string, subject: string): unknown[] {
   return ["access", dn, subject.trim()];
 }
 
+/**
+ * The one value of `as` that is not a distinguished name.
+ *
+ * "What can anyone off the network read here?" is a question with no DN to
+ * name: the effective-rights control identifies an unauthenticated requester
+ * by an authorization identity carrying no DN at all. So it needs a word, and
+ * the word cannot be mistaken for a DN because a DN always contains an equals
+ * sign.
+ */
+export const ANONYMOUS = "anonymous";
+
 export type SubjectView =
   /** No subject asked for: the verdict is about the session's own identity. */
   | { kind: "you"; dn: string }
   /** A subject was asked for, and it is this session's own identity anyway. */
   | { kind: "you"; dn: string; asked: true }
   /** A subject was asked for, and it is somebody else. */
-  | { kind: "other"; dn: string };
+  | { kind: "other"; dn: string }
+  /** The question was about an unauthenticated client. */
+  | { kind: "anonymous" };
 
 /**
  * Who the verdict on screen is about, decided from what the UI asked rather
@@ -113,8 +126,16 @@ export type SubjectView =
 export function subjectView(asked: string, bindDn: string | undefined): SubjectView {
   const trimmed = asked.trim();
   if (!trimmed) return { kind: "you", dn: bindDn ?? "" };
+  if (trimmed.toLowerCase() === ANONYMOUS) return { kind: "anonymous" };
   if (dnEquals(trimmed, bindDn)) return { kind: "you", dn: trimmed, asked: true };
   return { kind: "other", dn: trimmed };
+}
+
+/** What the verdict panel calls the identity it is about. */
+export function subjectLabel(view: SubjectView): string {
+  if (view.kind === "anonymous") return "an unauthenticated client";
+  if (view.kind === "you") return "you";
+  return shortDn(view.dn);
 }
 
 /**
@@ -150,12 +171,13 @@ export function shortDn(dn: string): string {
  * cannot see.
  */
 export function rulesScopeNote(view: SubjectView, hasVerdict: boolean): string {
-  if (view.kind !== "other") return "";
+  if (view.kind === "you") return "";
+  const who = subjectLabel(view);
   const rules =
     "The rules below are the ones this server holds about this entry. They are the same list " +
     "whoever you ask about, and so are the marks on them";
   if (hasVerdict) {
-    return rules + " — only the verdict above is about " + shortDn(view.dn) + ".";
+    return rules + " — only the verdict above is about " + who + ".";
   }
-  return rules + ". The server gave no verdict about " + shortDn(view.dn) + ".";
+  return rules + ". The server gave no verdict about " + who + ".";
 }

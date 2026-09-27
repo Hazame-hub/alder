@@ -162,3 +162,64 @@ func deniedAttributes(e *api.EffectiveRights) []string {
 	}
 	return out
 }
+
+// TestAskingWhatAnUnauthenticatedClientMayDo.
+//
+// The exposure question, and the one that could not be asked until 1.28: it
+// has no DN to name, because the effective-rights control identifies an
+// unauthenticated requester by an authorization identity carrying no DN at
+// all. `as=anonymous` is the one reserved value of the parameter, and it
+// cannot collide with a DN because a DN always contains an equals sign.
+//
+// What makes it worth having: on the harness, anonymous can read nothing at
+// all here, and the only way to be sure of that was to try binding as nobody
+// and looking.
+func TestAskingWhatAnUnauthenticatedClientMayDo(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		client, base := alderSession(t, s, true)
+		target := "uid=user0002,ou=people," + suffix
+
+		report, res := accessAs(t, client, base, target, "anonymous")
+		if res.status != 0 && res.status != http.StatusOK {
+			t.Fatalf("%s: the anonymous question answered %d\n%s", s.name, res.status, res.body)
+		}
+
+		// Alder says what it asked, whatever the server echoes -- and for this
+		// question the server correctly echoes nothing, because there is no DN.
+		if report.AskedAbout == nil || *report.AskedAbout != "anonymous" {
+			t.Errorf("%s: the report does not say it asked anonymously: %s", s.name, mustEncode(t, report.AskedAbout))
+		}
+		// A plain question about oneself still names the bind DN, so the field
+		// distinguishes the three cases rather than only marking this one.
+		mine, _ := accessAs(t, client, base, target, "")
+		if mine.AskedAbout == nil || !strings.EqualFold(*mine.AskedAbout, s.bindDN) {
+			t.Errorf("%s: asking about myself reports %v, want the bind DN", s.name, mine.AskedAbout)
+		}
+
+		if !sess.Capabilities().EffectiveRights {
+			if report.Effective != nil {
+				t.Errorf("%s answers no effective rights and produced a verdict", s.name)
+			}
+			t.Logf("%s: no effective-rights control, so the question has the same honest non-answer", s.name)
+			return
+		}
+
+		if report.Effective == nil {
+			t.Fatalf("%s publishes the control and gave no anonymous verdict: %s", s.name, mustEncode(t, report))
+		}
+		// The harness lets nobody read anything without binding, which is what
+		// the seeded access rules say, so this is the answer that proves the
+		// question was really asked rather than defaulted to the session.
+		denied := deniedAttributes(report.Effective)
+		if len(denied) == 0 {
+			t.Errorf("%s: anonymous is denied everything here and the verdict shows nothing denied: %s",
+				s.name, mustEncode(t, report.Effective))
+		}
+		if mine.Effective != nil && len(deniedAttributes(mine.Effective)) >= len(denied) {
+			t.Errorf("%s: the anonymous answer is no narrower than the administrator's, so it was not asked",
+				s.name)
+		}
+		t.Logf("%s: anonymous is denied %d attributes here; entry rights %q",
+			s.name, len(denied), report.Effective.Entry)
+	})
+}

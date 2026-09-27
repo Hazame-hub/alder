@@ -188,7 +188,26 @@ the full DN, and, where the server answers about a different identity than was
 asked, says that too. A verdict attributed to the wrong person is worse than no
 verdict.
 
-An identity that is not a distinguished name is refused with a 400. The only
+**Anyone unauthenticated (1.28).** "What can someone who has not bound at all
+read here?" is the exposure question, and it is the only one with no DN to
+name: the control identifies such a requester by an authorization identity
+carrying no DN in it. So it is a word — `as=anonymous`, one reserved value,
+which cannot collide with a DN because a DN always contains `=`. The button
+beside the field asks it in one click, because an operator looking at an entry
+they did not expect to be readable has nothing to type.
+
+On the harness, 389 DS answers that an unauthenticated client may do nothing
+at all here — entry rights `none`, all 61 attributes denied — which is the
+seeded access rules being confirmed rather than assumed.
+
+`askedAbout` on the report says what Alder put the question about: a DN, or
+`anonymous`. That is Alder describing its own request, and it is unambiguous
+where `effective.subject` is not — a server answering the anonymous question
+echoes no subject, because there is none to echo, and a server that declines
+echoes nothing either.
+
+An identity that is neither a distinguished name nor `anonymous` is refused
+with a 400. The only
 authzID the driver builds is `dn: <DN>`, so anything else is a question no
 server can be asked; 389 DS answers such a control with an error code where the
 rights letters go, which would otherwise reach the reader as "the server
