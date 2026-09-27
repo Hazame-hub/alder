@@ -324,6 +324,36 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.26 added three endpoints and one field, and narrowed one parameter:
+
+- **`GET /replication`**, **`GET /replication/entry?dn=`** and
+  **`GET /replication/conflicts?dn=`** report what a server records about its
+  own replication. Read-only, and Alder never contacts a peer.
+- **`types` on a configuration object** in a comparison, saying what an index
+  covers. Absent for every other kind of object.
+- **`as` on `GET /access` must now be a distinguished name**, and anything
+  else is refused with a 400 rather than passed to the server. A client that
+  only ever sent a DN sees no change; one that sent something else was getting
+  "the server declined to say" for a malformed value, which was never an
+  answer about access.
+- **A configuration snapshot of a replicating 389 Directory Server has a
+  different checksum after this release.** Replication's counters and
+  timestamps are no longer captured, because they are running state and made
+  a snapshot differ from itself seconds later. Nothing an administrator set
+  has moved.
+- **Six configuration attributes are now withheld from the entry view and from
+  an LDIF export** -- `olcRootPW`, `olcSyncrepl`, `olcDbCryptKey`,
+  `nsDS5ReplicaBindCredentials`, `nsMultiplexorCredentials`,
+  `nsslapd-keyPassword`. This is a security fix and it does break the promise
+  that a read returns what the server holds; `SECURITY.md` says such a fix is
+  still a fix, and this is the changelog saying so plainly. The values can
+  still be set; they can no longer be read back.
+
+1.23, 1.24 and 1.25 are milestone numbers with no tag of their own -- indexes,
+the replica harness and replication visibility all reached a release in 1.26.0,
+the same way 1.16 and 1.17 reached one in 1.18.0. What they added is listed
+above under 1.26.
+
 1.22 added one field to an error, and nothing else:
 
 - **`remedy` on the error body**, beside the existing `hint`: where to look
