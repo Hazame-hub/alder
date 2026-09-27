@@ -40,12 +40,29 @@ const (
 	// RefusalNotPresent: it is not on the live server, so there is nothing to
 	// remove.
 	RefusalNotPresent = "not_present"
+	// RefusalIndexShared: an OpenLDAP index value names several attributes,
+	// so removing one of them is a rewrite of somebody else's index rather
+	// than a deletion.
+	RefusalIndexShared = "index_value_shared"
+	// RefusalSystemIndex: the server maintains this index for itself.
+	RefusalSystemIndex = "system_index"
 )
 
 // CreateRecord is the change that would create a configuration object on the
 // server the live snapshot came from, or the reason there is none.
-func CreateRecord(live *snapshot.ConfigSnapshot, want snapshot.ConfigResource) (directory.ChangeRecord, string) {
-	if live == nil || !strings.EqualFold(live.Source.Provider, snapshot.ProviderOpenLDAP) || want.Kind != KindOverlay {
+func CreateRecord(live *snapshot.ConfigSnapshot, want snapshot.ConfigResource,
+	indexTypes []string) (directory.ChangeRecord, string) {
+	if live == nil {
+		return directory.ChangeRecord{}, RefusalNotCreatable
+	}
+	if want.Kind == KindIndex {
+		// An index is the one object both servers create, in two different
+		// shapes. The types come from the side being matched: an index for
+		// equality and an index for substrings are not the same index, and
+		// creating one when the other was asked for is silently wrong.
+		return createIndexRecord(live, want, indexTypes)
+	}
+	if !strings.EqualFold(live.Source.Provider, snapshot.ProviderOpenLDAP) || want.Kind != KindOverlay {
 		return directory.ChangeRecord{}, RefusalNotCreatable
 	}
 	database, overlay, ok := strings.Cut(want.Name, "/")
@@ -85,7 +102,13 @@ func CreateRecord(live *snapshot.ConfigSnapshot, want snapshot.ConfigResource) (
 // RemoveRecord is the change that would remove a configuration object from the
 // server the live snapshot came from, or the reason there is none.
 func RemoveRecord(live *snapshot.ConfigSnapshot, have snapshot.ConfigResource) (directory.ChangeRecord, string) {
-	if live == nil || !strings.EqualFold(live.Source.Provider, snapshot.ProviderOpenLDAP) || have.Kind != KindOverlay {
+	if live == nil {
+		return directory.ChangeRecord{}, RefusalNotCreatable
+	}
+	if have.Kind == KindIndex {
+		return removeIndexRecord(live, have)
+	}
+	if !strings.EqualFold(live.Source.Provider, snapshot.ProviderOpenLDAP) || have.Kind != KindOverlay {
 		return directory.ChangeRecord{}, RefusalNotCreatable
 	}
 	// The entry removed is the live server's own, never the DN another
@@ -129,7 +152,29 @@ func moduleLoaded(live *snapshot.ConfigSnapshot, overlay string) bool {
 // report and for the documentation to be written from.
 func CreatableKinds(provider string) []string {
 	if strings.EqualFold(provider, snapshot.ProviderOpenLDAP) {
-		return []string{KindOverlay}
+		return []string{KindOverlay, KindIndex}
 	}
-	return nil
+	return []string{KindIndex}
+}
+
+// IndexTypesOf picks the index types off the settings of the side being
+// matched. An index with no types recorded is created for equality, which is
+// what an operator means by "index this" and what both servers default to in
+// their own tooling.
+func IndexTypesOf(want snapshot.ConfigResource, settings []snapshot.ConfigSetting) []string {
+	for _, setting := range settings {
+		if !strings.EqualFold(setting.Resource, want.ID()) || len(setting.Values) == 0 {
+			continue
+		}
+		switch strings.ToLower(setting.Key) {
+		case "olcdbindex":
+			// One value, holding the attributes and the types together.
+			if _, types := splitIndexValue(setting.Values[0]); len(types) > 0 {
+				return types
+			}
+		case "nsindextype":
+			return setting.Values
+		}
+	}
+	return []string{"eq"}
 }

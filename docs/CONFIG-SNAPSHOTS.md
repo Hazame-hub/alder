@@ -389,15 +389,18 @@ A comparison lists the objects each side holds -- databases, overlays,
 backends, plugins -- as well as the settings on them, because "the target has
 no memberof overlay" is one fact rather than fourteen missing settings.
 
-Alder creates and removes **one kind**: an OpenLDAP overlay whose module the
-server has already loaded. Everything else is listed with the reason it is
-listed only.
+Alder creates and removes **two kinds**: an OpenLDAP overlay whose module the
+server has already loaded, and an index, on either server (1.23). Everything
+else is listed with the reason it is listed only.
 
 | Refusal | Meaning |
 |---|---|
 | `not_creatable` | This provider creates no object of that kind. A database is where the data lives, a module is a shared library the server must find, a 389 DS plugin is a fixed set the server ships |
 | `module_not_loaded` | The overlay's module is not loaded. OpenLDAP answers a write for one with "handler exited with 1", so Alder says so before sending anything |
 | `parent_missing` | The database it belongs to is not on this server |
+| `not_present` | It is not on the live server, so there is nothing to remove |
+| `index_value_shared` | The OpenLDAP value this index is written in names other attributes too, so removing it would rewrite theirs (1.23) |
+| `system_index` | 389 DS maintains this index for itself (1.23) |
 | `source_not_live` | Two files were compared; a change is proposed only against the directory itself |
 
 Creating one is an ordinary entry add: `objectClass: olcOverlayConfig` and
@@ -417,6 +420,64 @@ password scheme -- and a plugin another plugin names in
 disabling its own `ldbm database` plugin without complaint and then fails to
 start, which is why this is decided before the write rather than left to it.
 Switching a plugin takes effect when the server restarts.
+
+## Indexes (1.23)
+
+"Index `mail` for equality" is one intention and two entirely different
+writes. OpenLDAP keeps its indexes as values of one attribute on the database
+entry:
+
+```ldif
+dn: olcDatabase={1}mdb,cn=config
+olcDbIndex: mail eq,sub
+```
+
+389 Directory Server keeps each one as an entry of its own beneath the
+backend:
+
+```ldif
+dn: cn=mail,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config
+nsIndexType: eq
+nsIndexType: sub
+```
+
+Neither is translated into the other. What a comparison does is report both as
+the same **kind of object** -- an index on an attribute, belonging to a
+backend, covering some types -- so that it can answer the question an operator
+actually has: *this server indexes `mail` and that one does not.* The change is
+then derived in each server's own terms, and it is not the same change: a value
+added to the database entry on one, an entry added under the backend on the
+other.
+
+Where both servers index the same attribute for different types, the *object*
+is unchanged -- both have it -- and the difference shows as the setting it is:
+`olcDbIndex` on one side and `nsIndexType` on the other. Alder does not offer
+to change the types of an index that already exists; removing it and creating
+it again is two changes an operator makes deliberately, and a reindex either
+way.
+
+An index is identified by the backend and the attribute, never by position:
+`index:dc=alder,dc=test/mail`. What it covers travels with the difference, and
+is on the row, because an index for equality and an index for substrings are
+not the same index. One with nothing recorded is created for equality, which is
+what both servers' own tooling does.
+
+Two removals are refused rather than attempted:
+
+- **`index_value_shared`.** One OpenLDAP value may name several attributes --
+  `olcDbIndex: uid,cn eq,sub` is legal and means both. Taking `cn` out of it
+  means rewriting a value that is also `uid`'s index, and a rewrite is not a
+  deletion. `slaptest` never produces such a value, so the test harness writes
+  one deliberately.
+- **`system_index`.** 389 DS marks the indexes it maintains for itself with
+  `nsSystemIndex: true`. They are reported and never offered.
+
+The settings themselves stay read-only on both servers. Replacing `olcDbIndex`
+rewrites every index on the database at once and leaves the ones it did not
+mean to touch stale on disk until a reindex; the object is what Alder acts on,
+and the setting is there so the difference can be read. Neither server reindexes
+on its own when an index is added, which is a `reindex` task on 389 DS and
+`slapindex` on OpenLDAP, and is outside what Alder does.
 
 ## In the entry editor (1.18)
 

@@ -113,6 +113,8 @@ func openldapTree(t *testing.T) []*directory.Entry {
 			"olcDbMaxSize", "1073741824",
 			"olcAccess", "{0}to attrs=userPassword by self write by * none",
 			"olcAccess", "{1}to * by users read",
+			"olcDbIndex", "objectClass eq",
+			"olcDbIndex", "uid,cn eq,sub",
 			"olcIdleTimeout", "0",
 		),
 		entry(t, "olcDatabase={2}mdb,cn=config",
@@ -172,6 +174,8 @@ func ds389Tree(t *testing.T) []*directory.Entry {
 			"objectClass", "nsContainer", "cn", "index"),
 		entry(t, "cn=uid,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config",
 			"objectClass", "nsIndex", "cn", "uid", "nsSystemIndex", "false", "nsIndexType", "eq"),
+		entry(t, "cn=objectclass,cn=index,cn=userRoot,cn=ldbm database,cn=plugins,cn=config",
+			"objectClass", "nsIndex", "cn", "objectclass", "nsSystemIndex", "true", "nsIndexType", "eq"),
 		entry(t, "cn=monitor,cn=userRoot,cn=ldbm database,cn=plugins,cn=config",
 			"objectClass", "nsBackendMonitor", "cn", "monitor",
 			"entrycachehits", "44127"),
@@ -323,12 +327,14 @@ func Test389ConfigurationIsReadAs389ArrangesIt(t *testing.T) {
 	if _, ok := s.ResourceByID("backend:dc=alder,dc=test"); !ok {
 		t.Fatalf("no backend named by its suffix; resources are %v", resourceIDs(s))
 	}
-	// An index below a backend is named by its path below it, so two backends'
-	// indexes never collide.
-	if _, ok := s.SettingByID("other/backend:userroot/index/uid/nsindextype"); !ok {
-		if _, ok := s.SettingByID("backend/backend:userroot/index/uid/nsindextype"); !ok {
-			t.Fatalf("the index's setting is missing; settings under the backend are %v", settingIDsUnder(s, "index"))
-		}
+	// An index is an index, named by the backend and the attribute -- the
+	// same identity OpenLDAP's indexes get, where they are values rather than
+	// entries. Naming it by the backend keeps two backends' indexes apart.
+	if _, ok := s.ResourceByID("index:dc=alder,dc=test/uid"); !ok {
+		t.Fatalf("the index is not reported as one; resources are %v", resourceIDs(s))
+	}
+	if _, ok := s.SettingByID("performance/index:dc=alder,dc=test/uid/nsindextype"); !ok {
+		t.Fatalf("the index's setting is missing; settings under the backend are %v", settingIDsUnder(s, "index"))
 	}
 	// A plugin's own configuration entry is called cn=config and must not
 	// collide with the server's global entry.

@@ -61,6 +61,13 @@ var openldapModel = model{
 		readOnly: set(
 			"olcconfigfile", "olcconfigdir", "olcargsfile", "olcpidfile", "olcdatabase",
 			"olcoverlay", "cn", "olclocalssf", "olcdbdirectory",
+			// The indexes. Alder does cover them, as objects -- an index is
+			// created and removed -- and it does not replace the attribute:
+			// a replace rewrites every index on the database at once and
+			// leaves the ones it did not mean to touch stale on disk. Saying
+			// read-only here rather than leaving it unknown is the difference
+			// between "Alder will not" and "Alder does not know".
+			"olcdbindex",
 		),
 		// An access rule and a replication agreement are written with a
 		// position in front of them, and that position is what orders them.
@@ -78,6 +85,7 @@ var openldapModel = model{
 		return d == openldapSchemaSuffix || strings.HasSuffix(d, ","+openldapSchemaSuffix)
 	},
 	resource: openldapResource,
+	indexes:  openldapEntryIndexes,
 }
 
 // openldapSection places an attribute in a section, from the attribute's own

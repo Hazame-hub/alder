@@ -173,6 +173,10 @@ export function objectRefusal(object: ConfigDiffObject): string {
       return "a change is proposed only when the source is the directory itself";
     case "not_present":
       return "it is not on this server";
+    case "index_value_shared":
+      return "this index is written in a value that indexes other attributes too, so removing it here would rewrite theirs";
+    case "system_index":
+      return "the server maintains this index for itself";
     default:
       return object.refusal;
   }

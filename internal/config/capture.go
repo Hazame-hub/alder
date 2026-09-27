@@ -38,6 +38,11 @@ type model struct {
 	// stopping the server from starting. Nil where the question does not
 	// arise.
 	switchablePlugins func(entries []*directory.Entry) map[string]bool
+	// indexes reports the indexes an entry defines as objects in their own
+	// right, and names the attribute they were read from so the same fact is
+	// not also reported as a setting of the entry carrying it. Nil on a
+	// server where an index is already an entry of its own.
+	indexes func(entry *directory.Entry, resource Resource) ([]Resource, []Setting, string)
 }
 
 // ErrNoModel is returned for a server Alder has no configuration model for.
@@ -236,7 +241,24 @@ func Capture(ctx context.Context, r Reader, opts Options) (*snapshot.ConfigSnaps
 		if _, seen := resources[resource.ID()]; !seen {
 			resources[resource.ID()] = resource
 		}
+		// An index may be written as values of one attribute rather than as
+		// an entry. Where it is, it is reported as the object it is, and the
+		// attribute it came from is not reported twice.
+		consumed := ""
+		if m.indexes != nil {
+			found, indexSettings, attribute := m.indexes(entry, resource)
+			for _, r := range found {
+				if _, seen := resources[r.ID()]; !seen {
+					resources[r.ID()] = r
+				}
+			}
+			settings = append(settings, indexSettings...)
+			consumed = attribute
+		}
 		for _, name := range attributeNames(entry) {
+			if consumed != "" && strings.EqualFold(name, consumed) {
+				continue
+			}
 			setting, keep := settingFrom(classify, resource, entry, name, entry.GetStrings(name))
 			if !keep {
 				continue

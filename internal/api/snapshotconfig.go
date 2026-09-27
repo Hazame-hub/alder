@@ -209,6 +209,10 @@ func configObjects(r *diff.ConfigResult, source *resolvedConfigSide) []ConfigDif
 		if object.Destructive {
 			view.Destructive = ptr(true)
 		}
+		if len(object.Types) > 0 {
+			types := append([]string(nil), object.Types...)
+			view.Types = &types
+		}
 		if source != nil && object.Actionable == diff.ActionableWritable {
 			candidate := diff.DeriveConfigObject(r, object, source.side, object.Destructive)
 			if len(candidate.Records) > 0 || candidate.Blocked != "" {

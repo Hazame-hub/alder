@@ -2399,8 +2399,9 @@ export interface components {
          *     plugin -- and what a comparison found about it. Added in 1.16.
          *
          *     Listing is what this does for almost everything. Alder creates and
-         *     removes exactly one kind of object, an OpenLDAP overlay whose module the
-         *     server has already loaded, and only then is `actionable` `writable`.
+         *     removes two kinds of object: an OpenLDAP overlay whose module the server
+         *     has already loaded, and an index, on either server. Only then is
+         *     `actionable` `writable`.
          */
         ConfigDiffObject: {
             /** @description The object's identity: kind:name. */
@@ -2418,11 +2419,22 @@ export interface components {
             /**
              * @description Why Alder cannot act on the difference: `not_creatable` (this
              *     provider creates no object of that kind), `module_not_loaded`,
-             *     `parent_missing`, `unnamed`, `not_present`, `source_not_live`.
+             *     `parent_missing`, `unnamed`, `not_present`, `source_not_live`,
+             *     `index_value_shared` (the OpenLDAP value names other attributes
+             *     too, so removing this one would rewrite somebody else's index),
+             *     `system_index` (the server maintains it for itself).
              */
             refusal?: string;
             /** @description The difference is a removal. Never selected for anyone. */
             destructive?: boolean;
+            /**
+             * @description What an index covers -- `eq`, `sub`, `pres` -- read from whichever
+             *     side holds it. Empty for every other kind of object. An index is
+             *     identified by the attribute it indexes, but an index for equality
+             *     and an index for substrings are not the same index, so creating one
+             *     needs these.
+             */
+            types?: string[];
             candidate?: components["schemas"]["DiffCandidate"];
         };
         ConfigDiffItem: {

@@ -113,6 +113,25 @@ LDIF
 	slapmodify -n0 -F /etc/ldap/slapd.d -l /tmp/tls.ldif
 	rm -f /tmp/tls.ldif
 
+	# One index written the way slapd.conf cannot produce.
+	#
+	# slaptest splits "index uid,cn eq,sub" into one olcDbIndex value per
+	# attribute, so a configuration converted from slapd.conf never holds a
+	# value naming several of them. An administrator writing to cn=config
+	# directly can, slapd keeps it as written, and it is then the case where
+	# removing one attribute's index means rewriting another's. The harness
+	# holds one so that refusal is proved against a real server rather than
+	# only in a unit test.
+	cat >/tmp/index.ldif <<'LDIF'
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+add: olcDbIndex
+olcDbIndex: l,st eq
+LDIF
+
+	slapmodify -n0 -F /etc/ldap/slapd.d -l /tmp/index.ldif
+	rm -f /tmp/index.ldif
+
 	# Optional offline bulk load, for scale work only. Unset by default, and
 	# the default harness never reaches this block.
 	#
