@@ -175,3 +175,6 @@ nobody can read would be a list with no subject.
   A verdict computed here would be believed, and being believed while wrong
   about access control is worse than saying nothing.
 - **Editing.** Out of scope for v1, on the record in the decisions log.
+
+For the other half of "why did that fail?", see
+[Password policy](PASSWORD-POLICY.md).

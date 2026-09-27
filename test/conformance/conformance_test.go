@@ -85,6 +85,20 @@ type server struct {
 	// the case below be identical -- it asserts that the schema's own
 	// declaration predicts what the server will accept, without knowing which
 	// server it is talking to.
+	// policyEntries is how many entries this server's own password policy
+	// adds below the suffix. The data is byte-identical on both; policy is
+	// not data, and the two servers keep it in different numbers of entries:
+	// OpenLDAP an ou and two policy entries the ppolicy overlay reads, 389 DS
+	// a container whose subentry an ordinary search does not return.
+	policyEntries int
+
+	// defaultPolicy says whether this server has a password policy that
+	// applies to accounts naming none. 389 DS keeps one in cn=config. The
+	// OpenLDAP side deliberately has none: configuring a ppolicy default
+	// crashes this pinned slapd during the password tests, which slapd.conf
+	// explains at length.
+	defaultPolicy bool
+
 	lockAttr  string
 	lockValue string
 
@@ -114,6 +128,8 @@ var servers = []server{
 		restrictedPW: "alder-service",
 		hiddenDN:     "ou=services,dc=alder,dc=test",
 
+		policyEntries: 3,
+
 		lockAttr:  "pwdAccountLockedTime",
 		lockValue: "20260101000000Z",
 
@@ -131,6 +147,9 @@ var servers = []server{
 		restrictedDN: "cn=svc-alder,ou=services,dc=alder,dc=test",
 		restrictedPW: "alder-service",
 		hiddenDN:     "ou=services,dc=alder,dc=test",
+
+		policyEntries: 1,
+		defaultPolicy: true,
 
 		lockAttr:  "nsAccountLock",
 		lockValue: "true",
@@ -2782,8 +2801,12 @@ func TestInventoryAssumptionsHold(t *testing.T) {
 			}
 		}
 
-		if len(res.Entries) != wantExamined {
-			t.Errorf("%s examined %d entries, want %d", s.name, len(res.Entries), wantExamined)
+		// The data is identical on both servers; the count is not, because
+		// each carries its own password policy objects. What has to match is
+		// the tally below, which is what the feature answers.
+		if want := wantExamined + s.policyEntries; len(res.Entries) != want {
+			t.Errorf("%s examined %d entries, want %d (%d seeded, %d this server's own policy)",
+				s.name, len(res.Entries), want, wantExamined, s.policyEntries)
 		}
 		if withValue != wantWithValue {
 			t.Errorf("%s: %d entries hold %s, want %d", s.name, withValue, attribute, wantWithValue)

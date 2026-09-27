@@ -715,6 +715,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The password policy in force on an entry, and the account's state
+         * @description Reports the password policy that applies to one entry and what the
+         *     server currently records about that account. Introduced in Alder 1.21.
+         *     Read-only.
+         *
+         *     **It is not a decision about whether a bind would succeed.** The
+         *     directory decides that when one is tried. What this gives an operator
+         *     is the thing that is otherwise spread across three places nobody thinks
+         *     to look: which policy applies, *where it is written*, and the
+         *     operational attributes the server keeps on the account -- locked since,
+         *     password last changed, failed binds recorded, expiry.
+         *
+         *     Both mechanisms are read, and neither is translated into the other:
+         *
+         *     - OpenLDAP's ppolicy overlay reads a policy from an entry in the data
+         *       tree. An account may name its own with `pwdPolicySubentry`; otherwise
+         *       the overlay's configured default applies, which Alder finds through
+         *       the configuration tree.
+         *     - 389 Directory Server keeps the global policy as attributes on
+         *       `cn=config`, and a per-entry policy as a subentry beside the account.
+         *
+         *     A policy attribute Alder does not recognise is still reported, with its
+         *     value as the server holds it: a setting nobody here has heard of is
+         *     still in force. Where the policy could not be found or read, the report
+         *     says where it looked rather than reporting that there is none.
+         */
+        get: operations["getPasswordPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/entry": {
         parameters: {
             query?: never;
@@ -2063,6 +2106,61 @@ export interface components {
             resources: components["schemas"]["ConfigResource"][];
             settings: components["schemas"]["ConfigSetting"][];
             checksum?: string;
+        };
+        /**
+         * @description The password policy in force on an entry and what the server records
+         *     about that account. Not a decision about whether a bind would succeed.
+         */
+        PolicyReport: {
+            dn: string;
+            policy?: components["schemas"]["PasswordPolicy"];
+            state: components["schemas"]["AccountState"];
+            /** @description Where the policy might be that could not be read. */
+            unread?: components["schemas"]["AccessUnread"][];
+            disclaimer: string;
+        };
+        PasswordPolicy: {
+            /**
+             * @description `entry` when the account names its own policy, `default` when it is
+             *     the server's, `none` when Alder could find none it could read --
+             *     which is not the same as there being none in force.
+             * @enum {string}
+             */
+            source: "entry" | "default" | "none";
+            /** @description Where the policy is written, when it is an entry. */
+            dn?: string;
+            /** @description How this policy came to apply, in a person's words. */
+            why: string;
+            settings: components["schemas"]["PolicySetting"][];
+        };
+        /**
+         * @description What the server currently records about the account, from its own
+         *     operational attributes.
+         */
+        AccountState: {
+            locked: boolean;
+            lockedDetail?: string;
+            mustChange: boolean;
+            expiry?: string;
+            failures?: string;
+            changed?: string;
+            attributes: components["schemas"]["PolicySetting"][];
+        };
+        /** @description One policy attribute or one piece of account state. */
+        PolicySetting: {
+            /** @description The attribute, named as the server names it. */
+            key: string;
+            values: string[];
+            /**
+             * @description What it means, for the ones Alder recognises. Absent for the rest,
+             *     which are reported anyway.
+             */
+            label?: string;
+            /**
+             * @description A value a person can read -- "90 days" for 7776000 -- beside the
+             *     value itself, never instead of it.
+             */
+            detail?: string;
         };
         /**
          * @description The access control rules that bear on one entry. Not an evaluation of
@@ -4871,6 +4969,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccessReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getPasswordPolicy: {
+        parameters: {
+            query: {
+                dn: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policy and the account's state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyReport"];
                 };
             };
             400: components["responses"]["BadRequest"];

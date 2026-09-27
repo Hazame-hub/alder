@@ -100,6 +100,7 @@ services:
     volumes:
       - ./seed:/seed:ro
       - ./ds389:/ds389:ro
+      - ./openldap:/openldap:ro
       - ./scripts:/scripts:ro
 
   # The 389 DS half of the opt-in bulk load, plus the count check for both

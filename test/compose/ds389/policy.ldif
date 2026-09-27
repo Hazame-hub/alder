@@ -1,0 +1,60 @@
+# Password policy for the 389 Directory Server side of the harness.
+#
+# The other half of what OpenLDAP does in policy.ldif and slapd.conf, in the
+# only shape this server has for it. 389 DS keeps the global policy as
+# attributes on cn=config -- they are already there, set by the container --
+# and a per-entry policy as a subentry under a container beside the entry it
+# governs, which local policies must be switched on for.
+#
+# The container and the subentry are written with RFC 4514 escapes rather than
+# the quoted form most 389 DS documentation uses: the quoted form is not a
+# legal RFC 4514 DN, and Alder's dn package refuses it. Both name the same
+# entry, and one of them can be read back by a client.
+
+dn: cn=config
+changetype: modify
+replace: nsslapd-pwpolicy-local
+nsslapd-pwpolicy-local: on
+-
+replace: passwordMinLength
+passwordMinLength: 8
+-
+replace: passwordMaxAge
+passwordMaxAge: 7776000
+-
+replace: passwordInHistory
+passwordInHistory: 3
+-
+replace: passwordLockout
+passwordLockout: on
+-
+replace: passwordMaxFailure
+passwordMaxFailure: 5
+-
+replace: passwordLockoutDuration
+passwordLockoutDuration: 900
+
+dn: cn=nsPwPolicyContainer,ou=people,dc=alder,dc=test
+changetype: add
+objectClass: top
+objectClass: nsContainer
+cn: nsPwPolicyContainer
+
+dn: cn=cn\=nsPwPolicyEntry\,uid\=user0004\,ou\=people\,dc\=alder\,dc\=test,cn=nsPwPolicyContainer,ou=people,dc=alder,dc=test
+changetype: add
+objectClass: top
+objectClass: extensibleObject
+objectClass: ldapsubentry
+objectClass: passwordpolicy
+passwordMinLength: 16
+passwordMaxAge: 2592000
+passwordInHistory: 10
+passwordMaxFailure: 3
+passwordLockout: on
+passwordLockoutDuration: 3600
+passwordMustChange: on
+
+dn: uid=user0004,ou=people,dc=alder,dc=test
+changetype: modify
+replace: pwdpolicysubentry
+pwdpolicysubentry: cn=cn\=nsPwPolicyEntry\,uid\=user0004\,ou\=people\,dc\=alder\,dc\=test,cn=nsPwPolicyContainer,ou=people,dc=alder,dc=test

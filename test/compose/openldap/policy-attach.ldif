@@ -1,0 +1,8 @@
+# One account held to the stricter policy, so that "which policy is in force
+# here?" has a different answer on one entry than on every other. Applied as a
+# modify after the entries exist.
+
+dn: uid=user0004,ou=people,dc=alder,dc=test
+changetype: modify
+replace: pwdPolicySubentry
+pwdPolicySubentry: cn=strict,ou=policies,dc=alder,dc=test

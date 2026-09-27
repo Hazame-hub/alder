@@ -13,6 +13,7 @@ set -eu
 
 SEED_DIR=${SEED_DIR:-/seed}
 SCHEMA_DIR=${SCHEMA_DIR:-/ds389}
+OPENLDAP_DIR=${OPENLDAP_DIR:-/openldap}
 ADMIN_DN="cn=admin,dc=alder,dc=test"
 ADMIN_PW=${OPENLDAP_ADMIN_PW:-alder-admin}
 DM_DN="cn=Directory Manager"
@@ -149,6 +150,28 @@ if ! ldapmodify -x -H "$DS389_URI" -D "$DM_DN" -w "$DM_PW" -f "$SCHEMA_DIR/acces
 		log "  (already applied)"
 	else
 		cat /tmp/access.log >&2
+		exit 1
+	fi
+fi
+
+# Password policy, each server in its own mechanism. OpenLDAP reads a policy
+# from an entry in the data tree and names a default in slapd.conf; 389 DS
+# keeps the global policy in cn=config and a per-entry one in a subentry.
+# There is no shared form for this, which is the point: Alder reports each
+# server's own and translates neither.
+log "applying the OpenLDAP password policies"
+add_ldif "$OPENLDAP_URI" "$ADMIN_DN" "$ADMIN_PW" "$OPENLDAP_DIR/policy.ldif"
+if ! ldapmodify -x -H "$OPENLDAP_URI" -D "$ADMIN_DN" -w "$ADMIN_PW" -f "$OPENLDAP_DIR/policy-attach.ldif" >/tmp/policy.log 2>&1; then
+	cat /tmp/policy.log >&2
+	exit 1
+fi
+
+log "applying the 389 DS password policy"
+if ! ldapmodify -x -H "$DS389_URI" -D "$DM_DN" -w "$DM_PW" -f "$SCHEMA_DIR/policy.ldif" >/tmp/dspolicy.log 2>&1; then
+	if grep -qi 'Already exists' /tmp/dspolicy.log; then
+		log "  (already applied)"
+	else
+		cat /tmp/dspolicy.log >&2
 		exit 1
 	fi
 fi

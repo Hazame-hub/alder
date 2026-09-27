@@ -58,6 +58,7 @@ import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
 import { ReferencedByButton } from "@/features/referenced-by";
 import { AccessButton } from "@/features/access";
+import { PolicyButton, looksLocked } from "@/features/policy";
 import { ExpandMembersButton } from "@/features/members";
 import { CompareButton } from "@/features/compare";
 import { DeleteSubtreeButton } from "@/features/delete-subtree";
@@ -279,6 +280,11 @@ function EntryHeader({
               <Badge variant="warning">no single structural class</Badge>
             )}
             {entry.hasChildren ? <Badge variant="outline">has children</Badge> : null}
+            {looksLocked(entry.attributes) ? (
+              <Badge variant="destructive" title="The server holds an attribute on this entry that locks the account">
+                account locked
+              </Badge>
+            ) : null}
           </div>
           <div className="mt-1 flex items-center gap-1.5">
             <p className="truncate font-dn text-muted-foreground" title={safeText(entry.dn)}>
@@ -326,6 +332,7 @@ function EntryHeader({
             />
           ) : null}
           <AccessButton dn={entry.dn} />
+          <PolicyButton dn={entry.dn} />
           <ExportButton dn={entry.dn} />
           {readOnly ? (
             <Badge variant="outline" className="gap-1">
