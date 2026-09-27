@@ -366,10 +366,14 @@ function TopBar({
   }, [dark]);
 
   const disconnect = async () => {
-    resetHealth();
     await api.DELETE("/session");
     await queryClient.invalidateQueries();
     queryClient.setQueryData(["session"], { connected: false });
+    // After the requests, not before them. Resetting first left the reset to
+    // be undone by whatever those two calls then recorded, which on a
+    // disconnect from a directory that had already stopped answering is a
+    // failure -- so the header kept its badge into the connection screen.
+    resetHealth();
     // Snapshot documents describe the server just left, and the next session
     // in this tab may be a different operator on a different directory.
     bench.clear();

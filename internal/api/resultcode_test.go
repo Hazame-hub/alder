@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 )
 
@@ -64,16 +65,36 @@ func TestAFailureTheDirectoryAnsweredKeepsItsResultCode(t *testing.T) {
 }
 
 func TestWhichCodesAreTheLibrarysOwn(t *testing.T) {
-	// 123 is authorizationDenied and 4096 is syncRefreshRequired: both are
-	// the protocol's, and both sit either side of the library's range.
-	for _, code := range []uint16{0, 32, 50, 53, 123, 4096} {
+	// The library's own numbers are 200 to 206 and nothing else. Everything
+	// on either side is the protocol's, allocated or not: 123 is
+	// authorizationDenied, 4096 is syncRefreshRequired, and 199 and 207 are
+	// unallocated -- and an unallocated code the directory really sent is
+	// still a code it sent, which the hint and the remedy are built from.
+	for _, code := range []uint16{0, 32, 50, 53, 123, 199, 207, 4095, 4096, 4097} {
 		if (&ldapdriver.Error{Code: code}).IsClientSide() {
 			t.Errorf("result code %d is treated as the library's own", code)
 		}
 	}
-	for _, code := range []uint16{200, 201, 205, 206} {
+	for code := uint16(200); code <= 206; code++ {
 		if !(&ldapdriver.Error{Code: code}).IsClientSide() {
 			t.Errorf("%d is the library's own number and is reported as a result code", code)
 		}
+	}
+}
+
+func TestAChangesetRunReportsCodesTheSameWay(t *testing.T) {
+	// The same rule on the other error path. A changeset is where an
+	// unexplained number costs most: the run has stopped, part of it has
+	// applied, and the operator is deciding what to do next.
+	caps := directory.Capabilities{}
+	record := directory.ChangeRecord{Type: directory.ChangeModify}
+
+	dead := errorBody(&ldapdriver.Error{Code: 200, Message: "Network Error"}, record, caps)
+	if dead.LdapCode != nil {
+		t.Errorf("a dead connection reports LDAP result code %d", *dead.LdapCode)
+	}
+	refused := errorBody(&ldapdriver.Error{Code: 50, Message: "Insufficient Access Rights"}, record, caps)
+	if refused.LdapCode == nil || *refused.LdapCode != 50 {
+		t.Errorf("a refusal lost its result code: %+v", refused.LdapCode)
 	}
 }

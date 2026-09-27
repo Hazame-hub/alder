@@ -862,15 +862,20 @@ function ValueDisplay({
  *
  * The split is on readOnly, which is the flag that actually means owned.
  */
-function groupAttributes(attributes: EntryAttribute[]) {
+export function groupAttributes(attributes: EntryAttribute[]) {
   return [
+    // `elsewhere` is excluded from both of these, not only from the
+    // operational pair. olcAccess is an ordinary attribute of an OpenLDAP
+    // database entry -- not operational at all -- so filtering it out of the
+    // operational groups alone rendered it twice: once under Optional with
+    // no explanation, and once under its own heading with one.
     {
       title: "Required",
-      items: attributes.filter((a) => a.required && !a.kind.operational),
+      items: attributes.filter((a) => a.required && !a.kind.operational && !a.kind.elsewhere),
     },
     {
       title: "Optional",
-      items: attributes.filter((a) => !a.required && !a.kind.operational),
+      items: attributes.filter((a) => !a.required && !a.kind.operational && !a.kind.elsewhere),
     },
     {
       title: "Operational — kept by the directory, yours to set",
@@ -888,9 +893,42 @@ function groupAttributes(attributes: EntryAttribute[]) {
       // to set" and "not editable here" in the same group is the
       // contradiction this whole split exists to remove.
       title: "Shown here, edited elsewhere",
-      items: attributes.filter((a) => !a.kind.readOnly && a.kind.elsewhere),
+      items: attributes.filter((a) => a.kind.elsewhere !== undefined && !a.kind.readOnly),
     },
   ];
+}
+
+/**
+ * Which attributes changed in the directory under an open editor.
+ *
+ * `original` is the frozen baseline the edit is computed against, `current`
+ * is what the directory holds now, and `draft` is what the operator has
+ * typed.
+ *
+ * An operational attribute counts only if the draft touches it. Those are
+ * moved by the server -- a failed bind bumps passwordRetryCount and
+ * retryCountResetTime on 389 DS with nobody touching anything -- and the
+ * banner this feeds is about a second administrator. Warning that applying
+ * will "overwrite the newer values" of an attribute the pending change does
+ * not mention is a warning about nothing, in front of somebody who was
+ * editing a description while the account's owner mistyped their password.
+ *
+ * If the draft does touch one, it is a real collision and the banner is
+ * exactly right.
+ */
+export function driftedAttributes(
+  original: Draft,
+  current: Draft,
+  draft: Draft,
+  operational: Set<string>,
+): string[] {
+  const same = (a?: string[], b?: string[]) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+  const names = new Set([...Object.keys(original), ...Object.keys(current)]);
+  return [...names].filter((name) => {
+    if (same(original[name], current[name])) return false;
+    if (!operational.has(name.toLowerCase())) return true;
+    return !same(draft[name], original[name]);
+  });
 }
 
 /* --- edit mode ------------------------------------------------------------ */
@@ -973,13 +1011,30 @@ function EntryEditor({
   // If the entry changed in the directory while it was being edited, say so.
   // Applying regardless is legitimate -- a replace says what the attribute ends
   // up as -- but the user should know they are overwriting someone.
-  const drifted = useMemo(() => {
-    const current = snapshot(entry.attributes);
-    const names = new Set([...Object.keys(original), ...Object.keys(current)]);
-    return [...names].filter(
-      (name) => JSON.stringify(original[name] ?? []) !== JSON.stringify(current[name] ?? []),
-    );
-  }, [entry.attributes, original]);
+  //
+  // "Someone" is the word that decides what counts. The banner exists for a
+  // second administrator, and the settable operational attributes that the
+  // editor now offers are moved by the *server*: a failed bind bumps
+  // passwordRetryCount and retryCountResetTime on 389 DS with nobody
+  // touching anything. Reporting that as a concurrent edit would put a
+  // warning about overwriting a colleague in front of somebody editing a
+  // description while the account's owner mistyped their password twice --
+  // and the pending change does not mention those attributes at all, because
+  // computeMods only emits what the draft actually changed.
+  //
+  // Unless the draft *has* changed one, in which case it is a genuine
+  // collision and the warning is exactly right.
+  const operationalNames = useMemo(
+    () =>
+      new Set(
+        entry.attributes.filter((a) => a.kind.operational).map((a) => a.name.toLowerCase()),
+      ),
+    [entry.attributes],
+  );
+  const drifted = useMemo(
+    () => driftedAttributes(original, snapshot(entry.attributes), draft, operationalNames),
+    [entry.attributes, original, draft, operationalNames],
+  );
 
   const available = useMemo(() => {
     const present = new Set(

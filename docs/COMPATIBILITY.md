@@ -357,9 +357,12 @@ addition unless it says otherwise.
   so they are absent from `requirements.may`, from
   `requirements.settableOperational` and from `candidateKinds`. They are still
   read, still exported and still shown, with `elsewhere` saying why there is
-  no field for them. The subschema definition attributes are held back the
-  same way; the schema editor writes those one definition at a time. Alder
-  does not write access rules, and the entry editor was a way around that.
+  no field for them. The schema definition attributes are held back the same
+  way -- both the subschema's (`objectClasses`, `attributeTypes`, ...) and
+  OpenLDAP's writable `olcAttributeTypes` and `olcObjectClasses` -- because
+  the schema editor writes those one definition at a time, and a text box
+  holding fifty of them can only express a replacement of the lot. Alder does
+  not write access rules, and the entry editor was a way around that.
 - **A settable operational attribute an entry already carries is editable**
   (1.30). Nothing changed on the wire for this: `operational` and `readOnly`
   were both reported correctly all along and the interface read the wrong one.

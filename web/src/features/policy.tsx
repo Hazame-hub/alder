@@ -277,7 +277,9 @@ function UnlockAction({
           variant="outline"
           size="sm"
           onClick={() => setOpen(true)}
-          title={compact ? `${unlock.why} — ${unlock.attributes.join(", ")}` : undefined}
+          title={
+            compact ? safeText(`${unlock.why} — ${unlock.attributes.join(", ")}`) : undefined
+          }
         >
           <LockOpen />
           {compact ? "Unlock" : "Unlock this account"}

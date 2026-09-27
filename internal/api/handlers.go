@@ -862,15 +862,16 @@ func (s *Server) GetRequirements(c *fiber.Ctx, params GetRequirementsParams) err
 	}
 
 	req := sch.Requirements(params.Class)
-	names := append(append([]string{}, req.Must...), req.May...)
+	view := requirementsView(req, sch)
+	// One kind per name the view actually lists. Building them from the
+	// unfiltered must and may described attributes the same response had
+	// just declined to offer, which is a document disagreeing with itself.
+	names := append(append([]string{}, deref(view.Must)...), deref(view.May)...)
 	kinds := make([]AttributeKind, 0, len(names))
 	for _, name := range names {
 		kinds = append(kinds, attributeKind(sch.KindOf(name)))
 	}
-	return c.JSON(RequirementsView{
-		Requirements: requirementsView(req, sch),
-		Kinds:        kinds,
-	})
+	return c.JSON(RequirementsView{Requirements: view, Kinds: kinds})
 }
 
 func (s *Server) GetObjectClass(c *fiber.Ctx, name string) error {

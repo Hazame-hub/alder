@@ -47,11 +47,25 @@ func editedElsewhere(name string) string {
 		return "Alder reads access rules and does not write them. The Access panel shows what this holds."
 	case "objectclasses", "attributetypes", "ldapsyntaxes", "matchingrules",
 		"matchingruleuse", "ditcontentrules", "ditstructurerules", "nameforms",
-		"ldapschemas":
+		"ldapschemas",
+		// And OpenLDAP's own spellings, which are the ones that matter.
+		//
+		// The list above is the subschema's, and on OpenLDAP the subschema is
+		// a generated view: those attributes come back NO-USER-MODIFICATION
+		// and were never editable anyway. The schema OpenLDAP actually writes
+		// lives at cn={0}core,cn=schema,cn=config and is carried by these,
+		// which slapd's configuration schema declares as ordinary user
+		// attributes -- no operational usage, no NO-USER-MODIFICATION. Which
+		// is exactly the shape olcAccess had: measured on the harness, that
+		// entry opened as 52 text boxes holding the core attribute
+		// definitions, ordering prefixes and all.
+		"olcobjectclasses", "olcattributetypes", "olcldapsyntaxes",
+		"olcditcontentrules", "olcobjectidentifier":
 		// The subschema entry carries a thousand of these on 389 DS. A schema
 		// change is an add or a delete of one definition; a replace of the
 		// whole attribute is not a schema edit, it is a schema replacement,
-		// and no text box should be able to express it by accident.
+		// and no text box should be able to express it by accident. There is
+		// a path that writes them one at a time, and it is the schema editor.
 		return "the schema editor writes these, one definition at a time"
 	}
 	return ""

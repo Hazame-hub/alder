@@ -378,7 +378,14 @@ func (e *Error) Error() string {
 // protocol's result codes, which stop at 123 (and 4096 for sync refresh
 // required). They are not result codes: the directory did not send them, and
 // 200 in particular is not "success" in any protocol Alder speaks.
-func (e *Error) IsClientSide() bool { return e.Code >= 200 && e.Code < 4096 }
+//
+// The library's own numbers exactly, rather than everything above 199. A
+// wider range would quietly swallow any future result code allocated in
+// between, and swallowing a code the directory really sent is the more
+// expensive mistake: the hint and the remedy are built from it.
+func (e *Error) IsClientSide() bool {
+	return e.Code >= ldap.ErrorNetwork && e.Code <= ldap.ErrorEmptyPassword
+}
 
 // IsNoSuchObject reports the result code for an entry that does not exist, so
 // the API can answer 404 rather than 500.

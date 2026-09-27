@@ -74,14 +74,29 @@ func TestALockedAccountCanBeUnlockedFromTheReportThatFoundIt(t *testing.T) {
 			t.Errorf("%s: an unlock that does not say what it removes: %s", s.name, mustEncode(t, locked.Unlock))
 		}
 		// It must name the attribute this server actually used, spelled the
-		// way the server spelled it -- a change is sent, not guessed at.
-		named := false
+		// way the server spells it -- a change is sent, not guessed at.
+		//
+		// Exactly, not case-insensitively. The spelling travels further than
+		// it looks: a search returns an attribute name as it was asked for,
+		// and the unlock is built from the name the entry came back with, so
+		// asking in lower case produced an LDIF preview reading
+		// `delete: nsaccountlock` under a viewer that had just said
+		// `nsAccountLock`. The wire does not care; the operator confirming
+		// the preview does.
+		named, foldedOnly := false, false
 		for _, a := range locked.Unlock.Attributes {
-			if strings.EqualFold(a, s.lockAttr) {
+			switch {
+			case a == s.lockAttr:
 				named = true
+			case strings.EqualFold(a, s.lockAttr):
+				foldedOnly = true
 			}
 		}
-		if !named {
+		if !named && foldedOnly {
+			t.Errorf("%s: the unlock removes %v; the attribute is spelled %s",
+				s.name, locked.Unlock.Attributes, s.lockAttr)
+		}
+		if !named && !foldedOnly {
 			t.Errorf("%s: the unlock removes %v and the lock is in %s",
 				s.name, locked.Unlock.Attributes, s.lockAttr)
 		}

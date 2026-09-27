@@ -55,15 +55,34 @@ const listeners = new Set<() => void>();
 let failure: Extract<Health, { kind: "unreachable" }> | null = null;
 
 /**
- * Directory requests currently in flight, by the query cache's hash for them,
- * and when each started.
+ * Directory requests currently in flight, by the cache's hash for them, and
+ * when each started.
  *
  * Per request rather than a count, because a count that never reaches zero
  * during ordinary navigation would make every busy moment look like a stall.
  * What matters is whether any *one* request has been outstanding too long.
+ *
+ * Reconciled from the cache rather than accumulated from events. The first
+ * version counted `fetch` events up and `success`/`error` events down, which
+ * is only correct if every fetch ends in one of those two -- and it does not.
+ * A query removed while fetching, or one paused because the browser went
+ * offline, leaves nothing behind to subtract, and one leaked entry pins the
+ * badge on for the rest of the session. Asking the cache what is fetching
+ * *now* cannot leak: whatever is no longer in the answer is no longer in
+ * flight.
  */
 const inFlight = new Map<string, number>();
 let timer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * When the current wait began, held separately from the oldest request.
+ *
+ * The badge counts the wait, not the request. Recomputing the number from
+ * the oldest in-flight request every second makes it jump *backwards* when
+ * that request is the one that comes back and a younger one is still going,
+ * which reads as the clock being wrong rather than as progress.
+ */
+let waitingSince: number | undefined;
 
 function publish(next: Health) {
   if (same(next, health)) return;
@@ -152,22 +171,32 @@ export function answersFromMemory(key: unknown): boolean {
   return typeof key === "string" && answeredFromMemory.has(key);
 }
 
-/**
- * A request to the directory started.
- *
- * `hash` identifies this request to the cache -- the same query refetching is
- * the same hash, which is what keeps a refetch from counting twice.
- */
-export function noteFetchStart(hash: string, key: unknown, now = Date.now()) {
-  if (answersFromMemory(key)) return;
-  if (!inFlight.has(hash)) inFlight.set(hash, now);
-  recompute(now);
-}
+/** One request the cache says is running now. */
+export type Running = {
+  /** The cache's identifier for it. A refetch of the same query reuses it,
+   *  which is what keeps a refetch from counting as a second request. */
+  hash: string;
+  /** The first element of the query or mutation key, which is the route. */
+  key: unknown;
+};
 
-/** It finished, whichever way. */
-export function noteFetchEnd(hash: string) {
-  if (!inFlight.delete(hash)) return;
-  recompute();
+/**
+ * Everything the caches say is running, as of now.
+ *
+ * Called on every cache event with the whole list, not with one request at a
+ * time: see the note on `inFlight` for why a running total is the wrong
+ * shape here. Requests Alder answers from memory are dropped, so a slow
+ * `/session` never accuses the directory of anything.
+ */
+export function noteInFlight(running: Running[], now = Date.now()) {
+  const next = new Map<string, number>();
+  for (const r of running) {
+    if (answersFromMemory(r.key)) continue;
+    next.set(r.hash, inFlight.get(r.hash) ?? now);
+  }
+  inFlight.clear();
+  for (const [hash, since] of next) inFlight.set(hash, since);
+  recompute(now);
 }
 
 /**
@@ -189,16 +218,30 @@ function recompute(now = Date.now()) {
   let oldest = Infinity;
   for (const since of inFlight.values()) oldest = Math.min(oldest, since);
 
+  if (oldest === Infinity) {
+    // Nothing is running, so whatever wait there was is over.
+    waitingSince = undefined;
+  } else if (waitingSince === undefined || oldest < waitingSince) {
+    // A wait begins at the oldest request running when it began, and only
+    // moves earlier -- a request that started before the ones already
+    // counted has been waiting longer, and the badge should say so.
+    waitingSince = oldest;
+  }
+
   if (failure) {
     publish(failure);
-  } else if (oldest !== Infinity && now - oldest >= SLOW_AFTER_MS) {
-    publish({ kind: "waiting", since: oldest, seconds: Math.floor((now - oldest) / 1000) });
+  } else if (waitingSince !== undefined && now - waitingSince >= SLOW_AFTER_MS) {
+    publish({
+      kind: "waiting",
+      since: waitingSince,
+      seconds: Math.floor((now - waitingSince) / 1000),
+    });
   } else {
     publish({ kind: "ok" });
   }
 
-  if (oldest === Infinity) return;
-  const untilSlow = oldest + SLOW_AFTER_MS - now;
+  if (waitingSince === undefined) return;
+  const untilSlow = waitingSince + SLOW_AFTER_MS - now;
   timer = setTimeout(() => recompute(), untilSlow > 0 ? untilSlow : 1000);
 }
 
@@ -206,6 +249,7 @@ function recompute(now = Date.now()) {
 export function resetHealth() {
   failure = null;
   inFlight.clear();
+  waitingSince = undefined;
   if (timer !== undefined) {
     clearTimeout(timer);
     timer = undefined;

@@ -353,8 +353,15 @@ func errorBody(err error, record directory.ChangeRecord, caps directory.Capabili
 	body := Error{Error: ErrorErrorUpstream, Message: err.Error()}
 	var ldapErr *ldapdriver.Error
 	if errors.As(err, &ldapErr) {
-		code := int(ldapErr.Code)
-		body.LdapCode = &code
+		// Only a code the directory actually sent, the same rule the
+		// single-change path follows. The library numbers its own conditions
+		// from 200 in the same field, and a run that stopped because the
+		// connection died reported "LDAP result code 200" beside the record
+		// it stopped on.
+		if !ldapErr.IsClientSide() {
+			code := int(ldapErr.Code)
+			body.LdapCode = &code
+		}
 		if hint := ldapHint(ldapErr.Code, record, caps); hint != "" {
 			body.Hint = &hint
 		}

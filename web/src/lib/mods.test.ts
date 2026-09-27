@@ -136,13 +136,19 @@ describe("snapshot", () => {
   });
 
   it("excludes an attribute Alder has decided not to write", () => {
-    // Writable, and still not offered: an access rule is read here and
-    // changed somewhere that is not a text box beside telephoneNumber.
+    // Writable, ordinary, and still not offered. olcAccess rather than aci
+    // on purpose: aci is operational, so a fixture using it would still be
+    // excluded by the rule this one is meant to be testing instead of by
+    // `elsewhere`. olcAccess is an ordinary attribute of an OpenLDAP
+    // database entry, which is exactly why nothing filtered it before.
     const attrs = [
       attr("cn", ["alice"]),
       {
-        ...attr("aci", ["(targetattr=...)"]),
-        kind: kind({ name: "aci", operational: true, elsewhere: "Alder reads access rules and does not write them." }),
+        ...attr("olcAccess", ["{0}to * by * read"]),
+        kind: kind({
+          name: "olcAccess",
+          elsewhere: "Alder reads access rules and does not write them.",
+        }),
       },
     ];
     expect(Object.keys(snapshot(attrs))).toEqual(["cn"]);

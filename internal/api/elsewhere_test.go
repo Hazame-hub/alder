@@ -48,6 +48,24 @@ func TestTheEditorSendsSchemaDefinitionsToTheSchemaEditor(t *testing.T) {
 	}
 }
 
+func TestTheEditorHoldsBackTheSchemaOpenLDAPActuallyWrites(t *testing.T) {
+	// The names above are the subschema's, and on OpenLDAP the subschema is a
+	// generated view whose attributes are NO-USER-MODIFICATION -- so covering
+	// only those covered the half that was never reachable. The writable half
+	// is cn={0}core,cn=schema,cn=config, carried by these, which slapd's
+	// configuration schema declares as ordinary user attributes. Measured on
+	// the harness before the fix: that entry opened as 52 editable text boxes
+	// holding the core attribute definitions.
+	for _, name := range []string{
+		"olcAttributeTypes", "olcObjectClasses", "olcLdapSyntaxes",
+		"olcDitContentRules", "olcObjectIdentifier",
+	} {
+		if editedElsewhere(name) == "" {
+			t.Errorf("%s is editable in the entry editor, so one keystroke replaces a whole schema", name)
+		}
+	}
+}
+
 func TestOrdinaryAttributesAreStillOffered(t *testing.T) {
 	// The exclusion is four lines of switch, and a switch that grows by
 	// accident takes the editor with it.

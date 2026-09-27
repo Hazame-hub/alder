@@ -54,6 +54,17 @@ const report = (unlock: PolicyReport["unlock"]): PolicyReport =>
     unlock,
   }) as PolicyReport;
 
+/** The rendered words, with the markup taken out. */
+function textOf(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function headerMarkup(data: PolicyReport | undefined, readOnly = false): string {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (data) client.setQueryData(["policy", DN], data);
@@ -73,9 +84,15 @@ describe("the unlock beside the badge", () => {
         change: { dn: DN, type: "modify", mods: [{ op: "delete", name: "nsAccountLock" }] },
       }),
     );
-    expect(html).toContain("Unlock");
-    // The reason travels with it, so the button is not a verb with no object.
+    // The word on the button, not only in its tooltip: a title attribute is
+    // not shown to somebody who is looking at the screen rather than
+    // hovering it, and the button is the whole point of the finding.
+    expect(textOf(html)).toContain("Unlock");
+    // The reason travels with it, so the button is not a verb with no
+    // object. It is in the tooltip because the header has room for the
+    // button and not the sentence; the dialog prints it in full.
     expect(html).toContain("nsAccountLock");
+    expect(html).toContain("clears the administrative lock");
   });
 
   it("offers nothing for a lock Alder does not know how to clear", () => {

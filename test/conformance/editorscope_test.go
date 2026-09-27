@@ -110,7 +110,6 @@ func TestTheEditorDoesNotOfferToRewriteAnAccessRule(t *testing.T) {
 	eachServer(t, func(t *testing.T, s server, _ directory.Session) {
 		client, base := alderSession(t, s, s.schemaBindDN != "")
 
-		// Where this server keeps its rules, and an entry that holds one.
 		// An entry that actually holds one, on each server: the seed puts an
 		// aci on uid=user0002, and OpenLDAP keeps its rules on the database
 		// entry in the configuration tree.
@@ -120,36 +119,53 @@ func TestTheEditorDoesNotOfferToRewriteAnAccessRule(t *testing.T) {
 		}
 
 		view := entryOf(t, client, base, target)
-		if held := attributeOf(view, attribute); held != nil {
-			if held.Kind.Elsewhere == nil || *held.Kind.Elsewhere == "" {
-				t.Errorf("%s: %s on %s is editable with nothing saying otherwise",
-					s.name, attribute, target)
-			} else {
-				t.Logf("%s: %s is shown and not editable -- %q", s.name, attribute, *held.Kind.Elsewhere)
-			}
-		} else {
-			t.Errorf("%s: %s holds no %s, so this case proves nothing about it",
+		held := attributeOf(view, attribute)
+		if held == nil {
+			t.Fatalf("%s: %s holds no %s, so this case proves nothing about it",
 				s.name, target, attribute)
 		}
+		if held.Kind.Elsewhere == nil || *held.Kind.Elsewhere == "" {
+			t.Errorf("%s: %s on %s is editable with nothing saying otherwise",
+				s.name, attribute, target)
+		} else {
+			t.Logf("%s: %s is shown and not editable -- %q", s.name, attribute, *held.Kind.Elsewhere)
+		}
 
-		// And it is not offered as something to add, either -- which is how
-		// it was reachable on every entry that did not already have one.
-		for _, name := range strs(view.Requirements.SettableOperational) {
-			if strings.EqualFold(name, attribute) {
-				t.Errorf("%s: the attribute picker offers %s, so an access rule can be "+
-					"written from the entry editor", s.name, attribute)
+		// And neither name is offered as something to add, on either server.
+		//
+		// Both names on both servers, deliberately. They reach the picker by
+		// different routes -- aci is operational and settable, so it arrives
+		// in settableOperational; olcAccess is an ordinary attribute of a
+		// configuration entry, so it arrives in may -- and checking only the
+		// attribute a given server uses left each list unexercised on one of
+		// the two, silently.
+		lists := map[string][]string{
+			"may":                 strs(view.Requirements.May),
+			"settableOperational": strs(view.Requirements.SettableOperational),
+			"must":                strs(view.Requirements.Must),
+		}
+		for where, names := range lists {
+			for _, name := range names {
+				if strings.EqualFold(name, "aci") || strings.EqualFold(name, "olcAccess") {
+					t.Errorf("%s: the attribute picker offers %s (from %s), so an access "+
+						"rule can be written from the entry editor", s.name, name, where)
+				}
 			}
 		}
-		for _, name := range strs(view.Requirements.May) {
-			if strings.EqualFold(name, attribute) {
-				t.Errorf("%s: %s is in the may list the picker is built from", s.name, attribute)
+
+		// candidateKinds describes what the picker could add. An empty one
+		// would make the loop below prove nothing, so say so.
+		candidates := kinds(view.CandidateKinds)
+		if len(candidates) == 0 {
+			t.Errorf("%s: the entry view offers no candidate attributes at all, so this "+
+				"assertion is vacuous", s.name)
+		}
+		for _, k := range candidates {
+			if strings.EqualFold(k.Name, "aci") || strings.EqualFold(k.Name, "olcAccess") {
+				t.Errorf("%s: %s is described as a candidate the editor could add", s.name, k.Name)
 			}
 		}
-		for _, k := range kinds(view.CandidateKinds) {
-			if strings.EqualFold(k.Name, attribute) {
-				t.Errorf("%s: %s is described as a candidate the editor could add", s.name, attribute)
-			}
-		}
+		t.Logf("%s: %d candidates offered, none of them an access rule", s.name, len(candidates))
 	})
 }
 
@@ -164,23 +180,75 @@ func TestTheSubschemaIsNotATextBox(t *testing.T) {
 		client, base := alderSession(t, s, s.schemaBindDN != "")
 		caps := sess.Capabilities()
 		if caps.SubschemaSubentry == "" {
-			t.Skip("this server does not say where its subschema is")
+			// Not a skip. Both servers publish it, the suite reads the schema
+			// through it on every other case, and a skip here would mean this
+			// case had quietly stopped running.
+			t.Fatalf("%s does not say where its subschema is", s.name)
 		}
 
 		view := entryOf(t, client, base, caps.SubschemaSubentry)
+		found := 0
 		for _, name := range []string{"objectClasses", "attributeTypes"} {
 			held := attributeOf(view, name)
 			if held == nil {
-				t.Errorf("%s: the subschema entry carries no %s, so this case proves nothing",
-					s.name, name)
 				continue
 			}
+			found++
 			if held.Kind.Elsewhere == nil || *held.Kind.Elsewhere == "" {
 				t.Errorf("%s: %s on the subschema is offered as an editable field holding %d values",
 					s.name, name, len(held.Values))
 			}
 		}
+		if found == 0 {
+			t.Errorf("%s: the subschema entry at %s carries neither objectClasses nor "+
+				"attributeTypes, so this case proves nothing", s.name, caps.SubschemaSubentry)
+		}
 		t.Logf("%s: %s is read here and written by the schema editor", s.name, caps.SubschemaSubentry)
+	})
+}
+
+// TestTheSchemaOpenLDAPActuallyWritesIsNotATextBoxEither.
+//
+// The case above reads the subschema, and on OpenLDAP the subschema is a
+// generated view: its definition attributes are NO-USER-MODIFICATION and were
+// never editable. The schema slapd actually writes lives in the configuration
+// tree, carried by olcAttributeTypes and olcObjectClasses, which slapd's own
+// configuration schema declares as ordinary user attributes -- no operational
+// usage, no NO-USER-MODIFICATION, exactly the shape olcAccess had.
+//
+// Before this was closed, cn={0}core,cn=schema,cn=config opened in the entry
+// editor as fifty-two text boxes holding the core attribute definitions, and
+// one character changed in one of them produced a replace of the whole set.
+func TestTheSchemaOpenLDAPActuallyWritesIsNotATextBoxEither(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, _ directory.Session) {
+		if s.schemaBindDN == "" {
+			t.Skipf("%s keeps no schema in a configuration tree Alder binds to separately", s.name)
+		}
+		client, base := alderSession(t, s, true)
+
+		view := entryOf(t, client, base, "cn={0}core,cn=schema,cn=config")
+		found := 0
+		for _, name := range []string{"olcAttributeTypes", "olcObjectClasses"} {
+			held := attributeOf(view, name)
+			if held == nil {
+				continue
+			}
+			found++
+			if isTrue(held.Kind.ReadOnly) {
+				// Then the premise is wrong and this case is pointless, which
+				// is worth knowing.
+				t.Errorf("%s: %s is NO-USER-MODIFICATION after all", s.name, name)
+			}
+			if held.Kind.Elsewhere == nil || *held.Kind.Elsewhere == "" {
+				t.Errorf("%s: %s is editable, holding %d definitions -- one keystroke "+
+					"in the entry editor replaces the whole schema", s.name, name, len(held.Values))
+			}
+		}
+		if found == 0 {
+			t.Errorf("%s: cn={0}core,cn=schema,cn=config carries neither olcAttributeTypes "+
+				"nor olcObjectClasses, so this case proves nothing", s.name)
+		}
+		t.Logf("%s: the writable schema is read here and written by the schema editor", s.name)
 	})
 }
 
