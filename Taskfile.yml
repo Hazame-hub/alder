@@ -153,10 +153,23 @@ tasks:
       - go run ./test/compose/seed/gen -out test/compose/seed
 
   compose:up:
-    desc: Bring the two directory servers up and seed them
+    desc: Bring the four directory servers up, seed them and start replication
     cmds:
-      - "{{.COMPOSE}} up --build --detach --wait certs openldap ds389"
+      # certs on its own first, and force-recreated. A container that exited
+      # successfully satisfies service_completed_successfully for ever, so an
+      # edit to certgen.sh -- adding a server to the harness, say -- would
+      # otherwise never run again, and the new server would start without a
+      # certificate. Issuing is per file and idempotent, so this costs a
+      # second and changes nothing when there is nothing to do.
+      # No --wait: it treats a container that exits as a failure, and this
+      # one is meant to exit. The next line waits for it through the
+      # service_completed_successfully the servers already declare.
+      - "{{.COMPOSE}} up --build --detach --force-recreate certs"
+      - "{{.COMPOSE}} up --build --detach --wait openldap ds389 openldap-replica ds389-replica"
       - "{{.COMPOSE}} run --rm --build seed"
+      # After the seed: the 389 DS agreement is created with --init, so the
+      # consumer is filled from what the supplier holds at that moment.
+      - "{{.COMPOSE}} run --rm replicate"
 
   compose:bulk:
     desc: 'Rebuild the harness with N generated filler entries under ou=bulk, loaded offline. Usage: task compose:bulk -- 100000'
@@ -179,7 +192,7 @@ tasks:
     cmds:
       - go run ./test/compose/seed/gen -bulk {{.COUNT}} -out test/compose/bulk
       - "{{.COMPOSE}} down --remove-orphans"
-      - "{{.COMPOSE}} up --build --detach --wait certs openldap ds389"
+      - "{{.COMPOSE}} up --build --detach --wait certs openldap ds389 openldap-replica ds389-replica"
       # No --build on these two, unlike compose:up. The image is already built
       # by the line above, and a rebuild here leaves the running openldap
       # container out of date against its image -- so the *next* `compose run`
@@ -187,6 +200,7 @@ tasks:
       # slapadded into. The count check at the end of bulk.sh is what caught
       # that: OpenLDAP held the filler and none of the fixtures.
       - "{{.COMPOSE}} run --rm seed"
+      - "{{.COMPOSE}} run --rm replicate"
       - "{{.COMPOSE}} run --rm bulk"
 
   compose:down:

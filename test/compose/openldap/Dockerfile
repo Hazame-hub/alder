@@ -18,22 +18,29 @@ RUN apt-get update \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Which of the two configurations this image is built with: the supplier's,
+# or the consumer's. One Dockerfile rather than two, because everything else
+# about the two containers -- the schema, the entrypoint, the tools -- is the
+# same, and a second copy of all of it would be a second thing to keep in step.
+ARG SLAPD_CONF=slapd.conf
+
 COPY alder.schema /etc/ldap/schema/alder.schema
-COPY slapd.conf /etc/ldap/slapd.conf
+COPY slapd.conf slapd-replica.conf /etc/ldap/
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# Convert slapd.conf into a cn=config database at build time. Doing it here
-# rather than at start-up means a broken configuration fails the build instead
-# of producing a container that half works.
+# Convert the chosen configuration into a cn=config database at build time.
+# Doing it here rather than at start-up means a broken configuration fails the
+# build instead of producing a container that half works.
 #
-# TLS is deliberately absent from slapd.conf: slaptest resolves certificate
+# TLS is deliberately absent from both files: slaptest resolves certificate
 # paths, and the certificates do not exist until the certs service has run.
 # entrypoint.sh writes them into cn=config offline, before slapd starts.
+ARG SLAPD_CONF
 RUN set -eux; \
     rm -rf /etc/ldap/slapd.d; \
     mkdir -p /etc/ldap/slapd.d /var/lib/ldap /var/run/slapd; \
-    slaptest -f /etc/ldap/slapd.conf -F /etc/ldap/slapd.d; \
-    rm -f /etc/ldap/slapd.conf; \
+    slaptest -f "/etc/ldap/$SLAPD_CONF" -F /etc/ldap/slapd.d; \
+    rm -f /etc/ldap/slapd.conf /etc/ldap/slapd-replica.conf; \
     chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 389 636
