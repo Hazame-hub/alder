@@ -96,9 +96,10 @@ function InventoryDialog({ base, initial, onClose }: {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent wide>
+      <DialogContent wide className="inventory-dialog">
         <DialogHeader>
-          <DialogTitle>Values</DialogTitle>
+          <p className="screen-kicker">Directory intelligence</p>
+          <DialogTitle className="text-xl tracking-tight">Values</DialogTitle>
           <DialogDescription>
             What one attribute holds under <span className="font-dn">{safeText(base)}</span>,
             and how many entries carry each.
