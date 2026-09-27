@@ -248,8 +248,9 @@ export function ConfigDiffView({
         <div className="space-y-2 rounded-md border p-3">
           <div className="text-sm font-medium">Configuration objects</div>
           <p className="text-xs text-muted-foreground">
-            Databases, overlays, backends and plugins one side has and the other does not. Alder creates and removes
-            one kind: an OpenLDAP overlay whose module the server has already loaded.
+            Databases, overlays, backends, plugins and indexes one side has and the other does not. Alder creates
+            and removes two kinds: an OpenLDAP overlay whose module the server has already loaded, and an index, on
+            either server. Everything else is listed with the reason it is listed only.
           </p>
           <ul className="space-y-1">
             {shownObjects.map((object) => (
