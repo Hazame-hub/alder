@@ -178,3 +178,10 @@ nobody can read would be a list with no subject.
 
 For the other half of "why did that fail?", see
 [Password policy](PASSWORD-POLICY.md).
+
+## Reached from a refusal
+
+Since 1.22 a change the directory refuses carries `remedy` beside the hint:
+where to look, and for which entry. An `insufficientAccessRights` on an entry
+points here, and the button on the error opens this report on that entry --
+which is the whole point of having read the rules at all.

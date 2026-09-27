@@ -76,6 +76,13 @@ A policy attribute Alder does not recognise is **still reported**, with its
 value: a setting nobody here has heard of is still in force. A value it can
 read for a person is glossed beside the value, never instead of it.
 
+## Reached from a refusal
+
+A password the server refuses on policy grounds comes back as
+`constraintViolation`, which says nothing about which rule. Since 1.22 that
+refusal carries `remedy` pointing here, on that entry, so the policy actually
+in force is one click away rather than three screens away.
+
 ## The API
 
 `GET /policy?dn=<dn>` returns a `PolicyReport`. Read-only; there is no

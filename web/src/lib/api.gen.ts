@@ -1306,6 +1306,7 @@ export interface components {
              *     for.
              */
             hint?: string;
+            remedy?: components["schemas"]["Remedy"];
         };
         ErrorAffected: {
             index: number;
@@ -2106,6 +2107,29 @@ export interface components {
             resources: components["schemas"]["ConfigResource"][];
             settings: components["schemas"]["ConfigSetting"][];
             checksum?: string;
+        };
+        /**
+         * @description Where to look about a refusal (1.22). The hint says what the result
+         *     code usually means; this says which screen answers it, and for which
+         *     entry. It is a pointer, not a diagnosis: Alder is not claiming the
+         *     access rules are the reason, only that they are where somebody would
+         *     look next.
+         */
+        Remedy: {
+            /**
+             * @description `access`, `policy` and `schema` each name a view of the entry in
+             *     `dn`. `parent` names the entry above the one that could not be
+             *     added. `config-identity` is not a screen: the session needs a
+             *     second identity, supplied when connecting.
+             * @enum {string}
+             */
+            kind: "access" | "policy" | "schema" | "parent" | "config-identity";
+            /** @description The entry the screen should be opened on. */
+            dn?: string;
+            /** @description The attribute the refusal was about, where one was. */
+            attribute?: string;
+            /** @description What to call the way in, in a person's words. */
+            label: string;
         };
         /**
          * @description The password policy in force on an entry and what the server records

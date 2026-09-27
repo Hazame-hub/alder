@@ -268,6 +268,11 @@ func (s *Server) failChange(
 		if hint := ldapHint(ldapErr.Code, record, caps); hint != "" {
 			c.Locals(hintLocal, hint)
 		}
+		// And where to look about it, which is a thing Alder can answer since
+		// it learned to read access rules and password policies.
+		if remedy := ldapRemedy(ldapErr.Code, record, caps); remedy != nil {
+			c.Locals(remedyLocal, remedy)
+		}
 	}
 	return s.fail(c, err)
 }
@@ -276,11 +281,17 @@ func (s *Server) failChange(
 // threading it through every error path that has nothing to explain.
 const hintLocal = "alder.ldap.hint"
 
+// remedyLocal carries where to look, the same way.
+const remedyLocal = "alder.ldap.remedy"
+
 func writeErrorWithLDAP(c *fiber.Ctx, status int, code ErrorError, message, detail string, ldapCode uint16) error {
 	n := int(ldapCode)
 	body := Error{Error: code, Message: message, Detail: &detail, LdapCode: &n}
 	if hint, ok := c.Locals(hintLocal).(string); ok && hint != "" {
 		body.Hint = &hint
+	}
+	if remedy, ok := c.Locals(remedyLocal).(*Remedy); ok && remedy != nil {
+		body.Remedy = remedy
 	}
 	return c.Status(status).JSON(body)
 }

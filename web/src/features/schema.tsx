@@ -39,9 +39,12 @@ type Section = "objectClasses" | "attributeTypes" | "syntaxes" | "matchingRules"
  * search runs over names, OIDs and descriptions at once, because "which
  * attribute holds a phone number" is the question people actually have.
  */
-export function SchemaBrowser() {
-  const [section, setSection] = useState<Section>("objectClasses");
-  const [query, setQuery] = useState("");
+export function SchemaBrowser({ initialQuery }: { initialQuery?: string } = {}) {
+  // Opening the browser already looking for something is how a refusal points
+  // at the definition it was about: "the schema defines no attribute of that
+  // name" is a sentence, and the attribute is where to read next.
+  const [section, setSection] = useState<Section>(initialQuery ? "attributeTypes" : "objectClasses");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [selected, setSelected] = useState<string | null>(null);
   /*
    * Two shapes for two questions.

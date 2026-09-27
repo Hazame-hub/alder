@@ -324,6 +324,15 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.22 added one field to an error, and nothing else:
+
+- **`remedy` on the error body**, beside the existing `hint`: where to look
+  about a refusal -- the access rules, the password policy, the schema, or the
+  parent that is missing -- with the entry to open it on. A client that
+  ignores it sees exactly what 1.21 returned.
+- **`find` in the interface's query string**, so the schema browser can be
+  opened looking for an attribute.
+
 1.21 added one endpoint, and changed how one DN is written:
 
 - **`GET /policy?dn=`** reports the password policy in force on an entry and

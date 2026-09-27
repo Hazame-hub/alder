@@ -43,6 +43,7 @@ import { OverviewPanel } from "@/features/overview";
 import { isDirectoryView, type AppSearch, type AppView } from "@/lib/route";
 import { useChangeset } from "@/lib/changeset";
 import { bench } from "@/lib/snapshot-bench";
+import { setNavigator } from "@/lib/navigate";
 import { SourceLink } from "@/components/source-link";
 import { safeText } from "@/lib/display";
 
@@ -66,6 +67,11 @@ export function App() {
   /** Change part of the location, leaving the rest of it alone. */
   const go = (next: Partial<AppSearch>) =>
     void navigate({ to: "/", search: { ...search, ...next } });
+
+  // The error note can offer somewhere to look when the directory refuses a
+  // change, and it is rendered too deep to hand a callback to. See
+  // lib/navigate for why this one thing is a module store.
+  setNavigator(go);
 
   const session = useQuery({
     queryKey: ["session"],
@@ -194,7 +200,7 @@ export function App() {
             </main>
           ) : view === "schema" ? (
             <main className="min-w-0 flex-1">
-              <SchemaBrowser />
+              <SchemaBrowser initialQuery={search.find} />
             </main>
           ) : view === "search" ? (
             <main className="min-w-0 flex-1">
