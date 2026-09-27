@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.27.0](https://github.com/Hazame-hub/alder/compare/v1.26.0...v1.27.0) (2026-09-27)
+
+
+### Features
+
+* **access:** ask what anyone unauthenticated may do here ([#140](https://github.com/Hazame-hub/alder/issues/140)) ([0355232](https://github.com/Hazame-hub/alder/commit/03552326410c12e5645393a1df69c708c4aa8ce8))
+* **entry:** unlock from the header, and stop the editor offering what Alder does not write ([#144](https://github.com/Hazame-hub/alder/issues/144)) ([e04e8a7](https://github.com/Hazame-hub/alder/commit/e04e8a7b3d8eafb954173f7d8a06a261f43ab350))
+* **policy:** clear a lock from the report that found it, and make a failure visible ([#142](https://github.com/Hazame-hub/alder/issues/142)) ([379ebdc](https://github.com/Hazame-hub/alder/commit/379ebdc6c8eb03faba10f8a45b802ec14aab3d4c))
+
 ## [1.26.0](https://github.com/Hazame-hub/alder/compare/v1.19.0...v1.26.0) (2026-09-27)
 
 > **Note added after the release.** Commit `6d74230` carried eight distinct
