@@ -758,6 +758,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/replication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What this server records about its own replication
+         * @description Reports whether this server is a supplier, a consumer or both, which
+         *     links it has and to whom, and how far along it is. Introduced in Alder
+         *     1.25. Read-only.
+         *
+         *     **Alder does not contact the other servers.** Everything here is what
+         *     *this* server has written down, which means a peer's own view may
+         *     differ and nothing here is a promise that a change has arrived
+         *     everywhere. A report that dialled out to whatever host a configuration
+         *     value happened to name would be a report that could be pointed at
+         *     anything.
+         *
+         *     Both mechanisms are read, and neither is translated into the other:
+         *
+         *     - OpenLDAP keeps an incoming link as an `olcSyncrepl` value on the
+         *       database entry, and its ability to serve outgoing ones as a
+         *       `syncprov` overlay. It records no status for a link anywhere a
+         *       client can read, so the measure it does keep -- how far along the
+         *       suffix is -- is the answer to "is this working".
+         *     - 389 Directory Server keeps its role for a suffix on an
+         *       `nsds5Replica` entry and each outgoing link as an agreement beneath
+         *       it, with the outcome of the last exchange written on the agreement
+         *       in the server's own words.
+         *
+         *     How far along a server is comes out as the same thing on both: for
+         *     each origin, the most recent change this server holds from it, and
+         *     when that change was made. OpenLDAP writes it as `contextCSN` on the
+         *     suffix; 389 DS as the replica update vector. Comparing that number
+         *     between two servers is how an operator sees drift, and it is the one
+         *     part of this both servers can be compared on.
+         *
+         *     Credentials are never read. The password inside an `olcSyncrepl`
+         *     value is dropped as the value is parsed, before it reaches anything
+         *     that could render or log it.
+         */
+        get: operations["getReplication"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/entry": {
         parameters: {
             query?: never;
@@ -2142,6 +2194,91 @@ export interface components {
             /** @description Where the policy might be that could not be read. */
             unread?: components["schemas"]["AccessUnread"][];
             disclaimer: string;
+        };
+        /**
+         * @description Whether a server sends changes, receives them, does both, or neither.
+         * @enum {string}
+         */
+        ReplicationRole: "supplier" | "consumer" | "both" | "none";
+        /** @description What one server records about its own replication. Added in 1.25. */
+        ReplicationReport: {
+            /** @description The configuration model this was read through. Display only. */
+            provider?: string;
+            /** @description What this server is, across every suffix, in one word. */
+            role: components["schemas"]["ReplicationRole"];
+            /** @description The sentence behind `role`, in a person's words. */
+            why: string;
+            suffixes: components["schemas"]["ReplicatedSuffix"][];
+            /** @description What could not be read, so a partial answer says so. */
+            unread?: components["schemas"]["AccessUnread"][];
+            disclaimer: string;
+        };
+        /** @description Replication as it applies to one part of the tree. */
+        ReplicatedSuffix: {
+            dn: string;
+            role: components["schemas"]["ReplicationRole"];
+            /**
+             * @description This server's identity in the topology -- OpenLDAP's `serverID`,
+             *     389 DS's replica id. It is what appears inside a change's sequence
+             *     number, which is how a change's origin is legible at all.
+             */
+            serverId?: string;
+            /**
+             * @description The most recent change this server holds from each origin. The one
+             *     measure the two servers can be compared on.
+             */
+            cursors: components["schemas"]["ReplicationCursor"][];
+            links: components["schemas"]["ReplicationLink"][];
+            /** @description Things worth saying about this suffix that are not a link. */
+            notes?: string[];
+        };
+        ReplicationCursor: {
+            /** @description The server id the changes came from. */
+            origin: string;
+            /**
+             * Format: date-time
+             * @description When the latest change this server holds from that origin was
+             *     made -- by that server's clock, not this one's.
+             */
+            at: string;
+            /** @description The value as the server wrote it, because a change sequence is what operators paste to each other. */
+            raw: string;
+        };
+        /** @description One replication agreement, from this server's side of it. */
+        ReplicationLink: {
+            /** @description What this server calls it -- an agreement's name, a syncrepl rid. Never a position. */
+            name: string;
+            /** @enum {string} */
+            direction: "incoming" | "outgoing";
+            /** @description The other end as this server has it written down. Never dialled. */
+            peer?: string;
+            /** @description The identity this link authenticates as. The credential that goes with it is never read. */
+            bindDn?: string;
+            transport?: string;
+            /**
+             * @description The coarse verdict, derived from the server's own last word.
+             *     `unknown` where the server records no outcome -- OpenLDAP records
+             *     none for any link, which is a fact about OpenLDAP rather than
+             *     about this link.
+             * @enum {string}
+             */
+            state: "ok" | "working" | "failing" | "unknown";
+            /** @description The server's own words, always shown alongside `state`. */
+            status?: string;
+            /**
+             * Format: date-time
+             * @description When the server last exchanged anything over this link.
+             */
+            lastUpdate?: string;
+            /**
+             * Format: date-time
+             * @description When the server last filled the other end from scratch.
+             */
+            lastInit?: string;
+            inProgress?: boolean;
+            /** @description The entry this was read from. */
+            dn?: string;
+            notes?: string[];
         };
         PasswordPolicy: {
             /**
@@ -5037,6 +5174,28 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What this server records about its replication. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getConfigEntryModel: {

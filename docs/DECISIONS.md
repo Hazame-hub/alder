@@ -3231,3 +3231,47 @@ proved against nothing.
   against a harness whose replication had quietly stopped would be a view
   proving nothing, and the failure would read as a product bug for as long as
   it took someone to check.
+
+### 2026-09-27 — 1.25, replication visibility
+
+The third of the read-only views that answer "why is the directory like
+this", after access (1.19) and password policy (1.21), and held to the same
+rule: it says what this server records, and where.
+
+- **Alder never contacts a peer.** A replication report that dialled out to
+  whatever host a configuration value happened to name would be a report that
+  can be pointed at anything, by anyone who can write to `cn=config`. So
+  everything comes from the server in hand, and the disclaimer says so.
+- **How far along a server is is the one thing both can be compared on.**
+  OpenLDAP writes `contextCSN` on the suffix, 389 DS a replica update vector
+  on the replica entry, and both mean "I have everything from server N up to
+  this moment". Reading them into the same pair -- origin and time -- is what
+  makes "open this against the other server and compare" a method rather than
+  a suggestion. It is also the only answer to "is replication working" that a
+  single server can give.
+- **The setting keeps the value as the server wrote it.** For the same reason
+  the indexes do: an operator pastes a change sequence at somebody, so the raw
+  form is shown beside the parsed time.
+- **OpenLDAP's "no status recorded" is printed, not left blank.** It keeps no
+  outcome for a syncrepl link anywhere a client can read. An empty status
+  column reads as "nothing wrong", which is the opposite of what is known.
+- **The credential is dropped where the value is parsed.** An `olcSyncrepl`
+  value carries the consumer's bind password in the clear, in an ordinary
+  configuration attribute. Stripping it at the parse means nothing downstream
+  -- renderer, logger, API view -- has to remember that this particular string
+  is different from every other one. The conformance suite asserts no harness
+  password and no credential attribute name appears in the response, on all
+  four servers.
+- **The role is phrased as "is set up to serve", not "sends changes to".** On
+  OpenLDAP the only evidence a server supplies anything is that it carries the
+  `syncprov` overlay; it does not record who has asked, or whether anybody
+  ever has. The stronger sentence would be claiming to know something no
+  single OpenLDAP can be asked.
+- **A link is named by its rid or its agreement name, never by the `{0}` in
+  front of it.** slapd writes an ordered value with its position first, and
+  the first version of the parser read `{0}rid` as a key it did not recognise
+  and lost the rid entirely. A unit test caught it; the conformance suite now
+  refuses any link name containing a brace.
+- **Read on request, not when the overview opens.** It is a search of the
+  configuration tree, and the overview is the page that costs nothing to open.
+  The entry counts on the same page already work this way.
