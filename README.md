@@ -402,8 +402,13 @@ question itself -- 389 Directory Server publishes the Get Effective Rights
 control -- Alder asks it, and shows the directory's own verdict above the
 rules. A comparison also lists the
 configuration objects each side has --
-databases, overlays, backends, plugins -- and Alder creates and removes one
-kind of them: an OpenLDAP overlay whose module the server has already loaded.
+databases, overlays, backends, plugins -- and Alder creates and removes two
+kinds of them: an OpenLDAP overlay whose module the server has already loaded,
+and an index, on either server. An index is one intention and two entirely
+different writes -- a value on the database entry on OpenLDAP, an entry of its
+own beneath the backend on 389 DS -- so a comparison reports both as the same
+kind of object, named by the backend and the attribute, and derives each
+server's own change from that.
 Every setting Alder offers to change is one the test suite has
 written, read back and restored on both servers. A configuration snapshot can
 also be preflighted against another server of the same software, to see what

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hazame-hub/alder/internal/config"
 	"github.com/hazame-hub/alder/internal/diff"
 	"github.com/hazame-hub/alder/internal/snapshot"
 )
@@ -127,6 +128,20 @@ func configNotEvaluated() []NotEvaluated {
 	return out
 }
 
+// creatableKind reports whether a comparison would offer to create an object
+// of this kind on this provider. It asks the configuration model rather than
+// carrying a second copy of the list: the answer changed in 1.22 and again in
+// 1.23, and a preflight that had its own copy would still be saying "Alder
+// does not create configuration objects" about an index.
+func creatableKind(provider, kind string) bool {
+	for _, k := range config.CreatableKinds(provider) {
+		if strings.EqualFold(k, kind) {
+			return true
+		}
+	}
+	return false
+}
+
 type configEval struct {
 	b        *builder
 	source   *snapshot.ConfigSnapshot
@@ -152,14 +167,29 @@ func (e configEval) all() {
 		if label == "" {
 			label = r.Name
 		}
+		// Whether this is work for a person depends on the kind. Alder creates
+		// two of them -- an OpenLDAP overlay whose module is loaded, and an
+		// index, on either server -- and a preflight that called those manual
+		// would be telling an operator to go and do by hand the thing the
+		// comparison is about to offer them. The list is asked for rather
+		// than repeated here, so it cannot fall behind what is actually
+		// creatable.
+		creatable := creatableKind(e.live.Source.Provider, r.Kind)
+		explanation := "The target has no " + r.Kind + " " + strconv.Quote(bound(label, 200)) +
+			". Alder does not create configuration objects of that kind; one has to exist " +
+			"before its settings can match."
+		if creatable {
+			explanation = "The target has no " + r.Kind + " " + strconv.Quote(bound(label, 200)) +
+				". A configuration comparison offers to create it, so this is a change to make " +
+				"rather than work to do by hand -- but it has to exist before its settings can match."
+		}
 		missing[r.ID()] = e.b.add(Finding{ID: "config-resource:" + r.ID(), Code: CodeConfigResourceMissing,
 			Classification: PrerequisiteRequired, Category: CategoryConfiguration, Scope: ScopeItem,
 			Source:            SourceRef{Resource: r.ID(), Name: bound(label, MaxFactRunes), DN: bound(r.DN, MaxFactRunes)},
 			Target:            &TargetFact{Fact: "absent"},
-			BlocksPortability: true, ManualAction: true,
+			BlocksPortability: !creatable, ManualAction: !creatable,
 			Prerequisites: []Prerequisite{{Type: "configuration", Resource: r.ID()}},
-			Explanation: "The target has no " + r.Kind + " " + strconv.Quote(bound(label, 200)) +
-				". Alder does not create configuration objects; one has to exist before its settings can match."})
+			Explanation:   explanation})
 	}
 
 	items := map[string]diff.ConfigItem{}

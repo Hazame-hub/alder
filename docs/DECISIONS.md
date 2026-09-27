@@ -3344,3 +3344,23 @@ Recorded because three of them are the kind of mistake that recurs.
   exists", and slapd was never exec'd. `bulk_load` two blocks below already
   guarded itself against exactly this. Now guarded the same way, and proved
   by restarting both OpenLDAP containers.
+
+### 2026-09-27 — 1.23 tells the rest of the product about itself
+
+A sweep for deferred work found that indexes had been added to the comparison
+and nowhere else, which is the ordinary way a capability becomes invisible.
+
+- **Preflight was saying "Alder does not create configuration objects"** about
+  an object Alder creates, and marking the finding `manualAction` and
+  `blocksPortability`. Preflight is exactly where somebody decides whether a
+  migration can be automated, so that is a wrong answer rather than stale
+  wording. It now asks `config.CreatableKinds` for the target's provider —
+  the list, not a second copy of it, because the answer changed in 1.22 and
+  again in 1.23 and a copy would already be behind.
+- **`config.CreatableKinds` stopped being dead code.** Its own doc comment
+  said it existed "for a report and for the documentation to be written
+  from", and neither had been. It is now what preflight asks and what the
+  README sentence is written from. An exported helper nobody calls is a claim
+  about the code that is not true.
+- **The README said Alder creates one kind of configuration object.** Two,
+  since 1.23, and the second is the one that works on both servers.

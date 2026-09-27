@@ -281,7 +281,7 @@ target has is not a finding.
 | `config_setting_changeable` | prerequisite required | The target holds another value, and Alder changes this setting through a plan: compare the snapshot with the directory and stage it |
 | `config_setting_manual` | prerequisite required, manual action | The target holds another value Alder has no proven way to change, or one compared as text |
 | `config_setting_missing` | prerequisite required, manual action | The target does not set it, or the object it belongs to is missing |
-| `config_resource_missing` | prerequisite required, manual action | The target has no such database, overlay, backend or plugin; its settings name this finding as their cause |
+| `config_resource_missing` | prerequisite required; manual action only where Alder cannot create it | The target has no such database, overlay, backend, plugin or index; its settings name this finding as their cause. For a kind a comparison offers to create -- an OpenLDAP overlay whose module is loaded, and an index on either server -- it is a change to make rather than work to do by hand, and it is not marked manual |
 | `config_environment_specific` | excluded | A path, host, port or file name: it names the machine rather than configures the software |
 | `config_setting_unknown` | unknown | The target's configuration was not read in full, and this setting was not in what was read |
 | `config_provider_mismatch` | unknown | The snapshot and the target are different server software. Nothing is judged, and server configuration stays in the not-evaluated list |
