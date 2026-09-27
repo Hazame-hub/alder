@@ -112,6 +112,19 @@ type server struct {
 	configWriteDN    string
 	configWriteAttr  string
 	configWriteValue string
+
+	// replicaPort is the LDAPS port of this server's consumer in the harness:
+	// a second instance of the same software that holds nothing of its own
+	// and gets everything from this one.
+	//
+	// Replication is the one thing a single server cannot demonstrate, and
+	// the two servers do not agree on any part of it -- OpenLDAP configures
+	// the consumer and 389 DS configures the supplier, one writes
+	// contextCSN and the other keeps a replica entry with a binary state
+	// blob. So the harness runs four servers, and everything below still
+	// asserts the same thing about both pairs. The bind identity is the
+	// supplier's: a consumer is the same directory.
+	replicaPort int
 }
 
 var servers = []server{
@@ -136,6 +149,8 @@ var servers = []server{
 		configWriteDN:    "cn=config",
 		configWriteAttr:  "olcIdleTimeout",
 		configWriteValue: "1800",
+
+		replicaPort: 20636,
 	},
 	{
 		name:   "389ds",
@@ -157,6 +172,8 @@ var servers = []server{
 		configWriteDN:    "cn=config",
 		configWriteAttr:  "nsslapd-idletimeout",
 		configWriteValue: "1800",
+
+		replicaPort: 21636,
 	},
 }
 
@@ -252,6 +269,16 @@ func eachServerRestricted(t *testing.T, fn func(t *testing.T, s server, sess dir
 			fn(t, s, connectRestricted(t, s))
 		})
 	}
+}
+
+// replicaOf is this server's consumer, as a server the helpers above accept.
+// The bind identity is the supplier's, because a consumer is the same
+// directory: the same accounts, replicated.
+func replicaOf(s server) server {
+	r := s
+	r.name = s.name + "-replica"
+	r.port = s.replicaPort
+	return r
 }
 
 // eachServer runs fn against every server as a subtest.

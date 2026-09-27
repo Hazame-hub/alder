@@ -3178,3 +3178,56 @@ two write nothing alike.
 - **Reindexing is not Alder's.** Neither server rebuilds an index on its own
   when one is added; that is `reindex` on 389 DS and `slapindex` on OpenLDAP,
   and both are operations on a server rather than changes to a directory.
+
+### 2026-09-27 — 1.24, the harness grows two replicas
+
+Replication visibility was asked for. Before any of it could be written, the
+harness had to be able to answer the questions: two lone servers can only ever
+say "no replication here", and a feature proved against that is a feature
+proved against nothing.
+
+- **A replica of each server, not a cross-vendor pair.** OpenLDAP does not
+  replicate with 389 DS and never will; the harness runs `openldap-replica`
+  consuming from `openldap` and `ds389-replica` consuming from `ds389`. Four
+  containers. The cost is real and it is the same cost the harness has always
+  been worth paying: this is the expensive part that makes "works on both"
+  mean something.
+- **The two servers configure replication from opposite ends.** OpenLDAP puts
+  a `syncrepl` directive in the *consumer's* configuration, so the consumer
+  configures itself at build time and needs nothing at run time. 389 DS
+  enables replication on each instance and creates the agreement on the
+  *supplier*, over LDAP, after both are up -- hence `scripts/replicate.sh`,
+  and hence its place after the seed.
+- **The consumer binds as the rootdn.** A delegated replication account is the
+  shape of a real deployment and was tried: it has to be seeded over LDAP
+  after the server is up, so the consumer spends the first seconds of every
+  harness start failing to bind, and a suite that asserts convergence then
+  depends on a retry timer. What Alder reports is whichever identity it finds
+  in the agreement, so nothing in the feature rests on this.
+- **The total update is asked for from one condition: the consumer has no
+  data.** Not from `repl-agmt create --init`, which starts one that has not
+  finished by the time the condition is next evaluated, so a fresh harness ran
+  two overlapping ones. Asking from the condition also fixes the case that
+  actually bites -- a recreated consumer container, where the agreement
+  already exists, nothing initialises the empty consumer, and the supplier
+  reports "consumer (Unavailable)" for ever.
+- **`moduleload ppolicy` on the consumer, with no overlay.** Loading it is
+  what registers the `pwdPolicy` schema, and the supplier's seed holds two
+  entries that use it. Without it the consumer's mdb backend cannot store an
+  attribute it has no type for: syncrepl logs `be_modify failed (80)` and
+  retries for ever, the consumer sits exactly two entries short, and every
+  later change is stuck behind those two. Nothing outside the log says so,
+  which is precisely why the harness asserts the entry counts match.
+- **certgen is idempotent per file now, not per run.** It used to exit early
+  if the CA existed, so adding a server to the harness would never have issued
+  it a certificate. Related: `compose:up` force-recreates the certs container,
+  because a container that exited successfully satisfies
+  `service_completed_successfully` for ever and an edited `certgen.sh` would
+  otherwise never run again.
+- **`replicahar_test.go` tests the harness, not Alder.** Entry counts match, a
+  change on a supplier reaches its consumer, and a consumer refuses a write.
+  Both servers refuse it the same way, with result code 10, which is the sort
+  of agreement between them that is worth pinning. A replication view proved
+  against a harness whose replication had quietly stopped would be a view
+  proving nothing, and the failure would read as a product bug for as long as
+  it took someone to check.

@@ -17,9 +17,17 @@
 # generated filler under ou=bulk for scale work. It rebuilds the harness from
 # scratch and is not what the conformance suite runs against; see README.md.
 #
+# Since 1.24 each server also has a replica, so that replication is something
+# the suite can watch rather than something it reads about. openldap-replica
+# consumes from openldap over syncrepl; ds389-replica consumes from ds389 over
+# a replication agreement. Neither is seeded: everything they hold arrived by
+# replication, which is the point.
+#
 # Ports on the host:
-#   OpenLDAP  ldap://localhost:10389   ldaps://localhost:10636
-#   389 DS    ldap://localhost:11389   ldaps://localhost:11636
+#   OpenLDAP          ldap://localhost:10389   ldaps://localhost:10636
+#   389 DS            ldap://localhost:11389   ldaps://localhost:11636
+#   OpenLDAP replica  ldap://localhost:20389   ldaps://localhost:20636
+#   389 DS replica    ldap://localhost:21389   ldaps://localhost:21636
 
 name: alder-harness
 
@@ -56,6 +64,27 @@ services:
       - "10389:389"
       - "10636:636"
 
+  # The consumer. Same image, built from slapd-replica.conf instead: it holds
+  # no seed data of its own and gets everything from openldap over syncrepl.
+  openldap-replica:
+    build:
+      context: ./openldap
+      args:
+        SLAPD_CONF: slapd-replica.conf
+    image: alder/harness-openldap-replica
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+      openldap:
+        condition: service_healthy
+    environment:
+      ALDER_TLS_NAME: openldap-replica
+    volumes:
+      - ./certs:/certs:ro
+    ports:
+      - "20389:389"
+      - "20636:636"
+
   ds389:
     # The 389 DS project publishes only "latest" and a rolling stream tag, so
     # the harness pins a digest instead. Bump it deliberately, in its own
@@ -86,6 +115,29 @@ services:
       start_period: 20s
       retries: 30
 
+  # The 389 DS consumer. Brought up empty; replicate.sh enables replication on
+  # it and the supplier's agreement fills it with a total update.
+  ds389-replica:
+    image: quay.io/389ds/dirsrv:c9s@sha256:40b6cd8370de9ed2856262c5f8a675aeb84c17cf9f7f6957fe7cc8d88988004a
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    environment:
+      DS_DM_PASSWORD: alder-directory-manager
+      DS_SUFFIX_NAME: alder
+      DS_SUFFIX_DN: dc=alder,dc=test
+    volumes:
+      - ./certs/ds389-replica:/data/tls
+    ports:
+      - "21389:3389"
+      - "21636:3636"
+    healthcheck:
+      test: ["CMD", "/usr/libexec/dirsrv/dscontainer", "-H"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 30
+
   # Installs the custom schema where it is not already present and applies the
   # seed LDIF to both servers, then exits. Runs to completion on every "up".
   seed:
@@ -102,6 +154,23 @@ services:
       - ./ds389:/ds389:ro
       - ./openldap:/openldap:ro
       - ./scripts:/scripts:ro
+
+  # Sets up 389 DS replication and waits for both replicas to be in step, then
+  # exits. After the seed on purpose: the agreement is created with --init, so
+  # the consumer is filled from what the supplier holds at that moment.
+  replicate:
+    image: quay.io/389ds/dirsrv:c9s@sha256:40b6cd8370de9ed2856262c5f8a675aeb84c17cf9f7f6957fe7cc8d88988004a
+    entrypoint: ["/bin/sh", "/scripts/replicate.sh"]
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      ds389-replica:
+        condition: service_healthy
+      openldap-replica:
+        condition: service_healthy
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./ds389:/ds389:ro
 
   # The 389 DS half of the opt-in bulk load, plus the count check for both
   # servers. Behind a profile so that a plain "docker compose up" cannot start

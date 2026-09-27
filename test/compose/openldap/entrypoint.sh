@@ -94,17 +94,27 @@ if [ "${1:-}" = "slapd" ]; then
 		exit 1
 	fi
 
-	cat >/tmp/tls.ldif <<'LDIF'
+	# Which certificate this container serves. The harness runs two of these
+	# images -- the supplier and its consumer -- and certgen issues one
+	# certificate per service name, so the name is passed in rather than
+	# baked in.
+	TLS_NAME=${ALDER_TLS_NAME:-openldap}
+	if [ ! -r "/certs/$TLS_NAME.crt" ]; then
+		echo "entrypoint: /certs/$TLS_NAME.crt is missing; the certs service must run first" >&2
+		exit 1
+	fi
+
+	cat >/tmp/tls.ldif <<LDIF
 dn: cn=config
 changetype: modify
 replace: olcTLSCACertificateFile
 olcTLSCACertificateFile: /certs/ca.crt
 -
 replace: olcTLSCertificateFile
-olcTLSCertificateFile: /certs/openldap.crt
+olcTLSCertificateFile: /certs/$TLS_NAME.crt
 -
 replace: olcTLSCertificateKeyFile
-olcTLSCertificateKeyFile: /certs/openldap.key
+olcTLSCertificateKeyFile: /certs/$TLS_NAME.key
 -
 replace: olcTLSVerifyClient
 olcTLSVerifyClient: never
