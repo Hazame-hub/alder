@@ -92,3 +92,70 @@ func timeIfSet(at time.Time) *time.Time {
 	out := at
 	return &out
 }
+
+// GetEntryReplication reports what this server records about one entry's
+// replication: its change sequence, its identity across a rename, and whether
+// the server has marked it as conflicting.
+//
+// The suffix-level answer at entry scale, asked for the same reason: has this
+// change arrived there yet. Open the same entry on the other server and
+// compare.
+func (s *Server) GetEntryReplication(c *fiber.Ctx, params GetEntryReplicationParams) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	target, ok := parseDNParam(c, params.Dn)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+
+	state, err := replication.ForEntry(ctx, sess.Conn, target)
+	if err != nil {
+		return s.fail(c, err)
+	}
+	out := EntryReplication{Dn: state.DN, Disclaimer: state.Disclaimer}
+	if state.Changed.Raw != "" {
+		out.Changed = &ReplicationCursor{Origin: state.Changed.Origin, At: state.Changed.At, Raw: state.Changed.Raw}
+	}
+	out.Identity = ptrIfSet(state.Identity)
+	out.Conflict = ptrIfSet(state.Conflict)
+	out.Notes = ptrIfAny(state.Notes)
+	return c.JSON(out)
+}
+
+// GetReplicationConflicts lists the entries this server has marked as the
+// losing side of a collision.
+func (s *Server) GetReplicationConflicts(c *fiber.Ctx, params GetReplicationConflictsParams) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	base, ok := parseDNParam(c, params.Dn)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+
+	found, err := replication.FindConflicts(ctx, sess.Conn, base, replication.Options{})
+	if err != nil {
+		return s.fail(c, err)
+	}
+	out := ReplicationConflicts{
+		Base: found.Base, Recorded: found.Recorded, Why: found.Why,
+		Disclaimer: found.Disclaimer,
+		Entries:    make([]ReplicationConflict, 0, len(found.Entries)),
+	}
+	for _, conflict := range found.Entries {
+		view := ReplicationConflict{Dn: conflict.DN, Kind: ReplicationConflictKind(conflict.Kind)}
+		view.Reason = ptrIfSet(conflict.Reason)
+		out.Entries = append(out.Entries, view)
+	}
+	if found.Truncated {
+		out.Truncated = ptr(true)
+	}
+	return c.JSON(out)
+}

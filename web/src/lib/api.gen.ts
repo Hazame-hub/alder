@@ -810,6 +810,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/replication/entry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What this server records about one entry's replication
+         * @description The change sequence this entry carries, the identity it keeps across a
+         *     rename, and whether the server has marked it as conflicting.
+         *     Introduced in Alder 1.26. Read-only.
+         *
+         *     This is the suffix-level answer at entry scale, and it is asked for
+         *     the same reason: *has this change arrived there yet?* Open the same
+         *     entry on the other server and compare. OpenLDAP stamps every entry
+         *     with `entryCSN`, which carries both the moment and the server that
+         *     made the change. 389 Directory Server stamps none a client can read,
+         *     so the answer there is the modification time, and the report says that
+         *     is weaker evidence rather than presenting it as the same thing.
+         *
+         *     Every attribute this reads is operational, so none of it appears in an
+         *     ordinary entry read.
+         */
+        get: operations["getEntryReplication"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/replication/conflicts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Entries this server has marked as conflicting
+         * @description Lists the entries a server has marked as the losing side of a
+         *     collision, below a base. Introduced in Alder 1.26. Read-only.
+         *
+         *     Only one of the two target servers marks anything. 389 Directory
+         *     Server keeps both sides and marks the loser with `nsds5ReplConflict`,
+         *     so a conflict is an entry you can read, fix and remove. OpenLDAP
+         *     resolves a collision by change sequence and discards the loser,
+         *     leaving nothing behind — so an empty list from OpenLDAP is not
+         *     evidence that nothing collided, and `recorded` says so.
+         *
+         *     The search is sent to both regardless, because deciding not to ask
+         *     would make the answer depend on Alder's model of the server being
+         *     right rather than on the directory's own answer.
+         */
+        get: operations["getReplicationConflicts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/entry": {
         parameters: {
             query?: never;
@@ -2279,6 +2344,52 @@ export interface components {
             /** @description The entry this was read from. */
             dn?: string;
             notes?: string[];
+        };
+        /** @description What one server records about one entry's replication. Added in 1.26. */
+        EntryReplication: {
+            dn: string;
+            /**
+             * @description When this entry was last changed and by which server, from its own
+             *     change sequence. Absent where the server records neither that nor
+             *     a modification time.
+             */
+            changed?: components["schemas"]["ReplicationCursor"];
+            /**
+             * @description The server-assigned identifier that survives a rename, and is how
+             *     the same entry is recognised on another server.
+             */
+            identity?: string;
+            /** @description The server's own words, where it has marked this entry as conflicting. */
+            conflict?: string;
+            /** @description What this server does and does not record here. */
+            notes?: string[];
+            disclaimer: string;
+        };
+        /**
+         * @description Entries a server has marked as the losing side of a collision. Added
+         *     in 1.26.
+         */
+        ReplicationConflicts: {
+            base: string;
+            /**
+             * @description Whether this server marks a conflict at all. `false` is an answer
+             *     about the server, not about the tree: an empty list from a server
+             *     that marks nothing is not evidence that nothing collided.
+             */
+            recorded: boolean;
+            /** @description What this server does when two changes collide. */
+            why: string;
+            entries: components["schemas"]["ReplicationConflict"][];
+            /** @description There are more than one read returns. */
+            truncated?: boolean;
+            disclaimer: string;
+        };
+        ReplicationConflict: {
+            dn: string;
+            /** @description The server's own words. */
+            reason?: string;
+            /** @enum {string} */
+            kind: "naming" | "missing-parent" | "other";
         };
         PasswordPolicy: {
             /**
@@ -5196,6 +5307,59 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getEntryReplication: {
+        parameters: {
+            query: {
+                dn: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What this server records about the entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryReplication"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getReplicationConflicts: {
+        parameters: {
+            query: {
+                /** @description The base to look below. */
+                dn: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What this server has marked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationConflicts"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getConfigEntryModel: {

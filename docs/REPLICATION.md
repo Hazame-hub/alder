@@ -142,6 +142,39 @@ The harness runs a replica of each server for this feature; see
 consumers, with nothing in common at the wire level, and one set of
 assertions that never learns which server it is talking to.
 
+---
+
+## One entry, and conflicts (1.26)
+
+The **Replication** button on an entry answers the question the suffix view
+cannot: *has this change arrived there yet?* It shows the entry's change
+sequence, the identity the server keeps for it across a rename, and whether
+the server has marked it as the losing side of a collision. Open the same
+entry on the other server and compare the number.
+
+OpenLDAP stamps every entry with `entryCSN`, carrying both the moment and the
+server that made the change. 389 DS stamps none a client can read, so the
+answer there is the modification time — which the report says is weaker
+evidence rather than presenting it as the same thing: two changes in the same
+second are indistinguishable.
+
+**Conflicts** are looked for below a suffix, on request, and only one of the
+two servers marks anything:
+
+- **389 DS** keeps both sides of a collision and marks the loser with
+  `nsds5ReplConflict`, so a conflict is an entry you can read, fix and remove.
+  It also invents a `glue` entry where a parent is missing.
+- **OpenLDAP** resolves a collision by change sequence and discards the loser.
+  Nothing is left behind, so an empty list from OpenLDAP is *not* evidence
+  that nothing collided — and the report says that in as many words, because
+  an empty list otherwise reads as good news.
+
+The search is sent to both regardless. Deciding not to ask would make the
+answer depend on Alder's model of the server being right, rather than on the
+directory's own answer.
+
+---
+
 ## Not in this
 
 - **Configuring replication.** Alder reports it. Setting up an agreement is a

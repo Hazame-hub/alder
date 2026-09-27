@@ -59,6 +59,7 @@ import { MembershipActions } from "@/features/membership";
 import { ReferencedByButton } from "@/features/referenced-by";
 import { AccessButton } from "@/features/access";
 import { PolicyButton, looksLocked } from "@/features/policy";
+import { EntryReplicationButton } from "@/features/replication";
 import { ExpandMembersButton } from "@/features/members";
 import { CompareButton } from "@/features/compare";
 import { DeleteSubtreeButton } from "@/features/delete-subtree";
@@ -333,6 +334,7 @@ function EntryHeader({
           ) : null}
           <AccessButton dn={entry.dn} />
           <PolicyButton dn={entry.dn} />
+          <EntryReplicationButton dn={entry.dn} />
           <ExportButton dn={entry.dn} />
           {readOnly ? (
             <Badge variant="outline" className="gap-1">

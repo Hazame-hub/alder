@@ -3275,3 +3275,29 @@ rule: it says what this server records, and where.
 - **Read on request, not when the overview opens.** It is a search of the
   configuration tree, and the overview is the page that costs nothing to open.
   The entry counts on the same page already work this way.
+
+### 2026-09-27 — 1.26, one entry and its conflicts
+
+- **"Has this change arrived" is asked about one entry, so it is answered
+  about one entry.** The change sequence at entry scale is the same number the
+  suffix cursor is made of, and the method is the same: open the entry on the
+  other server and compare. The conformance suite is that method -- write on
+  a supplier, wait, and assert the two sides carry the same value.
+- **389 DS's modification time is labelled as weaker evidence.** It keeps no
+  per-entry change sequence a client can read. Presenting `modifyTimestamp` as
+  if it were one would be presenting "two changes in the same second are
+  indistinguishable" as a guarantee.
+- **An empty conflict list from OpenLDAP is said to mean nothing.** OpenLDAP
+  discards the losing change and leaves no trace, so there is nothing to find
+  -- which is not the same as nothing having collided, and a bare empty list
+  reads as good news. The report carries the sentence either way.
+- **The search is sent to both servers regardless of the model.** Skipping it
+  on OpenLDAP would make the answer depend on Alder being right about the
+  server rather than on the directory's answer. A filter naming an attribute
+  OpenLDAP has never heard of is answered, not refused.
+- **The conflict fixture is written by the test, not seeded.** A genuine
+  conflict needs two suppliers changing the same entry in the same instant,
+  which is a race no test should depend on. What can be pinned is that an
+  entry the server has marked is found, read and explained; the entry is put
+  back afterwards either way, and the harness seed stays byte-identical
+  between the two servers.
