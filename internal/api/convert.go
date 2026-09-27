@@ -124,6 +124,9 @@ func attributeKind(k schema.AttributeKind) AttributeKind {
 	if k.Obsolete {
 		out.Obsolete = ptr(true)
 	}
+	if why := editedElsewhere(k.Name); why != "" {
+		out.Elsewhere = ptr(why)
+	}
 	return out
 }
 
@@ -224,6 +227,19 @@ func foldDescription(s string) string {
 	return string(out)
 }
 
+// withoutElsewhere drops the attributes the entry editor does not offer, for
+// the lists the attribute picker is built from. Order is preserved: these are
+// sorted lists and the picker shows them as they arrive.
+func withoutElsewhere(names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if editedElsewhere(name) == "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func foldName(s string) string {
 	base := schema.BaseName(s)
 	out := make([]byte, len(base))
@@ -240,14 +256,18 @@ func foldName(s string) string {
 func requirementsView(req schema.AttributeRequirements, sch *schema.Schema) Requirements {
 	out := Requirements{
 		Must: ptr(req.Must),
-		May:  ptr(req.May),
+		// May, less whatever the editor will not offer. Must is passed
+		// through untouched: an attribute an object class requires has to be
+		// listed as required whatever the editor does with it, and none of
+		// the attributes held back here is required by anything.
+		May: ptr(withoutElsewhere(req.May)),
 	}
 	// Operational attributes are in no object class, so they are in neither
 	// Must nor May, and an entry that has never been locked shows no sign that
 	// it could be. The server says which of them a client may set; this passes
 	// that on rather than deciding it here.
 	if sch != nil {
-		if settable := sch.SettableOperational(); len(settable) > 0 {
+		if settable := withoutElsewhere(sch.SettableOperational()); len(settable) > 0 {
 			out.SettableOperational = ptr(settable)
 		}
 	}
@@ -544,6 +564,13 @@ func candidateKinds(
 	for _, name := range names {
 		key := foldName(name)
 		if present[key] || seen[key] {
+			continue
+		}
+		// Not a candidate if no field would be offered for it. The picker
+		// offered `aci` on any entry that did not already carry one, which is
+		// how "Alder does not write access rules" was true of the access
+		// panel and false of the entry editor two clicks away.
+		if editedElsewhere(name) != "" {
 			continue
 		}
 		seen[key] = true

@@ -16,15 +16,23 @@ export type Draft = Record<string, string[]>;
 /**
  * snapshot reduces an entry's attributes to the editable text values.
  *
- * Operational, read-only, withheld and binary-valued attributes are excluded
- * deliberately. Excluding binary ones matters: their values arrive as base64
- * and would map to empty strings here, which computeMods would then read as
- * "the user cleared this attribute" and turn into a delete.
+ * Read-only, withheld and binary-valued attributes are excluded deliberately.
+ * Excluding binary ones matters: their values arrive as base64 and would map
+ * to empty strings here, which computeMods would then read as "the user
+ * cleared this attribute" and turn into a delete.
+ *
+ * Operational is NOT one of the exclusions, and used to be. That is what made
+ * the viewer's "operational -- kept by the directory, yours to set" a lie:
+ * the heading was right, the editor disagreed, and a locked account could not
+ * be unlocked from the one screen that said who owned the attribute. The
+ * server's own answer is NO-USER-MODIFICATION, which arrives as `readOnly`
+ * and is excluded here; `elsewhere` is Alder's answer, for the few writable
+ * attributes it deliberately does not offer.
  */
 export function snapshot(attributes: EntryAttribute[]): Draft {
   const out: Draft = {};
   for (const a of attributes) {
-    if (a.kind.operational || a.kind.readOnly || a.withheld) continue;
+    if (a.kind.readOnly || a.withheld || a.kind.elsewhere) continue;
     if (a.values.some((v) => v.base64 !== undefined)) continue;
     out[a.name] = a.values.map((v) => v.text ?? "");
   }

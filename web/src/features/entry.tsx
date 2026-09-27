@@ -58,7 +58,7 @@ import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
 import { ReferencedByButton } from "@/features/referenced-by";
 import { AccessButton } from "@/features/access";
-import { PolicyButton, looksLocked } from "@/features/policy";
+import { EntryUnlockButton, PolicyButton, looksLocked } from "@/features/policy";
 import { EntryReplicationButton } from "@/features/replication";
 import { ExpandMembersButton } from "@/features/members";
 import { CompareButton } from "@/features/compare";
@@ -282,9 +282,13 @@ function EntryHeader({
             )}
             {entry.hasChildren ? <Badge variant="outline">has children</Badge> : null}
             {looksLocked(entry.attributes) ? (
-              <Badge variant="destructive" title="The server holds an attribute on this entry that locks the account">
-                account locked
-              </Badge>
+              <>
+                <Badge variant="destructive" title="The server holds an attribute on this entry that locks the account">
+                  account locked
+                </Badge>
+                {/* The badge announced the problem and offered nothing. */}
+                <EntryUnlockButton dn={entry.dn} readOnly={readOnly} />
+              </>
             ) : null}
           </div>
           <div className="mt-1 flex items-center gap-1.5">
@@ -756,6 +760,15 @@ function AttributeRow({
         {attr.values.length === 0 && !attr.withheld ? (
           <span className="text-sm italic text-muted-foreground">no values</span>
         ) : null}
+        {/*
+          Why there is no field for this in the editor, said here rather than
+          left to be discovered by its absence. An attribute shown and not
+          editable, with nothing saying why, is the dead end the audit walked
+          into from the other direction.
+        */}
+        {attr.kind.elsewhere ? (
+          <p className="text-xs text-muted-foreground">{safeText(attr.kind.elsewhere)}</p>
+        ) : null}
       </dd>
     </div>
   );
@@ -849,25 +862,73 @@ function ValueDisplay({
  *
  * The split is on readOnly, which is the flag that actually means owned.
  */
-function groupAttributes(attributes: EntryAttribute[]) {
+export function groupAttributes(attributes: EntryAttribute[]) {
   return [
+    // `elsewhere` is excluded from both of these, not only from the
+    // operational pair. olcAccess is an ordinary attribute of an OpenLDAP
+    // database entry -- not operational at all -- so filtering it out of the
+    // operational groups alone rendered it twice: once under Optional with
+    // no explanation, and once under its own heading with one.
     {
       title: "Required",
-      items: attributes.filter((a) => a.required && !a.kind.operational),
+      items: attributes.filter((a) => a.required && !a.kind.operational && !a.kind.elsewhere),
     },
     {
       title: "Optional",
-      items: attributes.filter((a) => !a.required && !a.kind.operational),
+      items: attributes.filter((a) => !a.required && !a.kind.operational && !a.kind.elsewhere),
     },
     {
       title: "Operational — kept by the directory, yours to set",
-      items: attributes.filter((a) => a.kind.operational && !a.kind.readOnly),
+      items: attributes.filter(
+        (a) => a.kind.operational && !a.kind.readOnly && !a.kind.elsewhere,
+      ),
     },
     {
       title: "Operational — the directory owns these",
       items: attributes.filter((a) => a.kind.operational && a.kind.readOnly),
     },
+    {
+      // Writable, and Alder still does not offer a field for it. Its own
+      // heading rather than a footnote under "yours to set", because "yours
+      // to set" and "not editable here" in the same group is the
+      // contradiction this whole split exists to remove.
+      title: "Shown here, edited elsewhere",
+      items: attributes.filter((a) => a.kind.elsewhere !== undefined && !a.kind.readOnly),
+    },
   ];
+}
+
+/**
+ * Which attributes changed in the directory under an open editor.
+ *
+ * `original` is the frozen baseline the edit is computed against, `current`
+ * is what the directory holds now, and `draft` is what the operator has
+ * typed.
+ *
+ * An operational attribute counts only if the draft touches it. Those are
+ * moved by the server -- a failed bind bumps passwordRetryCount and
+ * retryCountResetTime on 389 DS with nobody touching anything -- and the
+ * banner this feeds is about a second administrator. Warning that applying
+ * will "overwrite the newer values" of an attribute the pending change does
+ * not mention is a warning about nothing, in front of somebody who was
+ * editing a description while the account's owner mistyped their password.
+ *
+ * If the draft does touch one, it is a real collision and the banner is
+ * exactly right.
+ */
+export function driftedAttributes(
+  original: Draft,
+  current: Draft,
+  draft: Draft,
+  operational: Set<string>,
+): string[] {
+  const same = (a?: string[], b?: string[]) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+  const names = new Set([...Object.keys(original), ...Object.keys(current)]);
+  return [...names].filter((name) => {
+    if (same(original[name], current[name])) return false;
+    if (!operational.has(name.toLowerCase())) return true;
+    return !same(draft[name], original[name]);
+  });
 }
 
 /* --- edit mode ------------------------------------------------------------ */
@@ -881,10 +942,17 @@ function EntryEditor({
   onDone: () => void;
   onNavigate: (dn: string) => void;
 }) {
+  // What the editor offers a field for, and the same rule snapshot() uses:
+  // the server's refusal (readOnly), a withheld secret, or Alder's own
+  // decision not to write this one. Operational is not on the list. An
+  // operational attribute the server says a client may set -- nsAccountLock,
+  // accountUnlockTime, an OpenLDAP pwdAccountLockedTime -- is the attribute
+  // an administrator most often needs to change by hand, and it was the one
+  // the editor refused to show.
   const editable = useMemo(
     () =>
       entry.attributes.filter(
-        (a) => !a.kind.operational && !a.kind.readOnly && !a.withheld,
+        (a) => !a.kind.readOnly && !a.withheld && !a.kind.elsewhere,
       ),
     [entry.attributes],
   );
@@ -943,13 +1011,30 @@ function EntryEditor({
   // If the entry changed in the directory while it was being edited, say so.
   // Applying regardless is legitimate -- a replace says what the attribute ends
   // up as -- but the user should know they are overwriting someone.
-  const drifted = useMemo(() => {
-    const current = snapshot(entry.attributes);
-    const names = new Set([...Object.keys(original), ...Object.keys(current)]);
-    return [...names].filter(
-      (name) => JSON.stringify(original[name] ?? []) !== JSON.stringify(current[name] ?? []),
-    );
-  }, [entry.attributes, original]);
+  //
+  // "Someone" is the word that decides what counts. The banner exists for a
+  // second administrator, and the settable operational attributes that the
+  // editor now offers are moved by the *server*: a failed bind bumps
+  // passwordRetryCount and retryCountResetTime on 389 DS with nobody
+  // touching anything. Reporting that as a concurrent edit would put a
+  // warning about overwriting a colleague in front of somebody editing a
+  // description while the account's owner mistyped their password twice --
+  // and the pending change does not mention those attributes at all, because
+  // computeMods only emits what the draft actually changed.
+  //
+  // Unless the draft *has* changed one, in which case it is a genuine
+  // collision and the warning is exactly right.
+  const operationalNames = useMemo(
+    () =>
+      new Set(
+        entry.attributes.filter((a) => a.kind.operational).map((a) => a.name.toLowerCase()),
+      ),
+    [entry.attributes],
+  );
+  const drifted = useMemo(
+    () => driftedAttributes(original, snapshot(entry.attributes), draft, operationalNames),
+    [entry.attributes, original, draft, operationalNames],
+  );
 
   const available = useMemo(() => {
     const present = new Set(

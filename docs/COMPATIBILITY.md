@@ -324,6 +324,49 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.27 to 1.30 reach a release together, the way 1.16 and 1.17 reached one in
+1.18.0. Between them they added four fields, stopped sending one, and hold
+back two attributes the entry editor used to offer. Everything below is an
+addition unless it says otherwise.
+
+- **`as=` on `GET /access`** asks what another identity may do on an entry,
+  where the server answers that question at all (1.27), and **`as=anonymous`**
+  asks what an unauthenticated client may do (1.28). The word is reserved: a
+  DN always contains an equals sign, so no DN can collide with it, and it is
+  folded ASCII-only on both sides.
+- **`askedAbout` on the access report** says which identity Alder put the
+  question about, which is the only way to tell the anonymous answer from one
+  the server declined (1.28).
+- **`effective.subject` is documented as what Alder asked**, not as the
+  server's attestation. The Get Effective Rights response carries no subject
+  at all. The field is unchanged; the description was wrong (1.28).
+- **`unlock` on the policy report** carries the change that clears the lock
+  the report found, derived from the attribute the entry actually holds. A
+  lock Alder does not recognise reports no unlock rather than a guess (1.29).
+- **`elsewhere` on an attribute's kind** says why the entry editor does not
+  offer that attribute, and where it is edited instead. Absent means the
+  editor offers it. Distinct from `readOnly`, which is the server's refusal;
+  this one is Alder's (1.30).
+- **`ldapCode` is no longer sent when there is no result code** (1.30). A dead
+  connection or an unparseable reply produces none; the client library numbers
+  those conditions from 200 in the same field, so a client reading it saw a
+  failure carrying what looks like a success. `detail` no longer renders those
+  numbers as result codes either, and the message for one says the directory
+  did not answer rather than that it returned an error.
+- **`aci` and `olcAccess` are no longer offered as attributes to add** (1.30),
+  so they are absent from `requirements.may`, from
+  `requirements.settableOperational` and from `candidateKinds`. They are still
+  read, still exported and still shown, with `elsewhere` saying why there is
+  no field for them. The schema definition attributes are held back the same
+  way -- both the subschema's (`objectClasses`, `attributeTypes`, ...) and
+  OpenLDAP's writable `olcAttributeTypes` and `olcObjectClasses` -- because
+  the schema editor writes those one definition at a time, and a text box
+  holding fifty of them can only express a replacement of the lot. Alder does
+  not write access rules, and the entry editor was a way around that.
+- **A settable operational attribute an entry already carries is editable**
+  (1.30). Nothing changed on the wire for this: `operational` and `readOnly`
+  were both reported correctly all along and the interface read the wrong one.
+
 1.26 added three endpoints and one field, and narrowed one parameter:
 
 - **`GET /replication`**, **`GET /replication/entry?dn=`** and

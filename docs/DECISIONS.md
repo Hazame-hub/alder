@@ -3712,3 +3712,152 @@ it waited for a decision.
   do" over a bound account's rights. The assertions are now the two things
   only the real anonymous answer has — no subject at all, and entry rights
   `none`.
+
+### 2026-09-27 — 1.30, the last three audit findings, and what closing them exposed
+
+The audit's two critical findings were closed in 1.29. These are the three
+that were left, plus a scope violation found while closing the second one.
+
+- **The unlock is offered where the badge is.** The red "account locked" badge
+  is read from attributes already in hand, so it costs nothing and appears
+  before anything is opened; the change that clears the lock is derived by the
+  server, so the header asks for it. One extra request on a locked entry and
+  none on any other. It renders nothing until the report says there is a lock
+  it knows how to clear — a button that appears and then fails is worse than
+  no button, because the Policy dialog is where an unrecognised lock gets
+  explained in words. Locked entry to cleared lock: **two interactions**,
+  against the seventeen the audit measured.
+
+- **Operational is not the question the editor was asking.** Whether the
+  server will accept a write is answered by NO-USER-MODIFICATION and nothing
+  else. The editor excluded every operational attribute instead, so the
+  viewer's heading — "operational, kept by the directory, **yours to set**" —
+  was contradicted by the editor one click away, and a locked account could
+  not be unlocked from the screen that named the attribute. The exclusion is
+  now `readOnly`, a withheld secret, or Alder's own decision; a settable
+  operational field carries a "kept by the directory" badge, because the
+  server may change it back and an operator should know that before typing.
+
+- **Two attributes were writable that the decisions log says Alder does not
+  write.** Found while doing the above, and older. `aci` is operational and
+  settable, so the attribute picker offered it on every 389 DS entry that did
+  not already carry one; `olcAccess` is an *ordinary* attribute of an OpenLDAP
+  database entry, so nothing filtered it anywhere and `olcDatabase={1}mdb`
+  opened as four editable text boxes of access rules, `{0}` ordering prefixes
+  included. Reading access rules is 1.19; writing them is out of scope, and
+  the reason is that an access rule is the one change that can lock every
+  administrator out, with first-match-wins ordering that makes a
+  correct-looking single edit change the meaning of every rule after it. The
+  new `elsewhere` field on an attribute's kind carries *why* an attribute is
+  shown and not editable, so the viewer prints a sentence instead of leaving
+  an absence to be discovered — which is the same dead end the audit found
+  around `nsAccountLock`, from the other direction. The subschema definition
+  attributes are held back the same way, and for a related reason: a schema
+  change is an add or a delete of one definition, and a text box holding a
+  thousand of them can only express a replacement of the lot.
+
+  By name, which section 3 otherwise forbids. That rule is about detecting
+  what a server can do; this is a statement about what Alder chooses to write,
+  and both attributes are named in the charter itself.
+
+- **"Still waiting" is a status; the failure badge was a post-mortem.** An
+  LDAP operation gets thirty seconds, so the honest version of the badge has
+  to appear while the request is outstanding rather than after it has given
+  up. The query cache reports what is in flight, the header names the oldest
+  such request after four seconds and counts the seconds after that. Per
+  request rather than by a count of them: a count never reaches zero during
+  ordinary navigation, which would make every busy moment look like a stall.
+  A failure outranks a wait — "not answering" is established, "still waiting"
+  is being established, and letting a retry downgrade the first would walk the
+  indicator backwards while things got worse.
+
+- **`(code 200)` was not a result code.** go-ldap numbers its own client-side
+  conditions from 200 in the same field the protocol's result codes live in: a
+  dead socket is 200 "Network Error". The audit read it as an HTTP 200 in a
+  message about a failure, which is a fair reading. Those numbers are no
+  longer printed as result codes and no longer sent as `ldapCode`, and the
+  message for one says the directory did not answer rather than that it
+  returned an error — two different things to go and look at.
+
+- **The policy attributes are asked for the way each server spells them.** A
+  search returns an attribute name as it was requested, and the unlock is
+  built from the name the entry came back with, so asking in lower case
+  produced an LDIF preview reading `delete: nsaccountlock` under a viewer that
+  had just said `nsAccountLock`. Matching is still on the folded name, as it
+  has to be.
+
+### 2026-09-27 — what the review of 1.30 found
+
+Five lenses over the diff, each finding refuted by a separate agent. Five
+survived, and all five were real. Two of them were defects this work
+introduced; two were older, and one of those -- a whole-schema replace
+reachable from the entry editor on OpenLDAP -- is the same mistake as the
+access rules, in the attribute one tree away from the one that was fixed.
+
+- **An access rule was rendered twice, in two contradictory groups.** The
+  viewer's five headings are five independent filters, and `olcAccess` is an
+  *ordinary* attribute of an OpenLDAP database entry — not operational — so
+  holding it back from the operational groups alone left it under Optional as
+  well: once with the sentence saying there is no field for it, once without.
+  The property worth testing is not which heading an attribute gets but that
+  the headings partition the entry, so that is what the test asserts, and the
+  mutation that removes the new filter turns it red.
+
+- **The in-flight count could leak, and one leaked entry pins the badge on for
+  the session.** Counting `fetch` events up and `success`/`error` events down
+  is only correct if every fetch ends in one of those two, and a query removed
+  mid-flight or paused because the browser went offline does not. It is now
+  reconciled: every cache event hands over the whole list of what is running,
+  and whatever is no longer in the answer is no longer in flight. That cannot
+  drift from the cache, because it *is* the cache.
+
+  The same change fixed the counter walking backwards. The badge counts the
+  wait, not the request: a wait begins at the oldest request running when it
+  began and only moves earlier, so one request of several returning no longer
+  makes the number jump down, which reads as a broken clock rather than as
+  progress.
+
+- **The list of attributes Alder will not write named the wrong half of the
+  schema.** `objectClasses` and `attributeTypes` are the *subschema's*
+  spellings, and on OpenLDAP the subschema is a generated view whose
+  attributes are NO-USER-MODIFICATION -- so covering them covered the half
+  that was never reachable. The schema slapd actually writes is
+  `cn={0}core,cn=schema,cn=config`, carried by `olcAttributeTypes` and
+  `olcObjectClasses`, which slapd's own configuration schema declares as
+  ordinary user attributes: no operational usage, no NO-USER-MODIFICATION.
+  Exactly the `olcAccess` shape, one entry away, and measured on the harness
+  before the fix that entry opened as fifty-two text boxes holding the core
+  attribute definitions. One character changed in one of them would have sent
+  a replace of the whole set. Older than this release, and closed by the same
+  rule that closed the access rules; the conformance case now reads the
+  writable location as well as the generated one.
+
+- **The overwrite warning started firing on attributes the server moves by
+  itself.** The banner says "applying them will overwrite the newer values",
+  which is a sentence about a colleague. Once the editor offered the settable
+  operational attributes, they entered the baseline the banner is computed
+  from -- and a failed bind bumps `passwordRetryCount` and
+  `retryCountResetTime` on 389 DS with nobody touching anything. Somebody
+  editing a description while the account's owner mistyped their password
+  twice would have been warned about overwriting an attribute the pending
+  change does not mention. Operational attributes now count only when the
+  draft touches one too, which is a genuine collision and is exactly what the
+  banner is for.
+
+Refuted, and changed anyway, because each was cheap and left the thing more
+consistent than it found it: the changeset error path now withholds a
+client-side code exactly as the single-change path does; `RequirementsView`
+describes only the attributes it actually offers, rather than documenting ones
+the same response declined; `IsClientSide` is the library's own numbers (200
+to 206) rather than everything above 199, because swallowing a result code the
+directory really sent is the more expensive mistake; and `resetHealth()` runs
+after the disconnect requests rather than before them, so it is not undone by
+what they record.
+
+One finding was refuted and stayed refuted: the compact tooltip does not need
+`safeText`, because the attribute name in it is adopted from the entry only
+when it folds equal to one of five ASCII constants, and no character
+`safeText` strips can survive that. The call was added regardless — escaping
+every rendered directory string is a habit worth keeping unconditional, and
+an exception that needs a paragraph to justify is an exception somebody will
+get wrong later.

@@ -106,10 +106,50 @@ describe("snapshot", () => {
   });
 
   it("excludes what the server owns, so an edit never tries to write it", () => {
+    // NO-USER-MODIFICATION, which arrives as readOnly, is the server's own
+    // answer to "may a client write this" and the only one worth taking.
     const attrs = [
       attr("cn", ["alice"]),
-      { ...attr("entryUUID", ["u"]), kind: kind({ name: "entryUUID", operational: true }) },
+      {
+        ...attr("entryUUID", ["u"]),
+        kind: kind({ name: "entryUUID", operational: true, readOnly: true }),
+      },
       { ...attr("creatorsName", ["c"]), kind: kind({ name: "creatorsName", readOnly: true }) },
+    ];
+    expect(Object.keys(snapshot(attrs))).toEqual(["cn"]);
+  });
+
+  it("keeps an operational attribute the server lets a client set", () => {
+    // The one that matters: nsAccountLock is operational, and 389 DS does not
+    // mark it NO-USER-MODIFICATION because setting it is how an account is
+    // locked and clearing it is how an account is unlocked. Excluding every
+    // operational attribute meant the editor could not do either, while the
+    // viewer above it said "yours to set".
+    const attrs = [
+      attr("cn", ["alice"]),
+      {
+        ...attr("nsAccountLock", ["true"]),
+        kind: kind({ name: "nsAccountLock", operational: true, readOnly: false }),
+      },
+    ];
+    expect(snapshot(attrs)).toEqual({ cn: ["alice"], nsAccountLock: ["true"] });
+  });
+
+  it("excludes an attribute Alder has decided not to write", () => {
+    // Writable, ordinary, and still not offered. olcAccess rather than aci
+    // on purpose: aci is operational, so a fixture using it would still be
+    // excluded by the rule this one is meant to be testing instead of by
+    // `elsewhere`. olcAccess is an ordinary attribute of an OpenLDAP
+    // database entry, which is exactly why nothing filtered it before.
+    const attrs = [
+      attr("cn", ["alice"]),
+      {
+        ...attr("olcAccess", ["{0}to * by * read"]),
+        kind: kind({
+          name: "olcAccess",
+          elsewhere: "Alder reads access rules and does not write them.",
+        }),
+      },
     ];
     expect(Object.keys(snapshot(attrs))).toEqual(["cn"]);
   });

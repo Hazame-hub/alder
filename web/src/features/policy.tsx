@@ -219,6 +219,37 @@ export function looksLocked(attributes: { name: string; values: { text?: string 
 }
 
 /**
+ * The unlock, offered where the badge is -- in the entry header, beside the
+ * red "account locked".
+ *
+ * The badge is read from attributes already in hand, so it costs nothing and
+ * appears before anything is opened. The change that clears the lock is not:
+ * it is derived by the server from the state it read, so this asks for it.
+ * That is one request on a locked entry and none on any other, which is the
+ * right trade for the audit's headline -- the screen that announced the
+ * problem offered nothing to do about it, and the cure was seventeen
+ * interactions away in a screen nobody was told to open.
+ *
+ * Renders nothing at all until the report says there is a lock it knows how
+ * to clear. A button that appears and then fails is worse than no button:
+ * the Policy dialog is where a lock Alder does not recognise gets explained,
+ * and it says so in words.
+ */
+export function EntryUnlockButton({ dn, readOnly }: { dn: string; readOnly: boolean }) {
+  const report = useQuery<PolicyReport, ApiFailure>({
+    queryKey: ["policy", dn],
+    // The same key the dialog uses, so opening it afterwards is free and one
+    // invalidation refreshes both.
+    enabled: !readOnly,
+    retry: false,
+    queryFn: async () => unwrap(await api.GET("/policy", { params: { query: { dn } } })),
+  });
+  const unlock = report.data?.unlock;
+  if (readOnly || !unlock) return null;
+  return <UnlockAction dn={dn} unlock={unlock} compact />;
+}
+
+/**
  * Clear the lock, through the same plan and the same review as every other
  * write.
  *
@@ -230,22 +261,34 @@ export function looksLocked(attributes: { name: string; values: { text?: string 
 function UnlockAction({
   dn,
   unlock,
+  compact,
 }: {
   dn: string;
   unlock: NonNullable<PolicyReport["unlock"]>;
+  /** In the header, where there is room for the button and not the sentence. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setOpen(true)}
+          title={
+            compact ? safeText(`${unlock.why} — ${unlock.attributes.join(", ")}`) : undefined
+          }
+        >
           <LockOpen />
-          Unlock this account
+          {compact ? "Unlock" : "Unlock this account"}
         </Button>
-        <span className="text-xs text-destructive/80">
-          {safeText(unlock.why)} — {safeText(unlock.attributes.join(", "))}
-        </span>
+        {compact ? null : (
+          <span className="text-xs text-destructive/80">
+            {safeText(unlock.why)} — {safeText(unlock.attributes.join(", "))}
+          </span>
+        )}
       </div>
       <ChangeDialog
         change={unlock.change}

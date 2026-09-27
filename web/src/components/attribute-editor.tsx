@@ -280,6 +280,21 @@ export function AttributeEditor({
             </TooltipContent>
           </Tooltip>
         ) : null}
+        {/*
+          An operational attribute in the editor is not an ordinary one. The
+          server maintains it, and the server is also entitled to change it
+          back -- a failure count reset by hand goes up again on the next
+          failed bind. Saying so on the field is the difference between an
+          edit that surprises somebody and one that does not.
+        */}
+        {kind.operational ? (
+          <Badge
+            variant="secondary"
+            title="The directory keeps this attribute and may change it itself. The server allows a client to set it."
+          >
+            kept by the directory
+          </Badge>
+        ) : null}
         {kind.sensitive ? <Badge variant="destructive">secret</Badge> : null}
         {configMark ? <ConfigBadges mark={configMark} /> : null}
         {onRemove ? (

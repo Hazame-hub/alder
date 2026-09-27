@@ -8,7 +8,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { ApiFailure } from "@/lib/api";
-import { recordFailure, recordSuccess, shouldRetry } from "@/lib/directory-health";
+import { noteInFlight, recordFailure, recordSuccess, shouldRetry } from "@/lib/directory-health";
 import { validateAppSearch } from "@/lib/route";
 import { App } from "@/app";
 import "@/styles.css";
@@ -65,6 +65,40 @@ const queryClient = new QueryClient({
     mutations: { retry: false },
   },
 });
+
+/**
+ * What is in flight, so the header can say "still waiting" rather than
+ * waiting silently.
+ *
+ * A subscription to the caches rather than a hook: every request on every
+ * screen counts, and the alternative -- each view reporting its own -- is the
+ * arrangement that produced a header claiming a healthy bind while six calls
+ * were failing underneath it.
+ *
+ * Every event hands over the whole picture rather than a delta. A delta is
+ * only correct if every fetch that starts also ends in an event, and a query
+ * removed mid-flight or paused because the browser went offline does not: one
+ * lost decrement would pin the badge on for the rest of the session. Asking
+ * the cache what is running now cannot drift from what is running now.
+ */
+function reportInFlight() {
+  const queries = queryClient
+    .getQueryCache()
+    .getAll()
+    .filter((q) => q.state.fetchStatus === "fetching")
+    .map((q) => ({ hash: q.queryHash, key: q.queryKey[0] }));
+  const mutations = queryClient
+    .getMutationCache()
+    .getAll()
+    .filter((m) => m.state.status === "pending")
+    // A mutation is always a write to the directory, so it has no route to
+    // exempt: the key is passed for symmetry and is normally undefined.
+    .map((m) => ({ hash: `mutation:${m.mutationId}`, key: m.options.mutationKey?.[0] }));
+  noteInFlight([...queries, ...mutations]);
+}
+
+queryClient.getQueryCache().subscribe(reportInFlight);
+queryClient.getMutationCache().subscribe(reportInFlight);
 
 /**
  * One route, and everything in its search parameters.

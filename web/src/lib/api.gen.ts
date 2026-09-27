@@ -1409,7 +1409,15 @@ export interface components {
             affected?: components["schemas"]["ErrorAffected"][];
             /** @description Extra context, such as the LDIF line a parse failed on. */
             detail?: string;
-            /** @description The LDAP result code, where the failure came from the directory. */
+            /**
+             * @description The LDAP result code, where the failure came from the directory.
+             *
+             *     Absent when it did not. A dead connection or an unparseable reply
+             *     produces no result code at all; the client library numbers those
+             *     conditions from 200 in the same field, and reporting one of them
+             *     here put "LDAP result code 200" in front of an operator for a
+             *     failure the directory never answered.
+             */
             ldapCode?: number;
             /**
              * @description What that result code usually means for the operation that was
@@ -3170,6 +3178,21 @@ export interface components {
             /** @description A secret. Values are withheld and never logged. */
             sensitive?: boolean;
             obsolete?: boolean;
+            /**
+             * @description Why the entry editor does not offer this attribute, in a sentence
+             *     fit to print beside it.
+             *
+             *     Its absence is not a promise that the attribute is editable:
+             *     `readOnly`, a withheld secret and a binary value each keep a field
+             *     off the screen for their own reasons. Present means Alder has
+             *     decided, whatever the server would allow.
+             *
+             *     Distinct from `readOnly`, which is the server's refusal. This is
+             *     Alder's: an access rule is read and never written, and a schema
+             *     definition is written by the schema editor one definition at a
+             *     time rather than by replacing a thousand of them in a text box.
+             */
+            elsewhere?: string;
             /** @description False when the schema does not define this attribute. */
             known: boolean;
         };
@@ -3202,6 +3225,15 @@ export interface components {
         };
         Requirements: {
             must?: string[];
+            /**
+             * @description What this entry's object classes permit, less whatever the entry
+             *     editor does not offer — see `elsewhere` on an attribute's kind.
+             *     An access rule is read and never written, so `olcAccess` is not
+             *     here even where a class permits it.
+             *
+             *     `must` is not filtered: an attribute a class requires has to be
+             *     listed as required whatever any editor does with it.
+             */
             may?: string[];
             /**
              * @description Operational attributes this server says a client may set on an
@@ -3221,7 +3253,9 @@ export interface components {
              *
              *     `dSAOperation` attributes are excluded: `namingContexts` and
              *     `supportedControl` are operational and unflagged too, but they
-             *     belong to the server rather than to an entry.
+             *     belong to the server rather than to an entry. So is anything with
+             *     `elsewhere` set on its kind — `aci` is operational and settable,
+             *     and Alder still does not write an access rule.
              */
             settableOperational?: string[];
             /** @description The single structural class, or empty when it is ambiguous. */

@@ -98,6 +98,30 @@ browser tab wedged and could not be recovered.
   says in its own words that it reads rather than decides. *"I trusted it
   immediately, which is rare."*
 
+## What was done about it
+
+Added after the run, so that a re-audit starts from what is claimed rather
+than from this report's own findings.
+
+| # | Finding | State |
+|---|---|---|
+| 1 | The unlock no editor could make | **Closed** in 1.29 (the Policy dialog derives and applies the change) and 1.30 (an **Unlock** beside the badge in the entry header; the editor offers the lock attributes). Locked entry to cleared lock: **two interactions**, measured, against seventeen. |
+| 2 | Nine failed requests, no words anywhere | **Closed** in 1.29. Every failure is written to the console once, in one place, in outline only; the header carries a badge; no retry hides a 502 behind ninety seconds. |
+| 3 | The session wedged while reporting itself healthy | **Half closed.** The header reports a degraded directory and offers Reconnect (1.29), and says "still waiting" with a count while a request is outstanding rather than only after it has failed (1.30). The trigger is still not reproduced, and the server does not yet re-dial before answering 502. |
+| 4 | The jump palette resolves a DN but not a name | Open. |
+| 5 | The verdict omits the attribute in question | Open. |
+| 6 | The Users view is 200 unfiltered rows | Open. |
+| 7 | Policy rows print a label and nothing between | Open. |
+| 8 | Nothing advertises Ctrl+K | Open. |
+| — | `(code 200)` in a failure message | **Closed** in 1.30. It was never a result code: the client library numbers its own conditions from 200 in the same field. Those numbers are no longer printed or sent. |
+
+Closing finding 1 turned up something the audit could not have seen, because
+it is in the opposite direction: the entry editor would happily rewrite an
+**access rule**. `aci` was in the attribute picker on every 389 DS entry
+without one, and `olcAccess` — an ordinary attribute — was four editable text
+boxes on an OpenLDAP database entry. Alder reads access rules and does not
+write them; the editor was a way around that, and is not any more.
+
 ## Findings
 
 ### 1 · Critical — the one change this task needs cannot be made by any editor
