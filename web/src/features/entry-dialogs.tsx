@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ChangeRequest, EntryView } from "@/lib/api";
-import { parentOf, rdnOf, textValue } from "@/lib/values";
+import { parentOf, rdnOf } from "@/lib/values";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { ChangeDialog } from "@/components/change-dialog";
 import { safeText } from "@/lib/display";
+import { copiedAttributes } from "@/lib/copy";
 
 /**
  * SetPasswordDialog changes an entry's password.
@@ -140,11 +141,20 @@ export function SetPasswordDialog({
 /**
  * CopyEntryDialog creates a new entry from an existing one.
  *
+ * Which attributes travel is `copiedAttributes` in lib/copy, tested there.
+ *
  * Anything the directory owns is left behind — operational attributes, and
  * anything NO-USER-MODIFICATION — because those describe the original, not the
- * copy. Sensitive attributes cannot be copied at all: their values were never
- * sent to the browser, which is the point. The dialog says so rather than
- * silently producing an account with no password.
+ * copy. Operational stays excluded here even though the editor now offers the
+ * settable ones: a lock, a failure count and a password-expiry time are facts
+ * about the account that was, and carrying them onto a new account would
+ * create it already locked. Sensitive attributes cannot be copied at all:
+ * their values were never sent to the browser, which is the point. The dialog
+ * says so rather than silently producing an account with no password.
+ *
+ * And nothing Alder declines to write: copying an entry is a write like any
+ * other, and an access rule copied onto a new entry is an access rule Alder
+ * wrote.
  */
 export function CopyEntryDialog({
   entry,
@@ -177,20 +187,11 @@ export function CopyEntryDialog({
     const rdnValue = rest.join("=");
     if (!rdnAttr || !rdnValue) return null;
 
-    const attributes = entry.attributes
-      .filter((a) => !a.kind.operational && !a.kind.readOnly && !a.withheld)
-      .map((a) =>
-        a.name.toLowerCase() === rdnAttr.toLowerCase()
-          ? { name: a.name, values: [textValue(rdnValue)] }
-          : { name: a.name, values: a.values },
-      );
-
-    // The naming attribute must be present carrying the new value, even when
-    // the original was named by a different attribute.
-    if (!attributes.some((a) => a.name.toLowerCase() === rdnAttr.toLowerCase())) {
-      attributes.push({ name: rdnAttr, values: [textValue(rdnValue)] });
-    }
-    return { dn: `${newRdn},${parent}`, type: "add", attributes };
+    return {
+      dn: `${newRdn},${parent}`,
+      type: "add",
+      attributes: copiedAttributes(entry.attributes, rdnAttr, rdnValue),
+    };
   };
 
   const candidate = build();
