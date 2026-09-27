@@ -62,8 +62,34 @@ export function recordFailure(error: unknown) {
   }
 }
 
-/** Record that a request succeeded, which clears the state. */
-export function recordSuccess() {
+/**
+ * Requests Alder answers without asking the directory anything.
+ *
+ * `/session` is an object in Alder's own memory and its capabilities were
+ * cached at connect time; the schema parse is memoised per session; the
+ * source offer is static. Measured with the harness 389 DS paused, all three
+ * answered 200 in single-digit milliseconds while every real directory call
+ * was timing out.
+ *
+ * A success from one of these says nothing about the directory, and letting
+ * it clear the state would put back exactly the false claim this module
+ * exists to remove -- worse, intermittently, because `/session` refetches on
+ * window focus, so looking away and back would have cleared the badge while
+ * the directory was still dead.
+ *
+ * This list is the weak point: it is a fact about the server kept on the
+ * client, and a new memory-answered endpoint would have to be added to it.
+ * The alternative is for the server to mark which responses involved
+ * directory I/O, which is the honest version and a change to every handler.
+ */
+const answeredFromMemory = new Set(["session", "schema", "source"]);
+
+/**
+ * Record that a request succeeded, which clears the state -- if that request
+ * actually reached the directory.
+ */
+export function recordSuccess(key?: unknown) {
+  if (typeof key === "string" && answeredFromMemory.has(key)) return;
   if (health.kind !== "ok") publish({ kind: "ok" });
   health = { kind: "ok" };
 }

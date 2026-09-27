@@ -30,16 +30,24 @@ func lockedEntry(t *testing.T, attrs ...string) (*directory.Entry, *State) {
 func TestTheUnlockClearsWhatThisServerLockedWith(t *testing.T) {
 	target := dn.MustParse("uid=a,ou=people,dc=alder,dc=test")
 
-	// OpenLDAP's ppolicy. The failure times go with the lock: the overlay
-	// re-locks at pwdMaxFailure, so leaving them means the next single
-	// failure locks it again, which nobody expects after an unlock.
+	// OpenLDAP's ppolicy, with the failure times a real lock always carries.
+	// The change must name the lock attribute and NOTHING ELSE:
+	// pwdFailureTime is NO-USER-MODIFICATION, the server refuses a modify
+	// that names it, and a modify is atomic -- so including it meant no
+	// ppolicy-locked account could be unlocked at all. The overlay discards
+	// the failure times itself when the lock goes.
 	entry, state := lockedEntry(t, "pwdAccountLockedTime", "000001010000Z", "pwdFailureTime", "20260927080000Z")
 	unlock := unlockFor(target, entry, state)
 	if unlock == nil {
 		t.Fatal("an account locked by ppolicy was offered no way out")
 	}
-	if len(unlock.Record.Mods) != 2 {
-		t.Fatalf("the change is %+v, want the lock and the failure count", unlock.Record.Mods)
+	if len(unlock.Record.Mods) != 1 {
+		t.Fatalf("the change is %+v, want the lock attribute alone", unlock.Record.Mods)
+	}
+	for _, mod := range unlock.Record.Mods {
+		if strings.EqualFold(mod.Name, "pwdFailureTime") {
+			t.Error("the change names pwdFailureTime, which the directory owns and will refuse")
+		}
 	}
 	for _, mod := range unlock.Record.Mods {
 		if mod.Op != directory.ModDelete {
@@ -102,5 +110,35 @@ func TestOnlyTheAttributesTheEntryActuallyHoldsAreRemoved(t *testing.T) {
 	}
 	if !strings.EqualFold(unlock.Record.Mods[0].Name, "pwdAccountLockedTime") {
 		t.Errorf("removes %q", unlock.Record.Mods[0].Name)
+	}
+}
+
+func TestTheAutomaticLockoutIsCleared(t *testing.T) {
+	// 389 DS's own lockout, which used to be unreachable: the state reader
+	// did not call it a lock, so unlockFor returned before the table entry
+	// for it could match, and the commonest lock on that server was reported
+	// as no lock at all.
+	target := dn.MustParse("uid=a,ou=people,dc=alder,dc=test")
+	entry, state := lockedEntry(t,
+		"accountUnlockTime", "20260927090000Z",
+		"passwordRetryCount", "3",
+		"retryCountResetTime", "20260927093000Z")
+	unlock := unlockFor(target, entry, state)
+	if unlock == nil {
+		t.Fatal("an account the server locked out was offered no way back")
+	}
+	if len(unlock.Record.Mods) != 3 {
+		t.Fatalf("the change is %+v, want the lockout, the count and its reset", unlock.Record.Mods)
+	}
+	// The count goes with it, or the next single failure locks the account
+	// again. Unlike OpenLDAP's, these are ordinary writable attributes.
+	names := map[string]bool{}
+	for _, mod := range unlock.Record.Mods {
+		names[strings.ToLower(mod.Name)] = true
+	}
+	for _, want := range []string{"accountunlocktime", "passwordretrycount", "retrycountresettime"} {
+		if !names[want] {
+			t.Errorf("the change does not clear %s", want)
+		}
 	}
 }

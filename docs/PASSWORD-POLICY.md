@@ -42,9 +42,25 @@ What gets removed depends on what the entry actually carries:
 
 | Lock | Also cleared | Why |
 |---|---|---|
-| `pwdAccountLockedTime` (OpenLDAP ppolicy) | `pwdFailureTime` | the overlay re-locks at `pwdMaxFailure`, so leaving the counted failures behind means the next single failure locks it again |
+| `pwdAccountLockedTime` (OpenLDAP ppolicy) | **nothing** | the overlay discards `pwdFailureTime` itself when the lock goes, and naming it would make the server refuse the whole modify — it is `NO-USER-MODIFICATION` |
 | `nsAccountLock` (389 DS) | — | deleting it is the unlock; setting it to `false` leaves a value that reads as though somebody meant something by it |
-| `accountUnlockTime` (389 DS lockout) | `passwordRetryCount` | clears the automatic lockout and the failure count behind it |
+| `accountUnlockTime` (389 DS lockout) | `passwordRetryCount`, `retryCountResetTime` | clears the automatic lockout and the failure count behind it, which are ordinary writable attributes on this server |
+
+The OpenLDAP row is the one that had to be learned the hard way. The first
+version cleared `pwdFailureTime` too, reasoning that the overlay re-locks at
+`pwdMaxFailure`. The directory owns that attribute, so the server refused the
+modify with a constraint violation — and because a modify is atomic, the lock
+was not cleared either. **The button failed in exactly the case it existed
+for**, because an account only carries `pwdFailureTime` when the overlay is
+what locked it. The conformance suite stayed green because it fabricated the
+lock by writing the attribute, which is a shape the overlay never produces;
+there is now a case that makes the server do the locking.
+
+389 DS's automatic lockout — failed binds reaching `passwordMaxFailure`, after
+which the server sets `accountUnlockTime` to when it will release itself — was
+reported as **not locked at all** until 1.29, so the dialog said nothing
+rather than saying it could not help. It is a lock while that time is still in
+the future, and a record of one that has released after.
 
 An attribute the entry does not hold is never named: a delete of an absent
 attribute is an error on both servers, so naming it would turn a working

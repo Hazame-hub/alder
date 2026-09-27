@@ -26,24 +26,30 @@ import "@/styles.css";
  */
 function noteFailure(error: unknown, where: string) {
   recordFailure(error);
-  const detail =
-    error instanceof ApiFailure
-      ? `${error.status} ${error.code}: ${error.message}${error.detail ? ` (${error.detail})` : ""}`
-      : String(error);
+  // The shape, never the payload.
+  //
+  // `detail` carries the server's own text, and some of that text quotes the
+  // input it was about: an LDIF parse error echoes the offending line, and a
+  // line can be `userPassword: ...`. A console line is a log line, and rule 6
+  // of the charter does not stop being true because the log is in a browser.
+  // The dialog still shows `detail` to the person who needs it, on screen,
+  // where it is not written down.
+  const shape =
+    error instanceof ApiFailure ? `${error.status} ${error.code}: ${error.message}` : String(error);
   // Unconditional, and not behind a debug flag: the next person to debug this
   // should find it in ten seconds rather than in the network tab.
-  console.error(`alder: ${where} failed — ${detail}`, error);
+  console.error(`alder: ${where} failed — ${shape}`);
 }
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => noteFailure(error, String(query.queryKey[0] ?? "request")),
-    onSuccess: () => recordSuccess(),
+    onSuccess: (_data, query) => recordSuccess(query.queryKey[0]),
   }),
   mutationCache: new MutationCache({
     onError: (error, _vars, _ctx, mutation) =>
       noteFailure(error, String(mutation.options.mutationKey?.[0] ?? "request")),
-    onSuccess: () => recordSuccess(),
+    onSuccess: (_data, _vars, _ctx, mutation) => recordSuccess(mutation.options.mutationKey?.[0]),
   }),
   defaultOptions: {
     queries: {

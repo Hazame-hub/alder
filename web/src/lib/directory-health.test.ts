@@ -43,11 +43,26 @@ describe("whether the directory is answering", () => {
     expect(readHealth().kind).toBe("unreachable");
   });
 
-  it("clears the moment anything succeeds", () => {
+  it("clears when something that reached the directory succeeds", () => {
     recordFailure(failure(502));
     expect(readHealth().kind).toBe("unreachable");
-    recordSuccess();
+    recordSuccess("entry");
     expect(readHealth().kind).toBe("ok");
+  });
+
+  it("is not cleared by a request Alder answers from memory", () => {
+    // The premise of the whole module: GET /session is an object in Alder's
+    // own memory and answers 200 in under a millisecond while the directory
+    // is unreachable. The schema parse is memoised per session and the
+    // source offer is static. Letting any of them clear the state puts back
+    // the false claim this exists to remove -- and /session refetches on
+    // window focus, so looking away and back would have done it.
+    for (const key of ["session", "schema", "source"]) {
+      resetHealth();
+      recordFailure(failure(502));
+      recordSuccess(key);
+      expect(readHealth().kind, `a successful ${key} query`).toBe("unreachable");
+    }
   });
 });
 

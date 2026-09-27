@@ -32,13 +32,24 @@ var lockAttributes = []struct {
 	why       string
 }{
 	{
-		// OpenLDAP's ppolicy overlay. The failure times go with it: the
-		// overlay locks the account when they reach pwdMaxFailure, so leaving
-		// them behind means the next single failure locks it again, and an
-		// operator who unlocked an account does not expect that.
-		key:       "pwdaccountlockedtime",
-		alsoClear: []string{"pwdfailuretime"},
-		why:       "clears the lock the password policy overlay applied, and the failed binds it counted",
+		// OpenLDAP's ppolicy overlay, and the lock attribute alone.
+		//
+		// The first version of this also deleted pwdFailureTime, reasoning
+		// that the overlay re-locks at pwdMaxFailure so the counted failures
+		// should go too. That was wrong twice over, and a review proved both
+		// against the running server. pwdFailureTime is
+		// NO-USER-MODIFICATION -- the directory owns it -- so the server
+		// refuses the modify with a constraint violation; and because a
+		// modify is atomic, the lock was not cleared either. The button
+		// failed in exactly the case it was built for, because an account
+		// only carries pwdFailureTime when the overlay is what locked it.
+		//
+		// And it was unnecessary: deleting pwdAccountLockedTime alone
+		// unlocks the account, and the overlay discards the failure times
+		// itself. Verified -- a read immediately after the delete returns
+		// neither attribute.
+		key: "pwdaccountlockedtime",
+		why: "clears the lock the password policy overlay applied; the overlay discards the failed binds with it",
 	},
 	{
 		// 389 DS's own switch. Deleting the attribute is the unlock;
@@ -49,10 +60,21 @@ var lockAttributes = []struct {
 		why: "clears the administrative lock on the account",
 	},
 	{
-		// 389 DS's automatic lockout, which releases itself at a time but
-		// which an administrator may want gone now.
+		// 389 DS's automatic lockout: failed binds reached
+		// passwordMaxFailure and the server set a time it will release
+		// itself, which an administrator usually wants gone now.
+		//
+		// This was dead code until the state reader learned to call it a
+		// lock. That was the worse half of the bug: the commonest lock on
+		// 389 DS was reported as no lock at all, so the dialog said nothing
+		// rather than saying it could not help.
+		//
+		// The retry count and its reset time go with it. Both are ordinary
+		// writable attributes on 389 DS -- unlike OpenLDAP's pwdFailureTime
+		// -- and leaving the count at the maximum means the next single
+		// failure locks the account again.
 		key:       "accountunlocktime",
-		alsoClear: []string{"passwordretrycount"},
+		alsoClear: []string{"passwordretrycount", "retrycountresettime"},
 		why:       "clears the automatic lockout and the failure count behind it",
 	},
 }

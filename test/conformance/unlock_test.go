@@ -127,3 +127,129 @@ func TestAnUnlockedAccountIsOfferedNoUnlock(t *testing.T) {
 		}
 	})
 }
+
+// TestALockTheServerAppliedItselfIsCleared.
+//
+// The case above fabricates the lock by writing the attribute, which is a
+// state neither overlay ever produces on its own -- and that hid a defect
+// that made the whole feature useless on OpenLDAP.
+//
+// A real ppolicy lock carries pwdFailureTime beside pwdAccountLockedTime,
+// because counting the failures is how the overlay decided to lock. The first
+// version of the unlock deleted both. pwdFailureTime is NO-USER-MODIFICATION:
+// the server refused the modify with a constraint violation, and a modify is
+// atomic, so the lock was not cleared either. Every account the overlay had
+// locked -- which is every account locked in production -- could not be
+// unlocked, while this suite stayed green.
+//
+// So this one makes the server do the locking.
+func TestALockTheServerAppliedItselfIsCleared(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		if s.name != "openldap" {
+			t.Skip("this is the ppolicy overlay's own lock; 389 DS's is the case below")
+		}
+		client, base := alderSession(t, s, false)
+		// The one entry the harness holds to cn=strict, pwdMaxFailure 3.
+		target := "uid=user0004,ou=people," + suffix
+
+		t.Cleanup(func() {
+			// pwdFailureTime cannot be deleted -- that is the whole point of
+			// this case -- so the cleanup clears the lock and lets the
+			// overlay discard the rest.
+			_ = sess.Apply(ctx(t), directory.ChangeRecord{
+				DN: mustDN(t, target), Type: directory.ChangeModify,
+				Mods: []directory.Mod{{Op: directory.ModDelete, Name: "pwdAccountLockedTime"}},
+			})
+		})
+
+		// Let the server lock it, the way it really happens.
+		for range 5 {
+			_ = bindAs(t, s, target, "not-the-password")
+		}
+		locked := policyOf(t, client, base, target)
+		if !locked.State.Locked {
+			t.Skipf("%s: the overlay did not lock the account after five bad binds", s.name)
+		}
+		if locked.Unlock == nil {
+			t.Fatalf("%s: locked by the overlay and offered no way out: %s", s.name, mustEncode(t, locked))
+		}
+
+		// The change must not name an attribute the directory owns. This is
+		// the assertion the first version failed: pwdFailureTime is there on
+		// the entry, and putting it in the modify makes the server refuse
+		// the whole thing.
+		for _, a := range locked.Unlock.Attributes {
+			if strings.EqualFold(a, "pwdFailureTime") {
+				t.Errorf("%s: the unlock names pwdFailureTime, which is NO-USER-MODIFICATION; "+
+					"the server refuses the whole modify and the lock survives", s.name)
+			}
+		}
+
+		planAndApplyChanges(t, client, base, []api.ChangeRequest{locked.Unlock.Change})
+
+		after := policyOf(t, client, base, target)
+		if after.State.Locked {
+			t.Fatalf("%s: applied the offered change and the account is still locked: %s",
+				s.name, mustEncode(t, after.State))
+		}
+		// And the account can bind again, which is the only thing the
+		// operator actually wanted.
+		if err := bindAs(t, s, target, "password-user0004"); err != nil {
+			t.Logf("%s: the lock is gone; the bind still fails for another reason: %v", s.name, err)
+		}
+		t.Logf("%s: the overlay locked it, the report's own change cleared it (%v)",
+			s.name, locked.Unlock.Attributes)
+	})
+}
+
+// TestAnAutomaticLockoutIsReportedAndCleared.
+//
+// 389 DS's commonest lock, and the one the report used to miss entirely: five
+// bad binds and the server sets accountUnlockTime to when it will release
+// itself. Until then a bind is refused, which is what anybody means by
+// locked -- but the state reader only looked at nsAccountLock, so the screen
+// said the account was not locked and offered nothing. The unlock table had
+// an entry for it that could never be reached.
+func TestAnAutomaticLockoutIsReportedAndCleared(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		if s.name == "openldap" {
+			t.Skip("an automatic lockout with a release time is 389 DS's")
+		}
+		client, base := alderSession(t, s, false)
+		target := "uid=user0107,ou=people," + suffix
+
+		t.Cleanup(func() {
+			for _, attr := range []string{"accountUnlockTime", "passwordRetryCount", "retryCountResetTime"} {
+				_ = sess.Apply(ctx(t), directory.ChangeRecord{
+					DN: mustDN(t, target), Type: directory.ChangeModify,
+					Mods: []directory.Mod{{Op: directory.ModDelete, Name: attr}},
+				})
+			}
+		})
+
+		for range 6 {
+			_ = bindAs(t, s, target, "not-the-password")
+		}
+		locked := policyOf(t, client, base, target)
+		if !locked.State.Locked {
+			t.Fatalf("%s: six bad binds and the report says the account is not locked: %s",
+				s.name, mustEncode(t, locked.State))
+		}
+		if locked.State.LockedDetail == nil || !strings.Contains(*locked.State.LockedDetail, "failed binds") {
+			t.Errorf("%s: locked by failed binds and the report does not say so: %v",
+				s.name, locked.State.LockedDetail)
+		}
+		if locked.Unlock == nil {
+			t.Fatalf("%s: locked out and offered no way back: %s", s.name, mustEncode(t, locked))
+		}
+
+		planAndApplyChanges(t, client, base, []api.ChangeRequest{locked.Unlock.Change})
+
+		after := policyOf(t, client, base, target)
+		if after.State.Locked {
+			t.Fatalf("%s: the lockout survived the change the report offered: %s",
+				s.name, mustEncode(t, after.State))
+		}
+		t.Logf("%s: locked out by failed binds, cleared by %v", s.name, locked.Unlock.Attributes)
+	})
+}

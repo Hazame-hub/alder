@@ -190,6 +190,20 @@ func stateOf(entry *directory.Entry) *State {
 				state.Locked = true
 				state.LockedDetail = "the account is administratively locked (nsAccountLock)"
 			}
+		case "accountunlocktime":
+			// 389 DS's automatic lockout. The server sets the moment it will
+			// release itself; until then a bind is refused, which is what
+			// anybody means by locked. Reporting it as unlocked -- which is
+			// what this did until 1.29 -- made the commonest lock on this
+			// server the one the screen had nothing to say about.
+			//
+			// Only while it is still in the future: a time that has passed
+			// is a record of a lockout that has already released, and
+			// calling that locked would be the opposite error.
+			if until, ok := parseGeneralized(values[0]); ok && until.After(time.Now()) {
+				state.Locked = true
+				state.LockedDetail = "locked by failed binds until " + readableTime(values[0])
+			}
 		case "pwdreset":
 			state.MustChange = state.MustChange || strings.EqualFold(values[0], "true")
 		case "passwordexpirationtime":
@@ -355,6 +369,18 @@ func readableBool(value string) string {
 }
 
 // readableTime renders a GeneralizedTime, and leaves anything else alone.
+// parseGeneralized reads the generalized time both servers write, and says
+// whether it could.
+func parseGeneralized(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	for _, layout := range []string{"20060102150405Z", "20060102150405Z0700"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
 func readableTime(value string) string {
 	value = strings.TrimSpace(value)
 	parsed, err := time.Parse("20060102150405Z", value)

@@ -3601,3 +3601,58 @@ Manager" to a directory that had stopped answering.
 The server-side thirty-second timeout is unchanged and deliberate: a real
 search can legitimately take that long. What changed is that Alder no longer
 waits three times over, and says so when it gives up.
+
+### 2026-09-27 — what the review of 1.29 found
+
+Eight findings survived refutation. Three mattered, and one of them made the
+feature useless in the only case it was built for.
+
+- **`pwdFailureTime` is `NO-USER-MODIFICATION`, and the unlock was deleting
+  it.** The reasoning had been: the overlay re-locks at `pwdMaxFailure`, so
+  clear the counted failures too. The directory owns that attribute, so the
+  server refused the modify with a constraint violation — and a modify is
+  atomic, so the lock was not cleared either. An account only carries
+  `pwdFailureTime` when the overlay is what locked it, so **every real
+  OpenLDAP lockout was unfixable**. It was also unnecessary: deleting
+  `pwdAccountLockedTime` alone unlocks, and the overlay discards the failure
+  times itself.
+- **The conformance case could not see it, because it faked a lock shape the
+  server never produces.** Writing the attribute as an administrator gives
+  `pwdAccountLockedTime` with no `pwdFailureTime`. There is now a case that
+  makes the *server* do the locking — five bad binds against the one account
+  the harness holds to a strict policy — and it fails on the old code with
+  `Constraint Violation (code 19)`. The lesson generalises: a fixture built by
+  writing the state a server would have written is not the same as the state,
+  and the difference is exactly where the defects live.
+- **389 DS's automatic lockout was reported as no lock at all.** The state
+  reader only looked at `nsAccountLock`, so the commonest lock on that server
+  — failed binds reaching `passwordMaxFailure`, after which the server sets
+  `accountUnlockTime` — left the dialog with nothing to say, and the table
+  entry meant to clear it could never be reached. It is a lock while that
+  time is still in the future.
+- **A consumer refuses replicated password-policy operations.** Found because
+  the new test locks an account by failing binds, which makes the supplier
+  write lockout state and try to replicate it. 389 DS rejects that on the
+  consumer unless `passwordIsGlobalPolicy` is on — and the agreement then
+  falls into "Error (16) … connection error. Backing off", which stalls the
+  **whole** agreement. One locked-out account silently stops replication for
+  everything. The harness sets it on the consumer, in `replicate.sh` rather
+  than in the policy seed, because `cn=config` does not replicate: it has to
+  go on the server doing the rejecting. Any replicated 389 DS where accounts
+  are ever locked out needs the same.
+- **Any success cleared the health badge, including from requests that never
+  touch the directory.** `/session`, `/schema` and `/source` all answer 200
+  from memory in single-digit milliseconds while the directory is down —
+  `/session` refetches on window focus, so looking away and back restored
+  exactly the false claim the indicator was built to remove. They are
+  excluded by name, which is the weak point and is written down as such; the
+  honest fix is for the server to say which responses involved directory I/O.
+- **The new console line logged `error.detail`, which can quote a password.**
+  An LDIF parse error echoes the offending source line, and a line can be
+  `userPassword: …`. Verified against the running server. It logs the status,
+  the code and the message now — the dialog still shows `detail` on screen,
+  where it is not written down. Rule 6 does not stop being true because the
+  log is in a browser.
+
+The re-walk of the audited task measured **2 interactions**, not the 3 the
+change claimed, and the same 2 on both servers.

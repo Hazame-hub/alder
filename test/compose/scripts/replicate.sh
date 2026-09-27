@@ -79,6 +79,36 @@ ldapmodify_ok "$CONSUMER" /ds389/backend.ldif
 echo "replicate: installing the custom schema on the consumer"
 ldapmodify_ok "$CONSUMER" /ds389/alder-schema.ldif
 
+# Lockout state has to be allowed on the consumer, or replication stops.
+#
+# When binds fail, the supplier writes accountUnlockTime, passwordRetryCount
+# and retryCountResetTime on the account and replicates them like any other
+# change. The consumer REFUSES a replicated password-policy operation unless
+# passwordIsGlobalPolicy is on:
+#
+#   ERR - do_modify - Rejecting replicated password policy operation ...
+#   To allow these changes to be accepted, set passwordIsGlobalPolicy to 'on'
+#
+# and the agreement then falls into "Error (16) ... connection error. Backing
+# off, will retry update later" -- which stalls the WHOLE agreement, not just
+# those attributes. One locked-out account silently stops replication for
+# everything.
+#
+# It goes here rather than in policy.ldif because cn=config does not
+# replicate: the setting has to be put on the server that does the rejecting.
+# The harness found this the first time a conformance case locked an account
+# out by failing binds instead of by writing the attribute, which is the
+# reason that case does it the hard way.
+echo "replicate: allowing replicated lockout state on the consumer"
+cat >/tmp/globalpolicy.ldif <<'LDIF'
+dn: cn=config
+changetype: modify
+replace: passwordIsGlobalPolicy
+passwordIsGlobalPolicy: on
+LDIF
+ldapmodify_ok "$CONSUMER" /tmp/globalpolicy.ldif
+rm -f /tmp/globalpolicy.ldif
+
 echo "replicate: enabling replication on the consumer"
 dsconf_do "$CONSUMER" replication enable \
 	--suffix "$SUFFIX" --role consumer \
