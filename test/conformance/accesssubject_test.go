@@ -120,6 +120,36 @@ func TestAnIdentityThatIsNotADistinguishedNameIsRefused(t *testing.T) {
 	})
 }
 
+// TestAnEntryThatCannotBeReadAnswersWithTheDirectorysRefusal pins the answer
+// an operator gets for the commonest mistake there is: a DN that is not there.
+//
+// It was "Something went wrong" with a 500 for both of these views, because
+// the handler called errors.Unwrap on a value built with errors.Join -- whose
+// Unwrap returns nil -- so the directory's own result code never reached the
+// mapping that turns it into a 404. A generic internal error also makes a typo
+// indistinguishable from a permissions problem, which on these two screens in
+// particular is the distinction the reader came for.
+func TestAnEntryThatCannotBeReadAnswersWithTheDirectorysRefusal(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, _ directory.Session) {
+		client, base := alderSession(t, s, false)
+		missing := url.QueryEscape("uid=nobody-is-here,ou=people," + suffix)
+		for _, path := range []string{"/access?dn=" + missing, "/policy?dn=" + missing} {
+			res := get(t, client, base+path)
+			if res.status == http.StatusInternalServerError {
+				t.Errorf("%s: %s answered 500 for an entry that is not there: %s", s.name, path, res.body)
+				continue
+			}
+			if res.status != http.StatusNotFound {
+				t.Errorf("%s: %s answered %d, want 404: %s", s.name, path, res.status, res.body)
+				continue
+			}
+			if !strings.Contains(strings.ToLower(res.body), "no such entry") {
+				t.Errorf("%s: %s does not say the entry is not there: %s", s.name, path, res.body)
+			}
+		}
+	})
+}
+
 func deniedAttributes(e *api.EffectiveRights) []string {
 	var out []string
 	if e.Attributes == nil {

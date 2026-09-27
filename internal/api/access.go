@@ -55,7 +55,14 @@ func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error
 	if errors.Is(err, access.ErrNoEntry) {
 		// The rules of an entry nobody can read would be a list with no
 		// subject; the directory's own refusal is the honest answer.
-		return s.fail(c, errors.Unwrap(err))
+		//
+		// The whole error, not errors.Unwrap of it. access.For builds this
+		// with errors.Join, whose value implements Unwrap() []error and not
+		// Unwrap() error -- so errors.Unwrap returned nil, s.fail matched
+		// nothing, and every unreadable DN answered "Something went wrong"
+		// with a 500 instead of "No such entry" with a 404. s.fail uses
+		// errors.As, which walks a joined error correctly.
+		return s.fail(c, err)
 	}
 	if err != nil {
 		return s.fail(c, err)
@@ -141,7 +148,8 @@ func (s *Server) GetPasswordPolicy(c *fiber.Ctx, params GetPasswordPolicyParams)
 
 	report, err := policy.For(ctx, sess.Conn, target)
 	if errors.Is(err, policy.ErrNoEntry) {
-		return s.fail(c, errors.Unwrap(err))
+		// The whole error; see GetAccessRules above for why not Unwrap.
+		return s.fail(c, err)
 	}
 	if err != nil {
 		return s.fail(c, err)

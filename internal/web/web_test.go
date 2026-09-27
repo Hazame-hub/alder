@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -98,20 +99,41 @@ func TestTheRealAssetIsStillServed(t *testing.T) {
 		t.Skip("no SPA is embedded in this build; run \"task web\" first")
 	}
 	// The rule is a guard, not a wall: whatever the build actually emitted has
-	// to keep being served, or the application never loads at all.
-	name := oneAsset(t)
-	res := serve(t, "/assets/"+name)
-	if res.status != http.StatusOK {
-		t.Fatalf("GET /assets/%s answered %d", name, res.status)
+	// to keep being served, and served AS ITSELF.
+	//
+	// The status alone was not enough. With only that assertion, a handler
+	// that answered every path with index.html and a 200 passed all four
+	// tests while the application could not boot -- which is exactly the
+	// failure the sibling test's comment describes, one file along.
+	for _, name := range assetNames(t) {
+		res := serve(t, "/assets/"+name)
+		if res.status != http.StatusOK {
+			t.Errorf("GET /assets/%s answered %d", name, res.status)
+			continue
+		}
+		if strings.Contains(res.contentType, "text/html") {
+			t.Errorf("GET /assets/%s was answered with %q, which is the page and not the file",
+				name, res.contentType)
+		}
+		want := map[string]string{".js": "javascript", ".css": "css"}[filepath.Ext(name)]
+		if want != "" && !strings.Contains(res.contentType, want) {
+			t.Errorf("GET /assets/%s answered with %q, want %s", name, res.contentType, want)
+		}
 	}
 }
 
-// oneAsset names a file the build really emitted.
-func oneAsset(t *testing.T) string {
+// assetNames are the files the build really emitted.
+func assetNames(t *testing.T) []string {
 	t.Helper()
 	entries, err := dist.ReadDir("dist/assets")
 	if err != nil || len(entries) == 0 {
 		t.Skip("this build embeds no assets directory")
 	}
-	return entries[0].Name()
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out
 }

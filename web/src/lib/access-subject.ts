@@ -27,7 +27,31 @@ type Capabilities = components["schemas"]["Capabilities"];
  */
 export function dnEquals(a: string | undefined, b: string | undefined): boolean {
   if (!a || !b) return false;
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
+  return foldDn(a) === foldDn(b);
+}
+
+/**
+ * A DN reduced enough to compare the two forms this screen actually holds.
+ *
+ * They come from different places and are spelled differently as a result:
+ * the bind DN is the string the operator typed on the connect screen, kept
+ * verbatim, and the subject is what the picker returned in the server's own
+ * spelling. `cn=admin, dc=alder, dc=test` and `cn=admin,dc=alder,dc=test` are
+ * the same account, and comparing them raw printed "— not you" over a
+ * person's own rights, which is an affirmative falsehood rather than a
+ * missing nicety.
+ *
+ * Whitespace around the separators only. Full RFC 4517 matching needs the
+ * schema and belongs on the server; an escaped comma inside a value is left
+ * alone, so the worst this can do is fail to notice two forms are the same
+ * and show a DN the reader already knows.
+ */
+function foldDn(dn: string): string {
+  return dn
+    .trim()
+    .toLowerCase()
+    .replace(/\s*([,+])\s*/g, "$1")
+    .replace(/\s*=\s*/g, "=");
 }
 
 /** The most specific naming context that contains this DN, for a DN picker to
@@ -46,6 +70,26 @@ export function searchBaseFor(dn: string, contexts: string[] | undefined): strin
   if (best) return best;
   const comma = dn.indexOf(",");
   return comma >= 0 ? dn.slice(comma + 1) : dn;
+}
+
+/**
+ * The query the access request carries.
+ *
+ * A function rather than an inline object at the call site, because it is the
+ * one line that makes the whole control do anything: deleting `as` from it
+ * turns the feature inert -- the heading changes and the verdict does not --
+ * and a test can hold a function to account in a way it cannot hold a literal
+ * buried in a queryFn.
+ */
+export function accessQuery(dn: string, subject: string): { dn: string; as?: string } {
+  const asked = subject.trim();
+  return asked ? { dn, as: asked } : { dn };
+}
+
+/** The cache key for that request. A subject that is not part of the key
+ * shows the previous identity's answer under the new identity's heading. */
+export function accessQueryKey(dn: string, subject: string): unknown[] {
+  return ["access", dn, subject.trim()];
 }
 
 export type SubjectView =
@@ -94,16 +138,24 @@ export function shortDn(dn: string): string {
 }
 
 /**
- * The sentence that keeps the rules list honest while another identity's
- * verdict is on screen. Empty when the verdict is about the reader, because
+ * The sentence that keeps the rules list honest while another identity is
+ * being asked about. Empty when the question is about the reader, because
  * then there is nothing to disclaim.
+ *
+ * It has to know whether a verdict was actually produced. A server that
+ * declines the question is not an edge case: on 389 DS every non-root bind
+ * asking about somebody else gets a numeric error code where the rights
+ * letters go, which becomes "the server declined to say" and no verdict at
+ * all. Pointing at "the verdict above" there names something the reader
+ * cannot see.
  */
-export function rulesScopeNote(view: SubjectView): string {
+export function rulesScopeNote(view: SubjectView, hasVerdict: boolean): string {
   if (view.kind !== "other") return "";
-  return (
+  const rules =
     "The rules below are the ones this server holds about this entry. They are the same list " +
-    "whoever you ask about, and so are the marks on them — only the verdict above is about " +
-    shortDn(view.dn) +
-    "."
-  );
+    "whoever you ask about, and so are the marks on them";
+  if (hasVerdict) {
+    return rules + " — only the verdict above is about " + shortDn(view.dn) + ".";
+  }
+  return rules + ". The server gave no verdict about " + shortDn(view.dn) + ".";
 }

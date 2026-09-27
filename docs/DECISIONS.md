@@ -3428,3 +3428,50 @@ it with an HTML document and a 200 turns "that file is gone" into a syntax
 error at the point of use. The case is real — a tab left open across a deploy
 asks for the previous build's chunks by name — and it is what would have made a
 split hard to do safely.
+
+### 2026-09-27 — a second review, and what it found in the first
+
+Six findings survived refutation. Two were found by *mutation* rather than by
+reading — a test was copied into an isolated module, the code under it was
+broken, and the suite was watched to see whether it noticed. Both times it did
+not. That is worth adopting as a habit: a green suite is evidence only if
+something has checked that it can go red.
+
+- **`errors.Unwrap` on an `errors.Join` value returns nil.** The access and
+  policy handlers both did `s.fail(c, errors.Unwrap(err))` on the
+  entry-unreadable branch, so `s.fail` matched nothing and every unreadable DN
+  answered "Something went wrong" with a 500 — on the two screens where the
+  difference between a typo and a permissions problem is the thing the reader
+  came for. Joined errors implement `Unwrap() []error`, not `Unwrap() error`;
+  `errors.As` walks them correctly, so the fix is to pass the error itself.
+  Pre-existing since 1.19/1.21, and reproduced against the harness.
+- **A storage scheme is a password's, not every secret's.** Adding the
+  configuration secrets to `schema.sensitiveAttrs` had a tail: the entry view
+  reports the RFC 2307 `{scheme}` beside a withheld value, and an unprefixed
+  value as "stored in the clear". `olcSyncrepl` begins with slapd's ordering
+  prefix, so it reported a hash scheme called "0"; `olcDbCryptKey` has no
+  brace, so it reported a secret stored in the clear. Both are sentences about
+  a value the rule does not cover. `valueSchemes` is now asked only of the
+  attributes that really are passwords.
+- **The scope sentence pointed at a verdict that was not there.** It said
+  "only the verdict above is about cn=X" whenever a subject was named,
+  including when 389 DS declined the question — which is not an edge case:
+  every non-root bind asking about another identity gets a numeric error code
+  where the rights letters go. The sentence now takes whether a verdict exists
+  and words the other case for itself.
+- **`dnEquals` compared two strings written by different hands.** The bind DN
+  is what the operator typed on the connect screen, kept verbatim; the subject
+  is what the picker returned in the server's own spelling.
+  `cn=admin, dc=alder, dc=test` against `cn=admin,dc=alder,dc=test` printed
+  "— not you" over a person's own rights. Now folded around the separators.
+  Not RFC 4517 matching, which needs the schema and belongs on the server.
+- **`TestTheRealAssetIsStillServed` asserted only the status code.** A handler
+  that answered every path with index.html and a 200 passed all four web
+  tests while the application could not boot. It now asserts the content type
+  per extension, and that mutation fails it.
+- **Nothing exercised the `as=` control end to end.** The query parameter
+  could be deleted from the client and fourteen tests stayed green: what was
+  pinned was the pure functions and two presentational components, not the
+  line that connects them. The request and its cache key are now built by
+  `accessQuery` / `accessQueryKey` — a function a test can hold to account,
+  where a literal buried in a `queryFn` could not be.

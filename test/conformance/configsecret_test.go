@@ -3,6 +3,7 @@
 package conformance
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -80,4 +81,73 @@ func configEntriesHoldingSecrets(t *testing.T, s server, _ directory.Session) []
 	// 389 DS: nsslapd-rootpw on the global entry, and the agreement's
 	// encrypted credential on the supplier.
 	return []string{"cn=config"}
+}
+
+// TestAWithheldConfigurationValueClaimsNoPasswordScheme.
+//
+// Withholding these attributes was the right fix and it had a tail. The
+// entry view reports, beside a withheld value, the RFC 2307 storage scheme
+// it was stored with -- {PBKDF2-SHA512} and the like -- and an unprefixed
+// value is reported as having none, which the interface renders as "stored
+// in the clear". That rule is about passwords. An olcSyncrepl value begins
+// with slapd's ordering prefix, so it was reported as stored with a scheme
+// called "0"; olcDbCryptKey has no brace at all, so it was reported as a
+// secret stored in the clear. Both are sentences about a value the rule does
+// not cover.
+func TestAWithheldConfigurationValueClaimsNoPasswordScheme(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		if !sess.Capabilities().Config.Readable || !strings.HasPrefix(s.name, "openldap") {
+			t.Skip("olcSyncrepl is OpenLDAP's, and the consumer is where it carries a credential")
+		}
+		for _, target := range []server{s, replicaOf(s)} {
+			if target.port == 0 {
+				continue
+			}
+			client, base := alderSession(t, target, true)
+			res := get(t, client, base+"/entry?dn="+url.QueryEscape("olcDatabase={1}mdb,cn=config"))
+			if res.status != http.StatusOK {
+				t.Fatalf("%s: reading the database entry: %d", target.name, res.status)
+			}
+
+			var entry struct {
+				Attributes []struct {
+					Name         string    `json:"name"`
+					Withheld     *bool     `json:"withheld"`
+					ValueSchemes *[]string `json:"valueSchemes"`
+				} `json:"attributes"`
+			}
+			if err := json.Unmarshal([]byte(res.body), &entry); err != nil {
+				t.Fatalf("%s: decoding the entry: %v", target.name, err)
+			}
+
+			withheld := 0
+			for _, a := range entry.Attributes {
+				if a.Withheld == nil || !*a.Withheld {
+					continue
+				}
+				withheld++
+				if passwordAttribute(a.Name) {
+					continue
+				}
+				if a.ValueSchemes != nil && len(*a.ValueSchemes) > 0 {
+					t.Errorf("%s: %s is withheld and reports storage scheme %v; the scheme rule is about passwords",
+						target.name, a.Name, *a.ValueSchemes)
+				}
+			}
+			if withheld == 0 {
+				t.Errorf("%s: nothing on the database entry is withheld, which is the wrong kind of pass",
+					target.name)
+			}
+		}
+	})
+}
+
+// passwordAttribute names the withheld attributes whose values really are
+// passwords in the RFC 2307 sense.
+func passwordAttribute(name string) bool {
+	switch strings.ToLower(name) {
+	case "userpassword", "olcrootpw", "nsslapd-rootpw", "unicodepwd", "pwdhistory":
+		return true
+	}
+	return false
 }

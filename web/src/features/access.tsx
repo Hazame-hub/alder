@@ -5,6 +5,8 @@ import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { SessionInfo } from "@/lib/api";
 import type { components } from "@/lib/api.gen";
 import {
+  accessQuery,
+  accessQueryKey,
   canAskAboutAnotherIdentity,
   rulesScopeNote,
   searchBaseFor,
@@ -91,22 +93,17 @@ export function AccessDialog({
   });
 
   const report = useQuery<AccessReport, ApiFailure>({
-    queryKey: ["access", dn, subject],
+    queryKey: accessQueryKey(dn, subject),
     enabled: open,
     retry: false,
-    queryFn: async () =>
-      unwrap(
-        await api.GET("/access", {
-          params: { query: { dn, ...(subject ? { as: subject } : {}) } },
-        }),
-      ),
+    queryFn: async () => unwrap(await api.GET("/access", { params: { query: accessQuery(dn, subject) } })),
   });
 
   const rules = report.data?.rules ?? [];
   const applying = rules.filter((r) => r.applies === "yes").length;
   const view = subjectView(subject, session.data?.bindDn);
   const canAsk = canAskAboutAnotherIdentity(session.data?.capabilities);
-  const scopeNote = rulesScopeNote(view);
+  const scopeNote = rulesScopeNote(view, report.data?.effective != null);
 
   return (
     <>
