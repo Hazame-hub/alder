@@ -12,7 +12,14 @@ import (
 // What the static handler must get right, which is three different answers to
 // three paths that all look like "not a route I know".
 
-func serve(t *testing.T, path string) *http.Response {
+// answer is what the handler said, with the body already closed: the response
+// itself never leaves this helper, so no caller can leak one.
+type answer struct {
+	status      int
+	contentType string
+}
+
+func serve(t *testing.T, path string) answer {
 	t.Helper()
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})
 	// An API route, registered first the way the real server does it, so the
@@ -23,12 +30,13 @@ func serve(t *testing.T, path string) *http.Response {
 	})
 	Register(app)
 
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
 	res, err := app.Test(req, -1)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
-	return res
+	defer func() { _ = res.Body.Close() }()
+	return answer{status: res.StatusCode, contentType: res.Header.Get("Content-Type")}
 }
 
 func TestAMissingAssetIsNotThePage(t *testing.T) {
@@ -36,13 +44,13 @@ func TestAMissingAssetIsNotThePage(t *testing.T) {
 		t.Skip("no SPA is embedded in this build; run \"task web\" first")
 	}
 	res := serve(t, "/assets/index-DOESNOTEXIST.js")
-	if res.StatusCode != http.StatusNotFound {
-		t.Errorf("a missing asset answered %d, want 404", res.StatusCode)
+	if res.status != http.StatusNotFound {
+		t.Errorf("a missing asset answered %d, want 404", res.status)
 	}
 	// The status is only half of it. A browser that asked for JavaScript and
 	// was handed an HTML document reports a syntax error in a file that is
 	// perfectly valid, which is the failure this exists to prevent.
-	if got := res.Header.Get("Content-Type"); strings.Contains(got, "text/html") {
+	if got := res.contentType; strings.Contains(got, "text/html") {
 		t.Errorf("a missing asset answered with %q", got)
 	}
 }
@@ -56,10 +64,10 @@ func TestAnUnrecognisedRouteStillReturnsTheApplication(t *testing.T) {
 	// asset and not the API still gets the page.
 	for _, path := range []string{"/", "/?view=schema", "/somewhere/deep"} {
 		res := serve(t, path)
-		if res.StatusCode != http.StatusOK {
-			t.Errorf("GET %s answered %d, want the application", path, res.StatusCode)
+		if res.status != http.StatusOK {
+			t.Errorf("GET %s answered %d, want the application", path, res.status)
 		}
-		if got := res.Header.Get("Content-Type"); !strings.Contains(got, "text/html") {
+		if got := res.contentType; !strings.Contains(got, "text/html") {
 			t.Errorf("GET %s answered with %q, want the page", path, got)
 		}
 	}
@@ -70,17 +78,17 @@ func TestTheApiIsNeverAnsweredByTheStaticHandler(t *testing.T) {
 		t.Skip("no SPA is embedded in this build; run \"task web\" first")
 	}
 	res := serve(t, "/api/v1/session")
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("the API route answered %d", res.StatusCode)
+	if res.status != http.StatusOK {
+		t.Fatalf("the API route answered %d", res.status)
 	}
-	if got := res.Header.Get("Content-Type"); strings.Contains(got, "text/html") {
+	if got := res.contentType; strings.Contains(got, "text/html") {
 		t.Errorf("the API route was answered by the SPA handler: %q", got)
 	}
 	// And an API path with no route behind it must still be the API's own 404,
 	// not the page: a client that asked for JSON and got HTML with a 200 is
 	// the same class of bug as the asset case above.
 	missing := serve(t, "/api/v1/nothing-here")
-	if missing.StatusCode == http.StatusOK {
+	if missing.status == http.StatusOK {
 		t.Error("an unknown API path was answered with the application")
 	}
 }
@@ -93,8 +101,8 @@ func TestTheRealAssetIsStillServed(t *testing.T) {
 	// to keep being served, or the application never loads at all.
 	name := oneAsset(t)
 	res := serve(t, "/assets/"+name)
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("GET /assets/%s answered %d", name, res.StatusCode)
+	if res.status != http.StatusOK {
+		t.Fatalf("GET /assets/%s answered %d", name, res.status)
 	}
 }
 
