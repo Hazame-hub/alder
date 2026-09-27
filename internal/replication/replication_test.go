@@ -25,6 +25,29 @@ func TestBothServersChangeSequencesReadIntoTheSameAnswer(t *testing.T) {
 		t.Errorf("time is %s", got)
 	}
 
+	// The sid is hexadecimal. Reading it as text made server 16 report as 10
+	// and server 10 report as the letter a, so the cursor and the "this
+	// server is id N" line beside it named the same server two ways -- on the
+	// one screen an operator is told to compare against another server.
+	for _, tc := range []struct{ csn, want string }{
+		{"20260927082421.145666Z#000000#00a#000000", "10"},
+		{"20260927082421.145666Z#000000#010#000000", "16"},
+		{"20260927082421.145666Z#000000#fff#000000", "4095"},
+		// Legal, and what a provider with no olcServerID stamps.
+		{"20260927082421.145666Z#000000#000#000000", "0"},
+	} {
+		got, ok := parseOpenLDAPCSN(tc.csn)
+		if !ok {
+			t.Fatalf("%q was not read", tc.csn)
+		}
+		if got.Origin != tc.want {
+			t.Errorf("%q has origin %q, want %q", tc.csn, got.Origin, tc.want)
+		}
+	}
+	if _, ok := parseOpenLDAPCSN("20260927082421.145666Z#000000#zzz#000000"); ok {
+		t.Error("a sid that is not a number was read as one")
+	}
+
 	ds389, ok := parse389CSN("6ab8d2b6000b00010000")
 	if !ok {
 		t.Fatal("389 DS's form was not read")
@@ -156,6 +179,13 @@ func TestARoleIsWhatTheServerCanActuallyDo(t *testing.T) {
 		if strings.Contains(whyRole(role, mixed), "sends changes to") {
 			t.Errorf("%q claims to know a consumer exists: %q", role, whyRole(role, mixed))
 		}
+	}
+	// Nor that it receives nothing. A 389 DS read-write replica is type 3
+	// whether it is the only supplier or one of several, so the negative was
+	// a claim the server had not made -- and it contradicted the origins
+	// listed on the same card.
+	if strings.Contains(whyRole(RoleSupplier, mixed), "receives none") {
+		t.Errorf("the supplier sentence asserts what it cannot know: %q", whyRole(RoleSupplier, mixed))
 	}
 }
 

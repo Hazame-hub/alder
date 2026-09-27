@@ -190,7 +190,12 @@ func whyRole(role string, suffixes []Suffix) string {
 	case RoleBoth:
 		return "This server receives changes from another server, and is set up to serve them on."
 	case RoleSupplier:
-		return "This server is set up to serve changes to other servers, and receives none itself."
+		// No "and receives none itself". Neither server records enough to
+		// support that: a 389 DS read-write replica is type 3 whether it is
+		// the only supplier or one of several, and an OpenLDAP provider knows
+		// nothing about who writes to it. Saying it flatly contradicted the
+		// origins listed on the same card.
+		return "This server is set up to serve changes to other servers."
 	case RoleConsumer:
 		return "This server receives changes from another server. Writes sent here are " +
 			"refused or referred elsewhere, not applied."
@@ -212,6 +217,12 @@ func whyRole(role string, suffixes []Suffix) string {
 //
 //	20260927075958.266363Z#000000#001#000000
 //	 time                  count  sid  mod
+//
+// The sid is three HEXADECIMAL digits -- slapd writes it with %03x -- while
+// olcServerID is decimal. Reading it as text made the same server appear
+// under two different numbers on the two cards an operator is being told to
+// compare: id 16 stamps "#010#", which read as text is 10. Anything above 9
+// was wrong, and "00a" rendered as a bare letter.
 func parseOpenLDAPCSN(value string) (Cursor, bool) {
 	parts := strings.Split(strings.TrimSpace(value), "#")
 	if len(parts) < 3 {
@@ -227,7 +238,15 @@ func parseOpenLDAPCSN(value string) (Cursor, bool) {
 	if micros, err := strconv.Atoi(frac); err == nil && micros > 0 {
 		at = at.Add(time.Duration(micros) * time.Microsecond)
 	}
-	return Cursor{Origin: strings.TrimLeft(parts[2], "0"), At: at.UTC(), Raw: strings.TrimSpace(value)}, true
+	sid, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 16, 64)
+	if err != nil {
+		return Cursor{}, false
+	}
+	return Cursor{
+		Origin: strconv.FormatInt(sid, 10),
+		At:     at.UTC(),
+		Raw:    strings.TrimSpace(value),
+	}, true
 }
 
 // parse389CSN reads 389 DS's form: twenty hex digits, as

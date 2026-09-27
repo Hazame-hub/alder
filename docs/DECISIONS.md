@@ -3301,3 +3301,46 @@ rule: it says what this server records, and where.
   entry the server has marked is found, read and explained; the entry is put
   back afterwards either way, and the harness seed stays byte-identical
   between the two servers.
+
+### 2026-09-27 — what an adversarial review of the above found
+
+Every finding below was produced by a review of the unmerged stack, put to a
+second agent told to refute it, and confirmed against the running harness.
+Recorded because three of them are the kind of mistake that recurs.
+
+- **The entry viewer and the LDIF export were serving cleartext passwords.**
+  `schema.sensitiveAttrs` -- the one list every generic value path gates on --
+  held `nsslapd-rootpw` and `nsds5ReplicaCredentials` but not `olcRootPW`,
+  `olcSyncrepl` or `olcDbCryptKey`. So `internal/config` withheld them from a
+  snapshot, `internal/replication` stripped them from a report, and
+  `GET /entry` handed them to the browser: two features each knowing a fact
+  the shared path did not. Confirmed live -- `/entry` and `/export/ldif` on
+  `olcDatabase={1}mdb,cn=config` returned `alder-admin` and a whole
+  `credentials="..."`. Pre-existing for `olcRootPW`; the replica harness is
+  what made the syncrepl half reachable. The lesson is the general one: a
+  feature that discovers a secret must put it in the shared list, not in its
+  own.
+- **An OpenLDAP change sequence's server id is hexadecimal.** slapd writes it
+  `%03x`; `olcServerID` is decimal. Reading it as text made server 16 report
+  as 10 and server 10 report as the letter `a` -- on the one screen an
+  operator is told to compare against another server. Invisible in the
+  harness, which uses ids 1 and 2.
+- **Server id 0 is legal and was trimmed to nothing.** It is what a provider
+  with no `olcServerID` stamps. The card read "from server :".
+- **"...and receives none itself" was a claim no server had made.** A 389 DS
+  read-write replica is type 3 whether it is the only supplier or one of
+  several, so a multi-supplier reported itself as sending only -- while
+  listing, three lines below, a change it had received from the other one.
+  The word "supplier" is supportable; the negative was not. Receiving is now
+  read from the replica update vector, which is evidence the server holds.
+- **A syncrepl link on the configuration database was dropped silently.**
+  `olcDatabase={0}config` has no `olcSuffix`, so the branch `continue`d --
+  and a server replicating its own configuration was told it "replicates
+  nothing". It is named after the configuration root instead.
+- **The harness index write was not idempotent, and would have killed a
+  restarted container.** `add: olcDbIndex` under `set -eu`, on a cn=config
+  that lives in the container's writable layer: any `docker compose restart`
+  or host reboot re-applied it, slapmodify failed with "Type or value
+  exists", and slapd was never exec'd. `bulk_load` two blocks below already
+  guarded itself against exactly this. Now guarded the same way, and proved
+  by restarting both OpenLDAP containers.

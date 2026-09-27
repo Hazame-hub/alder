@@ -122,7 +122,13 @@ func For(ctx context.Context, r Reader, opts Options) (*Report, error) {
 		case len(entry.GetStrings("olcSyncrepl")) > 0:
 			name := firstValue(entry, "olcSuffix")
 			if name == "" {
-				continue
+				// OpenLDAP's own configuration database has no olcSuffix, and
+				// it is the one most often replicated in a multi-provider
+				// pair. Dropping the link made the report say the server
+				// replicates nothing while it was receiving configuration
+				// changes from a peer, so it is named after the tree it
+				// actually holds.
+				name = configRootName(caps, entry.DN)
 			}
 			s := at(name)
 			for _, value := range entry.GetStrings("olcSyncrepl") {
@@ -153,9 +159,17 @@ func For(ctx context.Context, r Reader, opts Options) (*Report, error) {
 				}
 			}
 			if name == "" {
-				report.Unread = append(report.Unread, Unread{Where: entry.DN.String(),
-					Reason: "this server serves changes from here and the database above it could not be read"})
-				continue
+				// The database above it either has no suffix -- the
+				// configuration database does not -- or could not be read.
+				// The first is ordinary and has a name; only the second is
+				// worth reporting as unread.
+				if parent != nil {
+					name = configRootName(caps, entry.DN.Parent())
+				} else {
+					report.Unread = append(report.Unread, Unread{Where: entry.DN.String(),
+						Reason: "this server serves changes from here and the database above it could not be read"})
+					continue
+				}
 			}
 			s := at(name)
 			supplies[strings.ToLower(name)] = true
@@ -178,6 +192,17 @@ func For(ctx context.Context, r Reader, opts Options) (*Report, error) {
 			flags, _ := strconv.Atoi(firstValue(entry, "nsDS5Flags"))
 			if flags&1 == 1 {
 				supplies[strings.ToLower(name)] = true
+			}
+			// A replica that holds changes originating anywhere but here has
+			// received them from somebody, whatever its configured type says.
+			// This is the server's own record rather than an inference from
+			// how it was set up, and it is what makes a multi-supplier pair
+			// report itself as both.
+			for _, cursor := range s.Cursors {
+				if cursor.Origin != "" && cursor.Origin != s.ServerID {
+					consumes[strings.ToLower(name)] = true
+					break
+				}
 			}
 			switch firstValue(entry, "nsDS5ReplicaType") {
 			case "2":
@@ -488,7 +513,31 @@ func serverID(ctx context.Context, r Reader, base dn.DN) string {
 		return ""
 	}
 	id, _, _ := strings.Cut(strings.TrimSpace(value), " ")
-	return strings.TrimLeft(id, "0")
+	id = strings.TrimLeft(id, "0")
+	if id == "" {
+		// Server id 0 is legal, and is what a provider with no olcServerID
+		// stamps. Trimming it to nothing made the card say "from server :".
+		return "0"
+	}
+	return id
+}
+
+// configRootName names the tree a database with no suffix holds. On OpenLDAP
+// that is the configuration database, whose contents are the configuration
+// tree itself, so it is named after the root the server announced rather than
+// after the {n} in its own DN.
+func configRootName(caps directory.Capabilities, where dn.DN) string {
+	if caps.Config.DN != "" {
+		return caps.Config.DN
+	}
+	if caps.ConfigContext != "" {
+		return caps.ConfigContext
+	}
+	// Last resort: the top of the tree this entry sits in.
+	if len(where) > 0 {
+		return where[len(where)-1:].String()
+	}
+	return "cn=config"
 }
 
 func hasClass(entry *directory.Entry, class string) bool {
