@@ -305,3 +305,44 @@ func TestPolicyFallsBackToTheServersDefault(t *testing.T) {
 		t.Error("bob is not locked")
 	}
 }
+
+func TestPolicyDoesNotPresentTheDefaultWhenTheNamedOneIsUnreadable(t *testing.T) {
+	// An account that names a policy Alder cannot read is not governed by the
+	// server's default, and saying it is would be a confident wrong answer
+	// about the one thing this report exists to get right.
+	caps := defaultCaps()
+	caps.VendorName = "OpenLDAP"
+	caps.ConfigContext = "cn=config"
+	caps.Config = directory.ConfigAccess{DN: "cn=config", Readable: true}
+
+	account := configEntry(t, "uid=carol,ou=people,dc=alder,dc=test",
+		"objectClass", "person", "uid", "carol",
+		"pwdPolicySubentry", "cn=gone,ou=policies,dc=alder,dc=test")
+	def := configEntry(t, "cn=default,ou=policies,dc=alder,dc=test",
+		"objectClass", "pwdPolicy", "cn", "default", "pwdMinLength", "8")
+	overlay := configEntry(t, "olcOverlay={0}ppolicy,olcDatabase={1}mdb,cn=config",
+		"objectClass", "olcPPolicyConfig", "olcPPolicyDefault", "cn=default,ou=policies,dc=alder,dc=test")
+
+	entries := []*directory.Entry{account, def, overlay}
+	byDN := map[string]*directory.Entry{}
+	for _, e := range entries {
+		byDN[strings.ToLower(e.DN.String())] = e
+	}
+	rig := newRig(t, Config{}, &fakeSession{caps: caps, entries: entries, byDN: byDN})
+
+	res := rig.do(t, http.MethodGet, "/api/v1/policy?dn=uid%3Dcarol%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest", nil)
+	report := decode[PolicyReport](t, res)
+
+	if report.Policy == nil || report.Policy.Source != PolicySourceEntry {
+		t.Fatalf("the entry names its own policy, readable or not: %+v", report.Policy)
+	}
+	if len(report.Policy.Settings) != 0 {
+		t.Errorf("no settings were read, so none should be reported: %+v", report.Policy.Settings)
+	}
+	if !strings.Contains(report.Policy.Why, "not the server's default") {
+		t.Errorf("the report must say the default does not apply here: %q", report.Policy.Why)
+	}
+	if report.Unread == nil || len(*report.Unread) == 0 {
+		t.Error("the policy it names could not be read, and the report does not say so")
+	}
+}

@@ -87,23 +87,70 @@ func For(ctx context.Context, r Reader, target dn.DN) (*Report, error) {
 
 	named := firstOf(entry, "pwdpolicysubentry")
 	if named != "" {
-		if p, unread := readPolicyEntry(ctx, r, named, SourceEntry,
-			"this entry names the policy it is held to"); p != nil {
+		p, unread := readPolicyEntry(ctx, r, named, SourceEntry,
+			"this entry names the policy it is held to")
+		if p != nil {
 			report.Policy = p
-		} else {
-			report.Unread = append(report.Unread, unread...)
+			return report, nil
 		}
-	}
-	if report.Policy == nil {
-		p, unread := defaultPolicy(ctx, r)
-		report.Policy = p
+		// The account names a policy Alder could not read. The server's
+		// default is *not* the policy in force here, and reporting it as
+		// though it were would be a confident wrong answer about the one
+		// thing this report exists to get right.
 		report.Unread = append(report.Unread, unread...)
+		report.Policy = &Policy{Source: SourceEntry, DN: named,
+			Why: "this entry names the policy it is held to, and Alder could not read it. " +
+				"Whatever that policy says is what applies here -- not the server's default."}
+		return report, nil
 	}
+
+	// No pointer on the entry. Before taking that as "the default applies",
+	// find out whether this bind can see the pointer at all: an attribute
+	// hidden from the reader looks exactly like one that is not there, and
+	// the difference decides which policy is in force.
+	hidden, why := pointerHidden(ctx, r, target)
+	if hidden {
+		report.Unread = append(report.Unread, Unread{Where: target.String(), Reason: why})
+	}
+
+	p, unread := defaultPolicy(ctx, r)
+	report.Policy = p
+	report.Unread = append(report.Unread, unread...)
 	if report.Policy == nil {
 		report.Policy = &Policy{Source: SourceNone,
 			Why: "Alder found no password policy on this server that it could read. That is not the same as there being none in force."}
+		return report, nil
+	}
+	if hidden {
+		report.Policy.Why = "the server's own default, which applies unless this entry names its own -- " +
+			"and whether it does is hidden from this session"
 	}
 	return report, nil
+}
+
+// visibilityReader is a session that can tell an absent attribute from a
+// hidden one. Optional, because that is a question not every driver can ask.
+type visibilityReader interface {
+	VisibilityOf(ctx context.Context, target dn.DN, attribute string) (directory.AttributeVisibility, error)
+}
+
+// pointerHidden reports whether the account may name a policy this session
+// cannot see.
+//
+// Only asked when it would change the answer -- the pointer is absent and a
+// default is about to be reported as the policy in force -- because it costs
+// the server an extra operation.
+func pointerHidden(ctx context.Context, r Reader, target dn.DN) (bool, string) {
+	asker, ok := r.(visibilityReader)
+	if !ok {
+		return false, ""
+	}
+	seen, err := asker.VisibilityOf(ctx, target, "pwdpolicysubentry")
+	if err != nil || seen != directory.VisibilityDenied {
+		return false, ""
+	}
+	return true, "this session may not read pwdPolicySubentry on this entry, so whether the account " +
+		"names a policy of its own is unknown; the default below may not be the policy in force"
 }
 
 // stateOf reads what the account itself records.
