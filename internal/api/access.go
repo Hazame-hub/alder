@@ -37,9 +37,19 @@ func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error
 
 	// Who to ask about: the identity named, or the one this session is bound
 	// as. A report about "you" is the question an operator is actually asking.
+	//
+	// A named one is parsed before it is used. The only authzID the driver
+	// builds is "dn: <DN>", so anything that is not a DN is a question the
+	// server cannot be asked, and 389 DS answers such a control with a
+	// numeric error code where the rights letters go -- which reaches the
+	// reader as "the server declined to say", a sentence that describes
+	// access rather than a typo. Refusing it here says what actually
+	// happened.
 	subject := deref(params.As)
 	if strings.TrimSpace(subject) == "" {
 		subject = sess.BindDN()
+	} else if _, ok := parseDNParam(c, subject); !ok {
+		return nil
 	}
 	report, err := access.For(ctx, sess.Conn, target, access.Options{Subject: subject})
 	if errors.Is(err, access.ErrNoEntry) {

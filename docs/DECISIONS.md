@@ -3364,3 +3364,67 @@ and nowhere else, which is the ordinary way a capability becomes invisible.
   about the code that is not true.
 - **The README said Alder creates one kind of configuration object.** Two,
   since 1.23, and the second is the one that works on both servers.
+
+### 2026-09-27 — 1.27, asking about another identity, and the bundle
+
+**The `as=` control.** The backend had answered this question since 1.19 and
+the interface had never asked it. What made the UI work more than plumbing is
+one fact about the backend: the subject reaches exactly one thing, the
+effective-rights control. The rules, and Alder's marks on them, come from the
+target DN alone.
+
+- **Only the verdict changes, and the screen says so.** A relabelled verdict
+  above an unchanged rules list reads as an answer about that identity. It is
+  not: access rules are about an entry. The sentence above the rules is not
+  decoration — without it this feature would be the exact failure the access
+  view was written to avoid.
+- **No control where the server does not answer.** On OpenLDAP the response is
+  byte-identical whatever identity is named. A control that changed nothing
+  would make Alder's reading of rule text look like a server's answer about a
+  person. Not a disabled field with a tooltip either: the report already
+  carries the server's own note in the verdict's place, and a second paragraph
+  saying the same thing is one more line on a screen the last audit called
+  long.
+- **The verdict is labelled by what the UI asked, not by what the server
+  echoed.** The handler fills a blank `as` with the session's own bind DN
+  before it asks, so `effective.subject` is non-empty for every bound session
+  and cannot tell "me" from "somebody else". Reading it that way is why the
+  panel already said "this identity" to a person asking about themselves —
+  dead code since 1.19, found while writing this.
+- **Somebody else's verdict loses the success tint.** Neutral, not warning:
+  nothing is wrong, the panel is simply about a different person. Green says
+  "you are fine" and it would be saying it about the wrong person.
+- **A subject that is not a DN is refused with a 400.** The only authzID the
+  driver builds is `dn: <DN>`. 389 DS answers a malformed one with an error
+  code where the rights letters go, which reaches the reader as "the server
+  declined to say" — a sentence about access, describing a typo.
+- **Not done, and it needs a decision:** asking about *anonymous*. The driver
+  already sends `dn:` with no DN for an empty subject, which is how the control
+  names an anonymous requester, but the handler turns blank into the session's
+  own bind. Reaching it needs a sentinel and therefore a wire-contract change.
+
+**The bundle is not split, and the warning limit is raised instead.** Measured
+on this branch with a sourcemap build attributing every emitted byte: 832 kB
+raw, 241 kB gzip, ~200 kB brotli, and Fiber compresses the response. 61% is
+vendor — react-dom alone is 182 kB, TanStack ~119 kB, radix ~80 kB, lucide
+33 kB already tree-shaken; there is no highlighter, no diff library and no date
+library. A *complete* route-level split of all ten views moves at most 260 kB of
+app code and leaves an entry chunk of ~546 kB, which trips the 500 kB warning
+anyway. A split that ends in "and then raise the limit" is not an answer to the
+warning, and it would trade instant view switches for a Suspense spinner in a
+tool that is offline-first and loaded once from an internal host.
+
+`chunkSizeWarningLimit` is 1000: a ceiling with about 170 kB of headroom, not a
+silencer. Whoever trips it should measure again rather than raise it again.
+`embed.FS`, the GoReleaser assertion and the CSP were all checked and none of
+them would have blocked a split, so if this is ever revisited the blocking work
+is known to be small.
+
+**A missing asset is a 404 now, not the page.** Found while investigating the
+split, and it stands on its own. `NotFoundFile` answered every unrecognised
+path with index.html, which is right for a client-side route and wrong for
+`/assets/index-ABC123.js`: a hashed filename is a content claim, and answering
+it with an HTML document and a 200 turns "that file is gone" into a syntax
+error at the point of use. The case is real — a tab left open across a deploy
+asks for the previous build's chunks by name — and it is what would have made a
+split hard to do safely.
