@@ -109,6 +109,26 @@ var sensitiveAttrs = map[string]bool{
 	"nsds5replicacredentials": true,
 	"pwdhistory":              true,
 	"passwordhistory":         true,
+
+	// The configuration tree's secrets.
+	//
+	// These were missing, and the miss was only reachable once the harness
+	// grew a replicating server: an olcSyncrepl value carries the consumer's
+	// bind password in the clear, inside an ordinary configuration attribute,
+	// and every generic path -- the entry view, the entry's own LDIF, an LDIF
+	// export -- gates on this map and this map alone. internal/config
+	// withheld them from a snapshot and internal/replication strips them from
+	// a report, which is exactly the shape of the bug: two features each
+	// knowing a fact the shared path did not.
+	//
+	// olcRootPW is the OpenLDAP counterpart of nsslapd-rootpw, which was
+	// here from the start.
+	"olcrootpw":                   true,
+	"olcsyncrepl":                 true,
+	"olcdbcryptkey":               true,
+	"nsds5replicabindcredentials": true,
+	"nsmultiplexorcredentials":    true,
+	"nsslapd-keypassword":         true,
 }
 
 // IsSensitive reports whether an attribute description names a secret. Options

@@ -67,9 +67,10 @@ alderTeam          nothing
 ```
 
 - **Who is asked about** is the identity this session is bound as, by default:
-  *why can't **I** write this?* is the question being asked. `GET /access?as=`
-  names another identity instead, which is the administrator's version of the
-  question — and asking about somebody else is the server's decision to allow.
+  *why can't **I** write this?* is the question being asked. Since 1.27 the
+  dialog also asks about somebody else — *why can't the service account read
+  this?* — which is the administrator's version of the question, and which the
+  server decides whether to answer. See below.
 - **The letters are kept** beside the gloss. `v`, `rsc`, `none` are what the
   server said; the words are Alder's reading of them, and a letter this release
   has never seen is shown as it came rather than dropped.
@@ -158,13 +159,50 @@ useful on its own.
 
 ---
 
+## Asking about another identity (1.27)
+
+A **Rights for** row above the verdict takes a DN, by typing or through the
+usual picker, and the verdict below it becomes the server's answer about that
+identity. A reset goes back to your own.
+
+Three things about it are deliberate, because the whole feature turns on them.
+
+**Only the verdict changes.** The subject reaches exactly one thing: the
+effective-rights control. The rules, and Alder's *bears on this entry* /
+*may bear* / *elsewhere* marks on them, are computed from the target DN alone
+and are the same list whoever is asked about — access rules are about an entry,
+not about a person. While somebody else's verdict is on screen the dialog says
+so, in as many words, above the rules. Without that sentence the list under a
+relabelled verdict reads as an answer about that identity, which it is not.
+
+**It is offered only where the server answers.** On a server with no
+effective-rights control the response is byte-identical whatever identity is
+named, so there is no control: one that changed nothing would make Alder's
+reading of the rule text look like the server's answer about a person, which
+is the one claim this view must never make. The note in the verdict's place
+already says the server does not answer.
+
+**The panel says whose answer it is, and that it is not yours.** It loses the
+success tint — somebody else's rights are not reassurance about yours — carries
+the full DN, and, where the server answers about a different identity than was
+asked, says that too. A verdict attributed to the wrong person is worse than no
+verdict.
+
+An identity that is not a distinguished name is refused with a 400. The only
+authzID the driver builds is `dn: <DN>`, so anything else is a question no
+server can be asked; 389 DS answers such a control with an error code where the
+rights letters go, which would otherwise reach the reader as "the server
+declined to say" — a sentence about access, describing a typo.
+
 ## The API
 
 `GET /access?dn=<dn>` returns an `AccessReport`: the rules, the styles they came
 from, anywhere that could not be read, the server's verdict in `effective` (or
 `rightsNote` saying why there is none), and the disclaimer. `as=<dn>` asks the
-server about another identity. The session capability `effectiveRights` says in
-advance whether the server answers that question at all. A DN this session
+server about another identity, and changes nothing else in the response; it
+must be a distinguished name, and is refused with a 400 otherwise. The session
+capability `effectiveRights` says in advance whether the server answers that
+question at all, and is what decides whether the interface offers to ask. A DN this session
 cannot read answers with the directory's own refusal — the rules of an entry
 nobody can read would be a list with no subject.
 

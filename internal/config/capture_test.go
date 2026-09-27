@@ -492,13 +492,17 @@ func TestACaptureIsPagedLikeEveryOtherSearch(t *testing.T) {
 
 func TestAValueThatIsNotTextIsStillCaptured(t *testing.T) {
 	r := ds389Reader(t)
-	r.entries = append(r.entries, entry(t, "cn=replica,cn=replication,cn=config",
-		"objectClass", "nsds5replica", "cn", "replica",
-		"nsState", "\x01\x00\xff\xfe binary state"))
+	// Not nsState, which used to be the example here: it is replication's
+	// running state and a capture skips it now, for the reason ds389.go
+	// gives. Any configuration value can be bytes; this one is a certificate
+	// nickname, which the server stores as it was given.
+	r.entries = append(r.entries, entry(t, "cn=RSA,cn=encryption,cn=config",
+		"objectClass", "nsEncryptionModule", "cn", "RSA",
+		"nsSSLPersonalitySSL", "\x01\x00\xff\xfe binary state"))
 	s := capture(t, r)
 	var found *snapshot.ConfigSetting
 	for i := range s.Settings {
-		if strings.EqualFold(s.Settings[i].Key, "nsState") {
+		if strings.EqualFold(s.Settings[i].Key, "nsSSLPersonalitySSL") {
 			found = &s.Settings[i]
 		}
 	}
@@ -600,6 +604,66 @@ func TestASettingTheServerSaysNeedsARestartIsNeverOffered(t *testing.T) {
 		if strings.EqualFold(st.Key, "nsslapd-readonly") && strings.HasPrefix(st.Resource, "backend:dc=") &&
 			st.Mutability != snapshot.MutabilityWritable {
 			t.Fatalf("%s is %q with no restart list", st.ID(), st.Mutability)
+		}
+	}
+}
+
+// TestReplicationsRunningStateIsNotConfiguration.
+//
+// A replica entry and its agreements carry counters and timestamps that the
+// server rewrites every time it exchanges anything. They live on
+// configuration entries and they are not configuration: captured, they make a
+// snapshot of a replicating server differ from itself seconds later, and
+// nothing about drift works if a capture is not stable.
+//
+// Found by the conformance suite the moment the harness grew a replica, on
+// the case that asserts two captures of an unchanged configuration are the
+// same document.
+func TestReplicationsRunningStateIsNotConfiguration(t *testing.T) {
+	r := ds389Reader(t)
+	r.entries = append(r.entries,
+		entry(t, "cn=replica,cn=mapping tree,cn=config",
+			"objectClass", "nsds5replica", "cn", "replica",
+			"nsDS5ReplicaRoot", "dc=alder,dc=test",
+			"nsDS5ReplicaId", "1",
+			"nsDS5ReplicaType", "3",
+			"nsds5ReplicaChangeCount", "4171",
+			"nsDS5ReplicaName", "62e8d202-ba4911f1-8346841c-4b3abbbb",
+			"nsState", "binary"),
+		entry(t, "cn=to-peer,cn=replica,cn=mapping tree,cn=config",
+			"objectClass", "nsds5replicationagreement", "cn", "to-peer",
+			"nsDS5ReplicaHost", "peer.alder.test",
+			"nsds5replicaLastUpdateStart", "20260927080004Z",
+			"nsds5replicaLastUpdateEnd", "20260927080004Z",
+			"nsds5replicaChangesSentSinceStartup", "1:1/0",
+			"nsds5replicaUpdateInProgress", "FALSE"))
+
+	s := capture(t, r)
+	// Every one of these moved across a single write on the running harness.
+	for _, volatile := range []string{
+		"nsState", "nsds5ReplicaChangeCount", "nsds5replicaChangesSentSinceStartup",
+		"nsds5replicaLastUpdateStart", "nsds5replicaLastUpdateEnd",
+		"nsds5replicaUpdateInProgress", "nsDS5ReplicaName",
+	} {
+		for _, setting := range s.Settings {
+			if strings.EqualFold(setting.Key, volatile) {
+				t.Errorf("%s is replication's running state and was captured as configuration", volatile)
+				break
+			}
+		}
+	}
+	// What an administrator actually set is still there, or the skip has
+	// taken the configuration with it.
+	for _, kept := range []string{"nsDS5ReplicaRoot", "nsDS5ReplicaId", "nsDS5ReplicaType", "nsDS5ReplicaHost"} {
+		found := false
+		for _, setting := range s.Settings {
+			if strings.EqualFold(setting.Key, kept) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("%s is configuration and was skipped with the state", kept)
 		}
 	}
 }

@@ -132,15 +132,27 @@ LDIF
 	# removing one attribute's index means rewriting another's. The harness
 	# holds one so that refusal is proved against a real server rather than
 	# only in a unit test.
-	cat >/tmp/index.ldif <<'LDIF'
+	# Guarded, because a restarted container keeps its filesystem: cn=config
+	# lives in the image's writable layer with no volume over it, so
+	# "docker compose restart", a Docker Desktop restart or a host reboot
+	# re-runs this block against a database that already holds the value. An
+	# `add` of a value that is already there fails with "Type or value
+	# exists", `set -e` kills the entrypoint, and slapd is never exec'd -- the
+	# container dies in a loop and nothing anybody reads says why. bulk_load
+	# below guards itself the same way, for the same reason; the TLS block
+	# above gets away with it only because it uses `replace`.
+	if [ ! -e /etc/ldap/slapd.d/.shared-index ]; then
+		cat >/tmp/index.ldif <<'LDIF'
 dn: olcDatabase={1}mdb,cn=config
 changetype: modify
 add: olcDbIndex
 olcDbIndex: l,st eq
 LDIF
 
-	slapmodify -n0 -F /etc/ldap/slapd.d -l /tmp/index.ldif
-	rm -f /tmp/index.ldif
+		slapmodify -n0 -F /etc/ldap/slapd.d -l /tmp/index.ldif
+		rm -f /tmp/index.ldif
+		touch /etc/ldap/slapd.d/.shared-index
+	fi
 
 	# Optional offline bulk load, for scale work only. Unset by default, and
 	# the default harness never reaches this block.

@@ -1006,6 +1006,126 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /replication:
+    get:
+      tags: [access]
+      operationId: getReplication
+      summary: What this server records about its own replication
+      description: |
+        Reports whether this server is a supplier, a consumer or both, which
+        links it has and to whom, and how far along it is. Introduced in Alder
+        1.25. Read-only.
+
+        **Alder does not contact the other servers.** Everything here is what
+        *this* server has written down, which means a peer's own view may
+        differ and nothing here is a promise that a change has arrived
+        everywhere. A report that dialled out to whatever host a configuration
+        value happened to name would be a report that could be pointed at
+        anything.
+
+        Both mechanisms are read, and neither is translated into the other:
+
+        - OpenLDAP keeps an incoming link as an `olcSyncrepl` value on the
+          database entry, and its ability to serve outgoing ones as a
+          `syncprov` overlay. It records no status for a link anywhere a
+          client can read, so the measure it does keep -- how far along the
+          suffix is -- is the answer to "is this working".
+        - 389 Directory Server keeps its role for a suffix on an
+          `nsds5Replica` entry and each outgoing link as an agreement beneath
+          it, with the outcome of the last exchange written on the agreement
+          in the server's own words.
+
+        How far along a server is comes out as the same thing on both: for
+        each origin, the most recent change this server holds from it, and
+        when that change was made. OpenLDAP writes it as `contextCSN` on the
+        suffix; 389 DS as the replica update vector. Comparing that number
+        between two servers is how an operator sees drift, and it is the one
+        part of this both servers can be compared on.
+
+        Credentials are never read. The password inside an `olcSyncrepl`
+        value is dropped as the value is parsed, before it reaches anything
+        that could render or log it.
+      responses:
+        "200":
+          description: What this server records about its replication.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /replication/entry:
+    get:
+      tags: [access]
+      operationId: getEntryReplication
+      summary: What this server records about one entry's replication
+      description: |
+        The change sequence this entry carries, the identity it keeps across a
+        rename, and whether the server has marked it as conflicting.
+        Introduced in Alder 1.26. Read-only.
+
+        This is the suffix-level answer at entry scale, and it is asked for
+        the same reason: *has this change arrived there yet?* Open the same
+        entry on the other server and compare. OpenLDAP stamps every entry
+        with `entryCSN`, which carries both the moment and the server that
+        made the change. 389 Directory Server stamps none a client can read,
+        so the answer there is the modification time, and the report says that
+        is weaker evidence rather than presenting it as the same thing.
+
+        Every attribute this reads is operational, so none of it appears in an
+        ordinary entry read.
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: What this server records about the entry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EntryReplication" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /replication/conflicts:
+    get:
+      tags: [access]
+      operationId: getReplicationConflicts
+      summary: Entries this server has marked as conflicting
+      description: |
+        Lists the entries a server has marked as the losing side of a
+        collision, below a base. Introduced in Alder 1.26. Read-only.
+
+        Only one of the two target servers marks anything. 389 Directory
+        Server keeps both sides and marks the loser with `nsds5ReplConflict`,
+        so a conflict is an entry you can read, fix and remove. OpenLDAP
+        resolves a collision by change sequence and discards the loser,
+        leaving nothing behind — so an empty list from OpenLDAP is not
+        evidence that nothing collided, and `recorded` says so.
+
+        The search is sent to both regardless, because deciding not to ask
+        would make the answer depend on Alder's model of the server being
+        right rather than on the directory's own answer.
+      parameters:
+        - name: dn
+          in: query
+          required: true
+          description: The base to look below.
+          schema: { type: string }
+      responses:
+        "200":
+          description: What this server has marked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationConflicts" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /config/entry:
     get:
       tags: [config]
@@ -2873,6 +2993,195 @@ components:
           description: Where the policy might be that could not be read.
           items: { $ref: "#/components/schemas/AccessUnread" }
         disclaimer: { type: string }
+
+    ReplicationRole:
+      type: string
+      enum: [supplier, consumer, both, none]
+      x-enum-varnames: [ReplicationRoleSupplier, ReplicationRoleConsumer, ReplicationRoleBoth, ReplicationRoleNone]
+      description: |
+        Whether a server sends changes, receives them, does both, or neither.
+
+    ReplicationReport:
+      type: object
+      required: [role, why, suffixes, disclaimer]
+      description: |
+        What one server records about its own replication. Added in 1.25.
+      properties:
+        provider:
+          type: string
+          description: The configuration model this was read through. Display only.
+        role:
+          allOf:
+            - $ref: "#/components/schemas/ReplicationRole"
+          description: What this server is, across every suffix, in one word.
+        why:
+          type: string
+          description: The sentence behind `role`, in a person's words.
+        suffixes:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicatedSuffix" }
+        unread:
+          type: array
+          description: What could not be read, so a partial answer says so.
+          items: { $ref: "#/components/schemas/AccessUnread" }
+        disclaimer: { type: string }
+
+    ReplicatedSuffix:
+      type: object
+      required: [dn, role, cursors, links]
+      description: Replication as it applies to one part of the tree.
+      properties:
+        dn: { type: string }
+        role: { $ref: "#/components/schemas/ReplicationRole" }
+        serverId:
+          type: string
+          description: |
+            This server's identity in the topology -- OpenLDAP's `serverID`,
+            389 DS's replica id. It is what appears inside a change's sequence
+            number, which is how a change's origin is legible at all.
+        cursors:
+          type: array
+          description: |
+            The most recent change this server holds from each origin. The one
+            measure the two servers can be compared on.
+          items: { $ref: "#/components/schemas/ReplicationCursor" }
+        links:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationLink" }
+        notes:
+          type: array
+          description: Things worth saying about this suffix that are not a link.
+          items: { type: string }
+
+    ReplicationCursor:
+      type: object
+      required: [origin, at, raw]
+      properties:
+        origin:
+          type: string
+          description: The server id the changes came from.
+        at:
+          type: string
+          format: date-time
+          description: |
+            When the latest change this server holds from that origin was
+            made -- by that server's clock, not this one's.
+        raw:
+          type: string
+          description: The value as the server wrote it, because a change sequence is what operators paste to each other.
+
+    ReplicationLink:
+      type: object
+      required: [name, direction, state]
+      description: One replication agreement, from this server's side of it.
+      properties:
+        name:
+          type: string
+          description: What this server calls it -- an agreement's name, a syncrepl rid. Never a position.
+        direction:
+          type: string
+          enum: [incoming, outgoing]
+          x-enum-varnames: [ReplicationIncoming, ReplicationOutgoing]
+        peer:
+          type: string
+          description: The other end as this server has it written down. Never dialled.
+        bindDn:
+          type: string
+          description: The identity this link authenticates as. The credential that goes with it is never read.
+        transport: { type: string }
+        state:
+          type: string
+          enum: [ok, working, failing, unknown]
+          x-enum-varnames: [ReplicationStateOK, ReplicationStateWorking, ReplicationStateFailing, ReplicationStateUnknown]
+          description: |
+            The coarse verdict, derived from the server's own last word.
+            `unknown` where the server records no outcome -- OpenLDAP records
+            none for any link, which is a fact about OpenLDAP rather than
+            about this link.
+        status:
+          type: string
+          description: The server's own words, always shown alongside `state`.
+        lastUpdate:
+          type: string
+          format: date-time
+          description: When the server last exchanged anything over this link.
+        lastInit:
+          type: string
+          format: date-time
+          description: When the server last filled the other end from scratch.
+        inProgress: { type: boolean }
+        dn:
+          type: string
+          description: The entry this was read from.
+        notes:
+          type: array
+          items: { type: string }
+
+    EntryReplication:
+      type: object
+      required: [dn, disclaimer]
+      description: |
+        What one server records about one entry's replication. Added in 1.26.
+      properties:
+        dn: { type: string }
+        changed:
+          allOf:
+            - $ref: "#/components/schemas/ReplicationCursor"
+          description: |
+            When this entry was last changed and by which server, from its own
+            change sequence. Absent where the server records neither that nor
+            a modification time.
+        identity:
+          type: string
+          description: |
+            The server-assigned identifier that survives a rename, and is how
+            the same entry is recognised on another server.
+        conflict:
+          type: string
+          description: The server's own words, where it has marked this entry as conflicting.
+        notes:
+          type: array
+          description: What this server does and does not record here.
+          items: { type: string }
+        disclaimer: { type: string }
+
+    ReplicationConflicts:
+      type: object
+      required: [base, recorded, why, entries, disclaimer]
+      description: |
+        Entries a server has marked as the losing side of a collision. Added
+        in 1.26.
+      properties:
+        base: { type: string }
+        recorded:
+          type: boolean
+          description: |
+            Whether this server marks a conflict at all. `false` is an answer
+            about the server, not about the tree: an empty list from a server
+            that marks nothing is not evidence that nothing collided.
+        why:
+          type: string
+          description: What this server does when two changes collide.
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationConflict" }
+        truncated:
+          type: boolean
+          description: There are more than one read returns.
+        disclaimer: { type: string }
+
+    ReplicationConflict:
+      type: object
+      required: [dn, kind]
+      properties:
+        dn: { type: string }
+        reason:
+          type: string
+          description: The server's own words.
+        kind:
+          type: string
+          enum: [naming, missing-parent, other]
+          x-enum-varnames: [ConflictNaming, ConflictMissingParent, ConflictOther]
 
     PasswordPolicy:
       type: object

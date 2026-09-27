@@ -211,6 +211,23 @@ administrator and the configuration as the configuration administrator, and
 neither borrows the other's rights. Without it, reaching the configuration would
 mean connecting as the configuration administrator and giving up the data.
 
+**See what this server says about its own replication.** Whether it supplies,
+consumes or both; which links it has and to whom; and, the part that actually
+answers "is it working", how far along it is -- the most recent change it
+holds from each origin, and when that change was made. OpenLDAP writes that as
+`contextCSN` on the suffix and 389 DS as a replica update vector on a replica
+entry; Alder reads both into the same pair, so opening the card against two
+servers and comparing is how drift becomes visible.
+
+Alder does not contact the other servers. A report that dialled out to
+whatever host a configuration value happened to name would be a report that
+can be pointed at anything, so everything here is what *this* server has
+written down -- including the fact that OpenLDAP records no status for a
+syncrepl link at all, which is said rather than left as an empty column.
+Credentials are never read: the password inside an `olcSyncrepl` value is
+dropped as the value is parsed. Details in
+[`docs/REPLICATION.md`](docs/REPLICATION.md).
+
 **Edit the configuration, carefully.** Configuration entries are ordinary
 entries, so the same editor and the same LDIF preview work on them. Changing
 them is not ordinary, so a change addressed into the configuration tree says so,
@@ -385,8 +402,13 @@ question itself -- 389 Directory Server publishes the Get Effective Rights
 control -- Alder asks it, and shows the directory's own verdict above the
 rules. A comparison also lists the
 configuration objects each side has --
-databases, overlays, backends, plugins -- and Alder creates and removes one
-kind of them: an OpenLDAP overlay whose module the server has already loaded.
+databases, overlays, backends, plugins -- and Alder creates and removes two
+kinds of them: an OpenLDAP overlay whose module the server has already loaded,
+and an index, on either server. An index is one intention and two entirely
+different writes -- a value on the database entry on OpenLDAP, an entry of its
+own beneath the backend on 389 DS -- so a comparison reports both as the same
+kind of object, named by the backend and the attribute, and derives each
+server's own change from that.
 Every setting Alder offers to change is one the test suite has
 written, read back and restored on both servers. A configuration snapshot can
 also be preflighted against another server of the same software, to see what

@@ -50,8 +50,8 @@ func indexResource(backend Resource, attribute, where string) Resource {
 	}
 }
 
-// IndexAttribute is the attribute an index resource is about.
-func IndexAttribute(r Resource) string {
+// indexAttribute is the attribute an index resource is about.
+func indexAttribute(r Resource) string {
 	if r.Label != "" {
 		return r.Label
 	}
@@ -178,7 +178,7 @@ func rdnIs(d dn.DN, attrType, value string) bool {
 // createIndexRecord is the change that adds an index on this server.
 func createIndexRecord(live *snapshot.ConfigSnapshot, want snapshot.ConfigResource,
 	types []string) (directory.ChangeRecord, string) {
-	attribute := IndexAttribute(want)
+	attribute := indexAttribute(want)
 	if attribute == "" {
 		return directory.ChangeRecord{}, RefusalUnnamed
 	}
@@ -232,7 +232,7 @@ func createIndexRecord(live *snapshot.ConfigSnapshot, want snapshot.ConfigResour
 
 // removeIndexRecord is the change that takes an index away.
 func removeIndexRecord(live *snapshot.ConfigSnapshot, have snapshot.ConfigResource) (directory.ChangeRecord, string) {
-	attribute := IndexAttribute(have)
+	attribute := indexAttribute(have)
 	if attribute == "" {
 		return directory.ChangeRecord{}, RefusalUnnamed
 	}

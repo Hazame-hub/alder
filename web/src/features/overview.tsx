@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { LdapValue } from "@/components/ldap-value";
 import { ErrorNote } from "@/components/change-dialog";
 import { safeText } from "@/lib/display";
+import { ReplicationCard } from "@/features/replication";
 
 /**
  * What this session is connected to, and what it can do there.
@@ -183,6 +184,8 @@ export function OverviewPanel({
       </div>
 
       <NamingContexts contexts={contexts} onBrowse={onBrowse} />
+
+      <ReplicationCard />
 
       {caps?.monitor?.readable && caps.monitor.dn ? (
         <MonitorCard dn={caps.monitor.dn} onBrowse={onBrowse} />

@@ -3231,3 +3231,279 @@ proved against nothing.
   against a harness whose replication had quietly stopped would be a view
   proving nothing, and the failure would read as a product bug for as long as
   it took someone to check.
+
+### 2026-09-27 — 1.25, replication visibility
+
+The third of the read-only views that answer "why is the directory like
+this", after access (1.19) and password policy (1.21), and held to the same
+rule: it says what this server records, and where.
+
+- **Alder never contacts a peer.** A replication report that dialled out to
+  whatever host a configuration value happened to name would be a report that
+  can be pointed at anything, by anyone who can write to `cn=config`. So
+  everything comes from the server in hand, and the disclaimer says so.
+- **How far along a server is is the one thing both can be compared on.**
+  OpenLDAP writes `contextCSN` on the suffix, 389 DS a replica update vector
+  on the replica entry, and both mean "I have everything from server N up to
+  this moment". Reading them into the same pair -- origin and time -- is what
+  makes "open this against the other server and compare" a method rather than
+  a suggestion. It is also the only answer to "is replication working" that a
+  single server can give.
+- **The setting keeps the value as the server wrote it.** For the same reason
+  the indexes do: an operator pastes a change sequence at somebody, so the raw
+  form is shown beside the parsed time.
+- **OpenLDAP's "no status recorded" is printed, not left blank.** It keeps no
+  outcome for a syncrepl link anywhere a client can read. An empty status
+  column reads as "nothing wrong", which is the opposite of what is known.
+- **The credential is dropped where the value is parsed.** An `olcSyncrepl`
+  value carries the consumer's bind password in the clear, in an ordinary
+  configuration attribute. Stripping it at the parse means nothing downstream
+  -- renderer, logger, API view -- has to remember that this particular string
+  is different from every other one. The conformance suite asserts no harness
+  password and no credential attribute name appears in the response, on all
+  four servers.
+- **The role is phrased as "is set up to serve", not "sends changes to".** On
+  OpenLDAP the only evidence a server supplies anything is that it carries the
+  `syncprov` overlay; it does not record who has asked, or whether anybody
+  ever has. The stronger sentence would be claiming to know something no
+  single OpenLDAP can be asked.
+- **A link is named by its rid or its agreement name, never by the `{0}` in
+  front of it.** slapd writes an ordered value with its position first, and
+  the first version of the parser read `{0}rid` as a key it did not recognise
+  and lost the rid entirely. A unit test caught it; the conformance suite now
+  refuses any link name containing a brace.
+- **Read on request, not when the overview opens.** It is a search of the
+  configuration tree, and the overview is the page that costs nothing to open.
+  The entry counts on the same page already work this way.
+
+### 2026-09-27 — 1.26, one entry and its conflicts
+
+- **"Has this change arrived" is asked about one entry, so it is answered
+  about one entry.** The change sequence at entry scale is the same number the
+  suffix cursor is made of, and the method is the same: open the entry on the
+  other server and compare. The conformance suite is that method -- write on
+  a supplier, wait, and assert the two sides carry the same value.
+- **389 DS's modification time is labelled as weaker evidence.** It keeps no
+  per-entry change sequence a client can read. Presenting `modifyTimestamp` as
+  if it were one would be presenting "two changes in the same second are
+  indistinguishable" as a guarantee.
+- **An empty conflict list from OpenLDAP is said to mean nothing.** OpenLDAP
+  discards the losing change and leaves no trace, so there is nothing to find
+  -- which is not the same as nothing having collided, and a bare empty list
+  reads as good news. The report carries the sentence either way.
+- **The search is sent to both servers regardless of the model.** Skipping it
+  on OpenLDAP would make the answer depend on Alder being right about the
+  server rather than on the directory's answer. A filter naming an attribute
+  OpenLDAP has never heard of is answered, not refused.
+- **The conflict fixture is written by the test, not seeded.** A genuine
+  conflict needs two suppliers changing the same entry in the same instant,
+  which is a race no test should depend on. What can be pinned is that an
+  entry the server has marked is found, read and explained; the entry is put
+  back afterwards either way, and the harness seed stays byte-identical
+  between the two servers.
+
+### 2026-09-27 — what an adversarial review of the above found
+
+Every finding below was produced by a review of the unmerged stack, put to a
+second agent told to refute it, and confirmed against the running harness.
+Recorded because three of them are the kind of mistake that recurs.
+
+- **The entry viewer and the LDIF export were serving cleartext passwords.**
+  `schema.sensitiveAttrs` -- the one list every generic value path gates on --
+  held `nsslapd-rootpw` and `nsds5ReplicaCredentials` but not `olcRootPW`,
+  `olcSyncrepl` or `olcDbCryptKey`. So `internal/config` withheld them from a
+  snapshot, `internal/replication` stripped them from a report, and
+  `GET /entry` handed them to the browser: two features each knowing a fact
+  the shared path did not. Confirmed live -- `/entry` and `/export/ldif` on
+  `olcDatabase={1}mdb,cn=config` returned `alder-admin` and a whole
+  `credentials="..."`. Pre-existing for `olcRootPW`; the replica harness is
+  what made the syncrepl half reachable. The lesson is the general one: a
+  feature that discovers a secret must put it in the shared list, not in its
+  own.
+- **An OpenLDAP change sequence's server id is hexadecimal.** slapd writes it
+  `%03x`; `olcServerID` is decimal. Reading it as text made server 16 report
+  as 10 and server 10 report as the letter `a` -- on the one screen an
+  operator is told to compare against another server. Invisible in the
+  harness, which uses ids 1 and 2.
+- **Server id 0 is legal and was trimmed to nothing.** It is what a provider
+  with no `olcServerID` stamps. The card read "from server :".
+- **"...and receives none itself" was a claim no server had made.** A 389 DS
+  read-write replica is type 3 whether it is the only supplier or one of
+  several, so a multi-supplier reported itself as sending only -- while
+  listing, three lines below, a change it had received from the other one.
+  The word "supplier" is supportable; the negative was not. Receiving is now
+  read from the replica update vector, which is evidence the server holds.
+- **A syncrepl link on the configuration database was dropped silently.**
+  `olcDatabase={0}config` has no `olcSuffix`, so the branch `continue`d --
+  and a server replicating its own configuration was told it "replicates
+  nothing". It is named after the configuration root instead.
+- **The harness index write was not idempotent, and would have killed a
+  restarted container.** `add: olcDbIndex` under `set -eu`, on a cn=config
+  that lives in the container's writable layer: any `docker compose restart`
+  or host reboot re-applied it, slapmodify failed with "Type or value
+  exists", and slapd was never exec'd. `bulk_load` two blocks below already
+  guarded itself against exactly this. Now guarded the same way, and proved
+  by restarting both OpenLDAP containers.
+
+### 2026-09-27 — 1.23 tells the rest of the product about itself
+
+A sweep for deferred work found that indexes had been added to the comparison
+and nowhere else, which is the ordinary way a capability becomes invisible.
+
+- **Preflight was saying "Alder does not create configuration objects"** about
+  an object Alder creates, and marking the finding `manualAction` and
+  `blocksPortability`. Preflight is exactly where somebody decides whether a
+  migration can be automated, so that is a wrong answer rather than stale
+  wording. It now asks `config.CreatableKinds` for the target's provider —
+  the list, not a second copy of it, because the answer changed in 1.22 and
+  again in 1.23 and a copy would already be behind.
+- **`config.CreatableKinds` stopped being dead code.** Its own doc comment
+  said it existed "for a report and for the documentation to be written
+  from", and neither had been. It is now what preflight asks and what the
+  README sentence is written from. An exported helper nobody calls is a claim
+  about the code that is not true.
+- **The README said Alder creates one kind of configuration object.** Two,
+  since 1.23, and the second is the one that works on both servers.
+
+### 2026-09-27 — 1.27, asking about another identity, and the bundle
+
+**The `as=` control.** The backend had answered this question since 1.19 and
+the interface had never asked it. What made the UI work more than plumbing is
+one fact about the backend: the subject reaches exactly one thing, the
+effective-rights control. The rules, and Alder's marks on them, come from the
+target DN alone.
+
+- **Only the verdict changes, and the screen says so.** A relabelled verdict
+  above an unchanged rules list reads as an answer about that identity. It is
+  not: access rules are about an entry. The sentence above the rules is not
+  decoration — without it this feature would be the exact failure the access
+  view was written to avoid.
+- **No control where the server does not answer.** On OpenLDAP the response is
+  byte-identical whatever identity is named. A control that changed nothing
+  would make Alder's reading of rule text look like a server's answer about a
+  person. Not a disabled field with a tooltip either: the report already
+  carries the server's own note in the verdict's place, and a second paragraph
+  saying the same thing is one more line on a screen the last audit called
+  long.
+- **The verdict is labelled by what the UI asked, not by what the server
+  echoed.** The handler fills a blank `as` with the session's own bind DN
+  before it asks, so `effective.subject` is non-empty for every bound session
+  and cannot tell "me" from "somebody else". Reading it that way is why the
+  panel already said "this identity" to a person asking about themselves —
+  dead code since 1.19, found while writing this.
+- **Somebody else's verdict loses the success tint.** Neutral, not warning:
+  nothing is wrong, the panel is simply about a different person. Green says
+  "you are fine" and it would be saying it about the wrong person.
+- **A subject that is not a DN is refused with a 400.** The only authzID the
+  driver builds is `dn: <DN>`. 389 DS answers a malformed one with an error
+  code where the rights letters go, which reaches the reader as "the server
+  declined to say" — a sentence about access, describing a typo.
+- **Not done, and it needs a decision:** asking about *anonymous*. The driver
+  already sends `dn:` with no DN for an empty subject, which is how the control
+  names an anonymous requester, but the handler turns blank into the session's
+  own bind. Reaching it needs a sentinel and therefore a wire-contract change.
+
+**The bundle is not split, and the warning limit is raised instead.** Measured
+on this branch with a sourcemap build attributing every emitted byte: 832 kB
+raw, 241 kB gzip, ~200 kB brotli, and Fiber compresses the response. 61% is
+vendor — react-dom alone is 182 kB, TanStack ~119 kB, radix ~80 kB, lucide
+33 kB already tree-shaken; there is no highlighter, no diff library and no date
+library. A *complete* route-level split of all ten views moves at most 260 kB of
+app code and leaves an entry chunk of ~546 kB, which trips the 500 kB warning
+anyway. A split that ends in "and then raise the limit" is not an answer to the
+warning, and it would trade instant view switches for a Suspense spinner in a
+tool that is offline-first and loaded once from an internal host.
+
+`chunkSizeWarningLimit` is 1000: a ceiling with about 170 kB of headroom, not a
+silencer. Whoever trips it should measure again rather than raise it again.
+`embed.FS`, the GoReleaser assertion and the CSP were all checked and none of
+them would have blocked a split, so if this is ever revisited the blocking work
+is known to be small.
+
+**A missing asset is a 404 now, not the page.** Found while investigating the
+split, and it stands on its own. `NotFoundFile` answered every unrecognised
+path with index.html, which is right for a client-side route and wrong for
+`/assets/index-ABC123.js`: a hashed filename is a content claim, and answering
+it with an HTML document and a 200 turns "that file is gone" into a syntax
+error at the point of use. The case is real — a tab left open across a deploy
+asks for the previous build's chunks by name — and it is what would have made a
+split hard to do safely.
+
+### 2026-09-27 — a second review, and what it found in the first
+
+Six findings survived refutation. Two were found by *mutation* rather than by
+reading — a test was copied into an isolated module, the code under it was
+broken, and the suite was watched to see whether it noticed. Both times it did
+not. That is worth adopting as a habit: a green suite is evidence only if
+something has checked that it can go red.
+
+- **`errors.Unwrap` on an `errors.Join` value returns nil.** The access and
+  policy handlers both did `s.fail(c, errors.Unwrap(err))` on the
+  entry-unreadable branch, so `s.fail` matched nothing and every unreadable DN
+  answered "Something went wrong" with a 500 — on the two screens where the
+  difference between a typo and a permissions problem is the thing the reader
+  came for. Joined errors implement `Unwrap() []error`, not `Unwrap() error`;
+  `errors.As` walks them correctly, so the fix is to pass the error itself.
+  Pre-existing since 1.19/1.21, and reproduced against the harness.
+- **A storage scheme is a password's, not every secret's.** Adding the
+  configuration secrets to `schema.sensitiveAttrs` had a tail: the entry view
+  reports the RFC 2307 `{scheme}` beside a withheld value, and an unprefixed
+  value as "stored in the clear". `olcSyncrepl` begins with slapd's ordering
+  prefix, so it reported a hash scheme called "0"; `olcDbCryptKey` has no
+  brace, so it reported a secret stored in the clear. Both are sentences about
+  a value the rule does not cover. `valueSchemes` is now asked only of the
+  attributes that really are passwords.
+- **The scope sentence pointed at a verdict that was not there.** It said
+  "only the verdict above is about cn=X" whenever a subject was named,
+  including when 389 DS declined the question — which is not an edge case:
+  every non-root bind asking about another identity gets a numeric error code
+  where the rights letters go. The sentence now takes whether a verdict exists
+  and words the other case for itself.
+- **`dnEquals` compared two strings written by different hands.** The bind DN
+  is what the operator typed on the connect screen, kept verbatim; the subject
+  is what the picker returned in the server's own spelling.
+  `cn=admin, dc=alder, dc=test` against `cn=admin,dc=alder,dc=test` printed
+  "— not you" over a person's own rights. Now folded around the separators.
+  Not RFC 4517 matching, which needs the schema and belongs on the server.
+- **`TestTheRealAssetIsStillServed` asserted only the status code.** A handler
+  that answered every path with index.html and a 200 passed all four web
+  tests while the application could not boot. It now asserts the content type
+  per extension, and that mutation fails it.
+- **Nothing exercised the `as=` control end to end.** The query parameter
+  could be deleted from the client and fourteen tests stayed green: what was
+  pinned was the pure functions and two presentational components, not the
+  line that connects them. The request and its cache key are now built by
+  `accessQuery` / `accessQueryKey` — a function a test can hold to account,
+  where a literal buried in a `queryFn` could not be.
+
+### 2026-09-27 — replication's running state is not configuration
+
+CI caught this the first time the replication branch was tested against a
+main that already had the four-server harness in it: two captures of an
+unchanged 389 DS configuration produced different checksums. It passed
+locally and failed in CI, which is the signature of a race, and the race was
+real — whether an exchange happened to land between the two reads.
+
+A replica entry and its agreements sit in `cn=config` and carry counters and
+timestamps the server rewrites every time it replicates anything. Measured
+against the running harness rather than guessed: `nsState`,
+`nsds5ReplicaChangeCount`, `nsds5replicaChangesSentSinceStartup`,
+`nsds5replicaLastUpdateStart` and `...End` all moved across a single write.
+`nsDS5ReplicaName` goes with them for a different reason — it is generated
+per instance, so two servers never agree on it and a comparison would report
+a difference nobody can act on.
+
+They are skipped now, through the `skipped` set the classifier already had
+and neither model used. Nothing is lost: `internal/replication` reports every
+one of them, as state, which is what they are.
+
+The wider point is the one worth keeping. **This was not a bug the replication
+feature introduced; it was a bug the replication harness exposed.** Any 389 DS
+that actually replicates — which is most of them — had an unstable
+configuration snapshot, and snapshot-and-compare is a headline feature. Two
+servers alone could never have shown it. That is the harness doing the job it
+was doubled for, on the first run after the merge.
+
+The conformance case that found it depended on timing, so there is now one
+that does not: three writes between the two captures, so the supplier really
+does exchange something with its consumer while we look.

@@ -1,9 +1,22 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { KeyRound, Loader2 } from "lucide-react";
+import { KeyRound, Loader2, Search, UserRound } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
+import type { SessionInfo } from "@/lib/api";
 import type { components } from "@/lib/api.gen";
+import {
+  accessQuery,
+  accessQueryKey,
+  canAskAboutAnotherIdentity,
+  rulesScopeNote,
+  searchBaseFor,
+  shortDn,
+  subjectView,
+  type SubjectView,
+} from "@/lib/access-subject";
+import { DnPicker } from "@/components/dn-picker";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -66,15 +79,31 @@ export function AccessDialog({
 }) {
   const setOpen = onOpenChange;
 
-  const report = useQuery<AccessReport, ApiFailure>({
-    queryKey: ["access", dn],
+  // The identity the verdict is about. Empty means the session's own, which
+  // is what the server defaults to; a value here is what goes on the wire as
+  // `as`, and it is part of the cache key so that switching subject refetches
+  // rather than showing the previous identity's answer.
+  const [subject, setSubject] = useState("");
+
+  const session = useQuery<SessionInfo, ApiFailure>({
+    queryKey: ["session"],
     enabled: open,
     retry: false,
-    queryFn: async () => unwrap(await api.GET("/access", { params: { query: { dn } } })),
+    queryFn: async () => unwrap(await api.GET("/session", {})),
+  });
+
+  const report = useQuery<AccessReport, ApiFailure>({
+    queryKey: accessQueryKey(dn, subject),
+    enabled: open,
+    retry: false,
+    queryFn: async () => unwrap(await api.GET("/access", { params: { query: accessQuery(dn, subject) } })),
   });
 
   const rules = report.data?.rules ?? [];
   const applying = rules.filter((r) => r.applies === "yes").length;
+  const view = subjectView(subject, session.data?.bindDn);
+  const canAsk = canAskAboutAnotherIdentity(session.data?.capabilities);
+  const scopeNote = rulesScopeNote(view, report.data?.effective != null);
 
   return (
     <>
@@ -108,12 +137,24 @@ export function AccessDialog({
                 ))}
               </div>
 
+              <SubjectRow
+                dn={dn}
+                view={view}
+                canAsk={canAsk}
+                contexts={session.data?.capabilities?.namingContexts}
+                onAsk={setSubject}
+              />
+
               {report.data.effective ? (
-                <Verdict effective={report.data.effective} />
+                <Verdict effective={report.data.effective} view={view} />
               ) : report.data.rightsNote ? (
                 <p className="rounded-md border p-3 text-xs text-muted-foreground">
                   {safeText(report.data.rightsNote)}
                 </p>
+              ) : null}
+
+              {scopeNote ? (
+                <p className="rounded-md border p-3 text-xs text-muted-foreground">{scopeNote}</p>
               ) : null}
 
               <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning-tint-foreground">
@@ -162,7 +203,13 @@ export function AccessDialog({
  * server cannot answer, the note in its place says so rather than leaving the
  * rules to look like a verdict.
  */
-function Verdict({ effective }: { effective: NonNullable<AccessReport["effective"]> }) {
+export function Verdict({
+  effective,
+  view,
+}: {
+  effective: NonNullable<AccessReport["effective"]>;
+  view: SubjectView;
+}) {
   const [all, setAll] = useState(false);
   const attributes = effective.attributes ?? [];
   // The attributes worth reading first are the ones that are not the same
@@ -170,13 +217,36 @@ function Verdict({ effective }: { effective: NonNullable<AccessReport["effective
   const denied = attributes.filter((a) => !a.words?.length);
   const shown = all ? attributes : denied.length > 0 ? denied : attributes.slice(0, 8);
 
+  // Somebody else's verdict is not reassurance about you, so it does not get
+  // the success tint. Neutral rather than warning: nothing is wrong, the
+  // panel is simply about a different person.
+  const other = view.kind === "other";
+  const tint = other ? "border-border" : "border-success/40 bg-success/5";
+
+  // The server echoes a subject back. Where it disagrees with what was asked,
+  // say so rather than trusting either: a verdict attributed to the wrong
+  // identity is worse than no verdict.
+  const echoed = effective.subject ?? "";
+  const mismatch = other && echoed !== "" && echoed.trim().toLowerCase() !== view.dn.trim().toLowerCase();
+
   return (
-    <div className="space-y-2 rounded-md border border-success/40 bg-success/5 p-3">
+    <div className={`space-y-2 rounded-md border p-3 ${tint}`}>
       <div className="text-sm font-medium">
-        What the server says {effective.subject ? "this identity" : "you"} may do here
+        {other ? (
+          <>
+            What the server says {safeText(shortDn(view.dn))} may do here —{" "}
+            <span className="text-muted-foreground">not you</span>
+          </>
+        ) : (
+          "What the server says you may do here"
+        )}
       </div>
-      {effective.subject ? (
-        <div className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(effective.subject)}</div>
+      <div className="font-dn text-xs [overflow-wrap:anywhere]">{safeText(view.dn || echoed)}</div>
+      {mismatch ? (
+        <p className="text-xs text-warning-tint-foreground">
+          The server answered about <span className="font-dn">{safeText(echoed)}</span>, which is not
+          what was asked. Read the verdict as that identity's, not this one's.
+        </p>
       ) : null}
       <p className="text-xs">
         <span className="text-muted-foreground">this entry: </span>
@@ -210,6 +280,98 @@ function Verdict({ effective }: { effective: NonNullable<AccessReport["effective
         The directory's own answer, from the Get Effective Rights control — not Alder reading the rules
         below.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Who the verdict is about, and the control for changing it.
+ *
+ * Offered only where the server publishes an effective-rights control.
+ * Elsewhere the report is byte-identical whatever identity is named — the
+ * rules are about the entry — so a control there would change nothing while
+ * making Alder's reading of the rule text look like the server's answer about
+ * a person. The sentence in its place says which of the two is true here.
+ */
+export function SubjectRow({
+  dn,
+  view,
+  canAsk,
+  contexts,
+  onAsk,
+}: {
+  dn: string;
+  view: SubjectView;
+  canAsk: boolean;
+  contexts: string[] | undefined;
+  onAsk: (subject: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [picking, setPicking] = useState(false);
+
+  // Nothing at all where the question cannot be asked. The report already
+  // carries the server's own note in the verdict's place -- "this server does
+  // not answer what an identity may do" -- and a second paragraph saying the
+  // same thing is one more line on a screen the last audit already called
+  // long.
+  if (!canAsk) return null;
+
+  return (
+    <div className="rounded-md border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <UserRound className="size-4 text-muted-foreground" />
+        <span className="text-sm">
+          Rights for{" "}
+          <span className="font-medium">
+            {view.kind === "other" ? safeText(shortDn(view.dn)) : "you"}
+          </span>
+        </span>
+        {view.kind === "other" ? (
+          <Button variant="ghost" size="sm" onClick={() => onAsk("")}>
+            Back to my own rights
+          </Button>
+        ) : null}
+      </div>
+
+      <form
+        className="mt-2 flex flex-wrap items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const value = draft.trim();
+          if (value) onAsk(value);
+        }}
+      >
+        {/* Typed as well as picked. The identity worth asking about is often
+            one a people-shaped search will not find -- a configuration
+            administrator, a replication manager -- and those live outside the
+            data tree the picker searches. */}
+        <Input
+          className="font-dn h-8 min-w-0 flex-1 text-xs"
+          placeholder="cn=svc-alder,ou=services,dc=example,dc=test"
+          aria-label="Ask about another identity"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <Button type="button" variant="outline" size="sm" onClick={() => setPicking(true)}>
+          <Search />
+          Find
+        </Button>
+        <Button type="submit" size="sm" disabled={draft.trim() === ""}>
+          Ask
+        </Button>
+      </form>
+
+      <DnPicker
+        open={picking}
+        onOpenChange={setPicking}
+        baseDn={searchBaseFor(dn, contexts)}
+        title="Which identity to ask about"
+        onPick={(picked) => {
+          setDraft(picked);
+          onAsk(picked);
+          setPicking(false);
+        }}
+      />
     </div>
   );
 }

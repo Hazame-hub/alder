@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/hazame-hub/alder/internal/directory"
@@ -159,8 +160,17 @@ func entryAttributes(e *directory.Entry, sch *schema.Schema, req schema.Attribut
 			// somebody needs to see, and it is not itself a secret.
 			attr.Withheld = ptr(true)
 			attr.Values = []AttributeValue{}
-			if schemes := valueSchemes(values); len(schemes) > 0 {
-				attr.ValueSchemes = &schemes
+			// The scheme is a fact about a stored password, and only about
+			// one. Asking it of every withheld value reported slapd's
+			// ordering prefix as a hash scheme -- olcSyncrepl came back as
+			// "stored with scheme 0" -- and reported a compound secret with
+			// no brace prefix, such as olcDbCryptKey, as "stored in the
+			// clear", which is a sentence RFC 2307 says nothing about for a
+			// value that is not a password.
+			if passwordSecret(name) {
+				if schemes := valueSchemes(values); len(schemes) > 0 {
+					attr.ValueSchemes = &schemes
+				}
 			}
 		} else {
 			attr.Values = make([]AttributeValue, 0, len(values))
@@ -560,6 +570,20 @@ func candidateKinds(
 // this function; a value that does not begin with a brace reports nothing
 // rather than having its first characters guessed at and shown. Everything else
 // about the value stays where it is.
+// passwordSecret names the withheld attributes whose values are passwords in
+// the RFC 2307 sense, so that "{scheme}value, or cleartext if unprefixed" is
+// the right way to read them. The other secrets in schema.sensitiveAttrs are
+// configuration values that happen to carry a credential inside them, and the
+// rule does not apply to those.
+func passwordSecret(attribute string) bool {
+	switch strings.ToLower(strings.SplitN(attribute, ";", 2)[0]) {
+	case "userpassword", "unicodepwd", "olcrootpw", "nsslapd-rootpw",
+		"pwdhistory", "passwordhistory", "sambantpassword", "sambalmpassword":
+		return true
+	}
+	return false
+}
+
 func valueSchemes(values [][]byte) []string {
 	const maxSchemeLen = 32 // {PBKDF2-SHA512} and friends; nothing real is longer
 

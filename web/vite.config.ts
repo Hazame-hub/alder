@@ -45,6 +45,27 @@ export default defineConfig({
     outDir: embedDir,
     emptyOutDir: true,
     sourcemap: false,
+    // Measured on feat/replication, 2026-09-27, with a sourcemap build
+    // attributing every emitted byte back to its source module:
+    //
+    //   entry JS   832 kB raw   241 kB gzip   ~202 kB brotli
+    //   CSS         45 kB raw     8 kB gzip
+    //   61% of the JS is vendor; react-dom alone is 182 kB, TanStack ~119 kB,
+    //   radix ~80 kB, lucide 33 kB already tree-shaken. No highlighter, no
+    //   diff library, no date library — the LDIF, schema and config renderers
+    //   are all hand-written app code.
+    //
+    // The limit is raised rather than the bundle split, and the reasoning is
+    // in docs/DECISIONS.md under this date. The short version: Fiber
+    // compresses the response, so first load is ~200 kB once, from localhost
+    // or an internal host; and a complete route-level split moves at most
+    // 260 kB of app code, leaving an entry chunk of ~546 kB that would trip
+    // this warning anyway. A split that ends in "and then raise the limit"
+    // is not an answer to the warning.
+    //
+    // 1000 is a ceiling with about 170 kB of headroom, not a silencer. When
+    // it fires, measure again rather than raising it again.
+    chunkSizeWarningLimit: 1000,
   },
   test: {
     // Node, not jsdom: what is worth testing here is the logic that decides

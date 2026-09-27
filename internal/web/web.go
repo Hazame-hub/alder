@@ -78,6 +78,35 @@ func Register(app *fiber.App) {
 		panic("web: the embedded dist directory is malformed: " + err.Error())
 	}
 
+	// A missing asset is a 404, not the page.
+	//
+	// NotFoundFile below answers every unrecognised path with index.html, and
+	// that is right for a client-side route: a hard refresh on /?view=schema
+	// has to return the application. It is wrong for
+	// /assets/index-ABC123.js. A hashed filename is a content claim -- the
+	// browser is asking for one specific build's code -- and answering it with
+	// an HTML document and a 200 turns "that file is gone" into a syntax error
+	// at the point of use, or a stylesheet that silently does nothing. The
+	// case it hides is real: a tab left open across a deploy asks for the
+	// previous build's chunks by name.
+	//
+	// Registered before the fallback and scoped to /assets/ alone, because
+	// every other unrecognised path must keep returning the page.
+	app.Use(func(c *fiber.Ctx) error {
+		const assets = "/assets/"
+		if !strings.HasPrefix(c.Path(), assets) {
+			return c.Next()
+		}
+		name := strings.TrimPrefix(c.Path(), "/")
+		if !fs.ValidPath(name) {
+			return fiber.ErrNotFound
+		}
+		if _, err := fs.Stat(sub, name); err != nil {
+			return fiber.ErrNotFound
+		}
+		return c.Next()
+	})
+
 	app.Use("/", filesystem.New(filesystem.Config{
 		Root:               http.FS(sub),
 		Index:              "index.html",
