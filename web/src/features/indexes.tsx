@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gauge, Loader2, Plus, Trash2 } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
-import type { ChangeRequest } from "@/lib/api";
+import type { ChangeRequest, SessionInfo } from "@/lib/api";
+import { inConfigTree } from "@/lib/config-tree";
 import type { components } from "@/lib/api.gen";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,11 +51,20 @@ const TYPES: { id: string; label: string; why: string }[] = [
 export function IndexesButton({ dn, readOnly }: { dn: string; readOnly: boolean }) {
   const [open, setOpen] = useState(false);
 
-  // Reading this captures the configuration tree, which is not free, so it
-  // is asked for only once a screen is open on a configuration entry -- and
-  // the answer is shared with the dialog below through the same query key.
+  // Reading this captures the whole configuration tree, so it is asked for
+  // only where the answer could be yes: an entry inside the configuration
+  // tree. The first version of this said so in a comment and did not do it,
+  // which is worse than not saying it -- every entry view, including every
+  // ordinary person, paid for a configuration capture (115 to 175ms against
+  // the harness 389 DS), and on a session with no configuration identity
+  // every entry view also put a 400 in the browser console. That console is
+  // where 1.29 put failures so the next person finds one in ten seconds, and
+  // filling it with expected refusals is how it stops working.
+  const queryClient = useQueryClient();
+  const session = queryClient.getQueryData<SessionInfo>(["session"]);
   const report = useQuery<IndexReport, ApiFailure>({
     queryKey: ["config-indexes"],
+    enabled: inConfigTree(session, dn),
     retry: false,
     staleTime: 60 * 1000,
     queryFn: async () => unwrap(await api.GET("/config/indexes")),

@@ -4259,3 +4259,38 @@ hypotheses ago. The rule that produced those hypotheses — "check the log, do
 not predict" — was right and insufficient: the logs said which commits were
 dropped, never why, and no amount of staring at outcomes recovers a
 one-function mechanism that is sitting in a file on disk.
+
+### 2026-09-28 — the index panel asked every entry for the configuration
+
+Found while measuring the audit's M6, and introduced by me in 1.32. The
+index report is read by a query with no `enabled` gate, mounted in the entry
+header, so **every entry view captured the whole configuration tree** —
+including every ordinary person. Measured against the harness: 115 to 175ms
+per view on 389 Directory Server, a directory round trip for an answer that
+is "this is not a backend" on all but one entry in the tree.
+
+Worse on a session with no configuration identity, which is the ordinary way
+to run Alder against a directory whose `cn=config` you cannot read: the
+request answers 400 every time, and 1.29's console logging — put there so
+the next person finds a failure in ten seconds rather than four minutes —
+fills with expected refusals. A log that cries wolf stops being read, which
+is the same fault in a different place.
+
+The comment above the query said it was "asked for only once a screen is
+open on a configuration entry". It was not. A comment that describes what
+the code was meant to do is worse than no comment: it is the thing a reader
+checks instead of the code, and I wrote it while writing the code that
+contradicts it.
+
+Gated on `inConfigTree`, the same reading the editor uses to decide whether
+an entry is configuration at all. Verified in a browser: zero requests on
+`uid=user0001`, one on `olcDatabase={1}mdb,cn=config`, panel unchanged.
+
+**M6 itself is not explained and remains open.** The audit's proposed cause —
+forty multi-kilobyte values rendered at once — does not survive measurement:
+`cn={0}core,cn=schema,cn=config` is 38KB over the wire in 7ms, 79 values
+averaging 145 bytes, and expanding `cn=schema,cn=config` in the tree is 781
+bytes in 36ms. Nothing there wedges a browser for three minutes. A render
+loop would fit the symptoms better — a blocked main thread explains reads,
+clicks and navigation all failing at once — but I have not reproduced it, so
+that is a hypothesis and is written as one.
