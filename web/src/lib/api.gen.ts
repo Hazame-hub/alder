@@ -913,6 +913,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/config/indexes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What this server indexes, and what can be done about it
+         * @description Lists each backend the configuration holds and the attributes it
+         *     indexes, with what each index covers. Introduced in Alder 1.32.
+         *
+         *     It exists because an index was previously reachable only by comparing
+         *     this server against a snapshot of one that already had the index
+         *     wanted -- so the ordinary reason to add one, a slow search just
+         *     diagnosed, had no path at all. A UI audit found the feature and could
+         *     not find a door to it.
+         *
+         *     Every row carries what Alder would do about it rather than a promise:
+         *     a removal row holds the exact change, or the reason there is none --
+         *     an OpenLDAP value naming several attributes is a rewrite rather than
+         *     a deletion, and an index 389 Directory Server maintains for itself is
+         *     not Alder's to take away. Nothing here applies anything; the change
+         *     goes through the same plan and review as every other write.
+         *
+         *     Reading this reads the configuration tree, so it needs whatever
+         *     identity that tree requires -- on OpenLDAP usually the separate
+         *     configuration bind.
+         */
+        get: operations["getConfigIndexes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/indexes/candidate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The change that would add an index
+         * @description Derives the write this server wants for an index on one attribute,
+         *     and returns it. It applies nothing.
+         *
+         *     The two servers want entirely different writes for the same
+         *     intention: a value on the database entry for OpenLDAP, an entry of
+         *     its own under the backend for 389 Directory Server. Which one is
+         *     Alder's problem rather than the operator's, which is the whole reason
+         *     this is derived on the server and not composed in a browser.
+         *
+         *     An index with no types asked for is an index for equality on both,
+         *     decided once here rather than in each branch -- left to OpenLDAP
+         *     alone, a bare attribute name means presence, which is a different
+         *     index from the one the other server would have made of the same
+         *     request.
+         */
+        post: operations["planConfigIndex"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/snapshots/capture": {
         parameters: {
             query?: never;
@@ -2603,6 +2674,78 @@ export interface components {
         AccessUnread: {
             where: string;
             reason: string;
+        };
+        /** @description What this server indexes, by backend. */
+        IndexReport: {
+            /**
+             * @description Which configuration model answered — `openldap` or `389ds`. The
+             *     two index in entirely different shapes, and a caller rendering
+             *     this may want to say which it is looking at.
+             */
+            provider: string;
+            backends: components["schemas"]["IndexBackend"][];
+            /**
+             * @description Present when something about the reading is worth saying in
+             *     words: a configuration tree read only in part, a backend whose
+             *     indexes could not be listed.
+             */
+            note?: string;
+        };
+        IndexBackend: {
+            /** @description The backend's own name, which is the suffix it serves on both servers. */
+            name: string;
+            /**
+             * @description The configuration entry the backend is, so a caller that is
+             *     already looking at an entry can tell whether this is the one.
+             */
+            dn: string;
+            indexes: components["schemas"]["IndexEntry"][];
+        };
+        IndexEntry: {
+            /** @description The attribute indexed, spelled as the server spells it. */
+            attribute: string;
+            /** @description The resource identity a configuration comparison uses for this index. */
+            id: string;
+            /**
+             * @description What the index covers — `eq`, `sub`, `pres` and whatever else the
+             *     server records. Empty where the server records none.
+             */
+            types?: string[];
+            remove?: components["schemas"]["ChangeRequest"];
+            /**
+             * @description Why there is no removal change, where there is none:
+             *     `index_value_shared` when an OpenLDAP value names other
+             *     attributes too, so taking this one away is a rewrite rather than
+             *     a deletion; `system_index` when 389 Directory Server maintains it
+             *     for itself.
+             */
+            blocked?: string;
+            /** @description The same reason in a sentence, for a screen to print. */
+            blockedDetail?: string;
+        };
+        IndexRequest: {
+            /** @description The backend's name, as `IndexBackend.name` gives it. */
+            backend: string;
+            /** @description The attribute to index. */
+            attribute: string;
+            /**
+             * @description What the index should cover. Empty means equality, which is what
+             *     both servers are asked for when nothing is said.
+             */
+            types?: string[];
+        };
+        /** @description The change that would add the index, or the reason there is none. */
+        IndexCandidate: {
+            change?: components["schemas"]["ChangeRequest"];
+            /** @description Why Alder offers no change — `parent_missing`, `unnamed`, `not_creatable`. */
+            blocked?: string;
+            blockedDetail?: string;
+            /**
+             * @description True when the server already indexes that attribute on that
+             *     backend. No change is offered, and this says why rather than
+             *     leaving an empty answer to be read as a refusal.
+             */
+            exists?: boolean;
         };
         /**
          * @description What a provider's configuration model says about one entry of the
@@ -5480,6 +5623,91 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getConfigIndexes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backends, and what each indexes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description This server publishes no configuration Alder can read. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The directory did not answer. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    planConfigIndex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IndexRequest"];
+            };
+        };
+        responses: {
+            /** @description The change, or the reason there is none. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexCandidate"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description No such backend on this server. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The directory did not answer. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     captureSnapshot: {

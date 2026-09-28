@@ -58,6 +58,7 @@ import { CopyEntryDialog, SetPasswordDialog } from "@/features/entry-dialogs";
 import { MembershipActions } from "@/features/membership";
 import { ReferencedByButton } from "@/features/referenced-by";
 import { AccessButton } from "@/features/access";
+import { IndexesButton } from "@/features/indexes";
 import { EntryUnlockButton, PolicyButton, looksLocked } from "@/features/policy";
 import { EntryReplicationButton } from "@/features/replication";
 import { ExpandMembersButton } from "@/features/members";
@@ -345,6 +346,9 @@ function EntryHeader({
               onSearch={onSearch}
             />
           ) : null}
+          {/* Only ever rendered on a backend: the panel asks the server
+              which entries are backends and returns nothing otherwise. */}
+          <IndexesButton dn={entry.dn} readOnly={readOnly} />
           <AccessButton dn={entry.dn} />
           <PolicyButton dn={entry.dn} />
           <EntryReplicationButton dn={entry.dn} />

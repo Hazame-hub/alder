@@ -4069,3 +4069,48 @@ request by hand** — set `.release-please-manifest.json`, rewrite the
 `CHANGELOG.md` section, retitle, merge — which is how 1.30.0 shipped with
 twenty-four accurate entries. Check the release run's log after every merge;
 `gh run view <id> --log | grep "could not be parsed"` is the whole check.
+
+### 2026-09-28 — indexes get a door (1.32)
+
+The second UI audit's M4: creating an index was possible from 1.23 and only
+from inside a configuration comparison, where a row appeared if this server
+differed from a snapshot of one that already had the index you wanted. So
+the feature was really "copy an index another server has", and the ordinary
+reason to add one — a slow search you have just diagnosed — had no path at
+all. The auditor looked on the database entry, in the editor and on the
+directory screen, found nothing, and wrote down that you were back in
+`ldapmodify`.
+
+- **Two endpoints, and no second way to write.** `GET /config/indexes` lists
+  each backend and what it indexes; `POST /config/indexes/candidate` derives
+  the change for one attribute. Both hand back the record the comparison
+  already derived, and it goes through the same plan, the same LDIF and the
+  same confirmation. Two ways to ask, one way to write, which is the rule
+  that keeps `ChangeRecord` meaningful.
+
+- **A backend is one that serves a naming context.** The configuration model
+  calls a great many things a backend: on the harness 389 DS reports
+  thirty-nine, of which one holds directory data and the rest are the ldbm
+  machinery and one entry per default-index template. A panel listing all of
+  them is a panel nobody reads. The filter is the server's own answer — the
+  naming contexts the RootDSE advertises — rather than a list of names Alder
+  carries, which is section 3 applied to a place that does not obviously look
+  like a capability question. A backend that already holds indexes is kept
+  whatever its name, so nothing the server is really indexing can vanish
+  because Alder disagreed about what it is.
+
+- **The refusal is a sentence, not a code.** `index_value_shared` is what the
+  comparison put on the screen, and the audit read it there. The report
+  carries both: the code to branch on, and the reason in words for the
+  operator — an OpenLDAP value naming several attributes is a rewrite rather
+  than a deletion, and an index 389 DS maintains for itself is not Alder's to
+  take away. Proved on both servers: `l` and `st` on OpenLDAP share
+  `olcDbIndex: l,st eq`, and nine of 389 DS's thirty-one are its own.
+
+- **"Already indexed" is an answer, not a refusal.** Asking for an attribute
+  the backend already indexes returns `exists`, so the screen can say so
+  rather than showing an empty result that reads as a failure.
+
+Proved end to end in a browser as well as in the suite: `title` indexed and
+unindexed through the panel on the live OpenLDAP, twelve indexes before and
+twelve after.

@@ -324,6 +324,18 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.32 adds two endpoints and takes nothing away.
+
+- **`GET /config/indexes`** lists each backend that serves a naming context
+  and the attributes it indexes, with what each index covers and either the
+  change that would remove it or the reason there is none — in a code to
+  branch on and a sentence to print.
+- **`POST /config/indexes/candidate`** derives the write this server wants
+  for an index on one attribute. It applies nothing; the change goes through
+  the ordinary plan and apply.
+- **No existing response changed.** The configuration comparison still
+  offers the same index rows it did, from the same derivation.
+
 1.31 narrows one option and widens nothing.
 
 - **`includeSensitive` on an export releases a password digest and never a
