@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.33.1](https://github.com/Hazame-hub/alder/compare/v1.33.0...v1.33.1) (2026-09-28)
+
+
+### Documentation
+
+* the four wrong explanations that preceded it stay in the decisions log, because the record of being confidently wrong is the part worth keeping ([b2c5da5](https://github.com/Hazame-hub/alder/commit/b2c5da54303bd069a2c7bf7e8ea5f5fd7aa26e24))
+* the release notes say where release-please actually reads a changelog override from, which is the pull request body and not the commit message ([b2c5da5](https://github.com/Hazame-hub/alder/commit/b2c5da54303bd069a2c7bf7e8ea5f5fd7aa26e24))
+
 ## [1.33.0](https://github.com/Hazame-hub/alder/compare/v1.31.0...v1.33.0) (2026-09-28)
 
 
