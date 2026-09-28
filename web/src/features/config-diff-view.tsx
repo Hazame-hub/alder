@@ -9,6 +9,7 @@ import {
   actionableCount,
   configSections,
   filterConfigItems,
+  settingsCoveredByTheirObject,
   itemReason,
   objectRefusal,
   stageableChanges,
@@ -78,9 +79,21 @@ export function ConfigDiffView({
   const [objects, setObjects] = useState<Set<string>>(new Set());
   const [removals, setRemovals] = useState<Set<string>>(new Set());
 
+  // A setting whose object is wholly added or removed is the same drift the
+  // object row above already reports, with a different and contradictory
+  // wording. See settingsCoveredByTheirObject.
+  const covered = useMemo(
+    () => (config ? settingsCoveredByTheirObject(config.items, config.objects) : new Set<string>()),
+    [config],
+  );
   const visible = useMemo(
-    () => (config ? filterConfigItems(config.items, { section, kinds, actionableOnly, hideSensitive, text }) : []),
-    [config, section, kinds, actionableOnly, hideSensitive, text],
+    () =>
+      config
+        ? filterConfigItems(config.items, { section, kinds, actionableOnly, hideSensitive, text }).filter(
+            (item) => !covered.has(item.id),
+          )
+        : [],
+    [config, section, kinds, actionableOnly, hideSensitive, text, covered],
   );
   if (!config) return null;
 
@@ -240,7 +253,14 @@ export function ConfigDiffView({
           Hide withheld
         </label>
         <span className="text-xs text-muted-foreground">
-          {visible.length} of {config.items.length}
+          {visible.length} of {config.items.length - covered.size}
+          {/*
+            Not silently shorter. A count that drops without saying why is
+            the reader wondering what was hidden from them.
+          */}
+          {covered.size > 0
+            ? ` · ${covered.size} more belong${covered.size === 1 ? "s" : ""} to an object above`
+            : ""}
         </span>
       </div>
 

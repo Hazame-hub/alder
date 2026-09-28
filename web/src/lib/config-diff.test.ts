@@ -5,6 +5,7 @@ import {
   filterConfigItems,
   objectRefusal,
   stageableChanges,
+  settingsCoveredByTheirObject,
   stageableObjects,
   valueText,
   visibleObjects,
@@ -153,5 +154,51 @@ describe("configuration objects", () => {
   it("hides the objects it cannot act on when only actionable ones are wanted", () => {
     expect(visibleObjects(withObjects, false).map((o) => o.id)).toEqual([overlay.id, ppolicy.id, database.id]);
     expect(visibleObjects(withObjects, true).map((o) => o.id)).toEqual([overlay.id, ppolicy.id]);
+  });
+});
+
+// The same drift, reported twice, in two different voices.
+//
+// An index produces an object row and a setting row. The object row says
+// "Alder can create this" and offers the change; the setting row says
+// "compared as text: nothing here parses this value" about the very value
+// Alder parsed to write that change. With twenty-one setting rows in the
+// audited comparison, this was the main source of noise.
+
+const coveredItem = (id: string, resource?: string) =>
+  ({ id, key: "olcDbIndex", kind: "added", section: "performance", resource }) as never;
+const coveredObject = (id: string, kind: "added" | "removed" | "modified") =>
+  ({ id, kind, name: id, section: "performance", settings: 1 }) as never;
+
+describe("settings an object above already accounts for", () => {
+  it("covers the settings of an object that is wholly added", () => {
+    const covered = settingsCoveredByTheirObject(
+      [coveredItem("s1", "index:dc=alder,dc=test/alderteam"), coveredItem("s2", "index:dc=alder,dc=test/member")],
+      [coveredObject("index:dc=alder,dc=test/alderteam", "added")],
+    );
+    expect([...covered]).toEqual(["s1"]);
+  });
+
+  it("covers the settings of an object that is wholly removed", () => {
+    const covered = settingsCoveredByTheirObject(
+      [coveredItem("s1", "overlay:dc=alder,dc=test/ppolicy")],
+      [coveredObject("overlay:dc=alder,dc=test/ppolicy", "removed")],
+    );
+    expect(covered.has("s1")).toBe(true);
+  });
+
+  it("leaves the settings of an object that exists on both sides", () => {
+    // Here the setting rows are the only place the particular difference is
+    // legible, so hiding them would hide the answer.
+    const covered = settingsCoveredByTheirObject(
+      [coveredItem("s1", "database:dc=alder,dc=test")],
+      [coveredObject("database:dc=alder,dc=test", "modified")],
+    );
+    expect(covered.size).toBe(0);
+  });
+
+  it("leaves a setting that belongs to no object in the comparison", () => {
+    const covered = settingsCoveredByTheirObject([coveredItem("s1", "database:other"), coveredItem("s2")], []);
+    expect(covered.size).toBe(0);
   });
 });
