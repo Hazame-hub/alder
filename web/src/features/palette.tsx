@@ -23,24 +23,29 @@ import { safeText } from "@/lib/display";
  * certainly a request to find something called platform, so both destinations
  * come back and you pick.
  */
-export function JumpPalette({ onEntry, onSearch }: {
+export function JumpPalette({ open, onOpenChange, onEntry, onSearch }: {
+  /* The open state is the caller's, because the header has a button that
+     opens this and a keystroke nobody can see is not an affordance. The
+     shortcut still lives here: it belongs to the thing it opens. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onEntry: (dn: string) => void;
   onSearch: (filter: string, base: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
+  const setOpen = onOpenChange;
 
   // Ctrl+K / Cmd+K, which is what this gesture means everywhere else.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen((v) => !v);
+        onOpenChange(!open);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [open, onOpenChange]);
 
   const query = useQuery<ResolveResult, ApiFailure>({
     queryKey: ["resolve", text],

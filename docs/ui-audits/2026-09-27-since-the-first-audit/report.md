@@ -112,7 +112,7 @@ than from this report's own findings.
 | 5 | The verdict omits the attribute in question | **Closed** in 1.34. The rights search asked for `*`, which is user attributes, and a lock is operational — one character. It now asks for `+` as well: 141 attributes answered against 61, `nsAccountLock` among them. The 24 the entry actually holds are listed first, so the answer is above the fold rather than seventy rows down. Proved on the harness, not in a unit test: the assertion is against 389 DS's own answer. |
 | 6 | The Users view is 200 unfiltered rows | **Closed** in 1.34. A filter box in the count bar narrows the rows already fetched — "1 of 200 entries" — and a `locked` badge sits beside the name on every row that is. The badge is searchable: typing `locked` in the box is the whole of "which of these accounts cannot log in", one interaction. It does **not** re-run the search, and the empty state says so rather than claiming the directory holds nothing. |
 | 7 | Policy rows print a label and nothing between | **Not real** (2026-09-28). The API returns all 21 settings with values, and reading the rendered DOM gives `minimum length 8 pwdminlength` — the value is there, between the label and the attribute name. This is the same accessibility-tree artifact this report already documents for the "six unnamed rows" under *Evidence*: the reader collapsed the value out. No code change. |
-| 8 | Nothing advertises Ctrl+K | Open. |
+| 8 | Nothing advertises Ctrl+K | **Closed** in 1.34. A "Jump to…" button in the header, shaped like the field it opens, with `⌘K` / `Ctrl K` printed on it — read from the platform, because a hint naming the wrong key teaches a gesture that does nothing. |
 | — | `(code 200)` in a failure message | **Closed** in 1.30. It was never a result code: the client library numbers its own conditions from 200 in the same field. Those numbers are no longer printed or sent. |
 
 Closing finding 1 turned up something the audit could not have seen, because
@@ -267,6 +267,13 @@ so with the Access dialog's treatment where Alder could not read one.
 Found by guessing. No search icon, no nav item, no hint in the header.
 
 **Fix.** A search affordance in the header showing `⌘K` / `Ctrl K`.
+
+> **2026-09-28 — fixed as proposed.** A button rather than an icon: an icon
+> teaches nothing and has to be hovered to find out what it is, where a box
+> reading "Jump to…" teaches the gesture. The key is printed on it, which is
+> the point of advertising a shortcut rather than just adding a button. With
+> this, every finding in this report is closed except 3, which remains half
+> closed — the wedge trigger is still not reproduced.
 
 ## Claim-sheet verdicts
 

@@ -55,12 +55,12 @@ export function OverviewPanel({
 
   return (
     <div className="overview-screen mx-auto max-w-6xl space-y-6 px-6 py-8">
-      <header className="overview-hero flex items-end justify-between gap-6">
+      <header className="overview-hero flex flex-wrap items-end justify-between gap-6">
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Workspace overview</p>
-          <h2 className="text-2xl font-semibold tracking-tight">
-          {info.host}:{info.port}
-        </h2>
+          <p className="screen-kicker">Workspace overview</p>
+          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            {info.host}:{info.port}
+          </h2>
           <p className="text-sm text-muted-foreground">
             {info.vendorName ? (
               <>
@@ -91,6 +91,12 @@ export function OverviewPanel({
         </div>
       </header>
 
+      {/*
+        Headings over a long page, so the cards read as two groups rather
+        than one run of six. They are labels, not claims: everything under
+        them still comes from the RootDSE read at connect time.
+      */}
+      <SectionHeading>This session</SectionHeading>
       <div className="grid gap-4 md:grid-cols-2">
         <Card title="Connection" icon={ServerCog}>
           <Row label="Transport">
@@ -202,6 +208,8 @@ export function OverviewPanel({
           )}
         </Card>
       </div>
+
+      <SectionHeading>The directory itself</SectionHeading>
 
       <NamingContexts contexts={contexts} onBrowse={onBrowse} />
 
@@ -421,6 +429,19 @@ function MonitorField({
       <dd className={cn("ml-auto min-w-0 max-w-full tabular-nums", expanded && "w-full")}>
         <LdapValue values={values} expanded={expanded} onExpandedChange={setExpanded} />
       </dd>
+    </div>
+  );
+}
+
+/**
+ * A rule with a word on it, dividing the page into what this connection is
+ * and what the server behind it holds.
+ */
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="screen-kicker text-muted-foreground">{children}</span>
+      <span className="h-px flex-1 bg-border/70" />
     </div>
   );
 }
