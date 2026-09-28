@@ -137,6 +137,68 @@ func IsSensitive(attrDescription string) bool {
 	return sensitiveAttrs[fold(attrDescription)]
 }
 
+// neverReleased are the secrets no export writes, whatever the caller asks
+// for, because their value is the credential itself rather than a digest of
+// one.
+//
+// The distinction the export option was built on is that a password hash can
+// be carried to another server and a directory rebuilt from it -- a real
+// need, and a hash is not usable against anything but the account it belongs
+// to. That reasoning does not survive contact with the configuration tree.
+// An olcSyncrepl value carries the consumer's bind password in the clear
+// inside a longer string; olcDbCryptKey is the key the database is encrypted
+// with. Writing those into a file is handing over the directory, and no
+// checkbox makes it the restore case.
+var neverReleased = map[string]bool{
+	"olcsyncrepl":                 true,
+	"olcdbcryptkey":               true,
+	"nsds5replicabindcredentials": true,
+	"nsmultiplexorcredentials":    true,
+	"nsslapd-keypassword":         true,
+	"nssymmetrickey":              true,
+	"nsds5replicacredentials":     true,
+	"krbprincipalkey":             true,
+}
+
+// Releasable reports whether an export that asked for sensitive attributes
+// may write this particular value.
+//
+// Two gates, and the second is per value rather than per attribute because
+// the attribute cannot tell you: OpenLDAP's olcRootPW holds `{SSHA}...` on
+// one server and the root password in plain text on the next, and the entry
+// viewer already says which -- it prints the storage scheme, or the words
+// "stored in the clear", read off this same prefix.
+//
+// So: a value carrying an RFC 2307 {scheme} prefix is a digest and may go
+// into an export. A value with no prefix is the password, and does not. That
+// is the rule the viewer already shows the operator, applied where it has
+// consequences.
+func Releasable(attrDescription string, value []byte) bool {
+	name := fold(attrDescription)
+	if !sensitiveAttrs[name] {
+		return true
+	}
+	if neverReleased[name] {
+		return false
+	}
+	return hasSchemePrefix(value)
+}
+
+// hasSchemePrefix reports the RFC 2307 `{scheme}` marker. Deliberately the
+// narrowest parse that works: up to the first closing brace and no further,
+// so nothing after it can influence the answer.
+func hasSchemePrefix(value []byte) bool {
+	if len(value) < 3 || value[0] != '{' {
+		return false
+	}
+	for i := 1; i < len(value); i++ {
+		if value[i] == '}' {
+			return i > 1
+		}
+	}
+	return false
+}
+
 // SensitiveAttributeNames returns the built-in sensitive attribute list, for
 // the config layer to extend and for tests to assert against.
 func SensitiveAttributeNames() []string {

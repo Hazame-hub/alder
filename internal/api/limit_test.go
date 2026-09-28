@@ -79,8 +79,17 @@ func TestAFullGateRefusesWithRetryAfter(t *testing.T) {
 	rig.server.gate.slots <- struct{}{}
 	t.Cleanup(func() { <-rig.server.gate.slots })
 
+	// A request that asks the directory something. /session used to stand in
+	// for "the rest of the API" here, and cannot any more: reading or
+	// dropping a session touches no directory, so those routes bypass the
+	// gate deliberately -- see answeredWithoutTheDirectory, and the audit
+	// that found Disconnect answering 503 while a busy Alder held every
+	// slot.
 	done := make(chan response, 1)
-	go func() { done <- rig.do(t, http.MethodGet, "/api/v1/session", nil) }()
+	go func() {
+		done <- rig.do(t, http.MethodGet,
+			"/api/v1/entry?dn=uid%3Dalice%2Cou%3Dpeople%2Cdc%3Dalder%2Cdc%3Dtest", nil)
+	}()
 
 	select {
 	case res := <-done:

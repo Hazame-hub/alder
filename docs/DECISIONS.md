@@ -3960,3 +3960,66 @@ The eyebrow wording is left as it arrived -- "Directory intelligence",
 than a claim, and it is not mine to overrule. It is worth saying that it
 reads like a brochure beside the rest of the product's voice, which is plain
 to the point of flatness on purpose.
+
+### 2026-09-28 — the three critical findings of the second UI audit
+
+An audit of "bring the replica's indexes into line with the primary", run
+against OpenLDAP at both ends — the first audit of any kind on that server.
+The report is `docs/ui-audits/2026-09-28-indexes-on-a-replica/`. Fifty-four
+interactions against an ideal of eleven, and forty-six of them before the
+operator saw the drift they came for.
+
+- **An export released cleartext credentials, and the screen beside it said
+  to use one.** The entry viewer withholds `olcRootPW`, then said *"Sensitive
+  attributes are omitted; use Export if you need them"* — and Export with
+  "include sensitive attributes" wrote the root password in plain text and
+  the replication bind password inside an `olcSyncrepl` value. The 1.26 fix
+  had added the configuration tree's secrets to the set that option releases;
+  that set was written for password *digests*, where an export you can
+  restore from is a real need.
+
+  The rule is now per value, not per attribute, because the attribute cannot
+  tell you: `olcRootPW` holds `{SSHA}…` on one server and the password itself
+  on the next. A value carrying an RFC 2307 `{scheme}` prefix is a digest and
+  may travel; a value without one *is* the password and never does. That is
+  the same reading the entry viewer already shows an operator — it prints the
+  scheme as a badge, or the words "stored in the clear" — applied where it
+  has consequences. A short list is refused whatever it looks like:
+  `olcSyncrepl` and friends carry a credential inside a longer string, and
+  key material is not a digest of anything.
+
+  Consequence worth stating plainly: on a server that stores passwords
+  unhashed, an export now carries no password at all. The harness's OpenLDAP
+  is such a server, so the conformance case proves both halves at once —
+  389 DS stores `{PBKDF2-SHA512}` and the digest travels, OpenLDAP stores the
+  password and the export names it and leaves it.
+
+- **A capture was destroyed by disconnecting, which made the feature's own
+  headline task impossible.** Alder can only capture the server it is
+  connected to, so comparing two servers *requires* holding one across a
+  disconnect. `bench.clear()` on disconnect had a stated reason — the next
+  session in this tab may be a different operator on a different server — and
+  the reason was real while the cost was never weighed: the audit lost its
+  capture and spent eighteen interactions recovering by round-tripping a file
+  through the filesystem.
+
+  The bench survives a disconnect now, and each document says which server it
+  came from instead. The worry was never that the document is present; it was
+  that nobody could tell whose it was. Recorded client-side, not in the
+  document, because the document's bytes are checksummed and comparable
+  across servers.
+
+- **Disconnect answered 503 and said nothing, three ways at once.** The
+  request was queued behind the in-flight gate that exists to protect the
+  *directory*, though letting go of a session is a delete from a map in
+  Alder's own memory — so exactly when Alder was busy, an operator could not
+  let go. It then awaited `invalidateQueries()`, which refetches every live
+  query against the directory being abandoned, so the screen sat there for
+  the full operation timeout. And it called the API outside the query and
+  mutation caches, so 1.29's "every failure is written down, once, in one
+  place" never saw it.
+
+  Three fixes: the routes that ask the directory nothing bypass the gate;
+  nothing is refetched on the way out, the cache is dropped; and the
+  disconnect is a keyed mutation like every other write. One click now, and a
+  failure reaches the badge and the console.

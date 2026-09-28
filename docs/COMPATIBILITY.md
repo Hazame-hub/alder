@@ -324,6 +324,28 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.31 narrows one option and widens nothing.
+
+- **`includeSensitive` on an export releases a password digest and never a
+  usable credential.** A value carrying an RFC 2307 `{scheme}` prefix travels
+  as before. A value without one is the password itself and is no longer
+  written, and neither is anything in the small set that carries a credential
+  inside a longer value — `olcSyncrepl`, `olcDbCryptKey`,
+  `nsDS5ReplicaBindCredentials`, `nsMultiplexorCredentials`,
+  `nsslapd-keyPassword`, `nsSymmetricKey`, `nsds5ReplicaCredentials`,
+  `krbPrincipalKey`.
+
+  **This changes what an export contains.** On a directory that stores
+  passwords unhashed, `userPassword` no longer appears in one at all. The
+  file names what it withheld, at the end, so a restore knows what it has to
+  set by hand. A UI audit found the previous behaviour writing a root
+  password in plain text into a file, from a screen that had just declined to
+  show it; `SECURITY.md` says such a fix is still a fix, and this is the
+  compatibility note saying so plainly.
+- **`DELETE /api/v1/session` and `GET /api/v1/session` and `/api/v1/source`
+  are no longer subject to `--max-in-flight`.** They ask the directory
+  nothing. Previously a busy Alder answered 503 to a disconnect.
+
 1.28, 1.29 and 1.30 reach a release together, the way 1.16 and 1.17 reached
 one in 1.18.0. Between them they added three fields, stopped sending one, and
 hold back two attributes the entry editor used to offer. Everything below is

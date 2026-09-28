@@ -270,15 +270,45 @@ func EntryLDIF(e *Entry) *ldif.Record {
 	return r
 }
 
-// EntryLDIFWithSecrets is EntryLDIF including sensitive attributes. It exists
-// for the case where the user is deliberately exporting an entry to recreate it
-// elsewhere, and the caller must have asked for it explicitly.
-func EntryLDIFWithSecrets(e *Entry) *ldif.Record {
+// EntryLDIFWithSecrets is EntryLDIF including the sensitive attributes an
+// export may carry. It exists for the case where the user is deliberately
+// exporting an entry to recreate it elsewhere, and the caller must have asked
+// for it explicitly.
+//
+// "The ones it may carry" is not "all of them", which is what this used to
+// do. A UI audit ticked the box on a configuration entry and got the root
+// password in plain text and the replication bind password inside an
+// olcSyncrepl line -- from a screen that had just said "a secret; Alder never
+// sends it to the browser", via a button that same screen recommended. See
+// schema.Releasable: a password digest may travel, a usable credential may
+// not.
+//
+// withheld names the attributes something was held back from, so the caller
+// can say so rather than writing a quietly shorter file.
+func EntryLDIFWithSecrets(e *Entry) (rec *ldif.Record, withheld []string) {
 	r := &ldif.Record{DN: e.DN}
+	seen := map[string]bool{}
 	for _, name := range e.Order {
-		r.Attrs = append(r.Attrs, ldif.Attribute{Name: name, Values: e.Attributes[name]})
+		values := e.Attributes[name]
+		kept := make([][]byte, 0, len(values))
+		for _, v := range values {
+			if schema.Releasable(name, v) {
+				kept = append(kept, v)
+				continue
+			}
+			if !seen[name] {
+				seen[name] = true
+				withheld = append(withheld, name)
+			}
+		}
+		// An attribute whose every value was held back is left out
+		// altogether rather than written empty, which would read as "this
+		// attribute is unset" to whatever consumes the file.
+		if len(kept) > 0 {
+			r.Attrs = append(r.Attrs, ldif.Attribute{Name: name, Values: kept})
+		}
 	}
-	return r
+	return r, withheld
 }
 
 // Summary is a one-line description of a change, for logs and for the list of
