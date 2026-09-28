@@ -26,8 +26,16 @@ capture against the automation window times out in this environment.
 claims 7 and 8 — index removal, and the `index_value_shared` refusal — on
 top of it. It is on both servers. The comparison correctly reported no index
 removals, so neither claim was exercised, and the auditor refused to pretend
-otherwise. That is the right call and it is recorded here rather than
-quietly dropped: **removal is still unaudited, two audits running.**
+otherwise. That is the right call and it is recorded here rather than quietly
+dropped: **removal has now gone two audits without being walked in a
+browser.**
+
+That sentence first read "removal is still unaudited", which is a different
+and false claim — the conformance suite covers it thoroughly on both servers.
+See "Not covered" at the end. The difference between a capability no audit
+has clicked and a capability nothing tests is the whole distance between
+wasted work and misplaced confidence, and this report managed to blur it in
+its own first draft.
 
 ## Verdict
 
@@ -266,7 +274,17 @@ between the two audits.
 ## Not covered
 
 - **Index removal, and the `index_value_shared` refusal** (claims 7, 8) —
-  the drift the sheet described did not exist. Unaudited after two runs.
+  the drift the sheet described did not exist, so no removal row was ever
+  produced in the browser.
+
+  Not to be read as "untested", which is how I first read it myself.
+  `test/conformance/configindex_test.go` creates an index through the HTTP
+  plan-and-apply path on both servers, removes it again, and checks the
+  configuration checksum comes back to where it started; the two refusals
+  have a case each, and each runs on the server whose concept it is —
+  `index_value_shared` against OpenLDAP's `olcDbIndex: l,st eq`,
+  `system_index` against 389 DS. What went unexercised is the path through
+  the interface, which calls those same endpoints.
 - **Preflight against an index change** (claim 11) — no way to author the
   artifact it wants.
 - **The "still waiting" badge** (claim 15) — nothing ran long enough.
