@@ -1182,6 +1182,95 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /config/indexes:
+    get:
+      tags: [config]
+      operationId: getConfigIndexes
+      summary: What this server indexes, and what can be done about it
+      description: |
+        Lists each backend the configuration holds and the attributes it
+        indexes, with what each index covers. Introduced in Alder 1.32.
+
+        It exists because an index was previously reachable only by comparing
+        this server against a snapshot of one that already had the index
+        wanted -- so the ordinary reason to add one, a slow search just
+        diagnosed, had no path at all. A UI audit found the feature and could
+        not find a door to it.
+
+        Every row carries what Alder would do about it rather than a promise:
+        a removal row holds the exact change, or the reason there is none --
+        an OpenLDAP value naming several attributes is a rewrite rather than
+        a deletion, and an index 389 Directory Server maintains for itself is
+        not Alder's to take away. Nothing here applies anything; the change
+        goes through the same plan and review as every other write.
+
+        Reading this reads the configuration tree, so it needs whatever
+        identity that tree requires -- on OpenLDAP usually the separate
+        configuration bind.
+      responses:
+        "200":
+          description: The backends, and what each indexes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IndexReport" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: This server publishes no configuration Alder can read.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: The directory did not answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /config/indexes/candidate:
+    post:
+      tags: [config]
+      operationId: planConfigIndex
+      summary: The change that would add an index
+      description: |
+        Derives the write this server wants for an index on one attribute,
+        and returns it. It applies nothing.
+
+        The two servers want entirely different writes for the same
+        intention: a value on the database entry for OpenLDAP, an entry of
+        its own under the backend for 389 Directory Server. Which one is
+        Alder's problem rather than the operator's, which is the whole reason
+        this is derived on the server and not composed in a browser.
+
+        An index with no types asked for is an index for equality on both,
+        decided once here rather than in each branch -- left to OpenLDAP
+        alone, a bare attribute name means presence, which is a different
+        index from the one the other server would have made of the same
+        request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IndexRequest" }
+      responses:
+        "200":
+          description: The change, or the reason there is none.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IndexCandidate" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: No such backend on this server.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: The directory did not answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /snapshots/capture:
     post:
       tags: [snapshots]
@@ -3478,6 +3567,108 @@ components:
         where: { type: string }
         reason: { type: string }
       x-go-type-skip-optional-pointer: true
+
+    IndexReport:
+      type: object
+      description: What this server indexes, by backend.
+      required: [backends, provider]
+      properties:
+        provider:
+          type: string
+          description: |
+            Which configuration model answered — `openldap` or `389ds`. The
+            two index in entirely different shapes, and a caller rendering
+            this may want to say which it is looking at.
+        backends:
+          type: array
+          items: { $ref: "#/components/schemas/IndexBackend" }
+        note:
+          type: string
+          description: |
+            Present when something about the reading is worth saying in
+            words: a configuration tree read only in part, a backend whose
+            indexes could not be listed.
+
+    IndexBackend:
+      type: object
+      required: [name, dn, indexes]
+      properties:
+        name:
+          type: string
+          description: The backend's own name, which is the suffix it serves on both servers.
+        dn:
+          type: string
+          description: |
+            The configuration entry the backend is, so a caller that is
+            already looking at an entry can tell whether this is the one.
+        indexes:
+          type: array
+          items: { $ref: "#/components/schemas/IndexEntry" }
+
+    IndexEntry:
+      type: object
+      required: [attribute, id]
+      properties:
+        attribute:
+          type: string
+          description: The attribute indexed, spelled as the server spells it.
+        id:
+          type: string
+          description: The resource identity a configuration comparison uses for this index.
+        types:
+          type: array
+          items: { type: string }
+          description: |
+            What the index covers — `eq`, `sub`, `pres` and whatever else the
+            server records. Empty where the server records none.
+        remove:
+          $ref: "#/components/schemas/ChangeRequest"
+        blocked:
+          type: string
+          description: |
+            Why there is no removal change, where there is none:
+            `index_value_shared` when an OpenLDAP value names other
+            attributes too, so taking this one away is a rewrite rather than
+            a deletion; `system_index` when 389 Directory Server maintains it
+            for itself.
+        blockedDetail:
+          type: string
+          description: The same reason in a sentence, for a screen to print.
+
+    IndexRequest:
+      type: object
+      required: [backend, attribute]
+      properties:
+        backend:
+          type: string
+          description: The backend's name, as `IndexBackend.name` gives it.
+        attribute:
+          type: string
+          description: The attribute to index.
+        types:
+          type: array
+          items: { type: string }
+          description: |
+            What the index should cover. Empty means equality, which is what
+            both servers are asked for when nothing is said.
+
+    IndexCandidate:
+      type: object
+      description: The change that would add the index, or the reason there is none.
+      properties:
+        change:
+          $ref: "#/components/schemas/ChangeRequest"
+        blocked:
+          type: string
+          description: Why Alder offers no change — `parent_missing`, `unnamed`, `not_creatable`.
+        blockedDetail:
+          type: string
+        exists:
+          type: boolean
+          description: |
+            True when the server already indexes that attribute on that
+            backend. No change is offered, and this says why rather than
+            leaving an empty answer to be read as a refusal.
 
     ConfigEntryModel:
       type: object
