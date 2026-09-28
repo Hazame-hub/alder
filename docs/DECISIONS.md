@@ -4114,3 +4114,45 @@ directory screen, found nothing, and wrote down that you were back in
 Proved end to end in a browser as well as in the suite: `title` indexed and
 unindexed through the panel on the live OpenLDAP, twelve indexes before and
 twelve after.
+
+### 2026-09-28 — capturing the server you are not connected to (1.33)
+
+The second UI audit's M1, and the other half of the index work. A
+configuration snapshot exists to be compared against another server, and
+Alder could only capture the one it was connected to — so the comparison an
+operator actually wants, this replica against its primary, meant capturing
+one, disconnecting, connecting to the other, and comparing. The audit
+measured forty-six interactions before the drift was on screen, and lost its
+first capture to the disconnect on the way. (1.31 stopped the bench being
+cleared, which removed the loss; this removes the second connection.)
+
+`POST /snapshots/capture/from` opens a connection to a directory the caller
+names, reads its configuration, and closes it.
+
+- **The allowlist applies, and that is the point worth testing.** An
+  endpoint that dials outward without consulting `--allowed-targets` is a
+  way around it: "capture from" would reach hosts "connect to" cannot. The
+  check is the same one the connection screen goes through, before anything
+  is dialled, and a conformance case holds an instance to it on both servers.
+- **The credentials live for one request.** No session is opened on that
+  server, nothing is stored, nothing is logged — verified by grepping the
+  server's log after a capture — and the connection is closed however the
+  request ends. The dialog says so above the password field rather than
+  after it, because the person typing a production bind password is entitled
+  to know first.
+- **Reading only, and only the configuration.** Alder applies changes to the
+  session's own directory and nowhere else. A schema or data snapshot of
+  somewhere else would be a bigger promise — a subtree of arbitrary size read
+  with someone else's credentials — and nothing asks for it yet.
+- **The connection settings are read in one place.** `connConfigFrom` is
+  shared with the connection handler, because two readings of the same
+  settings is two places for the TLS rules to drift apart, and the rule that
+  matters — a plaintext target is refused unless this Alder was started to
+  permit it — lives in `ConnConfig.Validate`, which both go through.
+- **The form does not pre-fill the host.** Everything usually shared between
+  two servers in a pair is carried over — how they are reached, who you bind
+  as — but a form pre-filled with the server you are on is one that captures
+  the wrong thing when somebody hurries.
+
+Measured after: connect, choose Configuration, capture the other server, five
+fields, Compare. Against forty-six interactions and two connections.

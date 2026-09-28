@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { DownloadButton } from "@/components/ldif-block";
 import { ReviewActions } from "@/components/review-actions";
+import { CaptureFromAnotherServer } from "@/features/capture-from";
 import { bench, useBench, type AnySnapshot, type SideChoice, type Slot } from "@/lib/snapshot-bench";
 import {
   filterItems,
@@ -397,6 +398,35 @@ export function SnapshotsPanel({
             <Upload />
             Upload into snapshot {into}
           </Button>
+          {/*
+            The other side of a two-server comparison, without leaving this
+            one. Offered for a configuration only, which is the kind that is
+            compared across servers.
+          */}
+          {captureKind === "config" ? (
+            <CaptureFromAnotherServer
+              into={into}
+              session={session.data}
+              onCaptured={async ({ raw, host, port }) => {
+                try {
+                  const { doc, inspection, bytes } = await inspect(raw, true);
+                  const stamp = inspection.createdAt.replace(/[-:]/g, "").replace(/\.\d+/, "");
+                  bench.load({
+                    name: into,
+                    raw,
+                    doc,
+                    inspection,
+                    bytes,
+                    origin: "captured",
+                    filename: `alder-config-snapshot-${stamp}.json`,
+                    from: `${host}:${port}`,
+                  });
+                } catch (e) {
+                  setUploadError(e instanceof Error ? e.message : String(e));
+                }
+              }}
+            />
+          ) : null}
           <input
             ref={fileInput}
             type="file"

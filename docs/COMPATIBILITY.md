@@ -324,6 +324,17 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.33 adds one endpoint and takes nothing away.
+
+- **`POST /snapshots/capture/from`** captures the configuration of a
+  directory other than the session's own and returns the document. It reads
+  and closes; nothing is written to that server, no session is opened on it,
+  and the credentials are not kept. The target allowlist applies exactly as
+  it does to a connection, and the TLS rules are the same ones a connection
+  goes through.
+- Only a configuration capture is offered. `kind` exists on the request so a
+  later kind needs no second endpoint.
+
 1.32 adds two endpoints and takes nothing away.
 
 - **`GET /config/indexes`** lists each backend that serves a naming context
