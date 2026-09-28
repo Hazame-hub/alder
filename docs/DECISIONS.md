@@ -4294,3 +4294,31 @@ bytes in 36ms. Nothing there wedges a browser for three minutes. A render
 loop would fit the symptoms better — a blocked main thread explains reads,
 clicks and navigation all failing at once — but I have not reproduced it, so
 that is a hypothesis and is written as one.
+
+### 2026-09-28 — a comparison that the directory has moved past
+
+The audit's M2. A comparison whose source is "the directory now" stops being
+true the moment anything is applied, and the panel said nothing: the auditor
+came back from a successful apply to a result still offering the three
+indexes it had just created, and only found out by pressing Compare again on
+a hunch. Re-applying would have been the obvious next move.
+
+- **The result is kept, not thrown away.** It is the only record of what
+  *else* differed, which is exactly what somebody halfway through fixing a
+  drift wants beside the changeset — the same reason the bench survives a
+  trip to another screen at all. It gains a line saying it predates the
+  change, and a Compare again button in that line.
+- **Marked from two places, because there are two ways to apply.** The
+  changeset's `removeApplied` is where every staged change lands, and the
+  review dialog's success is where every single change does — an unlock, an
+  index, an ordinary edit. The snapshots screen never hears about either
+  otherwise.
+- **Conservative on purpose.** Any write makes "the directory now" older
+  than it looks, so any applied change marks any comparison. A data edit
+  cannot really change a configuration comparison, and saying so anyway
+  costs one button; the opposite mistake costs an operator a duplicate
+  write.
+
+Proved in a browser on the audit's own path: compare, leave, index an
+attribute through the panel, come back — the banner is there with its
+button, and the harness went back to twelve indexes afterwards.

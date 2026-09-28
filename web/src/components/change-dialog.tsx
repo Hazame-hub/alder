@@ -23,6 +23,7 @@ import { canNavigate, navigate } from "@/lib/navigate";
 import { AccessDialog } from "@/features/access";
 import { PolicyDialog } from "@/features/policy";
 import { safeText } from "@/lib/display";
+import { bench } from "@/lib/snapshot-bench";
 
 /**
  * ChangeDialog is the confirmation step every single change goes through.
@@ -106,6 +107,12 @@ export function ChangeDialog({
       void queryClient.invalidateQueries({ queryKey: ["entry"] });
       void queryClient.invalidateQueries({ queryKey: ["tree"] });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
+      // A comparison on the snapshots screen has "the directory now" on one
+      // side, and the directory has just moved. Said here as well as in the
+      // changeset, because a single change -- an unlock, an index, an edit
+      // -- never passes through the changeset at all, and the comparison
+      // has no other way of knowing.
+      bench.markStale();
       if (result.recovery) {
         setApplied(result);
         return;

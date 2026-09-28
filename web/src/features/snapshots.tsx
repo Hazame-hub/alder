@@ -516,6 +516,27 @@ export function SnapshotsPanel({
           the source is the directory now: they move it toward the target.
         </p>
         {compare.isError ? <ErrorNote title="The comparison failed" error={compare.error} /> : null}
+        {/*
+          A comparison whose source was "the directory now" stops being true
+          the moment anything is applied, and the result below is the one
+          place an operator looks to decide what still needs doing. An audit
+          came back from a successful apply to a panel still offering the
+          three indexes it had just created, and only found out by pressing
+          Compare again on a hunch. The result is kept -- it is still the
+          record of what else differed -- and labelled.
+        */}
+        {comparison?.stale ? (
+          <div className="flex flex-wrap items-center gap-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning-tint-foreground">
+            <span>
+              Changes have been applied since this comparison was made, so it describes the
+              directory as it was before them.
+            </span>
+            <Button size="sm" onClick={() => compare.mutate()} disabled={compare.isPending}>
+              {compare.isPending ? <Loader2 className="animate-spin" /> : <ArrowLeftRight />}
+              Compare again
+            </Button>
+          </div>
+        ) : null}
         {comparison ? (
           comparison.diff.kind === "config" ? (
             <ConfigDiffView
