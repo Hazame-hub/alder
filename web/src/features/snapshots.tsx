@@ -162,6 +162,14 @@ export function SnapshotsPanel({
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Which directory a capture taken now would be of. Read at capture time
+  // and kept with the document, because the bench outlives the session and
+  // the next one may be a different server.
+  const capturedFrom =
+    session.data?.host && session.data.port
+      ? `${session.data.host}:${session.data.port}`
+      : undefined;
+
   const inspect = async (
     raw: string,
     captured: boolean,
@@ -211,7 +219,16 @@ export function SnapshotsPanel({
       const stamp = inspection.createdAt.replace(/[-:]/g, "").replace(/\.\d+/, "");
       const prefix =
         captureKind === "schema" ? "alder-schema-snapshot" : captureKind === "config" ? "alder-config-snapshot" : "alder-snapshot";
-      return { name: into, raw, doc, inspection, bytes, origin: "captured", filename: `${prefix}-${stamp}.json` };
+      return {
+        name: into,
+        raw,
+        doc,
+        inspection,
+        bytes,
+        origin: "captured" as const,
+        filename: `${prefix}-${stamp}.json`,
+        from: capturedFrom,
+      };
     },
     onSuccess: (slot) => bench.load(slot),
   });
@@ -596,6 +613,15 @@ function Captured({ slot, at }: { slot: Slot; at: string }) {
   return (
     <span title={at}>
       captured {formatInstant(at)}
+      {/*
+        Which server, where Alder knows. The mistake this prevents is the one
+        that ruins a drift investigation quietly: comparing a directory
+        against a capture of itself, or against last week's other cluster,
+        and reading "no drift" as good news. An audit uploaded a capture of
+        the primary into a session bound to the replica and nothing on the
+        card said so.
+      */}
+      {slot.from ? ` · from ${slot.from}` : ""}
       {slot.origin === "uploaded" ? " · loaded from file" : ""}
     </span>
   );

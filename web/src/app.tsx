@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
   Database,
@@ -42,7 +42,6 @@ import { ObjectListPanel } from "@/features/objects";
 import { OverviewPanel } from "@/features/overview";
 import { isDirectoryView, type AppSearch, type AppView } from "@/lib/route";
 import { useChangeset } from "@/lib/changeset";
-import { bench } from "@/lib/snapshot-bench";
 import { setNavigator } from "@/lib/navigate";
 import { SourceLink } from "@/components/source-link";
 import { safeText } from "@/lib/display";
@@ -365,19 +364,42 @@ function TopBar({
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
-  const disconnect = async () => {
-    await api.DELETE("/session");
-    await queryClient.invalidateQueries();
-    queryClient.setQueryData(["session"], { connected: false });
-    // After the requests, not before them. Resetting first left the reset to
-    // be undone by whatever those two calls then recorded, which on a
-    // disconnect from a directory that had already stopped answering is a
-    // failure -- so the header kept its badge into the connection screen.
-    resetHealth();
-    // Snapshot documents describe the server just left, and the next session
-    // in this tab may be a different operator on a different directory.
-    bench.clear();
-  };
+  /**
+   * Let go of the session.
+   *
+   * Three things were wrong with the obvious version, and an audit hit all
+   * three at once: five clicks on Disconnect, nothing on screen, and
+   * `DELETE /api/v1/session` answering 503 in the network log.
+   *
+   * It awaited `invalidateQueries()` before saying "disconnected", and that
+   * refetches every live query -- against the directory you are trying to
+   * stop talking to. With the directory slow, each one takes the full
+   * operation timeout, so the screen sat there. Nothing is refetched now;
+   * the cache is dropped, because leaving is not a reason to read anything.
+   *
+   * It called the API outside the query and mutation caches, so the failure
+   * handler that 1.29 put in one place never saw it. It goes through a
+   * mutation now, keyed, like every other write.
+   *
+   * And the request itself was queued behind the in-flight gate that exists
+   * to protect the directory, though it touches no directory at all. That
+   * one is fixed on the server, in internal/api/limit.go.
+   */
+  const disconnect = useMutation({
+    mutationKey: ["disconnect"],
+    mutationFn: async () => unwrap(await api.DELETE("/session")),
+    onSettled: () => {
+      // Whatever the server said. If the delete failed, the credentials are
+      // still in Alder's memory and the session may still be open -- but
+      // this tab is done with it, and the honest thing on screen is the
+      // connection form rather than a directory we have stopped using. The
+      // failure itself reaches the console and the header through the
+      // mutation cache, which is the point of routing it that way.
+      queryClient.setQueryData(["session"], { connected: false });
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== "session" });
+      resetHealth();
+    },
+  });
 
   const staged = useChangeset();
 
@@ -432,7 +454,7 @@ function TopBar({
             unverified TLS
           </Badge>
         ) : null}
-        <DirectoryHealth onReconnect={() => void disconnect()} />
+        <DirectoryHealth onReconnect={() => disconnect.mutate()} />
         <div className="hidden text-right text-xs leading-tight sm:block">
           <div className="font-dn">
             {safeText(info.host)}:{info.port}
@@ -455,7 +477,7 @@ function TopBar({
           {dark ? <Sun /> : <Moon />}
         </Button>
         <SourceLink />
-        <Button variant="ghost" size="sm" onClick={() => void disconnect()}>
+        <Button variant="ghost" size="sm" onClick={() => disconnect.mutate()}>
           <LogOut />
           Disconnect
         </Button>

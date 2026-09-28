@@ -163,9 +163,18 @@ export function EntryPanel({
               text={data.ldif ?? ""}
               filename={`${rdnOf(data.dn).replace(/[^\w.-]/g, "-")}.ldif`}
             />
+            {/*
+              Not "use Export if you need them", which is what this said.
+              That sentence sent an operator to the one control that would
+              write the root password to a file, from the screen that had
+              just refused to show it -- and an audit followed it straight
+              there. Export now carries a digest and never a usable
+              credential, and this line no longer recommends the trip.
+            */}
             <p className="mt-2 text-xs text-muted-foreground">
-              The entry as an LDIF content record. Sensitive attributes are
-              omitted; use Export if you need them.
+              The entry as an LDIF content record. Secrets are omitted: a
+              password is a thing this screen can tell you about, not a thing
+              it can hand you.
             </p>
           </div>
         ) : null}
@@ -588,11 +597,15 @@ function ExportButton({ dn }: { dn: string }) {
                 className="mt-0.5"
               />
               <span>
-                Include sensitive attributes
+                Include password hashes
                 <span className="block text-xs text-muted-foreground">
-                  Password hashes and similar. An export ends up in tickets and
-                  repositories; leave this off unless you are recreating the
-                  entry elsewhere.
+                  Hashes only, and only where the value carries its storage
+                  scheme. A password held in the clear, a replication bind
+                  password inside <code className="font-mono">olcSyncrepl</code>, a
+                  database encryption key: those are never written to a file,
+                  whatever this is set to, and the export names any it held
+                  back. An export ends up in tickets and repositories; leave
+                  this off unless you are recreating the entry elsewhere.
                 </span>
               </span>
             </label>

@@ -18,6 +18,16 @@ export type Slot = {
   inspection: Inspection;
   filename: string;
   origin: "captured" | "uploaded";
+  /**
+   * The directory this was captured from, as `host:port`, where Alder knows.
+   *
+   * Recorded here rather than in the document because the document's bytes
+   * are checksummed and comparable across servers, and because this is a
+   * label for a person rather than a fact about the capture. An uploaded
+   * file has none: Alder does not know where somebody else's file came
+   * from, and guessing would be worse than the blank.
+   */
+  from?: string;
   /** The compact JSON the server is sent, which is what its request limit counts. */
   bytes: number;
 };
@@ -51,9 +61,21 @@ export type BenchState = {
  *
  * The lifetime is the tab's, the same as [changeset]: in memory, never written
  * to browser storage. A configuration snapshot withholds secrets, but it still
- * describes somebody's infrastructure, and it is dropped on Disconnect because
- * the next session in this tab may be a different operator on a different
- * server.
+ * describes somebody's infrastructure.
+ *
+ * It used to be dropped on Disconnect, on the reasoning that the next session
+ * in this tab may be a different operator on a different server. True, and it
+ * defeated the feature: comparing two servers *requires* holding one across a
+ * disconnect, because Alder can only capture the server it is connected to. An
+ * audit captured the primary, reconnected to the replica to compare, and found
+ * "Snapshot A is empty" -- eighteen interactions of pure waste, and the only
+ * way through was to notice a small Download button and round-trip a file
+ * through the filesystem.
+ *
+ * So the bench survives a disconnect, and each document says which server it
+ * came from instead. That is the answer to the original worry: the risk was
+ * never that the document is present, it was that nobody could tell whose it
+ * was.
  *
  * Loading a document, or changing a side, clears the comparison: a result
  * labelled "Snapshot A" that is no longer about the document in slot A is worse

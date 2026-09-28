@@ -68,11 +68,37 @@ func newGate(n int) *gate {
 	return &gate{slots: make(chan struct{}, n)}
 }
 
+// answeredWithoutTheDirectory reports the requests that ask the directory
+// nothing, and so have no business queueing behind a limit that exists to
+// protect it.
+//
+// Letting go of a session is the one that matters. It is a delete from a map
+// in Alder's own memory, and it was behind the gate -- so the moment Alder
+// was busy, or the directory slow enough that every slot was held by a
+// request waiting on it, Disconnect answered 503. An audit clicked it five
+// times and watched nothing happen. Exactly when you most want to let go of
+// a directory is when you could not.
+//
+// Reading the session is here for the same reason -- the header polls it,
+// and a header that stops answering during load is the false-claim problem
+// in reverse -- and the licence offer must work without a session at all.
+func answeredWithoutTheDirectory(c *fiber.Ctx) bool {
+	switch c.Path() {
+	case "/api/v1/session":
+		// Not POST: opening a session dials the directory and binds, which
+		// is directory work and belongs in the queue.
+		return c.Method() == fiber.MethodDelete || c.Method() == fiber.MethodGet
+	case "/api/v1/source":
+		return true
+	}
+	return false
+}
+
 // limit returns middleware holding the gate. A nil gate is no middleware at
 // all, which is what a configuration of zero means.
 func (g *gate) limit() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		if g == nil {
+		if g == nil || answeredWithoutTheDirectory(c) {
 			return c.Next()
 		}
 		select {

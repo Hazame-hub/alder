@@ -1271,6 +1271,11 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 		attrs = append(attrs, "+")
 	}
 	withSecrets := params.IncludeSensitive != nil && *params.IncludeSensitive
+	// What the export declined to write, in the order first met, so the file
+	// can name it. A file that is quietly shorter than the directory is the
+	// one thing an export must not be.
+	heldBack := map[string]bool{}
+	var heldOrder []string
 	limit := clamp(deref(params.Limit), 1000, 1, maxExportEntries)
 
 	// Deliberately not deferred. The body stream writer below runs after this
@@ -1348,6 +1353,12 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 		}
 		if !withSecrets {
 			w.WriteComment("Sensitive attributes such as userPassword were omitted.")
+		} else {
+			w.WriteComment("Sensitive attributes are included where they are stored as a")
+			w.WriteComment("digest. A value that is a usable credential -- a cleartext")
+			w.WriteComment("password, a replication bind password inside olcSyncrepl, a")
+			w.WriteComment("database encryption key -- is never written to a file, and any")
+			w.WriteComment("that were held back are named at the end of this one.")
 		}
 		w.WriteComment("The entry count and any truncation warning are at the end of this")
 		w.WriteComment("file: they are not known until the export finishes, and a file that")
@@ -1370,7 +1381,14 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 			for _, e := range entries {
 				rec := directory.EntryLDIF(e)
 				if withSecrets {
-					rec = directory.EntryLDIFWithSecrets(e)
+					var held []string
+					rec, held = directory.EntryLDIFWithSecrets(e)
+					for _, name := range held {
+						if !heldBack[strings.ToLower(name)] {
+							heldBack[strings.ToLower(name)] = true
+							heldOrder = append(heldOrder, name)
+						}
+					}
 				}
 				if wErr := w.WriteRecord(rec); wErr != nil {
 					stop(fmt.Sprintf("this export stopped while writing %s: %v", e.DN, wErr))
@@ -1404,6 +1422,15 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 			return
 		}
 		w.WriteComment(fmt.Sprintf("%d entries", written))
+		if len(heldOrder) > 0 {
+			// Named, not counted. "3 values withheld" tells an operator
+			// restoring from this file nothing about what will be missing
+			// when they do.
+			w.WriteComment("These attributes hold a usable credential and were not written: " +
+				strings.Join(heldOrder, ", ") + ".")
+			w.WriteComment("Set them on the target directory by hand. Alder will not put a")
+			w.WriteComment("password it can read into a file you might attach to a ticket.")
+		}
 		if len(cookie) > 0 && written >= limit {
 			// A truncated export that does not say so is a file someone will
 			// restore from and discover the gap much later.
