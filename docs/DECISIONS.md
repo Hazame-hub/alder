@@ -4023,3 +4023,49 @@ operator saw the drift they came for.
   nothing is refetched on the way out, the cache is dropped; and the
   disconnect is a keyed mutation like every other write. One click now, and a
   failure reaches the badge and the console.
+
+### 2026-09-28 — the release-note rule from 2026-09-27 was wrong, again
+
+Yesterday's entry said release-please ignores an override block when the
+squash subject is itself a conventional commit, and offered a three-for-three
+table. Merging #155 refuted it: a **non**-conventional subject, a correctly
+formed block of seven `fix:` lines, and the run said
+
+```
+commit could not be parsed: d30657b An export that cannot leak a credential…
+✔ Considering: 0 commits
+✔ No commits for path: ., skipping
+```
+
+so no release pull request was opened at all. The rule as written would have
+predicted the block being used.
+
+What the ten merges since 1.19 actually show, as shapes rather than as a
+theory:
+
+| shape | outcome |
+|---|---|
+| block, nothing after `END_…`, unparseable subject | the block is used — every line reaches the changelog |
+| block, git trailers after `END_…`, conventional subject | the **subject** is used; the block is silently ignored |
+| no block, the marker only mentioned in prose | the commit is dropped entirely |
+| block, git trailers after `END_…`, unparseable subject | the commit is dropped entirely |
+
+Two things follow that are worth acting on, and one that is not yet known.
+
+- **Never write the marker in prose.** `Release 1.30.0, …` (#149) and
+  `fix(ui): a status light…` (#154) both merely *described* the mechanism in
+  their commit bodies, and both were dropped — taking a `Release-As:` footer
+  with them, which is why 1.30.0 had to be driven by hand.
+- **Put nothing after `END_COMMIT_OVERRIDE`.** The three commits whose blocks
+  reached the changelog end there. The ones that carry `Co-Authored-By:` and
+  `Claude-Session:` after it do not, unless the subject rescues them.
+- **Not established:** why `docs: say what v1.26.0 actually shipped (#141)`
+  was dropped when `feat(access): … (#140)` in the same shape was not. I have
+  guessed at this mechanism twice now and been wrong twice; it is written
+  down here as unexplained rather than explained away.
+
+The reliable path does not depend on any of it: **drive the release pull
+request by hand** — set `.release-please-manifest.json`, rewrite the
+`CHANGELOG.md` section, retitle, merge — which is how 1.30.0 shipped with
+twenty-four accurate entries. Check the release run's log after every merge;
+`gh run view <id> --log | grep "could not be parsed"` is the whole check.
