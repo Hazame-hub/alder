@@ -39,6 +39,46 @@ export function filterConfigItems(items: ConfigDiffItem[], filter: ConfigFilter)
   });
 }
 
+/**
+ * The settings an object above already accounts for, by item id.
+ *
+ * A configuration comparison reports two kinds of thing: the objects that
+ * differ, and the settings that differ. An index produces both, and the
+ * second one contradicts the first. An audit read:
+ *
+ *   index / alderTeam / eq, sub / 1 setting / Alder can create this
+ *
+ * near the top, and lower down, about the same drift:
+ *
+ *   olcDbIndex / performance / alderTeam / Reported only
+ *   compared as text: nothing here parses this value
+ *
+ * Alder plainly did parse it -- it split the value into an attribute and a
+ * coverage list and wrote the change from it. With twenty-one setting rows
+ * in that comparison, this was the main source of noise, and it invites the
+ * reader to doubt the actionable row.
+ *
+ * An object that is wholly added or wholly removed accounts for its own
+ * settings: the row above says what is happening and offers the change, and
+ * repeating it per setting adds nothing. An object that exists on both
+ * sides is different -- there the setting rows are the only place the
+ * particular difference is legible -- so they stay.
+ */
+export function settingsCoveredByTheirObject(
+  items: ConfigDiffItem[],
+  objects: ConfigDiffObject[],
+): Set<string> {
+  const wholesale = new Set(
+    objects.filter((o) => o.kind === "added" || o.kind === "removed").map((o) => o.id),
+  );
+  const covered = new Set<string>();
+  if (wholesale.size === 0) return covered;
+  for (const item of items) {
+    if (item.resource && wholesale.has(item.resource)) covered.add(item.id);
+  }
+  return covered;
+}
+
 /** The sections a comparison actually has something in, in the server's order. */
 export function configSections(diff: ConfigDiff): string[] {
   return diff.sections.map((s) => s.section);

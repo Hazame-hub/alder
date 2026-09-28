@@ -4322,3 +4322,35 @@ a hunch. Re-applying would have been the obvious next move.
 Proved in a browser on the audit's own path: compare, leave, index an
 attribute through the panel, come back — the banner is there with its
 button, and the harness went back to twelve indexes afterwards.
+
+### 2026-09-28 — the same drift, reported twice, in two voices
+
+The audit's M5. A configuration comparison reports the objects that differ
+and the settings that differ, and an object that is wholly added produces
+both. The auditor read
+
+    index / alderTeam / eq, sub / 1 setting / Alder can create this
+
+near the top and, lower down, about the same drift:
+
+    olcDbIndex / performance / alderTeam / Reported only
+    compared as text: nothing here parses this value
+
+Alder plainly did parse it: it split the value into an attribute and a
+coverage list and wrote the change from it. The second row is the same fact
+in a voice that contradicts the first, and it invites the reader to doubt
+the actionable one.
+
+The rule is narrow on purpose: a setting is folded away only when its object
+is **wholly added or wholly removed**, because then the object row already
+says what is happening and carries the change. An object that exists on both
+sides keeps its setting rows — there they are the only place the particular
+difference is legible, and hiding them would hide the answer.
+
+Not silently shorter, either: the count beside the list says how many
+settings belong to an object above. A number that drops without explanation
+is a reader wondering what was kept from them.
+
+Measured on a real replica-against-primary comparison rather than a fixture:
+six of seventeen setting rows were duplicates — the ppolicy overlay's, not
+an index at all, so the shape is general.
