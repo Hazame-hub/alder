@@ -54,12 +54,14 @@ export function OverviewPanel({
   const contexts = caps?.namingContexts ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 px-6 py-6">
-      <header className="space-y-1">
-        <h2 className="text-lg font-semibold">
-          {info.host}:{info.port}
-        </h2>
-        <p className="text-sm text-muted-foreground">
+    <div className="overview-screen mx-auto max-w-6xl space-y-6 px-6 py-8">
+      <header className="overview-hero flex flex-wrap items-end justify-between gap-6">
+        <div className="space-y-2">
+          <p className="screen-kicker">Workspace overview</p>
+          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            {info.host}:{info.port}
+          </h2>
+          <p className="text-sm text-muted-foreground">
           {info.vendorName ? (
             <>
               {info.vendorName}
@@ -68,9 +70,21 @@ export function OverviewPanel({
           ) : (
             "The server does not publish a vendor name."
           )}
-        </p>
+          </p>
+        </div>
+        <div className="overview-session-status">
+          <span className="size-2 rounded-full bg-primary" aria-hidden="true" />
+          <span>Live directory session</span>
+        </div>
       </header>
 
+      <div className="overview-stats grid gap-3 sm:grid-cols-3">
+        <div className="overview-stat"><span>Transport</span><strong>{info.tls ?? "Unknown"}</strong><small>{info.verified === false ? "Certificate needs review" : "Certificate verified"}</small></div>
+        <div className="overview-stat"><span>Naming contexts</span><strong>{contexts.length}</strong><small>{contexts.length === 1 ? "Directory suffix" : "Published suffixes"}</small></div>
+        <div className="overview-stat"><span>Capabilities</span><strong>{[caps?.paging, caps?.serverSort, caps?.passwordModify, caps?.whoAmI].filter(Boolean).length}/4</strong><small>Session capabilities available</small></div>
+      </div>
+
+      <div className="section-heading"><span>Session health</span><span className="section-rule" /></div>
       <div className="grid gap-4 md:grid-cols-2">
         <Card title="Connection" icon={ServerCog}>
           <Row label="Transport">
@@ -183,6 +197,7 @@ export function OverviewPanel({
         </Card>
       </div>
 
+      <div className="section-heading"><span>Directory configuration</span><span className="section-rule" /></div>
       <NamingContexts contexts={contexts} onBrowse={onBrowse} />
 
       <ReplicationCard />

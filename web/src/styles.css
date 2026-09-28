@@ -146,6 +146,72 @@
 }
 
 @layer components {
+  .overview-screen {
+    animation: alder-fade-in 240ms ease-out both;
+  }
+
+  .overview-hero {
+    border-bottom: 1px solid color-mix(in oklch, var(--border) 75%, transparent);
+    padding-bottom: 1.5rem;
+  }
+
+  .overview-session-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid color-mix(in oklch, var(--primary) 28%, var(--border));
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    padding: 0.45rem 0.7rem;
+  }
+
+  .overview-stat {
+    display: flex;
+    min-height: 7rem;
+    flex-direction: column;
+    justify-content: space-between;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: color-mix(in oklch, var(--card) 88%, transparent);
+    padding: 0.9rem 1rem;
+  }
+
+  .overview-stat span,
+  .overview-stat small {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+
+  .overview-stat strong {
+    color: var(--foreground);
+    font-size: 1.25rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+
+  .section-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--muted-foreground);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .section-rule {
+    height: 1px;
+    flex: 1;
+    background: color-mix(in oklch, var(--border) 72%, transparent);
+  }
+
+  @keyframes alder-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   /* Syntax colouring for the LDIF preview. Deliberately three colours: the
      attribute name, the value, and the changetype line that says what the
      record does. Anything more turns a diff into a christmas tree. */
