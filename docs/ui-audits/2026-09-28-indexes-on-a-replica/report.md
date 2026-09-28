@@ -26,8 +26,16 @@ capture against the automation window times out in this environment.
 claims 7 and 8 — index removal, and the `index_value_shared` refusal — on
 top of it. It is on both servers. The comparison correctly reported no index
 removals, so neither claim was exercised, and the auditor refused to pretend
-otherwise. That is the right call and it is recorded here rather than
-quietly dropped: **removal is still unaudited, two audits running.**
+otherwise. That is the right call and it is recorded here rather than quietly
+dropped: **removal has now gone two audits without being walked in a
+browser.**
+
+That sentence first read "removal is still unaudited", which is a different
+and false claim — the conformance suite covers it thoroughly on both servers.
+See "Not covered" at the end. The difference between a capability no audit
+has clicked and a capability nothing tests is the whole distance between
+wasted work and misplaced confidence, and this report managed to blur it in
+its own first draft.
 
 ## Verdict
 
