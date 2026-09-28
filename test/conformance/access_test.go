@@ -210,3 +210,85 @@ func TestAccessSaysWhenItCannotReachTheRules(t *testing.T) {
 		}
 	})
 }
+
+// 1.34: the verdict covers the attribute the operator is asking about.
+//
+// A UI audit opened the verdict on a locked account to find out who could
+// clear the lock. It listed sixty-one attributes and nsAccountLock was not
+// one of them: the rights search asked for "*", which is user attributes,
+// and an account lock is operational. The fix is one character in a search
+// request, and only a real server can show it worked -- a unit test would
+// assert against the answer this code invents rather than the one 389 DS
+// gives.
+//
+// The second half is the ordering the UI depends on. The server answers
+// about every attribute the entry could hold; Present marks the ones it
+// does hold, which is what lets the verdict put them first instead of
+// starting at "aci" and burying the answer seventy rows down.
+func TestEffectiveRightsCoverOperationalAttributes(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		if !sess.Capabilities().EffectiveRights {
+			t.Skip("this server publishes no effective-rights control")
+		}
+		target := "uid=user0002,ou=people," + suffix
+		parsed, err := dn.Parse(target)
+		if err != nil {
+			t.Fatalf("dn: %v", err)
+		}
+		report, err := access.For(ctx(t), sess, parsed, access.Options{})
+		if err != nil {
+			t.Fatalf("reading access for %s: %v", target, err)
+		}
+		if report.Effective == nil {
+			t.Fatalf("%s: the server publishes the control and gave no answer (%s)", s.name, report.RightsNote)
+		}
+		rights := report.Effective
+
+		var held, operational int
+		answered := map[string]bool{}
+		for _, a := range rights.Attributes {
+			answered[strings.ToLower(a.Name)] = true
+			if a.Present {
+				held++
+			}
+		}
+		// Operational attributes every entry on both servers has, and which
+		// "*" alone does not answer about.
+		for _, name := range []string{"creatorsname", "modifytimestamp"} {
+			if !answered[name] {
+				t.Errorf("%s: the verdict does not cover %s, so an operator asking about it is told nothing",
+					s.name, name)
+			} else {
+				operational++
+			}
+		}
+		// The lock attribute itself: this is the attribute the audit could
+		// not find.
+		if !answered["nsaccountlock"] {
+			t.Errorf("%s: the verdict does not cover nsAccountLock", s.name)
+		}
+
+		if held == 0 {
+			t.Errorf("%s: %d attributes answered and none marked as held by the entry — the UI has nothing to put first",
+				s.name, len(rights.Attributes))
+		}
+		if held == len(rights.Attributes) {
+			t.Errorf("%s: every one of the %d answered attributes is marked held, which cannot be right — the server answers about attributes the entry could hold, not only those it does",
+				s.name, held)
+		}
+		// And what is marked held really is on the entry.
+		for _, name := range []string{"uid", "objectclass"} {
+			found := false
+			for _, a := range rights.Attributes {
+				if strings.EqualFold(a.Name, name) && a.Present {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s: %s is on this entry and the verdict does not mark it held", s.name, name)
+			}
+		}
+		t.Logf("%s: %d attributes answered, %d held by the entry, %d operational names checked",
+			s.name, len(rights.Attributes), held, operational)
+	})
+}

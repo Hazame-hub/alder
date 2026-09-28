@@ -133,6 +133,11 @@ type AttributeRight struct {
 	Name   string   `json:"name"`
 	Rights string   `json:"rights"`
 	Words  []string `json:"words,omitempty"`
+	// Present reports that the entry holds this attribute, as opposed to
+	// merely being permitted it. The server answers about everything the
+	// entry could hold, and the attribute somebody came to ask about is
+	// usually one it has.
+	Present bool `json:"present,omitempty"`
 }
 
 // Report is what bears on one entry.

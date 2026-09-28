@@ -3531,6 +3531,17 @@ components:
       type: object
       required: [name, rights]
       properties:
+        present:
+          type: boolean
+          description: |
+            The entry actually holds this attribute, rather than merely
+            being permitted it by an object class.
+
+            The server answers about everything the entry could hold -- a
+            hundred and forty-one attributes on a person, alphabetically
+            from `aci`. The one an operator came to ask about is usually one
+            the entry has, so a screen can put those first instead of making
+            the reader page through the rest.
         name: { type: string }
         rights:
           type: string

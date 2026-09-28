@@ -121,6 +121,7 @@ func (s *Server) GetAccessRules(c *fiber.Ctx, params GetAccessRulesParams) error
 			for _, a := range e.Attributes {
 				attrs = append(attrs, EffectiveAttributeRight{
 					Name: a.Name, Rights: a.Rights, Words: ptrIfAny(a.Words),
+					Present: ptrIfTrue(a.Present),
 				})
 			}
 			rights.Attributes = &attrs

@@ -563,6 +563,21 @@ environment either.
 Their human-readable output is not covered, for the same reason message text is
 not.
 
+### 1.34
+
+`EffectiveAttributeRight` gains `present`: whether the entry actually holds
+that attribute, as opposed to being permitted to. It is additive and
+omitted when false, so a client reading 1.33's documents is unaffected. It
+is the server's own statement — taken from the same response that carries
+the rights — and not something a client should recompute by re-reading the
+entry.
+
+The same release widens what the effective-rights search asks the server
+about, from `*` to `*` and `+`. A verdict that covered sixty-one attributes
+now covers a hundred and forty-one on the same entry, operational ones
+among them. Nothing was removed; a client that enumerated the list will see
+more of it.
+
 ---
 
 ## Not covered

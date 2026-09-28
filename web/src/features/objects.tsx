@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Info, Loader2, RefreshCw } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
@@ -28,6 +28,7 @@ import { ExportMenu } from "@/components/export-menu";
 import { InventoryButton } from "@/features/inventory";
 import { ColumnPicker } from "@/components/column-picker";
 import { safeText } from "@/lib/display";
+import { narrowRows } from "@/lib/narrow";
 
 /**
  * Users, groups and organizational units, as pages of their own.
@@ -41,7 +42,13 @@ import { safeText } from "@/lib/display";
  */
 
 /** What a table asks for beyond its columns, so a row can be acted on. */
-const alwaysFetch = ["objectClass"];
+//
+// The lock attributes are here for the same reason the entry header reads
+// them: "which of these accounts cannot log in" is the question this view
+// is opened for at 2am, and answering it from what has already been fetched
+// costs nothing. Both servers' spellings, because a view does not know
+// which server it is looking at.
+const alwaysFetch = ["objectClass", "nsAccountLock", "pwdAccountLockedTime"];
 
 /**
  * The page a view loads when the URL does not say.
@@ -92,12 +99,16 @@ export function ObjectListPanel({
   const [chosen, setChosen] = useState<Record<string, ObjectViewColumn[]>>({});
   const [deleteChange, setDeleteChange] = useState<ChangeRequest | null>(null);
   const [staging, setStaging] = useState<StageOutcome | null>(null);
+  const [narrow, setNarrow] = useState("");
 
   // A connection change can leave the old base selected, which would search a
   // suffix this server does not hold.
   useEffect(() => {
     if (!namingContexts.includes(base)) setBase(namingContexts[0] ?? "");
   }, [namingContexts, base]);
+
+  // A needle typed against one list means nothing against the next.
+  useEffect(() => setNarrow(""), [viewId, base]);
 
   const views = useQuery({
     queryKey: ["views"],
@@ -131,6 +142,15 @@ export function ObjectListPanel({
         }),
       ),
   });
+
+  // Narrows what is on screen, not what is asked of the directory. The view
+  // stops at its limit and says so; a text box that re-ran the search would
+  // be a different feature and a slower one. An audit found two hundred
+  // unfiltered rows with no way to reach one of them.
+  const rows = useMemo(
+    () => narrowRows(results.data?.entries ?? [], narrow),
+    [results.data, narrow],
+  );
 
   if (views.isPending) {
     return (
@@ -300,6 +320,9 @@ export function ObjectListPanel({
           <div className="flex h-full min-h-0 flex-col">
             <ResultSummary
               count={results.data.entries.length}
+              shown={rows.length}
+              narrow={narrow}
+              onNarrow={setNarrow}
               truncated={results.data.truncated}
               took={results.data.took}
               limit={pageLimit}
@@ -307,7 +330,7 @@ export function ObjectListPanel({
             <div className="min-h-0 flex-1 overflow-hidden">
               <EntryTable
                 columns={columns}
-                entries={results.data.entries}
+                entries={rows}
                 truncated={results.data.truncated}
                 readOnly={readOnly}
                 onOpen={onOpenEntry}
@@ -318,7 +341,20 @@ export function ObjectListPanel({
                 }}
                 onDelete={(dn) => setDeleteChange({ dn, type: "delete" })}
                 onStageDeletes={stageDeletes}
-                empty={<EmptyResult view={view} base={base} />}
+                empty={
+                  // "No users under this suffix" is a false statement when a
+                  // filter is what emptied the table. The search found some;
+                  // the needle did not.
+                  narrow.trim() !== "" ? (
+                    <NothingMatches
+                      narrow={narrow}
+                      count={results.data.entries.length}
+                      onClear={() => setNarrow("")}
+                    />
+                  ) : (
+                    <EmptyResult view={view} base={base} />
+                  )
+                }
               />
             </div>
           </div>
@@ -379,19 +415,29 @@ function ViewDefinition({ view, base }: { view: ObjectView; base: string }) {
 
 function ResultSummary({
   count,
+  shown,
+  narrow,
+  onNarrow,
   truncated,
   took,
   limit,
 }: {
   count: number;
+  shown: number;
+  narrow: string;
+  onNarrow: (value: string) => void;
   truncated: boolean;
   took?: string;
   limit: number;
 }) {
+  const filtering = narrow.trim() !== "";
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-1.5 text-sm">
       <span className="font-medium tabular-nums">
-        {count} {count === 1 ? "entry" : "entries"}
+        {filtering ? `${shown} of ${count}` : count}{" "}
+        {/* "1 of 200 entry" is wrong: in that phrasing the noun agrees with
+            the total, not with what survived the filter. */}
+        {count === 1 ? "entry" : "entries"}
       </span>
       {took ? <span className="text-muted-foreground">in {took}</span> : null}
       {truncated ? (
@@ -399,6 +445,57 @@ function ResultSummary({
           stopped at {limit} — there are more than this
         </Badge>
       ) : null}
+      {/*
+       * Deliberately at the end of the count, not above the table: it filters
+       * the rows the count is counting, and saying "12 of 200" next to the box
+       * that did it is the whole explanation.
+       */}
+      <div className="ml-auto flex items-center gap-2">
+        <Label htmlFor="narrow-rows" className="sr-only">
+          Filter these rows
+        </Label>
+        <Input
+          id="narrow-rows"
+          value={narrow}
+          onChange={(e) => onNarrow(e.target.value)}
+          placeholder="Filter these rows…"
+          className="h-7 w-56 text-sm"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {filtering ? (
+          <Button size="sm" variant="ghost" className="h-7" onClick={() => onNarrow("")}>
+            Clear
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function NothingMatches({
+  narrow,
+  count,
+  onClear,
+}: {
+  narrow: string;
+  count: number;
+  onClear: () => void;
+}) {
+  return (
+    <div className="max-w-prose space-y-2">
+      <p className="font-medium text-foreground">
+        None of the {count} {count === 1 ? "entry" : "entries"} on this page
+        matches <span className="font-dn">{safeText(narrow)}</span>.
+      </p>
+      <p>
+        This filters the rows already fetched, so an entry the search stopped
+        short of will not appear here. Raise the limit, or narrow the search
+        itself, if what you are looking for is further down the directory.
+      </p>
+      <Button size="sm" variant="outline" onClick={onClear}>
+        Clear the filter
+      </Button>
     </div>
   );
 }

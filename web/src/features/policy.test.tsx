@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { EntryUnlockButton, looksLocked } from "./policy";
+import { EntryUnlockButton } from "./policy";
+import { looksLocked } from "@/lib/locked";
 import type { components } from "@/lib/api.gen";
 
 type PolicyReport = components["schemas"]["PolicyReport"];

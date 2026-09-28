@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { safeText } from "@/lib/display";
+import { looksLocked } from "@/lib/locked";
 
 /**
  * The table half of the browser.
@@ -227,6 +228,19 @@ export function EntryTable({
                     >
                       {safeText(entry.dn)}
                     </span>
+                    {/*
+                     * Beside the name rather than in a column of its own: a
+                     * column is off the right edge of a laptop once four
+                     * attributes are chosen, and "this account cannot log in"
+                     * is not a fact to put behind a horizontal scrollbar.
+                     * Costs no request -- the lock attributes come back with
+                     * the search.
+                     */}
+                    {looksLocked(entry.attributes ?? []) ? (
+                      <Badge variant="destructive" className="mt-0.5">
+                        locked
+                      </Badge>
+                    ) : null}
                   </td>
 
                   {columns.map((col) => (

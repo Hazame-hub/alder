@@ -4354,3 +4354,84 @@ is a reader wondering what was kept from them.
 Measured on a real replica-against-primary comparison rather than a fixture:
 six of seventeen setting rows were duplicates — the ppolicy overlay's, not
 an index at all, so the shape is general.
+
+### 2026-09-28 — the verdict did not cover the attribute it was opened about
+
+A UI audit opened the effective-rights verdict on a locked account to find
+out who could clear the lock. The verdict listed sixty-one attributes and
+`nsAccountLock` was not one of them. The audit's diagnosis was that the list
+came from the object classes' permitted attributes; that was wrong, and the
+wrong diagnosis is worth recording because it would have sent the fix into
+the schema code.
+
+The list is whatever the rights search asks the server about, and it asked
+for `*`. In LDAP `*` is *user* attributes. An account lock is operational,
+so 389 DS was never asked and correctly never answered. Asking for `+` as
+well takes the answer from 61 attributes to 141, `nsAccountLock` among them.
+
+One character of cause, and a second decision behind it: 141 rows in
+alphabetical order starting at `aci` is not an answer a person can read, so
+the attributes the entry **actually holds** are listed first. That costs
+nothing to know — the rights response carries the entry as well as the
+rights, so the same reply says which of the 141 are populated. It travels
+as `present` on each attribute right, driver through API to the UI, because
+the server is the one that knows and the browser must not guess by
+re-reading the entry.
+
+Proved on the harness rather than in a unit test. A unit test here asserts
+against the answer this code invents; the assertion that matters is against
+389 DS's own, and it was shown to fail when the `+` is taken back out.
+
+### 2026-09-28 — "which of these accounts cannot log in", in one interaction
+
+The same audit found the Users view was two hundred rows with no filter and
+no account state, on the screen whose entire job is listing accounts.
+
+Three choices worth recording.
+
+The filter narrows **what has been fetched** and never re-runs the search.
+A box that re-queried would be a different and slower feature, and it would
+inherit the page limit anyway. What it must not do is let that go unsaid:
+the count reads "1 of 200 entries", and an empty result says *"None of the
+200 entries on this page matches …"* with the caveat about the limit, rather
+than the view's ordinary "no users under this suffix". A filter that
+silently searches less than the directory holds is how somebody concludes
+an account does not exist.
+
+The lock indicator is a badge beside the name, not the State column the
+audit asked for. A column is off the right edge of a 1280px laptop once
+four attributes are chosen, and "this account cannot log in" is not a fact
+to put behind a horizontal scrollbar.
+
+The badge is searchable as the word `locked`. The attribute values behind it
+are `true` and a generalised timestamp, which nobody would think to type, so
+without this the badge answers the question only for rows already on screen.
+With it, the task the audit measured is: type six letters.
+
+`looksLocked` moved from `features/policy` to `lib/locked` for this — a
+component must not import a feature — and the lock attributes joined the
+Users search's `alwaysFetch`, so the badge costs no extra request. Both
+spellings, `pwdAccountLockedTime` and `nsAccountLock`, because a view does
+not know which server it is looking at.
+
+### 2026-09-28 — two of the audit's eight findings were not real
+
+Checked before being fixed, which is the only order that works.
+
+Finding 7 said eight policy rows printed a label and an attribute name with
+nothing between them. `/policy` returns all twenty-one settings with their
+values, and the rendered DOM reads `minimum length 8 pwdminlength`. It is
+the same accessibility-tree artifact the audit itself had already documented
+for six "unnamed" rows: the reader dropped the value node. No code change.
+
+Finding 4 said the jump palette resolved a DN but would not run a search for
+a name. Retried against the same harness, the palette's suggestion lands on
+the search screen with `filter`, `base` and `scope` in the URL and the search
+**runs** — "1 entry in 37ms". Either it was fixed between the run and now
+without being recorded, or the audit saw a stale build.
+
+Both are recorded in the report rather than deleted from it. A finding that
+quietly disappears is indistinguishable from one that was never real, and
+the next audit would find them again. The rule they produce is already in
+that report's evidence section and is worth repeating here: a claim about
+what is on screen is read off the DOM, not off the accessibility tree.

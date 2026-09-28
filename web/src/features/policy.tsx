@@ -201,23 +201,6 @@ function SettingList({ settings }: { settings: PolicySetting[] }) {
   );
 }
 
-/**
- * Whether an entry Alder has already read looks locked.
- *
- * Read from the attributes in hand rather than by asking the server again: the
- * one fact worth putting in front of somebody before they open anything is
- * that this account cannot log in, and it should not cost a request.
- */
-export function looksLocked(attributes: { name: string; values: { text?: string }[] }[]): boolean {
-  for (const attr of attributes) {
-    const name = attr.name.toLowerCase();
-    if (name === "pwdaccountlockedtime" && attr.values.length > 0) return true;
-    if (name === "nsaccountlock" && attr.values.some((v) => (v.text ?? "").toLowerCase() === "true")) {
-      return true;
-    }
-  }
-  return false;
-}
 
 /**
  * The unlock, offered where the badge is -- in the entry header, beside the

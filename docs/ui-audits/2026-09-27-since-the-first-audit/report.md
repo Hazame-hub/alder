@@ -108,10 +108,10 @@ than from this report's own findings.
 | 1 | The unlock no editor could make | **Closed** in 1.29 (the Policy dialog derives and applies the change) and 1.30 (an **Unlock** beside the badge in the entry header; the editor offers the lock attributes). Locked entry to cleared lock: **two interactions**, measured, against seventeen. |
 | 2 | Nine failed requests, no words anywhere | **Closed** in 1.29. Every failure is written to the console once, in one place, in outline only; the header carries a badge; no retry hides a 502 behind ninety seconds. |
 | 3 | The session wedged while reporting itself healthy | **Half closed.** The header reports a degraded directory and offers Reconnect (1.29), and says "still waiting" with a count while a request is outstanding rather than only after it has failed (1.30). The trigger is still not reproduced, and the server does not yet re-dial before answering 502. |
-| 4 | The jump palette resolves a DN but not a name | Open. |
-| 5 | The verdict omits the attribute in question | Open. |
-| 6 | The Users view is 200 unfiltered rows | Open. |
-| 7 | Policy rows print a label and nothing between | Open. |
+| 4 | The jump palette resolves a DN but not a name | **Not reproducible** (2026-09-28). `Ctrl+K` with `user0007` offers *"Search for user0007"*; clicking it lands on the search screen **and runs it** — "1 entry in 37ms", the entry on screen. `/resolve?q=user0007` answers with a base to search under, and the destination carries `filter`, `base` and `scope`. Either it was fixed between the run and now without being recorded, or the run saw a stale build. Left recorded rather than silently dropped: see the note under the finding. |
+| 5 | The verdict omits the attribute in question | **Closed** in 1.34. The rights search asked for `*`, which is user attributes, and a lock is operational — one character. It now asks for `+` as well: 141 attributes answered against 61, `nsAccountLock` among them. The 24 the entry actually holds are listed first, so the answer is above the fold rather than seventy rows down. Proved on the harness, not in a unit test: the assertion is against 389 DS's own answer. |
+| 6 | The Users view is 200 unfiltered rows | **Closed** in 1.34. A filter box in the count bar narrows the rows already fetched — "1 of 200 entries" — and a `locked` badge sits beside the name on every row that is. The badge is searchable: typing `locked` in the box is the whole of "which of these accounts cannot log in", one interaction. It does **not** re-run the search, and the empty state says so rather than claiming the directory holds nothing. |
+| 7 | Policy rows print a label and nothing between | **Not real** (2026-09-28). The API returns all 21 settings with values, and reading the rendered DOM gives `minimum length 8 pwdminlength` — the value is there, between the label and the attribute name. This is the same accessibility-tree artifact this report already documents for the "six unnamed rows" under *Evidence*: the reader collapsed the value out. No code change. |
 | 8 | Nothing advertises Ctrl+K | Open. |
 | — | `(code 200)` in a failure message | **Closed** in 1.30. It was never a result code: the client library numbers its own conditions from 200 in the same field. Those numbers are no longer printed or sent. |
 
@@ -189,6 +189,17 @@ DNs. Failing that, a screen navigated to with a filter in its URL must run it on
 arrival — making the operator press the button is a bug wearing a design
 decision.
 
+> **2026-09-28 — not reproducible.** Retried against the same harness: the
+> palette suggestion lands on `?view=search&filter=…&base=…&scope=sub` and the
+> search **runs**, reporting "1 entry in 37ms". `/resolve?q=user0007` answers
+> with a naming context to search under, which is what supplies `base`. The
+> finding is kept here rather than deleted, because a finding that quietly
+> disappears is indistinguishable from one that was never real — and this one
+> may well have been a stale build under the audit rather than a fix nobody
+> recorded. The remaining half of the fix — listing matching entries inside the
+> palette, rather than handing the search off — was never done and is still
+> worth doing.
+
 ### 5 · Major — the effective-rights verdict omits the attribute in question
 
 The verdict lists 61 attributes, eight at a time behind *"Show all 61
@@ -201,6 +212,16 @@ absence, which reads as "no such attribute".
 rest below the fold, and include operational attributes the entry actually holds.
 On a locked account `nsAccountLock` would then be the second or third row.
 
+> **2026-09-28 — fixed, and the diagnosis in the finding was wrong.** The list
+> was not the object classes' permitted attributes. It was whatever the rights
+> search asked the server about, and it asked for `*` — user attributes. An
+> account lock is operational, so 389 DS never answered about it. Adding `+`
+> takes the answer from 61 attributes to 141. The ordering half is done as
+> written: the server also returns the entry in the same response, so which of
+> the 141 the entry actually holds is free, and the 24 held ones go first. A
+> conformance test asserts both against 389 DS, and was shown to fail when the
+> `+` is taken back out.
+
 ### 6 · Minor — the Users view is 200 unfiltered rows with no lock column
 
 *"200 entries in 80ms / stopped at 200 — there are more than this"*, with no text
@@ -210,6 +231,16 @@ header considers important enough to show unconditionally.
 **Fix.** A filter box that narrows the already-fetched rows as you type, and a
 State column carrying the locked badge — so the view that lists accounts can
 answer "which accounts are locked?".
+
+> **2026-09-28 — fixed, with one deliberate departure.** The badge is beside
+> the name, not in a column of its own: a column is off the right edge of a
+> 1280px laptop once four attributes are chosen, and "this account cannot log
+> in" is not a fact to put behind a horizontal scrollbar. The box filters the
+> DN, every value on the row, and the word *locked* — typing it narrows 200
+> rows to the one, which is the task in one interaction. It filters what is
+> loaded and never re-runs the search; the count says "1 of 200 entries" and
+> the empty state says why, because a filter that silently searches less than
+> the directory holds is how somebody concludes an account does not exist.
 
 ### 7 · Minor — policy rows print a label and an attribute with nothing between
 
@@ -221,6 +252,15 @@ absent, zero and unread are three different facts.
 
 **Fix.** Render `not set` in muted text where the server holds no value, and say
 so with the Access dialog's treatment where Alder could not read one.
+
+> **2026-09-28 — not real.** `/policy` returns all 21 settings with their
+> values, and the rendered DOM reads `minimum length 8 pwdminlength`: the value
+> is between the label and the attribute name, where it belongs. This is the
+> same artifact this report documents two sections up for the "six unnamed
+> rows" — the accessibility reader dropped the value node. Recorded rather than
+> deleted so a re-audit does not find it a third time. The lesson is the one
+> already in *Evidence*: a claim about what is on screen is read off the DOM,
+> not off the accessibility tree.
 
 ### 8 · Polish — Ctrl+K is the fastest thing here and nothing advertises it
 
