@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.33.0](https://github.com/Hazame-hub/alder/compare/v1.31.0...v1.33.0) (2026-09-28)
+
+
+Indexes, from both ends of the audit that asked for them: a door to reach them by, and the other server to compare against. 1.32 is a milestone number with no tag of its own; the two shipped together.
+
+
+### Features
+
+* what a backend indexes can be read, added to and removed from the backend's own entry, rather than only by comparing this server against a snapshot of one that already had the index wanted ([d0a8f8e](https://github.com/Hazame-hub/alder/commit/d0a8f8efa1811a04306154458aa3cec8fa50dd9d))
+* the reason an index cannot be removed is given in words as well as in a code -- an OpenLDAP value naming several attributes is a rewrite rather than a deletion, and an index 389 Directory Server maintains for itself is not Alder's to take away ([d0a8f8e](https://github.com/Hazame-hub/alder/commit/d0a8f8efa1811a04306154458aa3cec8fa50dd9d))
+* asking to index an attribute that is already indexed says so, rather than answering with an empty result that reads as a refusal ([d0a8f8e](https://github.com/Hazame-hub/alder/commit/d0a8f8efa1811a04306154458aa3cec8fa50dd9d))
+* a configuration comparison between two servers no longer needs two connections -- the other server is captured from the session you are on, and the document says which server it came from ([d76dcec](https://github.com/Hazame-hub/alder/commit/d76dcecd3e733549f7326ac7954a83c7eeff8540))
+* the credentials for that capture are used once and kept nowhere, which the form says before the password is typed rather than after ([d76dcec](https://github.com/Hazame-hub/alder/commit/d76dcecd3e733549f7326ac7954a83c7eeff8540))
+
+
+### Fixes
+
+* the index panel lists only backends that serve a naming context, because the configuration model calls thirty-nine things a backend on 389 Directory Server and one of them holds data ([d0a8f8e](https://github.com/Hazame-hub/alder/commit/d0a8f8efa1811a04306154458aa3cec8fa50dd9d))
+* the target allowlist applies to a capture from another server exactly as it does to a connection, so an instance restricted to certain directories cannot be made to reach past them ([d76dcec](https://github.com/Hazame-hub/alder/commit/d76dcecd3e733549f7326ac7954a83c7eeff8540))
+
+
+### Refactoring
+
+* connection settings are read from a request body in one place, so a capture and a connection cannot disagree about which transports are acceptable ([d76dcec](https://github.com/Hazame-hub/alder/commit/d76dcecd3e733549f7326ac7954a83c7eeff8540))
+
+
+### Documentation
+
+* the audit's "not covered" on index removal is not "untested" ([#158](https://github.com/Hazame-hub/alder/issues/158)) ([ebbb24d](https://github.com/Hazame-hub/alder/commit/ebbb24d4bc9a19cb01362f117887e136be6717d6))
+
 ## [1.31.0](https://github.com/Hazame-hub/alder/compare/v1.30.0...v1.31.0) (2026-09-28)
 
 

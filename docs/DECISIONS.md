@@ -4156,3 +4156,43 @@ names, reads its configuration, and closes it.
 
 Measured after: connect, choose Configuration, capture the other server, five
 fields, Compare. Against forty-six interactions and two connections.
+
+### 2026-09-28 — release-please, the fourth wrong answer, and what to do instead
+
+Four hypotheses about why release-please drops Alder's squash commits, four
+refutations, each by the next release run. Written down in full because the
+pattern of being confidently wrong is the useful part.
+
+| # | The rule I wrote | What refuted it |
+|---|---|---|
+| 1 | An override block is ignored when the subject is a conventional commit | #155: non-conventional subject, correct block, dropped |
+| 2 | `Release-As:` is read whatever the subject looks like | #149: the footer was ignored and the version never moved |
+| 3 | A commit with git trailers and no override block is dropped | #160 and #161: no trailers, a block, dropped |
+| 4 | Carriage returns in the message break the parse | Every commit in the repository has them, parsing or not |
+
+The observations themselves are solid; only the explanations were wrong.
+Across ten squashes the log says `could not be parsed` for six and nothing
+for four, and the four that parsed are: `docs: … (#158)` with no block and no
+trailers, and `A refusal says where to look (#136)`, `Password policy and
+account state, read (#135)` and `Effective rights: asking the server (#133)`
+— each a non-conventional subject, an override block, and **at least one line
+of ordinary text after the closing marker**. Every commit lacking that last
+property has been dropped.
+
+So the convention, stated as a convention and not as a mechanism: **a squash
+whose body carries an override block ends with a line of prose after
+`END_COMMIT_OVERRIDE`, not with the marker and not with a git trailer.** It
+has held four times out of four and failed none. I do not know why, I have
+stopped guessing, and the next person should not treat it as understood.
+
+What does not depend on any of it: **the release pull request is driven by
+hand whenever the log shows a dropped commit.** Set
+`.release-please-manifest.json`, write the `CHANGELOG.md` section from the
+dropped commits' own override blocks, retitle the pull request, keep the
+`autorelease: pending` label that release-please keys on, and merge. That is
+how 1.30.0, 1.31.0 and 1.33.0 shipped, each with an accurate changelog, and
+it takes about five minutes. The one-line check after every merge is
+`gh run view <id> --log | grep "could not be parsed"`.
+
+1.32 is a milestone number with no tag: the index door and the remote capture
+reached a release together in 1.33.0.

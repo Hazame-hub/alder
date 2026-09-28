@@ -324,6 +324,8 @@ a preflight artifact, only by adding -- with one correction called out below:
 - **Nothing is signed by default**, and nothing is required to be signed. A
   deployment adopts signing by naming keys.
 
+1.32 and 1.33 reach a release together in 1.33.0. Between them they add three endpoints and take nothing away.
+
 1.33 adds one endpoint and takes nothing away.
 
 - **`POST /snapshots/capture/from`** captures the configuration of a
