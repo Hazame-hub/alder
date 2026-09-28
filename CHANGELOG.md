@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.31.0](https://github.com/Hazame-hub/alder/compare/v1.30.0...v1.31.0) (2026-09-28)
+
+
+The three critical findings of a UI audit that walked "bring the replica's indexes into line with the primary" against OpenLDAP at both ends. The report is [`docs/ui-audits/2026-09-28-indexes-on-a-replica/`](https://github.com/Hazame-hub/alder/tree/main/docs/ui-audits/2026-09-28-indexes-on-a-replica).
+
+
+### Security
+
+* an export releases a password only where the server stored it as a digest, so a root password held in the clear and a replication credential inside `olcSyncrepl` are never written to a file ([d30657b](https://github.com/Hazame-hub/alder/commit/d30657bd6053c460ec2e59e8c5ad39f4b48f7812))
+
+  **This changes what an export contains.** The option was built for password hashes, where a file you can restore from is a real need; the 1.26 fix put the configuration tree's secrets into the same set it releases. The rule is now per value rather than per attribute, because the attribute cannot tell you — `olcRootPW` holds a digest on one server and the password itself on the next. On a directory that stores passwords unhashed, `userPassword` no longer appears in an export at all. The file names what it withheld so a restore knows what to set by hand.
+
+
+### Fixes
+
+* an export names the attributes it withheld, at the end, so a restore knows what it has to set by hand ([d30657b](https://github.com/Hazame-hub/alder/commit/d30657bd6053c460ec2e59e8c5ad39f4b48f7812))
+* the entry viewer no longer points at Export as the way to see a secret it has just declined to show ([d30657b](https://github.com/Hazame-hub/alder/commit/d30657bd6053c460ec2e59e8c5ad39f4b48f7812))
+* snapshots survive a disconnect, because comparing two servers requires holding one across it, and each document says which server it came from ([d30657b](https://github.com/Hazame-hub/alder/commit/d30657bd6053c460ec2e59e8c5ad39f4b48f7812))
+* letting go of a session no longer queues behind the limit that protects the directory, so a busy Alder can still be disconnected from ([d30657b](https://github.com/Hazame-hub/alder/commit/d30657bd6053c460ec2e59e8c5ad39f4b48f7812))
+* disconnecting does not refetch every query against the directory it is leaving, which made the button look dead for a full operation timeout ([d30657b](https://github.com/Hazame-hub/alder/commit/d30657bd6053c460ec2e59e8c5ad39f4b48f7812))
+* a failed disconnect reaches the console and the header badge like every other failure, rather than nothing at all ([d30657b](https://github.com/Hazame-hub/alder/commit/d30657bd6053c460ec2e59e8c5ad39f4b48f7812))
+
 ## [1.30.0](https://github.com/Hazame-hub/alder/compare/v1.26.0...v1.30.0) (2026-09-28)
 
 
