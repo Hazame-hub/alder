@@ -2657,6 +2657,17 @@ export interface components {
             attributes?: components["schemas"]["EffectiveAttributeRight"][];
         };
         EffectiveAttributeRight: {
+            /**
+             * @description The entry actually holds this attribute, rather than merely
+             *     being permitted it by an object class.
+             *
+             *     The server answers about everything the entry could hold -- a
+             *     hundred and forty-one attributes on a person, alphabetically
+             *     from `aci`. The one an operator came to ask about is usually one
+             *     the entry has, so a screen can put those first instead of making
+             *     the reader page through the rest.
+             */
+            present?: boolean;
             name: string;
             /** @description As the server wrote them: `rsc`, `rscwo`, `none`. */
             rights: string;

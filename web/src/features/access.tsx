@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { KeyRound, Loader2, Search, UserRound } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
@@ -32,6 +32,7 @@ import { safeText } from "@/lib/display";
 
 type AccessReport = components["schemas"]["AccessReport"];
 type AccessRule = components["schemas"]["AccessRule"];
+type EffectiveAttributeRight = components["schemas"]["EffectiveAttributeRight"];
 
 /**
  * The access rules that bear on this entry.
@@ -215,11 +216,29 @@ export function Verdict({
   view: SubjectView;
 }) {
   const [all, setAll] = useState(false);
-  const attributes = effective.attributes ?? [];
-  // The attributes worth reading first are the ones that are not the same
-  // answer as everything else: a list of eighty "rsc" rows buries the "none".
+  // Ordered by what the reader came for.
+  //
+  // The server answers about every attribute the entry could hold -- a
+  // hundred and forty-one on a person here, alphabetically from `aci`. An
+  // audit opened this verdict on a locked account to find out who could
+  // unlock it and could not find nsAccountLock at all: it was absent then,
+  // and would now be row seventy-something. The attributes the entry
+  // actually holds come first, because they are the ones somebody is
+  // looking at the entry about.
+  const attributes = useMemo<EffectiveAttributeRight[]>(() => {
+    const every: EffectiveAttributeRight[] = effective.attributes ?? [];
+    const held = every.filter((a) => a.present);
+    return held.length > 0 ? [...held, ...every.filter((a) => !a.present)] : every;
+  }, [effective.attributes]);
+  const heldCount = attributes.filter((a) => a.present).length;
+  // And within those, the ones that are not the same answer as everything
+  // else: a list of eighty "rsc" rows buries the "none".
   const denied = attributes.filter((a) => !a.words?.length);
-  const shown = all ? attributes : denied.length > 0 ? denied : attributes.slice(0, 8);
+  const shown = all
+    ? attributes
+    : denied.length > 0
+      ? denied
+      : attributes.slice(0, Math.max(8, Math.min(heldCount, 20)));
 
   // Somebody else's verdict is not reassurance about you, so it does not get
   // the success tint. Neutral rather than warning: nothing is wrong, the

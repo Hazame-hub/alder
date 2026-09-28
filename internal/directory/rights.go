@@ -35,6 +35,16 @@ type AttributeRights struct {
 	Name string `json:"name"`
 	// Rights as the server wrote them: "rsc", "rscwo", "none".
 	Rights string `json:"rights"`
+	// Present reports that the entry actually holds this attribute, as
+	// opposed to merely being permitted it by an object class.
+	//
+	// The server answers about everything the entry could hold, which on a
+	// person is a hundred and forty-one attributes in alphabetical order
+	// beginning with `aci`. The one an operator came to ask about is
+	// usually one the entry has -- a UI audit opened this verdict on a
+	// locked account and could not find nsAccountLock in it -- so the
+	// answer says which those are and a screen can put them first.
+	Present bool `json:"present,omitempty"`
 }
 
 // EffectiveRights is the server's answer for one identity on one entry.

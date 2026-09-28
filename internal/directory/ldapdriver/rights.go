@@ -71,7 +71,14 @@ func (s *session) EffectiveRights(ctx context.Context, target dn.DN, subject str
 		// The rights come back as virtual attributes, and they only come back
 		// for the attributes the search asked for: "*" is what makes the
 		// per-attribute answer cover the entry rather than one attribute.
-		[]string{"*", "aclRights"},
+		//
+		// "+" as well, because the attribute an operator is most often
+		// asking about is operational. A UI audit opened this verdict on a
+		// locked account to find out who could unlock it: sixty-one
+		// attributes, and nsAccountLock -- the attribute the sibling dialog
+		// had just named as the cause -- not among them, because "*" is
+		// user attributes and a lock is not one.
+		[]string{"*", "+", "aclRights"},
 		[]ldap.Control{effectiveRightsControl{authzID: authz}},
 	)
 	res, err := s.searchLocked(ctx, req)
@@ -84,6 +91,18 @@ func (s *session) EffectiveRights(ctx context.Context, target dn.DN, subject str
 
 	out := &directory.EffectiveRights{Subject: subject}
 	entry := res.Entries[0]
+	// What the entry actually holds, from the same answer. The rights
+	// search returns the entry as well as the rights, so this costs nothing
+	// and is the difference between a verdict a person can read and a
+	// hundred and forty-one rows in alphabetical order.
+	held := make(map[string]bool, len(entry.Attributes))
+	for _, attr := range entry.Attributes {
+		switch strings.ToLower(attr.Name) {
+		case "entrylevelrights", "attributelevelrights", "aclrights":
+		default:
+			held[strings.ToLower(attr.Name)] = true
+		}
+	}
 	for _, attr := range entry.Attributes {
 		switch strings.ToLower(attr.Name) {
 		case "entrylevelrights":
@@ -92,7 +111,10 @@ func (s *session) EffectiveRights(ctx context.Context, target dn.DN, subject str
 			}
 		case "attributelevelrights":
 			for _, value := range attr.Values {
-				out.Attributes = append(out.Attributes, directory.ParseAttributeLevelRights(value)...)
+				for _, right := range directory.ParseAttributeLevelRights(value) {
+					right.Present = held[strings.ToLower(right.Name)]
+					out.Attributes = append(out.Attributes, right)
+				}
 			}
 		}
 	}

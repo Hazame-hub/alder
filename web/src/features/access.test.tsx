@@ -109,3 +109,65 @@ describe("the control for asking about another identity", () => {
     expect(textOf(theirs)).toContain("Back to my own rights");
   });
 });
+
+describe("which attributes the verdict puts first", () => {
+  // The finding this answers: the verdict was opened on a locked account to
+  // find out who could clear the lock, and nsAccountLock was not on screen.
+  // It is one of a hundred and forty-one rows the server answers about, and
+  // alphabetically it sits far below the fold.
+  const right = (name: string, present: boolean) => ({
+    name,
+    rights: "rsc",
+    words: ["read"],
+    ...(present ? { present: true } : {}),
+  });
+
+  const verdict = (attributes: ReturnType<typeof right>[]) =>
+    textOf(
+      markup(
+        <Verdict
+          effective={{ subject: ME, entry: "rsc", entryWords: ["read"], attributes }}
+          view={subjectView("", ME)}
+        />,
+      ),
+    );
+
+  it("lists the attributes the entry holds before the ones it does not", () => {
+    const text = verdict([
+      right("aci", false),
+      right("altServer", false),
+      right("nsAccountLock", true),
+      right("uid", true),
+    ]);
+    expect(text.indexOf("nsAccountLock")).toBeGreaterThan(-1);
+    expect(text.indexOf("nsAccountLock")).toBeLessThan(text.indexOf("aci"));
+    expect(text.indexOf("uid")).toBeLessThan(text.indexOf("altServer"));
+  });
+
+  it("shows a held attribute even when the server answers about many", () => {
+    // Twenty-five filler names sorting before it, which is what buried the
+    // real one: without the held-first ordering it falls past the cut.
+    const filler = Array.from({ length: 25 }, (_, i) =>
+      right(`aaattr${String(i).padStart(2, "0")}`, false),
+    );
+    expect(verdict([...filler, right("nsAccountLock", true)])).toContain("nsAccountLock");
+  });
+
+  it("does not cut the held ones off at eight when the entry holds more", () => {
+    // Twenty-four held attributes is an ordinary person entry here. A fixed
+    // eight-row fold would show a third of what the entry actually has and
+    // give no sign the rest were held rather than absent.
+    const held = Array.from({ length: 24 }, (_, i) =>
+      right(`held${String(i).padStart(2, "0")}`, true),
+    );
+    const text = verdict([...held, right("zzUnheld", false)]);
+    expect(text).toContain("held15");
+  });
+
+  it("leaves the server's order alone when it marked nothing as held", () => {
+    // An older server, or one whose response carries no attribute list:
+    // inventing an order there would be a claim Alder cannot support.
+    const text = verdict([right("aci", false), right("zz", false)]);
+    expect(text.indexOf("aci")).toBeLessThan(text.indexOf("zz"));
+  });
+});

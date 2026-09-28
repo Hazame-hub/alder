@@ -98,6 +98,7 @@ func effective(ctx context.Context, r Reader, target dn.DN, subject string) (*Ef
 	for _, a := range rights.Attributes {
 		out.Attributes = append(out.Attributes, AttributeRight{
 			Name: a.Name, Rights: a.Rights, Words: directory.AttributeWords(a.Rights),
+			Present: a.Present,
 		})
 	}
 	return out, ""
