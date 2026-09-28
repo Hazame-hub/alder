@@ -1036,6 +1036,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/snapshots/capture/from": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Capture another server's configuration
+         * @description Captures the configuration of a directory other than the one this
+         *     session is connected to, and returns the document. Introduced in
+         *     Alder 1.33.
+         *
+         *     It exists because comparing two servers -- the thing a configuration
+         *     snapshot is for -- previously required holding a capture across a
+         *     disconnect, reconnecting to the other server, and comparing. A UI
+         *     audit measured that at forty-six interactions before the drift was
+         *     on screen, most of them spent connecting twice and moving a file
+         *     through the filesystem.
+         *
+         *     What this does and does not do:
+         *
+         *     - **It reads.** The connection is opened, the configuration is
+         *       captured, the connection is closed. Nothing is written to that
+         *       server through it, and no change can be applied to it: Alder
+         *       applies changes to the session's own directory and nowhere else.
+         *     - **The credentials are used once.** They are not stored, not put in
+         *       a session, not written to disk and never logged. There is no
+         *       cookie and no second session; when the request ends they are gone.
+         *     - **The target allowlist applies**, exactly as it does to a
+         *       connection. An instance restricted to certain directories cannot
+         *       be made to reach another one through this.
+         *     - **TLS is settled by the same rules as a connection.** A plaintext
+         *       target is refused unless this Alder was started to permit it.
+         *
+         *     Only a configuration capture is offered. A schema or data snapshot of
+         *     somewhere else would be a bigger promise -- a subtree of arbitrary
+         *     size, read with someone else's credentials -- and nothing asks for it
+         *     yet.
+         */
+        post: operations["captureFromAnotherServer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/snapshots/inspect": {
         parameters: {
             query?: never;
@@ -2674,6 +2723,21 @@ export interface components {
         AccessUnread: {
             where: string;
             reason: string;
+        };
+        /** @description Which directory to capture, and how to reach it. */
+        RemoteCaptureRequest: {
+            /**
+             * @description Only `config` is offered, and it is the default; anything else is
+             *     refused. The field exists so that a later kind does not need a
+             *     second endpoint.
+             *
+             *     Not an enum, deliberately: a single-valued enum generates a Go
+             *     constant called `Config`, which collides with the server's own
+             *     configuration type. A one-word value is not worth renaming a
+             *     type over.
+             */
+            kind?: string;
+            from: components["schemas"]["ConnectRequest"];
         };
         /** @description What this server indexes, by backend. */
         IndexReport: {
@@ -5735,6 +5799,53 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    captureFromAnotherServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoteCaptureRequest"];
+            };
+        };
+        responses: {
+            /** @description The other server's configuration, as an Alder snapshot. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigSnapshot"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description The target is not one this Alder may reach, or that directory
+             *     refused the bind.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description That directory could not be reached or could not be read. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     inspectSnapshot: {

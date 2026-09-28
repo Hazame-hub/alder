@@ -46,12 +46,17 @@ func alder(t *testing.T, s server) (*http.Client, string) {
 // configuration identity as well, which schema and configuration writes need on
 // a server that keeps them apart from the data.
 func alderSession(t *testing.T, s server, withConfig bool) (*http.Client, string) {
+	return alderSessionWith(t, s, withConfig, api.Config{})
+}
+
+// alderSessionWith is alderSession against an instance the test configures.
+func alderSessionWith(t *testing.T, s server, withConfig bool, cfg api.Config) (*http.Client, string) {
 	t.Helper()
 
 	// No AllowPlaintextLDAP: this connects over LDAPS with the harness CA, the
 	// same way every other case in this suite does, so the TLS path is under
 	// test here too.
-	base := startAlder(t)
+	base := startAlderWith(t, cfg)
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -92,8 +97,15 @@ func alderSession(t *testing.T, s server, withConfig bool) (*http.Client, string
 // startAlder runs the real API server on a loopback port and returns its API
 // base address. Nothing is connected: a client opens its own session.
 func startAlder(t *testing.T) string {
+	return startAlderWith(t, api.Config{})
+}
+
+// startAlderWith is startAlder for a case that needs the instance configured
+// -- a target allowlist, say, where what is under test is a refusal the
+// operator's configuration produces rather than anything the directory does.
+func startAlderWith(t *testing.T, cfg api.Config) string {
 	t.Helper()
-	srv := api.NewServer(slog.New(slog.DiscardHandler), api.Config{})
+	srv := api.NewServer(slog.New(slog.DiscardHandler), cfg)
 	t.Cleanup(srv.Close)
 
 	app := fiber.New(fiber.Config{DisableStartupMessage: true})

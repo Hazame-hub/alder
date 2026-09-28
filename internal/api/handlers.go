@@ -3,7 +3,6 @@ package api
 import (
 	"bufio"
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,35 +42,11 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		return badRequest(c, "The request body is not valid JSON.", err.Error())
 	}
 
-	cfg := directory.ConnConfig{
-		Host:       strings.TrimSpace(body.Host),
-		Port:       body.Port,
-		TLS:        directory.TLSMode(body.Tls),
-		BindDN:     strings.TrimSpace(deref(body.BindDn)),
-		ServerName: strings.TrimSpace(deref(body.ServerName)),
-		Timeout:    requestTimeout,
-
-		ConfigBindDN: strings.TrimSpace(deref(body.ConfigBindDn)),
-	}
-	if body.BindPassword != nil {
-		cfg.BindPassword = *body.BindPassword
-	}
-	if body.ConfigBindPassword != nil {
-		cfg.ConfigBindPassword = *body.ConfigBindPassword
-	}
-	if body.InsecureSkipVerify != nil {
-		cfg.InsecureSkipVerify = *body.InsecureSkipVerify
-	}
-	if body.CaCertificate != nil && strings.TrimSpace(*body.CaCertificate) != "" {
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM([]byte(*body.CaCertificate)) {
-			return badRequest(c, "The CA certificate is not a PEM bundle.", "")
-		}
-		cfg.CACertificates = pool
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return badRequest(c, "The connection settings are not usable.", err.Error())
+	// Read once, in one place, so that this and a capture from another
+	// server cannot drift apart about what TLS is acceptable.
+	cfg, ok := connConfigFrom(c, body)
+	if !ok {
+		return nil
 	}
 
 	// Checked here: on the server, before anything is dialled. The host and the
