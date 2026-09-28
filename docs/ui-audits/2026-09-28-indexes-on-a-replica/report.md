@@ -266,7 +266,17 @@ between the two audits.
 ## Not covered
 
 - **Index removal, and the `index_value_shared` refusal** (claims 7, 8) —
-  the drift the sheet described did not exist. Unaudited after two runs.
+  the drift the sheet described did not exist, so no removal row was ever
+  produced in the browser.
+
+  Not to be read as "untested", which is how I first read it myself.
+  `test/conformance/configindex_test.go` creates an index through the HTTP
+  plan-and-apply path on both servers, removes it again, and checks the
+  configuration checksum comes back to where it started; the two refusals
+  have a case each, and each runs on the server whose concept it is —
+  `index_value_shared` against OpenLDAP's `olcDbIndex: l,st eq`,
+  `system_index` against 389 DS. What went unexercised is the path through
+  the interface, which calls those same endpoints.
 - **Preflight against an index change** (claim 11) — no way to author the
   artifact it wants.
 - **The "still waiting" badge** (claim 15) — nothing ran long enough.
