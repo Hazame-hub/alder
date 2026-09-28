@@ -4196,3 +4196,66 @@ it takes about five minutes. The one-line check after every merge is
 
 1.32 is a milestone number with no tag: the index door and the remote capture
 reached a release together in 1.33.0.
+
+### 2026-09-28 — the actual mechanism, read from release-please's source
+
+Four hypotheses, four refutations, and then the obvious step: install the
+tool and read it. `release-please/build/src/commit.js`:
+
+```js
+function preprocessCommitMessage(commit) {
+    // look for 'BEGIN_COMMIT_OVERRIDE' section of pull request body
+    if (commit.pullRequest) {
+        const overrideMessage = (commit.pullRequest.body.split('BEGIN_COMMIT_OVERRIDE')[1] || '')
+            .split('END_COMMIT_OVERRIDE')[0].trim();
+        if (overrideMessage) return overrideMessage;
+    }
+    return commit.message;
+}
+```
+
+Two things were backwards, and between them they account for every one of
+the ten squashes since 1.19 — six dropped, four parsed, no exceptions.
+
+- **The override block is read from the pull request body, not the commit
+  message.** This repository's notes said the opposite and told the next
+  person to pass the block with `--body-file` at merge time, which puts it
+  somewhere the tool never looks. #140, #142 and #144 each carried a
+  correct block in the squash message and got one changelog line from their
+  subject, because the subject was a conventional commit and the fallback
+  took it. #155, #160 and #161 did the same with a subject that is *not* a
+  conventional commit, and were dropped entirely.
+
+- **A bare mention of the marker in a pull request body hijacks the parse.**
+  The split takes everything after the first occurrence, to the closing
+  marker or to the end of the body, and returns it as the commit message.
+  #141, #149, #154 and #156 each *described* the mechanism in prose, so
+  their bodies were parsed as though the prose were a conventional commit,
+  and all four were dropped — including the pull requests whose whole
+  purpose was documenting this. Writing about the marker broke the thing
+  being written about, four times, and each failure was read as new evidence
+  for the wrong theory.
+
+Verified against the record rather than asserted: the pull request bodies of
+#133 and #136 contain a real block and both had every line reach the 1.26.0
+changelog; #140, #158, #160 and #161 contain no marker at all; #141, #149,
+#154 and #156 contain a mention with no closing marker. Predicted outcome
+matches actual in all ten.
+
+**So the rule is:** put the block in the pull request body. Never write the
+marker in a body except as a real block — when a body must discuss it, break
+the word. The commit message is free to contain anything, because only the
+body is searched.
+
+The four "shapes" recorded earlier today were correlations with no mechanism
+behind them, and the convention derived from them — a line of prose after
+the closing marker — was noise. It happened to correlate because the commits
+that had it were the ones whose *pull requests* carried real blocks. Both
+entries above it stand as a record of being wrong, which is the point of an
+append-only log, but this is the entry to act on.
+
+Reading the tool took about ten minutes and I should have done it four
+hypotheses ago. The rule that produced those hypotheses — "check the log, do
+not predict" — was right and insufficient: the logs said which commits were
+dropped, never why, and no amount of staring at outcomes recovers a
+one-function mechanism that is sitting in a file on disk.
