@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.33.2](https://github.com/Hazame-hub/alder/compare/v1.33.1...v1.33.2) (2026-09-28)
+
+
+### Fixes
+
+* a configuration comparison no longer reports the same drift twice, once as an object it can act on and once as a setting it says it cannot parse, and says how many rows belong to an object above ([327b15c](https://github.com/Hazame-hub/alder/commit/327b15c03236d968fb50564004c236981616398d))
+* a configuration comparison says when changes have been applied since it was made, and offers to run again, rather than going on describing a directory that has moved ([6e4571f](https://github.com/Hazame-hub/alder/commit/6e4571f99c33d9864852d83f9be3e2a8092f681a))
+* **access:** the effective-rights verdict covers operational attributes and lists what the entry holds first ([0016993](https://github.com/Hazame-hub/alder/commit/0016993b0e041a63fae8c39ad8d968576393a454))
+* the index panel no longer captures the whole configuration on every entry view, which cost a directory round trip per click and put a refusal in the console on any session without a configuration identity ([48b3fee](https://github.com/Hazame-hub/alder/commit/48b3feeb69064c2da1d9bb74c4cab29a09a6ed1c))
+* **ui:** the Users view filters its rows and shows which accounts are locked ([0016993](https://github.com/Hazame-hub/alder/commit/0016993b0e041a63fae8c39ad8d968576393a454))
+
 ## [1.33.1](https://github.com/Hazame-hub/alder/compare/v1.33.0...v1.33.1) (2026-09-28)
 
 
