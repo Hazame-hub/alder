@@ -39,6 +39,17 @@ export type Comparison = {
   diff: Diff;
   sourceLabel: string;
   targetLabel: string;
+  /**
+   * Set once a change has been applied since this comparison was made.
+   *
+   * The result is kept rather than thrown away -- it is still the only
+   * record of what *else* differed, which is what somebody halfway through
+   * fixing a drift wants -- but it is no longer a description of the
+   * directory, and a screen that does not say so invites the reader to
+   * apply the same change twice. An audit came back from a successful apply
+   * to a panel still offering the three indexes it had just created.
+   */
+  stale?: boolean;
 };
 
 export type BenchState = {
@@ -121,6 +132,19 @@ export const bench = {
 
   setComparison(comparison: Comparison) {
     set({ comparison });
+  },
+
+  /**
+   * Note that the directory has moved since the comparison was made.
+   *
+   * Called from the changeset when changes are applied, because that is the
+   * one place every applied change passes through, wherever it was staged
+   * from. Conservative on purpose: a comparison's source is "the directory
+   * now", and any write makes that sentence older than it looks.
+   */
+  markStale() {
+    if (!state.comparison || state.comparison.stale) return;
+    set({ comparison: { ...state.comparison, stale: true } });
   },
 
   clear() {

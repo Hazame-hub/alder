@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { ChangeRequest } from "@/lib/api";
+import { bench } from "./snapshot-bench";
 
 /**
  * The staged changeset.
@@ -128,6 +129,12 @@ export const changeset = {
   removeApplied(appliedIds: string[]) {
     const done = new Set(appliedIds);
     staged = staged.filter((s) => !done.has(s.id));
+    // The directory has moved, so a comparison made before this is a
+    // description of a directory that no longer exists. Told here because
+    // this is the one place every applied change passes through, wherever
+    // it was staged from -- the snapshots screen sends its changes here and
+    // then shows a result it has no other way of knowing is out of date.
+    if (appliedIds.length > 0) bench.markStale();
     emit();
   },
 
