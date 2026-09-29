@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.34.2](https://github.com/Hazame-hub/alder/compare/v1.34.1...v1.34.2) (2026-09-29)
+
+
+### Fixes
+
+* **web:** selecting an already-revealed entry no longer re-renders the tree, and an effect that ran every render no longer does ([9a40a1b](https://github.com/Hazame-hub/alder/commit/9a40a1befaf2714399038ee3a665f3a4c2d832a5))
+
 ## [1.34.1](https://github.com/Hazame-hub/alder/compare/v1.34.0...v1.34.1) (2026-09-29)
 
 
