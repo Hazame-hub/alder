@@ -118,7 +118,10 @@ session hands it straight back.
 
 `purgeSchemaDefinitions` in the conformance suite does that and then reads
 both back, retrying until they are clean, because a session can interleave
-anywhere. OpenLDAP needs none of this: its schema lives in `cn=config`,
+anywhere. A refusal mid-purge is not final: 389 DS answers Unwilling To
+Perform for a definition still in use, and a session can re-learn the class
+that keeps an attribute type in use between one delete and the next. The
+read decides, not the error. OpenLDAP needs none of this: its schema lives in `cn=config`,
 which this harness does not replicate.
 
 ## Bulk mode, for scale work
