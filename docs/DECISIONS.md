@@ -4557,3 +4557,21 @@ not replicate, so it has nothing to learn back.
 Proved both ways. With the consumer cleanup on, the suite is green and
 both 389 DS instances hold none of the disposable definitions afterwards.
 With it off, the suite fails and both hold all of them.
+
+**Correction, same day.** The paragraph above says anything other than
+"the definition is not there" fails the test. That was too strict and it
+failed CI on the next pull request. 389 DS answers Unwilling To Perform
+for a definition still in use, and in a replicated topology "in use" is a
+moving target: between deleting the class on the supplier and deleting
+the attribute type it names, a replication session can re-learn that
+class from the consumer, and the attribute is in use again. The next pass
+— class now gone from both sides, nothing left to learn it back from —
+succeeds.
+
+So the read is the arbiter and a refusal is only evidence. A pass that
+ends with both sides clean has done its job whatever it was told along
+the way; a definition still present after three passes fails the test,
+and the last refusal is quoted in the message because it is usually the
+reason. The rule the original paragraph was reaching for survives intact:
+a cleanup still cannot pass while the state it was meant to remove is
+still there.

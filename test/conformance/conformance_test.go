@@ -1393,7 +1393,20 @@ func purgeSchemaDefinitions(t *testing.T, s server, sess directory.Session, targ
 		return ""
 	}
 
-	var last string
+	// A refusal mid-purge is not final, and treating it as final was wrong.
+	// 389 DS answers Unwilling To Perform for a definition still in use, and
+	// "in use" is a moving target here: between deleting the class on the
+	// supplier and deleting the attribute it names, a replication session can
+	// re-learn that class from the consumer, and the attribute is in use
+	// again. The next pass, with the class gone from both sides and nothing
+	// left to learn it back from, succeeds.
+	//
+	// So the read is the arbiter and the errors are only evidence. A pass
+	// that ends with both sides clean has done its job whatever it was told
+	// along the way; a definition that is still there after three passes
+	// fails the test, and the last refusal goes in the message because it is
+	// usually the reason.
+	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
 		for _, where := range places {
 			for _, d := range defs {
@@ -1402,14 +1415,19 @@ func purgeSchemaDefinitions(t *testing.T, s server, sess directory.Session, targ
 				if err == nil || errors.Is(err, directory.ErrDefinitionNotFound) {
 					continue
 				}
-				t.Fatalf("%s: removing %v %s from %s: %v", where.name, d.kind, d.oid, where.dn, err)
+				lastErr = fmt.Errorf("%s: removing %v %s from %s: %w",
+					where.name, d.kind, d.oid, where.dn, err)
 			}
 		}
-		if last = survivor(); last == "" {
+		if survived := survivor(); survived == "" {
 			return
+		} else if attempt == 3 {
+			if lastErr != nil {
+				t.Fatalf("after three attempts, %s (last refusal: %v)", survived, lastErr)
+			}
+			t.Fatalf("after three attempts, %s", survived)
 		}
 	}
-	t.Fatalf("after three attempts, %s", last)
 }
 
 func applySchemaChange(t *testing.T, sess directory.Session, req directory.SchemaChangeRequest) error {
