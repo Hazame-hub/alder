@@ -36,13 +36,7 @@ export function Tree({
   // every ancestor of the selection is expanded automatically.
   useEffect(() => {
     if (!selectedDN) return;
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      for (const ancestor of ancestorsOf(selectedDN).slice(0, -1)) {
-        next.add(ancestor);
-      }
-      return next;
-    });
+    setExpanded((prev) => revealing(prev, selectedDN));
   }, [selectedDN]);
 
   const roots = useQuery({
@@ -224,6 +218,25 @@ function TreeItem({
  * decorative: an unrecognised class gets the generic icon and nothing else
  * changes.
  */
+/**
+ * The expanded set with every ancestor of `dn` added.
+ *
+ * Returns the set it was given when there is nothing to add. That matters:
+ * a new Set is a new value, so returning one unconditionally re-rendered
+ * the whole tree whenever an already-revealed entry was selected -- to
+ * arrive at the state it was already in. Exported for its test, which is
+ * the only way to assert an identity that no rendered output shows.
+ */
+export function revealing(prev: Set<string>, dn: string): Set<string> {
+  const next = new Set(prev);
+  // The last element of ancestorsOf is the DN itself, and selecting an
+  // entry does not expand it.
+  for (const ancestor of ancestorsOf(dn).slice(0, -1)) {
+    next.add(ancestor);
+  }
+  return next.size === prev.size ? prev : next;
+}
+
 function iconFor(node: TreeNode) {
   if (node.isNamingContext) return Globe;
   const structural = (node.structural ?? "").toLowerCase();

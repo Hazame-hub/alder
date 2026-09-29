@@ -4628,3 +4628,53 @@ Proved rather than assumed: with the original bug put back exactly where
 it was, `tsc --noEmit` says nothing and `eslint` says *"React Hook
 'useState' is called conditionally … Did you accidentally call a React
 Hook after an early return?"*
+
+### 2026-09-29 — the fourteen React Compiler findings, reviewed
+
+The follow-up the ESLint entry above promised. The question behind it was
+whether any of them explained the wedge in finding 3 of the 2026-09-27
+audit, which has never been reproduced.
+
+**They do not, and the reasoning is short enough to check.** A
+`setState` in an effect can only loop if it changes something the effect
+depends on. Two of the thirteen do:
+
+- `changeset.tsx` sets `pendingCheck`, which is in its own dependency
+  list — and sets it to `false` behind `if (pendingCheck)`. One pass.
+- `create-entry.tsx` sets `rdnAttr`, which is in its own dependency list
+  — behind `if (rdnAttr === "")`, to `must[0]`, a required attribute's
+  name. It would loop only if an attribute were named the empty string.
+
+The other eleven set state that does not appear in their own
+dependencies, so they cannot re-trigger themselves at all. **The wedge is
+still unexplained**, and this rules out the most promising place it was
+not.
+
+Two were worth fixing anyway, and both are real:
+
+- `changeset.tsx` depended on the whole object `useMutation` returns,
+  which is rebuilt on every render — so that effect ran on every render.
+  The guard made it harmless, which is why nobody noticed, but a
+  dependency list naming something rebuilt every time says nothing. It
+  depends on `mutate` now, destructured, which is the form
+  `exhaustive-deps` can see is stable.
+- `tree.tsx` returned a new `Set` from its updater every time, so
+  selecting an entry that was already revealed re-rendered the whole tree
+  to arrive at the state it was already in. It returns the set it was
+  given when there is nothing to add. That behaviour is an identity, which
+  no rendered output shows, so the logic moved into `revealing()` where a
+  test can assert it — and the test was shown to fail when the identity
+  check is removed.
+
+The remaining twelve stay as they are. Eleven are the same two patterns:
+reset this dialog's fields when it opens, and copy a URL parameter into
+the box that edits it. React would rather the first were a `key` and the
+second were derived during render, and rewriting twelve working
+components to satisfy that is a large change with real regression risk
+and nothing a user would see. The twelfth, `static-components` in
+`tree.tsx`, is **a false positive**: `iconFor` returns one of five
+existing lucide components, and never creates one.
+
+So the rules stay off, with this entry as the reason rather than an
+omission. If they are ever turned on, the twelve above are the work, and
+eleven of them are mechanical.
