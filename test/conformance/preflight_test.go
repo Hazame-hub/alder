@@ -87,17 +87,19 @@ func flightChanges(t *testing.T, sess directory.Session, target string, members 
 	}
 }
 
-func removeFlightState(t *testing.T, sess directory.Session, target string) {
+func removeFlightState(t *testing.T, s server, sess directory.Session, target string) {
 	t.Helper()
+	// The group first, then the entry it names, then the definitions they
+	// use: 389 DS refuses to delete a class that an entry still carries.
 	for _, d := range []string{flightGroupDN, flightEntryDN} {
-		_ = sess.Apply(ctx(t), directory.ChangeRecord{DN: mustDN(t, d), Type: directory.ChangeDelete})
+		if err := sess.Apply(ctx(t), directory.ChangeRecord{DN: mustDN(t, d),
+			Type: directory.ChangeDelete}); err != nil && !notFound(err) {
+			t.Fatalf("removing %s: %v", d, err)
+		}
 	}
-	for _, d := range []struct {
-		kind directory.SchemaDefKind
-		oid  string
-	}{{directory.SchemaDefObjectClass, flightClassOID}, {directory.SchemaDefAttributeType, flightAttrOID}} {
-		_ = applySchemaChange(t, sess, directory.SchemaChangeRequest{TargetDN: target, Kind: d.kind, Op: directory.SchemaOpDelete, OID: d.oid})
-	}
+	purgeSchemaDefinitions(t, s, sess, target,
+		schemaDef{directory.SchemaDefObjectClass, flightClassOID},
+		schemaDef{directory.SchemaDefAttributeType, flightAttrOID})
 }
 
 func preflightOverHTTP(t *testing.T, client *http.Client, base string, artifact []byte, schemaTarget string) api.PreflightReport {
@@ -163,8 +165,8 @@ func TestAPackageFromOneServerIsPortableOnTheOther(t *testing.T) {
 			targetSess := connectForSchema(t, target)
 			targetEntry := schemaTarget(t, targetSess)
 			targetClient, targetBase := alderSession(t, target, true)
-			removeFlightState(t, targetSess, targetEntry)
-			t.Cleanup(func() { removeFlightState(t, targetSess, targetEntry) })
+			removeFlightState(t, target, targetSess, targetEntry)
+			t.Cleanup(func() { removeFlightState(t, target, targetSess, targetEntry) })
 
 			document := buildPackage(t, sourceClient, sourceBase, flightChanges(t, sourceSess, sourceTarget), "flight proof")
 			r := preflightOverHTTP(t, targetClient, targetBase, document, targetEntry)
@@ -196,13 +198,13 @@ func TestEachIncompatibilityHasItsOwnFinding(t *testing.T) {
 	targetSess := connectForSchema(t, target)
 	targetEntry := schemaTarget(t, targetSess)
 	targetClient, targetBase := alderSession(t, target, true)
-	removeFlightState(t, targetSess, targetEntry)
-	t.Cleanup(func() { removeFlightState(t, targetSess, targetEntry) })
+	removeFlightState(t, target, targetSess, targetEntry)
+	t.Cleanup(func() { removeFlightState(t, target, targetSess, targetEntry) })
 
 	t.Run("semantic OID conflict", func(t *testing.T) {
 		mustSchemaChange(t, targetSess, directory.SchemaChangeRequest{TargetDN: targetEntry,
 			Kind: directory.SchemaDefAttributeType, Op: directory.SchemaOpAdd, Definition: flightAttrDef(" SINGLE-VALUE")})
-		t.Cleanup(func() { removeFlightState(t, targetSess, targetEntry) })
+		t.Cleanup(func() { removeFlightState(t, target, targetSess, targetEntry) })
 		document := buildPackage(t, sourceClient, sourceBase, flightChanges(t, sourceSess, sourceTarget), "conflict")
 		r := preflightOverHTTP(t, targetClient, targetBase, document, targetEntry)
 		conflict := findingsWith(r, "definition_conflict")
@@ -326,10 +328,10 @@ func TestOnePackageIsPreflightedAgainstBothServers(t *testing.T) {
 	secondSess := connectForSchema(t, second)
 	secondEntry := schemaTarget(t, secondSess)
 	secondClient, secondBase := alderSession(t, second, true)
-	removeFlightState(t, firstSess, firstEntry)
-	removeFlightState(t, secondSess, secondEntry)
-	t.Cleanup(func() { removeFlightState(t, firstSess, firstEntry) })
-	t.Cleanup(func() { removeFlightState(t, secondSess, secondEntry) })
+	removeFlightState(t, first, firstSess, firstEntry)
+	removeFlightState(t, second, secondSess, secondEntry)
+	t.Cleanup(func() { removeFlightState(t, first, firstSess, firstEntry) })
+	t.Cleanup(func() { removeFlightState(t, second, secondSess, secondEntry) })
 
 	document := buildPackage(t, firstClient, firstBase, flightChanges(t, firstSess, firstEntry), "promoted preflight")
 	before := sha256.Sum256(document)
@@ -468,7 +470,7 @@ func TestPreflightLeavesTheDirectoryUntouched(t *testing.T) {
 	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
 		entry := schemaTarget(t, sess)
 		client, base := alderSession(t, s, true)
-		removeFlightState(t, sess, entry)
+		removeFlightState(t, s, sess, entry)
 
 		state := func() string {
 			data := post(t, client, base+"/snapshots/capture", fmt.Sprintf(`{"base":%q,"scope":"sub"}`, suffix))

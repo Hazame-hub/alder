@@ -39,12 +39,11 @@ const diffClassDef = "( " + diffClassOID + " NAME 'alderSchemaDiffClass' SUP top
 
 // removeDiffSchema removes the disposable definitions, the class first because
 // it names the attribute type. Errors are the definitions not being there.
-func removeDiffSchema(t *testing.T, sess directory.Session, target string) {
+func removeDiffSchema(t *testing.T, s server, sess directory.Session, target string) {
 	t.Helper()
-	_ = applySchemaChange(t, sess, directory.SchemaChangeRequest{TargetDN: target, Kind: directory.SchemaDefObjectClass,
-		Op: directory.SchemaOpDelete, OID: diffClassOID})
-	_ = applySchemaChange(t, sess, directory.SchemaChangeRequest{TargetDN: target, Kind: directory.SchemaDefAttributeType,
-		Op: directory.SchemaOpDelete, OID: diffAttrOID})
+	purgeSchemaDefinitions(t, s, sess, target,
+		schemaDef{directory.SchemaDefObjectClass, diffClassOID},
+		schemaDef{directory.SchemaDefAttributeType, diffAttrOID})
 }
 
 func mustSchemaChange(t *testing.T, sess directory.Session, req directory.SchemaChangeRequest) {
@@ -136,8 +135,8 @@ func TestSchemaSnapshotDiffPlanApplyOverHTTP(t *testing.T) {
 	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
 		target := schemaTarget(t, sess)
 		client, base := alderSession(t, s, true)
-		removeDiffSchema(t, sess, target)
-		t.Cleanup(func() { removeDiffSchema(t, sess, target) })
+		removeDiffSchema(t, s, sess, target)
+		t.Cleanup(func() { removeDiffSchema(t, s, sess, target) })
 
 		capture := func() string {
 			t.Helper()
