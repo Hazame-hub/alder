@@ -110,11 +110,16 @@ by anything:
     add one unrelated entry             -> present: 1
 
 A test that installs a disposable definition must therefore remove it from
-both instances. `purgeSchemaDefinitions` in the conformance suite does
-that and reads both back afterwards, because a replication session can run
-between the two deletes whichever order they are done in. OpenLDAP needs
-none of this: its schema lives in `cn=config`, which this harness does not
-replicate.
+both instances, **supplier first**. Schema replication is a push and only
+ever adds, so once the supplier is clean a session running mid-purge can
+neither restore the consumer's copy nor learn it back. The other order
+fails, and did: delete on the consumer, the supplier still holds it, a
+session hands it straight back.
+
+`purgeSchemaDefinitions` in the conformance suite does that and then reads
+both back, retrying until they are clean, because a session can interleave
+anywhere. OpenLDAP needs none of this: its schema lives in `cn=config`,
+which this harness does not replicate.
 
 ## Bulk mode, for scale work
 

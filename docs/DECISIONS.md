@@ -4473,10 +4473,18 @@ a replicated write happened between one test's cleanup and the next test's
 read.
 
 The fix is `purgeSchemaDefinitions`, which deletes on the consumer as well
-as the supplier and then **reads both back**. Order alone does not close
-the window — a replication session can run between the two deletes either
-way — so the proof is a read rather than an argument. Four cleanup
-helpers, in four files, now go through it.
+as the supplier and then **reads both back**. Four cleanup helpers, in
+four files, now go through it.
+
+Order is the trick, and the first version had it backwards. Deleting on
+the consumer first leaves the supplier holding the definition, and a
+session in that window hands it straight back — CI said so, in the words
+the new check exists to produce: *"389ds-replica: objectClass … survived
+its delete on cn=schema"*. Supplier first is stable, because the push
+only ever adds: with the supplier clean there is nothing to restore the
+consumer's copy and nothing to learn back. A session can still interleave
+anywhere, so the purge retries until both sides read clean and gives up
+loudly rather than looping.
 
 Two smaller decisions inside it. A cleanup that cannot fail is a cleanup
 nobody can trust, so anything other than "the definition is not there"
