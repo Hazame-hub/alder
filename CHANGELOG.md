@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.34.0](https://github.com/Hazame-hub/alder/compare/v1.33.2...v1.34.0) (2026-09-29)
+
+
+### Features
+
+* **ui:** the header offers a way into the jump palette, with its shortcut printed on it ([3ebf002](https://github.com/Hazame-hub/alder/commit/3ebf0029cd6c254eb84ad1d8d2337a951a1703f3))
+
+
+### Fixes
+
+* **test:** disposable schema is deleted on the consumer too, so a replication session cannot hand it back ([c49998e](https://github.com/Hazame-hub/alder/commit/c49998e6f6a875ed9f86b460d3d825a8b48e7da1))
+
 ## [1.33.2](https://github.com/Hazame-hub/alder/compare/v1.33.1...v1.33.2) (2026-09-28)
 
 
