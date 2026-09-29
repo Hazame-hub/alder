@@ -114,10 +114,18 @@ export function CreateEntryDialog({
   const kindOf = (name: string): AttributeKind | undefined =>
     requirements.data?.kinds.find((k) => k.name.toLowerCase() === name.toLowerCase());
 
-  const must = (requirements.data?.requirements.must ?? []).filter(
-    (n) => n.toLowerCase() !== "objectclass",
+  // Held across renders rather than rebuilt on each one. `?? []` makes a new
+  // array every time, and both are dependencies of the effect and the memo
+  // below -- so without this the effect ran on every render and the memo
+  // memoised nothing. The linter found it on the day it was installed.
+  const must = useMemo(
+    () =>
+      (requirements.data?.requirements.must ?? []).filter(
+        (n) => n.toLowerCase() !== "objectclass",
+      ),
+    [requirements.data],
   );
-  const may = requirements.data?.requirements.may ?? [];
+  const may = useMemo(() => requirements.data?.requirements.may ?? [], [requirements.data]);
 
   // The naming attribute defaults to the first required one that is not the
   // object class, which is what a directory almost always names entries by.

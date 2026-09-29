@@ -520,7 +520,7 @@ same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
 
 ```sh
 task                 # every task
-task check           # vet, lint, test: what CI runs
+task check           # vet, lint (Go and SPA), type-check, test: what CI runs
 task compose:up       # two directory servers, seeded, with TLS
 task test:conformance
 task generate        # regenerate the API types after editing api/openapi.yaml

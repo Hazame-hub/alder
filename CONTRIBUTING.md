@@ -6,7 +6,7 @@ You need Go 1.25+, Node 22+, and Docker.
 
 ```sh
 task compose:up             # OpenLDAP and 389 DS, seeded, with TLS
-task check                  # vet, lint, unit tests — what CI runs
+task check                  # vet, lint (Go and SPA), type-check, unit tests — what CI runs
 task test:conformance       # the suite that decides whether a change is done
 ```
 
