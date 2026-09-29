@@ -212,13 +212,6 @@ function TreeItem({
 }
 
 /**
- * iconFor picks an icon from the structural object class.
- *
- * This is the one place a class name is matched literally, and it is purely
- * decorative: an unrecognised class gets the generic icon and nothing else
- * changes.
- */
-/**
  * The expanded set with every ancestor of `dn` added.
  *
  * Returns the set it was given when there is nothing to add. That matters:
@@ -237,6 +230,13 @@ export function revealing(prev: Set<string>, dn: string): Set<string> {
   return next.size === prev.size ? prev : next;
 }
 
+/**
+ * iconFor picks an icon from the structural object class.
+ *
+ * This is the one place a class name is matched literally, and it is purely
+ * decorative: an unrecognised class gets the generic icon and nothing else
+ * changes.
+ */
 function iconFor(node: TreeNode) {
   if (node.isNamingContext) return Globe;
   const structural = (node.structural ?? "").toLowerCase();
