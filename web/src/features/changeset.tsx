@@ -131,12 +131,19 @@ export function ChangesetView({
     },
   });
 
+  // Depend on the one stable piece, not the whole mutation. The object
+  // useMutation returns is rebuilt on every render, so naming it here ran
+  // this effect on every render; the guard made that harmless, which is why
+  // nobody noticed, but a dependency list naming something rebuilt every
+  // time is a list that says nothing. `mutate` keeps its identity, and
+  // pulling it out by name is the form exhaustive-deps can see that in.
+  const { mutate: runCheck } = check;
   useEffect(() => {
     if (pendingCheck && staged.length > 0) {
       setPendingCheck(false);
-      check.mutate();
+      runCheck();
     }
-  }, [pendingCheck, staged.length, check]);
+  }, [pendingCheck, staged.length, runCheck]);
 
   const previewError = preview.error as ApiFailure | null;
   const applyError = apply.error as ApiFailure | null;
