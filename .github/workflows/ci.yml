@@ -74,6 +74,13 @@ jobs:
       - name: type-check the SPA
         run: npm --prefix web run typecheck
 
+      # Installed after a hook added below two early returns changed the hook
+      # count between renders and served a blank page to anyone with a live
+      # session. tsc was happy, the tests never reached that path, and the
+      # rule that catches it had no linter to run in.
+      - name: lint the SPA
+        run: npm --prefix web run lint
+
       - name: SPA unit tests
         run: npm --prefix web run test
 

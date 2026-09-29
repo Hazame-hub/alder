@@ -4575,3 +4575,56 @@ and the last refusal is quoted in the message because it is usually the
 reason. The rule the original paragraph was reaching for survives intact:
 a cleanup still cannot pass while the state it was meant to remove is
 still there.
+
+### 2026-09-29 — ESLint in web/, and what it is allowed to say
+
+Added on request, after its absence cost a blank page. A `useState` went
+in below the two early returns that render the connection screen and the
+loading spinner; the hook count changed between renders and React threw
+#310 at anyone with a live session. `tsc` was happy with it, the unit
+tests render components that never reach that path, and the browser was
+the first thing to notice. The rule that catches it in a second —
+`react-hooks/rules-of-hooks` — had no linter to run in. There was even an
+`eslint-disable-next-line` in `app.tsx` suppressing a rule that did not
+exist.
+
+Four packages: `eslint`, `@eslint/js`, `typescript-eslint`,
+`eslint-plugin-react-hooks`. Not `eslint-plugin-react-refresh`, which
+guards a development-server convenience rather than anything that can
+reach a user.
+
+**The rules are named one at a time rather than spread from the plugin's
+recommended set.** Version 7 of the hooks plugin also ships the React
+Compiler rules, and they report fourteen further sites here — thirteen
+`set-state-in-effect` and one `static-components`. Those are not noise
+and are not dismissed: several are the kind of effect that can drive a
+render loop, and a render loop is still an open question in this product,
+because the wedge finding 3 of the 2026-09-27 audit describes has never
+been reproduced. Reviewing fourteen effects is its own piece of work, and
+doing it under a linter that fails the build meanwhile is how it would
+get done badly. They are recorded here so the next session finds them
+rather than rediscovers them.
+
+Not type-aware linting either. The type-checked configurations want a
+program per run, roughly doubling what CI spends on the frontend, to find
+what `tsc --noEmit` already finds in a step that already exists.
+
+`--max-warnings 0`, because a warning nobody has to fix is a warning that
+accumulates until the number is the point and the findings are not. That
+means the repository had to start at zero, and it did not quite: two
+things needed settling first. `no-control-regex` fires on
+`lib/display.ts`, where matching control characters is the entire purpose
+of the module, so it carries an inline exemption with the reason written
+next to it. And `exhaustive-deps` found a real one in `create-entry.tsx`
+on day one: `must` and `may` were rebuilt with `?? []` on every render, so
+the effect below them ran every render and the `useMemo` beneath memoised
+nothing.
+
+Style rules were not added. This repository has a voice, formatting
+arguments are noise, and the value of a linter here is the handful of
+rules that catch what neither the compiler nor the tests can.
+
+Proved rather than assumed: with the original bug put back exactly where
+it was, `tsc --noEmit` says nothing and `eslint` says *"React Hook
+'useState' is called conditionally … Did you accidentally call a React
+Hook after an early return?"*

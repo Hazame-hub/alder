@@ -128,6 +128,15 @@ tasks:
     cmds:
       - npm --prefix web run typecheck
 
+  lint:web:
+    desc: Lint the SPA
+    # The rules that catch what tsc and the unit tests cannot -- a hook below
+    # an early return, a dependency list that lies. Warnings fail it, because
+    # a warning nobody has to fix is one that accumulates until the number is
+    # the point and the findings are not.
+    cmds:
+      - npm --prefix web run lint
+
   test:web:
     desc: Run the SPA unit tests
     # Node, not a browser. What is tested is the logic that decides what
@@ -143,6 +152,7 @@ tasks:
       - task: lint
       - task: test
       - task: typecheck
+      - task: lint:web
       - task: test:web
 
   # --- the conformance harness ---------------------------------------------
