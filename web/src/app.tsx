@@ -23,6 +23,7 @@ import {
 import { api, unwrap } from "@/lib/api";
 import type { ObjectViewId, SessionInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { jumpShortcut } from "@/lib/shortcut";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TooltipProvider } from "@/components/ui";
@@ -72,6 +73,12 @@ export function App() {
   // change, and it is rendered too deep to hand a callback to. See
   // lib/navigate for why this one thing is a module store.
   setNavigator(go);
+
+  // Whether the jump palette is open. Up here with the other hooks rather
+  // than beside the palette it belongs to: the connection screen and the
+  // loading spinner both return before that point, and a hook below an early
+  // return is a hook count that changes between renders.
+  const [jumpOpen, setJumpOpen] = useState(false);
 
   const session = useQuery({
     queryKey: ["session"],
@@ -125,12 +132,19 @@ export function App() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full flex-col">
-        <TopBar info={info} view={view} onView={(v) => go({ view: v })} />
+        <TopBar
+          info={info}
+          view={view}
+          onView={(v) => go({ view: v })}
+          onJump={() => setJumpOpen(true)}
+        />
         {isDirectoryView(view) ? (
           <DirectoryNav view={view} onView={(v) => go({ view: v })} />
         ) : null}
 
         <JumpPalette
+          open={jumpOpen}
+          onOpenChange={setJumpOpen}
           onEntry={openEntry}
           onSearch={(filter, base) =>
             go({ view: "search", filter, base, scope: "sub" })
@@ -300,6 +314,36 @@ function DirectoryNav({
 }
 
 /**
+ * The way in to the jump palette, for somebody who does not know it exists.
+ *
+ * The palette is the fastest thing in the application and for three releases
+ * nothing said so: a UI audit found Ctrl+K by guessing, having first clicked
+ * down the tree to reach an entry whose DN was already on the clipboard. A
+ * keystroke with no affordance is a feature only its author has.
+ *
+ * Shaped like the field it opens rather than an icon, because the gesture it
+ * teaches is "type what you are looking for" -- an icon teaches nothing and
+ * has to be hovered to find out. The key is printed on it so the second visit
+ * costs no click at all, which is the point of advertising a shortcut rather
+ * than just a button.
+ */
+export function JumpButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="ml-auto flex w-56 items-center gap-2 rounded-md border border-border bg-background/60 px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-foreground/25 hover:text-foreground"
+    >
+      <SearchIcon className="size-4 shrink-0" />
+      <span className="truncate">Jump to…</span>
+      <kbd className="ml-auto rounded border border-border px-1.5 py-0.5 font-sans text-[11px] leading-none text-muted-foreground">
+        {jumpShortcut()}
+      </kbd>
+    </button>
+  );
+}
+
+/**
  * Whether the directory is answering, in the one place that claims it is.
  *
  * The header says "Bound as cn=Directory Manager" and it reads that from
@@ -348,10 +392,12 @@ function TopBar({
   info,
   view,
   onView,
+  onJump,
 }: {
   info: SessionInfo;
   view: AppView;
   onView: (v: AppView) => void;
+  onJump: () => void;
 }) {
   const queryClient = useQueryClient();
   const [dark, setDark] = useState(
@@ -446,7 +492,9 @@ function TopBar({
         ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-2">
+      <JumpButton onClick={onJump} />
+
+      <div className="flex items-center gap-2">
         {info.readOnly ? <Badge variant="outline">read-only</Badge> : null}
         {info.verified === false ? (
           <Badge variant="destructive" className="gap-1">

@@ -4436,6 +4436,66 @@ the next audit would find them again. The rule they produce is already in
 that report's evidence section and is worth repeating here: a claim about
 what is on screen is read off the DOM, not off the accessibility tree.
 
+### 2026-09-28 — the fastest thing in the application, finally advertised
+
+The last open finding of the 2026-09-27 audit. The jump palette answers
+"open this DN" and "find this name" in one keystroke, and the auditor found
+it **by guessing** — after clicking down the tree to reach an entry whose DN
+was already on their clipboard. A keystroke with no affordance is a feature
+only its author has.
+
+It is a button shaped like the field it opens, not an icon. An icon teaches
+nothing and has to be hovered to find out what it is; a box reading "Jump
+to…" teaches the gesture, which is *type what you are looking for*. The key
+is printed on it, because the point of advertising a shortcut is that the
+second visit costs no click.
+
+`⌘K` on Apple platforms and `Ctrl K` everywhere else, read from the
+platform rather than picked as a house style: a hint naming the wrong key
+teaches a gesture that does nothing, and the reader concludes the feature
+is broken rather than the label. An unreadable platform falls through to
+`Ctrl`, which is right everywhere except a Mac that reports nothing.
+
+The palette's open state moved to the caller, because there are now two
+ways in. The shortcut stays inside the palette — it belongs to the thing it
+opens — and takes `open` in its dependency list, without which the button
+and the keystroke disagree about what is open after the first toggle.
+
+**A bug worth recording, because the tooling should have caught it and
+cannot.** The lifted state went in below the two early returns that render
+the connection screen and the loading spinner, so the hook count changed
+between renders and React threw #310 on a session that was already
+connected. `web/` has **no ESLint** — no config, no script, and CI runs only
+`typecheck` and `test`. `react-hooks/rules-of-hooks` would have caught this
+in a second. There is even an `// eslint-disable-next-line
+react-hooks/exhaustive-deps` in `app.tsx` suppressing a rule that never
+runs. Adding ESLint is a dependency decision and has not been taken.
+
+### 2026-09-28 — the overview redesign, submitted twice
+
+A pull request implementing an overview redesign was opened against a merge
+base from the day before, and closed rather than merged: #145 had already
+landed that redesign, and what remained of the diff against `main` was
+mostly a revert of #154, which fixed faults found in it.
+
+It re-added the hard-coded green dot labelled "Live directory session" —
+deleting, to make room, the comment explaining why there is no status light
+there. The dot reads nothing: not the health store, not the session. It
+cannot say anything but "live", including while the header two inches away
+says the directory is not answering. It also replaced the read-only versus
+read-write line, which is the one thing this panel can honestly know from
+what it holds.
+
+Also in it: `Capabilities 3/4`, a score over four capabilities picked by
+hand, on a page whose whole argument is that capabilities are branched on
+individually and never ranked.
+
+Three things from it were worth keeping and were taken: `flex-wrap` on the
+hero, which does not wrap at narrow widths today; `screen-kicker` in place
+of the same utilities written out longhand, the overview being the last
+screen not using the shared class; and headings over the two groups of
+cards, which is a real improvement on a page this long.
+
 ### 2026-09-29 — the schema definition that came back
 
 A UI-only pull request failed the conformance suite. The diff touched
