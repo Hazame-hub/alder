@@ -4637,18 +4637,22 @@ audit, which has never been reproduced.
 
 **They do not, and the reasoning is short enough to check.** A
 `setState` in an effect can only loop if it changes something the effect
-depends on. Two of the thirteen do:
+depends on. Three of the thirteen do, and all three are guarded:
 
 - `changeset.tsx` sets `pendingCheck`, which is in its own dependency
-  list — and sets it to `false` behind `if (pendingCheck)`. One pass.
+  list — to `false`, behind `if (pendingCheck)`. One pass.
 - `create-entry.tsx` sets `rdnAttr`, which is in its own dependency list
   — behind `if (rdnAttr === "")`, to `must[0]`, a required attribute's
   name. It would loop only if an attribute were named the empty string.
+- `objects.tsx` sets `base`, which is in its own dependency list — behind
+  `if (!namingContexts.includes(base))`, to the first naming context.
+  That value is then in the list, so the guard is false next time. On a
+  server publishing no naming context it sets `""` to `""`, and React
+  stops at a state that has not changed.
 
-The other eleven set state that does not appear in their own
-dependencies, so they cannot re-trigger themselves at all. **The wedge is
-still unexplained**, and this rules out the most promising place it was
-not.
+The other ten set state that does not appear in their own dependencies,
+so they cannot re-trigger themselves at all. **The wedge is still
+unexplained**, and this rules out the most promising place it was not.
 
 Two were worth fixing anyway, and both are real:
 
