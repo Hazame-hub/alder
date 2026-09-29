@@ -96,6 +96,26 @@ refresh. That file tests the harness rather than Alder, deliberately -- a
 replication view proved against a harness whose replication had quietly
 stopped would be a view proving nothing.
 
+### Disposable schema has to be deleted on the consumer too
+
+389 DS reconciles schema when a replication session starts, and the
+supplier adopts definitions its consumer holds and it does not. Schema
+travels supplier to consumer and deletions are not part of that push, so a
+consumer keeps every definition any test ever installed -- and hands them
+back to the supplier on the next write to a replicated suffix. Any write,
+by anything:
+
+    delete the class with ldapmodify   -> present: 0
+    wait sixty seconds                  -> present: 0
+    add one unrelated entry             -> present: 1
+
+A test that installs a disposable definition must therefore remove it from
+both instances. `purgeSchemaDefinitions` in the conformance suite does
+that and reads both back afterwards, because a replication session can run
+between the two deletes whichever order they are done in. OpenLDAP needs
+none of this: its schema lives in `cn=config`, which this harness does not
+replicate.
+
 ## Bulk mode, for scale work
 
 ```sh

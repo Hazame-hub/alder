@@ -4435,3 +4435,57 @@ quietly disappears is indistinguishable from one that was never real, and
 the next audit would find them again. The rule they produce is already in
 that report's evidence section and is worth repeating here: a claim about
 what is on screen is read off the DOM, not off the accessibility tree.
+
+### 2026-09-29 — the schema definition that came back
+
+A UI-only pull request failed the conformance suite. The diff touched
+`web/` and `docs/` and nothing else; `main` had passed the same job forty
+minutes earlier on byte-identical Go with digest-pinned images. So the
+failure was worth understanding rather than re-running.
+
+`TestOnePackageIsPromotedToBothServers` seeds one of its three changes on
+the second server and expects to be told "one already satisfied, two
+ready". It was told two were already satisfied. The definition it had not
+seeded — `alderPackProofClass` — was in 389 DS's schema before the test
+began, left by an earlier test whose cleanup had deleted it.
+
+**The cleanup had worked.** That was the part that took the longest to
+believe. Alder deleted the class, read the schema back on a live search,
+and counted 1026 attribute types with the definition absent — correctly.
+An `ldapsearch` against the same container moments later counted 1027 with
+the definition present.
+
+It is not a caching bug and not an Alder bug. Reproduced with no Alder in
+the picture at all:
+
+    delete the class with ldapmodify   -> present: 0
+    wait sixty seconds                  -> present: 0
+    add one unrelated entry             -> present: 1
+
+**389 DS reconciles schema at the start of a replication session, and the
+supplier adopts definitions its consumer has and it lacks.** Schema is
+pushed supplier to consumer and deletions are not part of that push, so
+the consumer keeps every definition any test ever created. The next write
+to a replicated suffix — any write, by anything — hands them back to the
+supplier. The harness has run four servers since replication went in, and
+this has been latent ever since: whether a run passed depended on whether
+a replicated write happened between one test's cleanup and the next test's
+read.
+
+The fix is `purgeSchemaDefinitions`, which deletes on the consumer as well
+as the supplier and then **reads both back**. Order alone does not close
+the window — a replication session can run between the two deletes either
+way — so the proof is a read rather than an argument. Four cleanup
+helpers, in four files, now go through it.
+
+Two smaller decisions inside it. A cleanup that cannot fail is a cleanup
+nobody can trust, so anything other than "the definition is not there"
+fails the test that leaked, at the point it leaked, instead of surfacing
+three tests later as an inexplicable "already satisfied". And the server
+that needs this is named by a capability, `learnsSchemaFromConsumer`, not
+by vendor: OpenLDAP keeps schema in `cn=config`, which this harness does
+not replicate, so it has nothing to learn back.
+
+Proved both ways. With the consumer cleanup on, the suite is green and
+both 389 DS instances hold none of the disposable definitions afterwards.
+With it off, the suite fails and both hold all of them.

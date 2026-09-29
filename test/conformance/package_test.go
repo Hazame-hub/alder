@@ -128,24 +128,24 @@ func readyPackageChanges(v api.PackageValidation) []api.ChangeRequest {
 
 // removePackageState puts a server back: the entry, then the class, then the
 // attribute type, one definition per apply.
-func removePackageState(t *testing.T, sess directory.Session, target string) {
+func removePackageState(t *testing.T, s server, sess directory.Session, target string) {
 	t.Helper()
-	_ = sess.Apply(ctx(t), directory.ChangeRecord{DN: mustDN(t, packEntryDN), Type: directory.ChangeDelete})
-	for _, d := range []struct {
-		kind directory.SchemaDefKind
-		oid  string
-	}{{directory.SchemaDefObjectClass, packClassOID}, {directory.SchemaDefAttributeType, packAttrOID}} {
-		_ = applySchemaChange(t, sess, directory.SchemaChangeRequest{TargetDN: target, Kind: d.kind,
-			Op: directory.SchemaOpDelete, OID: d.oid})
+	if err := sess.Apply(ctx(t), directory.ChangeRecord{DN: mustDN(t, packEntryDN),
+		Type: directory.ChangeDelete}); err != nil && !notFound(err) {
+		t.Fatalf("removing %s: %v", packEntryDN, err)
 	}
+	// The entry first: 389 DS will not delete a class an entry still uses.
+	purgeSchemaDefinitions(t, s, sess, target,
+		schemaDef{directory.SchemaDefObjectClass, packClassOID},
+		schemaDef{directory.SchemaDefAttributeType, packAttrOID})
 }
 
 func TestPackageValidatePlanApplyOverHTTP(t *testing.T) {
 	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
 		target := schemaTarget(t, sess)
 		client, base := alderSession(t, s, true)
-		removePackageState(t, sess, target)
-		t.Cleanup(func() { removePackageState(t, sess, target) })
+		removePackageState(t, s, sess, target)
+		t.Cleanup(func() { removePackageState(t, s, sess, target) })
 
 		document := buildPackage(t, client, base, packageChanges(t, sess, target), "package proof")
 
@@ -249,8 +249,8 @@ func TestOnePackageIsPromotedToBothServers(t *testing.T) {
 	firstSession := connectForSchema(t, first)
 	firstTarget := schemaTarget(t, firstSession)
 	firstClient, firstBase := alderSession(t, first, true)
-	removePackageState(t, firstSession, firstTarget)
-	t.Cleanup(func() { removePackageState(t, firstSession, firstTarget) })
+	removePackageState(t, first, firstSession, firstTarget)
+	t.Cleanup(func() { removePackageState(t, first, firstSession, firstTarget) })
 
 	document := buildPackage(t, firstClient, firstBase,
 		packageChanges(t, firstSession, firstTarget), "promoted between servers")
@@ -258,8 +258,8 @@ func TestOnePackageIsPromotedToBothServers(t *testing.T) {
 	secondSession := connectForSchema(t, second)
 	secondTarget := schemaTarget(t, secondSession)
 	secondClient, secondBase := alderSession(t, second, true)
-	removePackageState(t, secondSession, secondTarget)
-	t.Cleanup(func() { removePackageState(t, secondSession, secondTarget) })
+	removePackageState(t, second, secondSession, secondTarget)
+	t.Cleanup(func() { removePackageState(t, second, secondSession, secondTarget) })
 
 	// Before anything is applied, one side is given a different baseline: the
 	// attribute type is already there, with the same definition.
