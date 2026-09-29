@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.34.1](https://github.com/Hazame-hub/alder/compare/v1.34.0...v1.34.1) (2026-09-29)
+
+
+### Fixes
+
+* **test:** a schema definition still in use mid-purge is retried rather than failing the run ([1186ffe](https://github.com/Hazame-hub/alder/commit/1186ffe42278d529dd3342890bd980afd65c1fe4))
+
 ## [1.34.0](https://github.com/Hazame-hub/alder/compare/v1.33.2...v1.34.0) (2026-09-29)
 
 
