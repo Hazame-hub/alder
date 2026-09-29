@@ -1340,69 +1340,76 @@ type schemaDef struct {
 //
 // Deleting on the supplier alone is not enough on 389 DS. The supplier
 // reconciles schema with its consumer when a replication session starts and
-// adopts what the consumer has and it does not, so a definition deleted here
-// returns the next time anything is written to a replicated suffix. That is
-// not Alder: the same thing happens with ldapmodify and no Alder in the
-// picture. It cost a green suite for a while -- a run would delete the
-// definition, the next write would bring it back, and a later test would read
-// two of its three changes as already satisfied and fail, on CI, while the
-// same suite passed locally.
+// adopts what the consumer has and it does not, so a definition deleted on
+// the supplier returns the next time anything is written to a replicated
+// suffix. That is not Alder: the same thing happens with ldapmodify and no
+// Alder in the picture.
 //
-// So the consumer is cleaned first and the supplier second, and then both are
-// read back. Order alone does not close the window -- a session can run in
-// between either way -- which is why the proof is a read and not an argument.
+// The order is supplier first, then consumer, and it is the whole trick.
+// Schema replication is a push and it only ever adds, so with the supplier
+// already clean a session running mid-purge can neither re-add the
+// definition to the consumer nor learn it back. The other order fails, and
+// failed in CI before this comment was written: delete on the consumer, the
+// supplier still holds it, a session hands it straight back, and the
+// definition is there again before the read below runs.
 //
-// Errors that say the definition is not there are the ordinary case: this
-// runs before a test as well as after it. Anything else fails the test that
+// The read is still what settles it. A session can interleave anywhere, so
+// the purge is attempted until both sides read clean, and gives up loudly
+// rather than looping.
+//
+// Errors saying the definition is not there are the ordinary case: this runs
+// before a test as well as after it. Anything else fails the test that
 // leaked, rather than leaving it for whichever test reads the schema next.
 func purgeSchemaDefinitions(t *testing.T, s server, sess directory.Session, target string, defs ...schemaDef) {
 	t.Helper()
 
-	targets := []struct {
+	type place struct {
 		name string
 		sess directory.Session
 		dn   string
-	}{}
+	}
+	places := []place{{s.name, sess, target}}
 	if s.learnsSchemaFromConsumer {
 		consumer := replicaOf(s)
 		csess := connectForSchema(t, consumer)
-		targets = append(targets, struct {
-			name string
-			sess directory.Session
-			dn   string
-		}{consumer.name, csess, schemaTarget(t, csess)})
-	}
-	targets = append(targets, struct {
-		name string
-		sess directory.Session
-		dn   string
-	}{s.name, sess, target})
-
-	for _, where := range targets {
-		for _, d := range defs {
-			err := applySchemaChange(t, where.sess, directory.SchemaChangeRequest{
-				TargetDN: where.dn, Kind: d.kind, Op: directory.SchemaOpDelete, OID: d.oid})
-			if err == nil || errors.Is(err, directory.ErrDefinitionNotFound) {
-				continue
-			}
-			t.Fatalf("%s: removing %v %s from %s: %v", where.name, d.kind, d.oid, where.dn, err)
-		}
+		places = append(places, place{consumer.name, csess, schemaTarget(t, csess)})
 	}
 
-	for _, where := range targets {
-		for _, d := range defs {
-			stored, err := where.sess.SchemaDefinitions(ctx(t), where.dn, d.kind)
-			if err != nil {
-				t.Fatalf("%s: re-reading %v definitions of %s: %v", where.name, d.kind, where.dn, err)
-			}
-			for _, def := range stored {
-				if strings.Contains(def, d.oid) {
-					t.Fatalf("%s: %v %s survived its delete on %s: %s",
-						where.name, d.kind, d.oid, where.dn, def)
+	survivor := func() string {
+		for _, where := range places {
+			for _, d := range defs {
+				stored, err := where.sess.SchemaDefinitions(ctx(t), where.dn, d.kind)
+				if err != nil {
+					t.Fatalf("%s: re-reading %v definitions of %s: %v", where.name, d.kind, where.dn, err)
+				}
+				for _, def := range stored {
+					if strings.Contains(def, d.oid) {
+						return fmt.Sprintf("%s: %v %s survived its delete on %s: %s",
+							where.name, d.kind, d.oid, where.dn, def)
+					}
 				}
 			}
 		}
+		return ""
 	}
+
+	var last string
+	for attempt := 1; attempt <= 3; attempt++ {
+		for _, where := range places {
+			for _, d := range defs {
+				err := applySchemaChange(t, where.sess, directory.SchemaChangeRequest{
+					TargetDN: where.dn, Kind: d.kind, Op: directory.SchemaOpDelete, OID: d.oid})
+				if err == nil || errors.Is(err, directory.ErrDefinitionNotFound) {
+					continue
+				}
+				t.Fatalf("%s: removing %v %s from %s: %v", where.name, d.kind, d.oid, where.dn, err)
+			}
+		}
+		if last = survivor(); last == "" {
+			return
+		}
+	}
+	t.Fatalf("after three attempts, %s", last)
 }
 
 func applySchemaChange(t *testing.T, sess directory.Session, req directory.SchemaChangeRequest) error {
