@@ -4773,3 +4773,14 @@ a deliberately retrying driver made it *skip* rather than fail -- the
 retry succeeded, `Apply` returned nil, and the test read that as "the
 write landed before the cut". Counting connections kills that mutant on
 both servers.
+
+**Found reviewing the above before merging it.** Once the session object
+exists, reading the RootDSE goes through `searchLocked`, which may now
+replace a connection that fails underneath it — so by the time Connect's
+later error paths run, the session can be holding a different connection
+than the local variable those paths were closing. The replacement leaked.
+Connect closes through the session from that point on. A narrow window,
+and not covered by a test: triggering it needs a transport failure during
+the RootDSE read whose retry succeeds, followed by a later step failing,
+which the proxy cannot arrange without more machinery than the bug is
+worth. The fix is three lines and the reasoning is written beside them.

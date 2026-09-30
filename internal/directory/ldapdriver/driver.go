@@ -79,9 +79,13 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 		dial:       d.dial,
 		schemaOnce: new(sync.Once),
 	}
+	// Closed through the session from here on, not through `conn`. Reading
+	// the RootDSE goes through searchLocked, which may replace a connection
+	// that fails underneath it -- so by this line the session may be holding
+	// a different one, and closing the local variable would leak it.
 	caps, err := s.readRootDSE(ctx)
 	if err != nil {
-		_ = conn.Close()
+		_ = s.Close()
 		return nil, err
 	}
 	s.caps = caps
@@ -93,12 +97,12 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 	if cfg.ConfigBindDN != "" {
 		configConn, cfgErr := d.dial(ctx, cfg, timeout)
 		if cfgErr != nil {
-			_ = conn.Close()
+			_ = s.Close()
 			return nil, fmt.Errorf("directory: connecting for the configuration tree: %w", cfgErr)
 		}
 		if bindErr := configConn.Bind(cfg.ConfigBindDN, cfg.ConfigBindPassword); bindErr != nil {
 			_ = configConn.Close()
-			_ = conn.Close()
+			_ = s.Close()
 			// Named, because the alternative is a bind failure the person reads
 			// as their main credentials being wrong.
 			return nil, fmt.Errorf("directory: binding as the configuration identity %q: %w",
@@ -371,10 +375,11 @@ func (s *session) searchLocked(ctx context.Context, req *ldap.SearchRequest) (*l
 	}
 
 	// Once. A second failure is the answer.
-	if _, err := s.ready(ctx, l); err != nil {
-		return nil, err
+	conn, readyErr := s.ready(ctx, l)
+	if readyErr != nil {
+		return nil, readyErr
 	}
-	res, searchErr = l.conn.Search(req)
+	res, searchErr = conn.Search(req)
 	if searchErr != nil {
 		cleaned := cleanLDAPError(searchErr)
 		if again, _ := classify(l, cleaned); again {
