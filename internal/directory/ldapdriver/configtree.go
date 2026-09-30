@@ -98,11 +98,11 @@ func withinTree(target, base string) bool {
 // Routing by DN rather than by operation is what lets a single session read
 // people as the directory administrator and write schema as the configuration
 // administrator, with neither borrowing the other's rights.
-func (s *session) connFor(target string) *ldap.Conn {
-	if s.configConn != nil && withinTree(target, s.configTreeDN) {
-		return s.configConn
+func (s *session) connFor(target string) *link {
+	if s.config != nil && withinTree(target, s.configTreeDN) {
+		return s.config
 	}
-	return s.conn
+	return s.data
 }
 
 // configAccess describes what this session can do in the configuration tree,
@@ -128,13 +128,13 @@ func (s *session) configAccess(ctx context.Context, treeDN string) directory.Con
 	return directory.ConfigAccess{
 		DN:           treeDN,
 		Readable:     true,
-		SeparateBind: s.configConn != nil,
+		SeparateBind: s.config != nil,
 		BoundAs:      s.configBindDN(),
 	}
 }
 
 func (s *session) configBindDN() string {
-	if s.configConn != nil {
+	if s.config != nil {
 		return s.cfg.ConfigBindDN
 	}
 	return s.cfg.BindDN

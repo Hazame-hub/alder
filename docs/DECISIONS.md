@@ -4682,3 +4682,94 @@ existing lucide components, and never creates one.
 So the rules stay off, with this entry as the reason rather than an
 omission. If they are ever turned on, the twelve above are the work, and
 eleven of them are mechanical.
+
+### 2026-09-30 — a session that survives losing its connection
+
+Part (b) of finding 3 of the 2026-09-27 audit, which has sat half closed
+since 1.29: the header learned to say the directory was not answering, but
+nothing re-dialled, so the cure was still for the operator to disconnect
+and connect again. The trigger was never reproduced and is still not
+reproduced. What changes is that losing a connection stops being the
+operator's problem.
+
+**Reads are repeated; writes are not.** A search changes nothing, so
+running it again after the socket is rebuilt gives the same answer. A
+write is the opposite: if the connection dies after the request went out,
+the server may have applied it and nothing the client can see says which.
+Repeating it would be a second change nobody confirmed, in a product whose
+whole argument is that no modification reaches a directory without being
+previewed and confirmed exactly once. So an interrupted write returns
+`ErrWriteOutcomeUnknown`, which says the outcome is unknown, says Alder
+will not send it again, and tells the reader to look at the entry. It does
+not say the change failed, because that is not known either.
+
+There is a distinction inside that rule worth stating, because it is what
+makes the feature useful rather than merely safe: reconnecting *before* a
+write, on a link already known to be broken, is a first attempt and is
+allowed. Re-sending a write that actually failed in flight is not, ever.
+Without the first half, the operation after any wedge would always fail.
+
+**A paged search is the one read that is not repeated.** The paging cookie
+belongs to the connection that issued it. Presenting it to a new
+connection asks the server for a page it never handed out: the honest
+outcome is an error and the dangerous one is a *different* page, which the
+caller would splice onto the first and never know. A first page may be
+retried; a continuation fails with a message telling the operator to run
+the search again.
+
+**The two connections recover separately, each as itself.** The data
+identity and the configuration identity are different rights on purpose. A
+reconnect that re-bound one as the other would silently change what the
+session may do, in whichever direction is worse. Each link carries the
+identity that binds it, and each fails and recovers alone.
+
+**Classification is narrower than it looks, and then wider.** Only
+`ErrorNetwork` means the socket is gone. go-ldap numbers its own
+conditions from 200 in the same field as the protocol's result codes, and
+201 is a filter this code failed to compile while 206 is an empty password
+it refused to send -- reconnecting on those would turn a clear fault here
+into a mysterious one that also reconnects. 204 and 205 mean the stream is
+out of step with itself: the connection is finished, but that is not a
+statement about whether the operation happened, so the link is retired and
+nothing is retried.
+
+Wider, because the error is not always enough. When go-ldap's reader
+goroutine loses the socket it stores
+`fmt.Errorf("unable to read LDAP response packet: %s", err)` and hands
+*that* to the waiting request: a plain error, formatted with `%s`, with no
+result code to read and no wrapped cause to unwrap. Which form arrives is
+a race between the reader and the caller. The connection itself knows --
+`IsClosing` is set by the time that error is delivered -- so the
+classification asks the connection as well as the error, and must do so
+before anything is closed, since a closed connection reports itself
+closing whatever went wrong.
+
+That gap was found by the conformance suite rather than shipped: OpenLDAP
+produced the plain form on the first run of the configuration-connection
+proof. Measured afterwards, the version without the `IsClosing` signal
+fails about one run in six; with it, eight runs in a row are green.
+
+**Capabilities are not re-derived after a reconnect.** They are read once,
+at connect, and the UI branches on them. Re-reading them mid-request would
+let what the interface offers change underneath somebody between two
+clicks, which is worse than facts that are slightly old. A server that
+restarts with different capabilities is a reconnect that should have been
+a new session, and the operator can make one.
+
+**The cut is a TCP proxy, in the conformance suite.** Restarting 389 DS
+takes most of a minute and leaves the rest of the suite waiting for
+replication to settle; a proxy severs the socket immediately, does it to
+one session, and leaves every other test's server alone. What reaches the
+client is the same either way. The certificate is still verified through
+it -- the harness certificate is issued for localhost and the proxy
+listens on localhost -- because a recovery proof that turned verification
+off would not show that the reconnect verifies either.
+
+The proxy also counts connections, which is what makes "the write was not
+repeated" an assertion rather than a hope. A retry cannot reuse the socket
+it just lost, so it has to dial, and dialling is visible even though the
+traffic is not. The first version of that test only checked the error, and
+a deliberately retrying driver made it *skip* rather than fail -- the
+retry succeeded, `Apply` returned nil, and the test read that as "the
+write landed before the cut". Counting connections kills that mutant on
+both servers.

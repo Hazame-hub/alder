@@ -107,7 +107,7 @@ than from this report's own findings.
 |---|---|---|
 | 1 | The unlock no editor could make | **Closed** in 1.29 (the Policy dialog derives and applies the change) and 1.30 (an **Unlock** beside the badge in the entry header; the editor offers the lock attributes). Locked entry to cleared lock: **two interactions**, measured, against seventeen. |
 | 2 | Nine failed requests, no words anywhere | **Closed** in 1.29. Every failure is written to the console once, in one place, in outline only; the header carries a badge; no retry hides a 502 behind ninety seconds. |
-| 3 | The session wedged while reporting itself healthy | **Half closed.** The header reports a degraded directory and offers Reconnect (1.29), and says "still waiting" with a count while a request is outstanding rather than only after it has failed (1.30). The trigger is still not reproduced, and the server does not yet re-dial before answering 502. |
+| 3 | The session wedged while reporting itself healthy | **Closed as far as it can be** (1.35). The header reports a degraded directory and offers Reconnect (1.29), says "still waiting" while a request is outstanding (1.30), and the driver now re-dials and re-binds by itself on a transport failure (1.35) — part (b) of the fix proposed below. Reads recover; writes are never repeated, because an interrupted write may already have been applied. **The trigger is still not reproduced**, so this closes the symptom and not the cause. |
 | 4 | The jump palette resolves a DN but not a name | **Not reproducible** (2026-09-28). `Ctrl+K` with `user0007` offers *"Search for user0007"*; clicking it lands on the search screen **and runs it** — "1 entry in 37ms", the entry on screen. `/resolve?q=user0007` answers with a base to search under, and the destination carries `filter`, `base` and `scope`. Either it was fixed between the run and now without being recorded, or the run saw a stale build. Left recorded rather than silently dropped: see the note under the finding. |
 | 5 | The verdict omits the attribute in question | **Closed** in 1.34. The rights search asked for `*`, which is user attributes, and a lock is operational — one character. It now asks for `+` as well: 141 attributes answered against 61, `nsAccountLock` among them. The 24 the entry actually holds are listed first, so the answer is above the fold rather than seventy rows down. Proved on the harness, not in a unit test: the assertion is against 389 DS's own answer. |
 | 6 | The Users view is 200 unfiltered rows | **Closed** in 1.34. A filter box in the count bar narrows the rows already fetched — "1 of 200 entries" — and a `locked` badge sits beside the name on every row that is. The badge is searchable: typing `locked` in the box is the whole of "which of these accounts cannot log in", one interaction. It does **not** re-run the search, and the empty state says so rather than claiming the directory holds nothing. |
@@ -176,6 +176,18 @@ recreate it. Symptom and evidence only, not a diagnosis.
 failure, with a **Reconnect** button that reuses the remembered host and DN. (b)
 Re-dial the LDAP connection on a transport failure before returning 502, so the
 common case self-heals.
+
+> **2026-09-30 — (b) done, and the limits of it.** The driver marks a failed
+> connection unusable, dials again, re-binds as the same identity, and runs an
+> interrupted *read* once more; the caller sees an entry rather than a 502. A
+> *write* is never repeated — if the socket died after the request went out the
+> server may have applied it, and repeating it would be a second change nobody
+> confirmed, so it reports an unknown outcome and says to check the entry. A
+> paged search is the one read that is not retried: its cookie belongs to the
+> connection that issued it.
+>
+> None of this reproduces the original wedge, and it is not claimed to. What it
+> removes is the need for the operator to be the one who notices.
 
 ### 4 · Major — the jump palette resolves a DN but not a name
 

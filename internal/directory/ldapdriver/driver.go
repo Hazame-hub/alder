@@ -72,10 +72,11 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 	}
 
 	s := &session{
-		conn:       conn,
+		data:       &link{conn: conn, name: "the directory connection", bindDN: cfg.BindDN, bindPW: cfg.BindPassword},
 		cfg:        cfg,
 		logger:     d.Logger,
 		timeout:    timeout,
+		dial:       d.dial,
 		schemaOnce: new(sync.Once),
 	}
 	caps, err := s.readRootDSE(ctx)
@@ -103,7 +104,8 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 			return nil, fmt.Errorf("directory: binding as the configuration identity %q: %w",
 				cfg.ConfigBindDN, cleanLDAPError(bindErr))
 		}
-		s.configConn = configConn
+		s.config = &link{conn: configConn, name: "the configuration connection",
+			bindDN: cfg.ConfigBindDN, bindPW: cfg.ConfigBindPassword}
 	}
 
 	// Resolved after the second bind, because the second identity is often the
@@ -208,17 +210,24 @@ func bind(conn *ldap.Conn, cfg directory.ConnConfig) error {
 // person clicking around a UI, and correctness beats throughput here.
 type session struct {
 	mu      sync.Mutex
-	conn    *ldap.Conn
+	data    *link
 	cfg     directory.ConnConfig
 	caps    directory.Capabilities
 	logger  *slog.Logger
 	timeout time.Duration
 	closed  bool
 
-	// configConn is the connection bound as the configuration identity, when
-	// one was supplied. It is guarded by the same mutex as conn: the two are
-	// never used concurrently, and one lock keeps that obviously true.
-	configConn *ldap.Conn
+	// dial opens a new connection the same way the first one was opened. It
+	// is what lets a session rebuild a link that failed without holding a
+	// reference to the whole Driver.
+	dial func(ctx context.Context, cfg directory.ConnConfig, timeout time.Duration) (*ldap.Conn, error)
+
+	// config is the connection bound as the configuration identity, when one
+	// was supplied, and nil otherwise. It is guarded by the same mutex as
+	// data: the two are never used concurrently, and one lock keeps that
+	// obviously true. They fail and recover independently -- see
+	// reconnect.go.
+	config *link
 	// configTreeDN is the configuration tree this session can actually reach,
 	// which is what operations are routed by. Distinct from
 	// Capabilities.ConfigContext, which is only ever what the server announced.
@@ -257,10 +266,13 @@ func (s *session) Close() error {
 		return nil
 	}
 	s.closed = true
-	if s.configConn != nil {
-		_ = s.configConn.Close()
+	if s.config != nil && s.config.conn != nil {
+		_ = s.config.conn.Close()
 	}
-	return s.conn.Close()
+	if s.data.conn == nil {
+		return nil
+	}
+	return s.data.conn.Close()
 }
 
 // readRootDSE reads the empty-DN base entry and derives the capabilities.
@@ -310,7 +322,17 @@ func (s *session) readRootDSE(ctx context.Context) (directory.Capabilities, erro
 	return caps, nil
 }
 
-// searchLocked runs a search. The caller must not hold mu; this takes it.
+// searchLocked runs a search, reopening the connection if it has failed. The
+// caller must not hold mu; this takes it.
+//
+// A search changes nothing, so running it again after the connection is
+// rebuilt gives the same answer -- with one exception, which is why this
+// checks for a cookie. A paged search's cookie belongs to the connection that
+// issued it. Presenting it to a new connection asks the server for a page it
+// never handed out: the honest outcomes are an error, and the dangerous one
+// is a different page, which would leave the caller assembling a result set
+// with a gap or a repeat in the middle and no way to tell. So the first page
+// of a search may be retried and a continuation may not.
 func (s *session) searchLocked(ctx context.Context, req *ldap.SearchRequest) (*ldap.SearchResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -320,11 +342,60 @@ func (s *session) searchLocked(ctx context.Context, req *ldap.SearchRequest) (*l
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	res, err := s.connFor(req.BaseDN).Search(req)
+
+	l := s.connFor(req.BaseDN)
+	conn, err := s.ready(ctx, l)
 	if err != nil {
-		return nil, cleanLDAPError(err)
+		return nil, err
 	}
+
+	res, searchErr := conn.Search(req)
+	if searchErr == nil {
+		return res, nil
+	}
+	cleaned := cleanLDAPError(searchErr)
+	// Asked before anything is closed: a closed connection reports itself
+	// closing whatever went wrong.
+	unusable, retryable := classify(l, cleaned)
+	if !unusable {
+		// The directory answered, and what it answered was no.
+		return nil, cleaned
+	}
+	s.markBroken(l, cleaned)
+	if continuesAPage(req) {
+		return nil, fmt.Errorf("directory: the connection was lost partway through a paged "+
+			"search and the page cannot be resumed on a new one; run the search again: %w", cleaned)
+	}
+	if !retryable {
+		return nil, cleaned
+	}
+
+	// Once. A second failure is the answer.
+	if _, err := s.ready(ctx, l); err != nil {
+		return nil, err
+	}
+	res, searchErr = l.conn.Search(req)
+	if searchErr != nil {
+		cleaned := cleanLDAPError(searchErr)
+		if again, _ := classify(l, cleaned); again {
+			s.markBroken(l, cleaned)
+		}
+		return nil, cleaned
+	}
+	s.logger.Info("a search completed after the connection was reopened",
+		"connection", l.name, "base", req.BaseDN)
 	return res, nil
+}
+
+// continuesAPage reports that this request carries a paging cookie, and so
+// asks the server to continue a search that a previous connection began.
+func continuesAPage(req *ldap.SearchRequest) bool {
+	for _, c := range req.Controls {
+		if p, ok := c.(*ldap.ControlPaging); ok && len(p.Cookie) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanLDAPError keeps the LDAP result code and drops the server's free-text
