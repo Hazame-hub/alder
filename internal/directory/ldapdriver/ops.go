@@ -277,9 +277,18 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 
 	// Routed by the DN being changed, so a schema write lands on the
 	// configuration identity while an entry edit stays on the data one.
-	conn := s.connFor(ch.DN.String())
+	l := s.connFor(ch.DN.String())
 
-	var err error
+	// Reopened here if a previous operation left it broken, which is a first
+	// attempt on a working connection and not a repeat of anything. That
+	// distinction is the whole of Alder's position on retrying writes: a
+	// change may be *sent* once after a reconnect, and a change that was
+	// already sent is never sent again. See reconnect.go.
+	conn, err := s.ready(ctx, l)
+	if err != nil {
+		return err
+	}
+
 	switch ch.Type {
 	case directory.ChangeAdd:
 		req := ldap.NewAddRequest(ch.DN.String(), nil)
@@ -331,6 +340,15 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 
 	if err != nil {
 		cleaned := cleanLDAPError(err)
+		if unusable, _ := classify(l, cleaned); unusable {
+			s.markBroken(l, cleaned)
+			// The connection died with the change in flight. It may have been
+			// applied; nothing here can tell. Repeating it is the one thing
+			// this driver will not do on its own.
+			s.logger.Warn("a change was interrupted and its outcome is unknown",
+				"change", ch.Summary(), "connection", l.name, "error", cleaned)
+			return unknownOutcome(ch, cleaned)
+		}
 		// The summary names the DN and the attributes touched, never a value.
 		s.logger.Warn("change rejected", "change", ch.Summary(), "error", cleaned)
 		return cleaned
@@ -426,7 +444,26 @@ func (s *session) VisibilityOf(ctx context.Context, target dn.DN, attribute stri
 
 	// Compare answers true, false, or a result code. True and false both mean
 	// the bind was allowed to look, which is the whole question here.
-	_, err := s.connFor(target.String()).Compare(target.String(), attribute, visibilityProbeValue)
+	l := s.connFor(target.String())
+	conn, readyErr := s.ready(ctx, l)
+	if readyErr != nil {
+		return directory.VisibilityUnknown, readyErr
+	}
+	_, err := conn.Compare(target.String(), attribute, visibilityProbeValue)
+	if err != nil {
+		cleaned := cleanLDAPError(err)
+		if unusable, retryable := classify(l, cleaned); unusable {
+			s.markBroken(l, cleaned)
+			if retryable {
+				// A compare reads; asking again on a rebuilt connection puts
+				// the same question to the same directory.
+				if conn, readyErr = s.ready(ctx, l); readyErr != nil {
+					return directory.VisibilityUnknown, readyErr
+				}
+				_, err = conn.Compare(target.String(), attribute, visibilityProbeValue)
+			}
+		}
+	}
 	if err == nil {
 		return directory.VisibilityPresent, nil
 	}
