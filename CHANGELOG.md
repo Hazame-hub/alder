@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.35.0](https://github.com/Hazame-hub/alder/compare/v1.34.2...v1.35.0) (2026-09-30)
+
+
+### Features
+
+* **directory:** a lost connection is reopened and the read retried, while an interrupted change is never sent twice ([7a52f06](https://github.com/Hazame-hub/alder/commit/7a52f06a99544d4d08a45f1f8a752c75d59a5361))
+
 ## [1.34.2](https://github.com/Hazame-hub/alder/compare/v1.34.1...v1.34.2) (2026-09-29)
 
 
