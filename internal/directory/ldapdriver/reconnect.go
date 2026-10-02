@@ -195,17 +195,13 @@ func (s *session) markBroken(l *link, err error) {
 		"connection", l.name, "address", s.cfg.Address(), "error", err)
 }
 
-// ErrWriteOutcomeUnknown is returned when the connection failed while a
-// change was in flight.
+// ErrWriteOutcomeUnknown is an alias for the driver-independent sentinel.
 //
-// It is not "the change failed". The request may have reached the server and
-// been applied before the socket went; the client cannot tell, and neither
-// can the person, which is why this says so instead of guessing. Read the
-// entry and decide.
-var ErrWriteOutcomeUnknown = errors.New(
-	"directory: the connection was lost while the change was being sent, so whether " +
-		"the directory applied it is unknown — Alder will not send it again by itself; " +
-		"read the entry and, if the change is not there, apply it once more")
+// It lives in internal/directory because an ambiguous write is a property of
+// the Driver contract rather than of LDAP: any driver that can lose a
+// connection mid-write owes its caller the same answer, and the API layer
+// should not have to know which driver produced it.
+var ErrWriteOutcomeUnknown = directory.ErrWriteOutcomeUnknown
 
 // unknownOutcome wraps a lost-connection write failure.
 func unknownOutcome(ch directory.ChangeRecord, err error) error {

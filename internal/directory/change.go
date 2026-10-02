@@ -368,3 +368,23 @@ func (c ChangeRecord) AffectedAttributes() []string {
 	sort.Strings(out)
 	return out
 }
+
+// ErrWriteOutcomeUnknown is returned when a change could not be shown either
+// to have been applied or not to have been.
+//
+// It is not "the change failed". The request may have reached the server and
+// been applied before the connection went; the client cannot tell, and
+// neither can the person, which is why this says so rather than guessing.
+//
+// It lives here rather than in the LDAP driver because it is a property of
+// the Driver contract: any driver that can lose a connection with a write in
+// flight owes its caller this answer, and nothing above the driver should
+// have to know which one produced it.
+//
+// Whoever receives it has two jobs and only two: do not repeat the change,
+// and find out what is actually true by reading the directory. internal/
+// outcome does the second.
+var ErrWriteOutcomeUnknown = errors.New(
+	"directory: the connection was lost while the change was being sent, so whether " +
+		"the directory applied it is unknown — Alder will not send it again by itself; " +
+		"read the entry and, if the change is not there, apply it once more")

@@ -578,6 +578,28 @@ now covers a hundred and forty-one on the same entry, operational ones
 among them. Nothing was removed; a client that enumerated the list will see
 more of it.
 
+### 1.36
+
+Two additions, both for a case that previously had no way to be told apart
+from an ordinary failure: a change whose connection was lost while it was
+being sent, which the directory may or may not have applied.
+
+`Error.error` gains `write_outcome_unknown`, returned with **409**. The
+status is deliberate: a 502 is what proxies and retry middleware are built
+to try again, and automatically repeating an ambiguous write is the one
+thing this must never cause. A client that does not know the code sees a
+409 and stops, which is the right behaviour without understanding anything.
+
+`ChangesetOutcome` gains `state`, one of `applied`, `failed`, `unknown` or
+`not_attempted`. It is additive and absent on older documents.
+
+**One honest wrinkle.** `applied` is a boolean, and a change whose outcome
+is unknown reads `false` there, which an older client will take as "not
+applied". That is a weaker statement than the truth rather than a different
+one, and the alternative — flipping it to `true` — would be far worse.
+`applied` now means "the directory confirmed it", and `state` carries the
+rest. The schema says so.
+
 ---
 
 ## Not covered

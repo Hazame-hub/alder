@@ -1508,7 +1508,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "write_outcome_unknown" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -4530,7 +4530,26 @@ export interface components {
             /** @description Position in the submitted list. */
             index: number;
             dn: string;
+            /**
+             * @description True only where the directory confirmed the change. It is not the
+             *     opposite of "failed": a change whose connection was lost in flight
+             *     may well have been applied, and reads false here because Alder
+             *     cannot prove otherwise. Read `state` before telling anyone a
+             *     change did not happen.
+             */
             applied: boolean;
+            /**
+             * @description What is known about this change. `applied` and `failed` are the
+             *     ordinary pair; `unknown` means the connection was lost while the
+             *     change was being sent, so the directory may or may not hold it and
+             *     Alder will not send it again by itself; `not_attempted` is
+             *     everything after the change that stopped the run.
+             *
+             *     Absent on documents written before this field existed, where
+             *     `applied` and the presence of `error` carry the same two states.
+             * @enum {string}
+             */
+            state?: "applied" | "failed" | "unknown" | "not_attempted";
             summary?: string;
             error?: components["schemas"]["Error"];
         };

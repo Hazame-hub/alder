@@ -206,6 +206,22 @@ func writeError(c *fiber.Ctx, status int, code ErrorError, message, detail strin
 // three different things a user can act on, and collapsing them into 500 turns
 // every one of them into a support ticket.
 func (s *Server) fail(c *fiber.Ctx, err error) error {
+	// First, because it wraps the LDAP error underneath it. Matching the
+	// inner one would report "the directory did not answer", which is the
+	// one thing this case is not: the directory may have answered the
+	// server perfectly well and only the answer was lost.
+	//
+	// 409 rather than 502, deliberately. A 502 is what proxies, clients and
+	// retry middleware are built to try again, and an automatically repeated
+	// ambiguous write is the exact accident the driver refuses to cause.
+	// Nothing retries a 409 by reflex.
+	if errors.Is(err, directory.ErrWriteOutcomeUnknown) {
+		return writeError(c, fiber.StatusConflict, ErrorErrorWriteOutcomeUnknown,
+			"The connection was lost while this change was being sent, so whether the directory "+
+				"applied it is unknown. Alder will not send it again by itself.",
+			err.Error())
+	}
+
 	var ldapErr *ldapdriver.Error
 	if errors.As(err, &ldapErr) {
 		code := ldapErr.Code

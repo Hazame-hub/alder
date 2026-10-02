@@ -1952,6 +1952,7 @@ components:
             - not_found
             - conflict
             - constraint_violation
+            - write_outcome_unknown
             - upstream
             - internal
         message:
@@ -6053,7 +6054,26 @@ components:
           type: integer
           description: Position in the submitted list.
         dn: { type: string }
-        applied: { type: boolean }
+        applied:
+          type: boolean
+          description: |
+            True only where the directory confirmed the change. It is not the
+            opposite of "failed": a change whose connection was lost in flight
+            may well have been applied, and reads false here because Alder
+            cannot prove otherwise. Read `state` before telling anyone a
+            change did not happen.
+        state:
+          type: string
+          description: |
+            What is known about this change. `applied` and `failed` are the
+            ordinary pair; `unknown` means the connection was lost while the
+            change was being sent, so the directory may or may not hold it and
+            Alder will not send it again by itself; `not_attempted` is
+            everything after the change that stopped the run.
+
+            Absent on documents written before this field existed, where
+            `applied` and the presence of `error` carry the same two states.
+          enum: [applied, failed, unknown, not_attempted]
         summary: { type: string }
         error:
           $ref: "#/components/schemas/Error"

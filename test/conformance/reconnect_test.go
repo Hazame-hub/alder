@@ -16,8 +16,33 @@ import (
 
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
+	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/filter"
+	"github.com/hazame-hub/alder/internal/outcome"
 )
+
+// sessionReader lets the outcome package ask a live directory the one
+// question it needs: what does this entry hold now?
+type sessionReader struct {
+	t    *testing.T
+	sess directory.Session
+}
+
+func (r sessionReader) Read(target string, attrs []string) (*directory.Entry, error) {
+	parsed, err := dn.Parse(target)
+	if err != nil {
+		return nil, err
+	}
+	entry, err := r.sess.Read(ctx(r.t), parsed, attrs)
+	if err != nil {
+		if notFound(err) {
+			// Absent is an answer, not a failure.
+			return nil, nil
+		}
+		return nil, err
+	}
+	return entry, nil
+}
 
 // 1.35: a session that survives losing its connection.
 //
@@ -361,6 +386,21 @@ func TestAnInterruptedWriteIsNotRepeated(t *testing.T) {
 		// Exactly one attempt was made, however it landed. A driver that
 		// retried would have met "already exists" on the second attempt and
 		// reported that instead of an unknown outcome.
+		// And the verdict Alder can reach by looking, which is what the API
+		// and the UI will offer the operator next. Whichever way the race
+		// fell, the answer must be one of the four and must carry a reason.
+		verdict := outcome.Determine(sessionReader{t, control}, add, nil)
+		switch verdict.Verdict {
+		case outcome.Applied, outcome.NotApplied:
+		default:
+			t.Errorf("%s: an add should be decidable by reading, got %s: %s",
+				s.name, verdict.Verdict, verdict.Reason)
+		}
+		if verdict.Reason == "" {
+			t.Errorf("%s: the verdict carries no reason", s.name)
+		}
+		t.Logf("%s: verdict after the interrupted write: %s — %s", s.name, verdict.Verdict, verdict.Reason)
+
 		if _, readErr := control.Read(ctx(t), mustDN(t, target), []string{"uid"}); readErr == nil {
 			t.Logf("%s: the change reached the server before the cut, and was reported unknown", s.name)
 		} else {
