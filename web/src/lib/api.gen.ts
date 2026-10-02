@@ -498,6 +498,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/changes/outcome": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find out whether a change whose outcome was unknown actually landed
+         * @description Reads the directory and reports what became of a change that was sent
+         *     but never confirmed -- the `write_outcome_unknown` case, where the
+         *     connection died with the change in flight and the directory may or may
+         *     not have applied it.
+         *
+         *     This reads and never writes. It is permitted on a read-only instance,
+         *     because finding out what is true is not a change, and the moment an
+         *     operator most needs the answer is the moment they must not be told to
+         *     reconnect as somebody who can write.
+         *
+         *     It does not re-apply anything and offers no way to. Where the verdict
+         *     is `not_applied`, the change is made again the ordinary way: plan it
+         *     against the directory as it is now, review the LDIF, and confirm it.
+         *     A change reviewed before the interruption was reviewed against a
+         *     directory that may since have moved.
+         *
+         *     The verdict is only ever as strong as reading allows:
+         *
+         *       * `applied` -- the directory holds what the change described. It does
+         *         not prove this change did it; another administrator making the same
+         *         change is indistinguishable, and the distinction does not matter.
+         *       * `not_applied` -- the directory is as it was.
+         *       * `conflicted` -- the entry exists and holds something else, so
+         *         something other than this change has been here.
+         *       * `undeterminable` -- reading cannot answer. A password is never
+         *         readable; neither is an entry this bind may write but not read.
+         */
+        post: operations["determineChangeOutcome"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/changeset/preview": {
         parameters: {
             query?: never;
@@ -1508,7 +1553,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "write_outcome_unknown" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -4526,11 +4571,52 @@ export interface components {
              */
             warnings?: string[];
         };
+        /**
+         * @description What reading the directory established about a change whose outcome
+         *     was never confirmed.
+         */
+        ChangeOutcome: {
+            /** @enum {string} */
+            verdict: "applied" | "not_applied" | "conflicted" | "undeterminable";
+            /**
+             * @description One sentence saying what was looked at and what was found. It
+             *     never says what Alder supposes.
+             */
+            reason: string;
+            /** @description The first attribute that did not match, where one did not. */
+            attribute?: string;
+            /**
+             * @description True only for `not_applied`: the change can be made again, as a
+             *     new change planned against the directory as it is now. Never true
+             *     for the other three, and never an invitation to resend the
+             *     original request.
+             */
+            resolvable?: boolean;
+        };
         ChangesetOutcome: {
             /** @description Position in the submitted list. */
             index: number;
             dn: string;
+            /**
+             * @description True only where the directory confirmed the change. It is not the
+             *     opposite of "failed": a change whose connection was lost in flight
+             *     may well have been applied, and reads false here because Alder
+             *     cannot prove otherwise. Read `state` before telling anyone a
+             *     change did not happen.
+             */
             applied: boolean;
+            /**
+             * @description What is known about this change. `applied` and `failed` are the
+             *     ordinary pair; `unknown` means the connection was lost while the
+             *     change was being sent, so the directory may or may not hold it and
+             *     Alder will not send it again by itself; `not_attempted` is
+             *     everything after the change that stopped the run.
+             *
+             *     Absent on documents written before this field existed, where
+             *     `applied` and the presence of `error` carry the same two states.
+             * @enum {string}
+             */
+            state?: "applied" | "failed" | "unknown" | "not_attempted";
             summary?: string;
             error?: components["schemas"]["Error"];
         };
@@ -5364,6 +5450,32 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    determineChangeOutcome: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description What reading the directory established. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeOutcome"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     previewChangeset: {

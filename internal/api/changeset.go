@@ -125,6 +125,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 				Index:   i,
 				Dn:      record.DN.String(),
 				Applied: false,
+				State:   ptr(ChangesetOutcomeStateNotAttempted),
 				Summary: ptr(record.Summary()),
 			})
 			continue
@@ -136,10 +137,19 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 		pre := recorder.before(ctx, record, reads[i])
 		if applyErr := sess.Conn.Apply(ctx, record); applyErr != nil {
 			failed = i
+			// "failed" is a claim, and there is one case where Alder cannot
+			// support it: the connection died with the change in flight, so
+			// the directory may hold it. Reporting that as a failure is how
+			// somebody comes to apply a change twice.
+			state := ChangesetOutcomeStateFailed
+			if errors.Is(applyErr, directory.ErrWriteOutcomeUnknown) {
+				state = ChangesetOutcomeStateUnknown
+			}
 			result.Outcomes = append(result.Outcomes, ChangesetOutcome{
 				Index:   i,
 				Dn:      record.DN.String(),
 				Applied: false,
+				State:   ptr(state),
 				Summary: ptr(record.Summary()),
 				Error:   ptr(errorBody(applyErr, record, sess.Conn.Capabilities())),
 			})
@@ -150,6 +160,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 			Index:   i,
 			Dn:      record.DN.String(),
 			Applied: true,
+			State:   ptr(ChangesetOutcomeStateApplied),
 			Summary: ptr(record.Summary()),
 		})
 		result.AppliedCount++

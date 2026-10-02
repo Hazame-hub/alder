@@ -4784,3 +4784,69 @@ and not covered by a test: triggering it needs a transport failure during
 the RootDSE read whose retry succeeds, followed by a later step failing,
 which the proxy cannot arrange without more machinery than the bug is
 worth. The fix is three lines and the reasoning is written beside them.
+
+### 2026-10-02 — an ambiguous write, told apart from a failure
+
+1.35 taught the driver to refuse to repeat a change whose connection died
+in flight. It returned a sentinel saying the outcome was unknown — and
+then nothing above the driver knew what to do with it, so the sentinel
+never left the driver. Two consequences, both found by reading the code
+rather than by anything failing:
+
+The single-change path wraps the LDAP error inside the sentinel, and
+`fail()` matched the inner one first. An ambiguous write was reported as
+*"The directory did not answer"*, 502 `upstream`.
+
+Worse, the changeset path records each record as `applied: true/false`.
+An ambiguous write landed in the `false` branch with an error beside it,
+which tells the operator the change did **not** happen. That is a claim
+Alder cannot support, in the one place where being wrong leads directly
+to somebody applying the change a second time. 1.35 introduced it.
+
+**Four states, because any three of them collapse a lie.** Applied and
+not-applied are the easy pair. *Conflicted* — the entry is there and
+holds something else — must not be offered for re-apply, because the
+change was reviewed against a directory that no longer exists.
+*Undeterminable* is the one a boolean can never carry: a password is
+never readable, so no amount of looking will settle it, and an entry the
+bind may write but not read is the same problem.
+
+**409, not 502.** A 502 is what proxies, clients and retry middleware are
+built to try again, and an automatically repeated ambiguous write is the
+exact accident the driver refuses to cause. Nothing retries a 409 by
+reflex, so a client that has never heard of `write_outcome_unknown` still
+does the right thing.
+
+**No new state is stored anywhere.** The verdict is computed on demand by
+reading the directory, which is the only source that can be trusted about
+it, and the only one that cannot drift. v1 keeps no database and no
+persisted audit log, and this does not start one.
+
+**`internal/outcome` cannot write.** Its whole interface with a directory
+is one `Read`. That is deliberate and tested: the thing this code must
+never grow is the ability to put the change right by itself.
+
+Comparison reuses the directory's own equality rules, through the same
+keyer `internal/plan` uses. Comparing bytes would report `Platform` and
+`platform` as a difference and send somebody to look at a change that was
+applied exactly as asked.
+
+**The endpoint, same release.** `POST /changes/outcome` takes the change
+whose outcome was never confirmed and answers it by reading. Three
+properties are worth stating because each could be undone by a plausible
+refactor, and each is now pinned by a test shown to fail without it.
+
+It is **not** behind the read-only check. It reads, and the moment an
+operator most needs to know whether a change landed is the worst possible
+moment to tell them to reconnect as somebody who can write.
+
+`resolvable` is true for `not_applied` and nothing else. It is a flag, not
+a change to resend: even when the answer is "no, it did not land", the
+change is made again the ordinary way, planned against the directory as it
+is now. A review that happened before the interruption was a review of a
+directory that may since have moved.
+
+The schema is read so values compare by the directory's own equality
+rules, and a schema that cannot be read does not fail the answer — the
+stricter byte comparison stands instead, which can only over-report a
+difference, never hide one.
