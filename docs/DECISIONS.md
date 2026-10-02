@@ -4830,3 +4830,23 @@ Comparison reuses the directory's own equality rules, through the same
 keyer `internal/plan` uses. Comparing bytes would report `Platform` and
 `platform` as a difference and send somebody to look at a change that was
 applied exactly as asked.
+
+**The endpoint, same release.** `POST /changes/outcome` takes the change
+whose outcome was never confirmed and answers it by reading. Three
+properties are worth stating because each could be undone by a plausible
+refactor, and each is now pinned by a test shown to fail without it.
+
+It is **not** behind the read-only check. It reads, and the moment an
+operator most needs to know whether a change landed is the worst possible
+moment to tell them to reconnect as somebody who can write.
+
+`resolvable` is true for `not_applied` and nothing else. It is a flag, not
+a change to resend: even when the answer is "no, it did not land", the
+change is made again the ordinary way, planned against the directory as it
+is now. A review that happened before the interruption was a review of a
+directory that may since have moved.
+
+The schema is read so values compare by the directory's own equality
+rules, and a schema that cannot be read does not fail the answer — the
+stricter byte comparison stands instead, which can only over-report a
+difference, never hide one.

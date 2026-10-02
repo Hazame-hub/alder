@@ -125,7 +125,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 				Index:   i,
 				Dn:      record.DN.String(),
 				Applied: false,
-				State:   ptr(NotAttempted),
+				State:   ptr(ChangesetOutcomeStateNotAttempted),
 				Summary: ptr(record.Summary()),
 			})
 			continue
@@ -141,9 +141,9 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 			// support it: the connection died with the change in flight, so
 			// the directory may hold it. Reporting that as a failure is how
 			// somebody comes to apply a change twice.
-			state := Failed
+			state := ChangesetOutcomeStateFailed
 			if errors.Is(applyErr, directory.ErrWriteOutcomeUnknown) {
-				state = Unknown
+				state = ChangesetOutcomeStateUnknown
 			}
 			result.Outcomes = append(result.Outcomes, ChangesetOutcome{
 				Index:   i,
@@ -160,7 +160,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 			Index:   i,
 			Dn:      record.DN.String(),
 			Applied: true,
-			State:   ptr(Applied),
+			State:   ptr(ChangesetOutcomeStateApplied),
 			Summary: ptr(record.Summary()),
 		})
 		result.AppliedCount++

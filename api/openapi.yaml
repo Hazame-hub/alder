@@ -689,6 +689,52 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /changes/outcome:
+    post:
+      tags: [changes]
+      operationId: determineChangeOutcome
+      summary: Find out whether a change whose outcome was unknown actually landed
+      description: |
+        Reads the directory and reports what became of a change that was sent
+        but never confirmed -- the `write_outcome_unknown` case, where the
+        connection died with the change in flight and the directory may or may
+        not have applied it.
+
+        This reads and never writes. It is permitted on a read-only instance,
+        because finding out what is true is not a change, and the moment an
+        operator most needs the answer is the moment they must not be told to
+        reconnect as somebody who can write.
+
+        It does not re-apply anything and offers no way to. Where the verdict
+        is `not_applied`, the change is made again the ordinary way: plan it
+        against the directory as it is now, review the LDIF, and confirm it.
+        A change reviewed before the interruption was reviewed against a
+        directory that may since have moved.
+
+        The verdict is only ever as strong as reading allows:
+
+          * `applied` -- the directory holds what the change described. It does
+            not prove this change did it; another administrator making the same
+            change is indistinguishable, and the distinction does not matter.
+          * `not_applied` -- the directory is as it was.
+          * `conflicted` -- the entry exists and holds something else, so
+            something other than this change has been here.
+          * `undeterminable` -- reading cannot answer. A password is never
+            readable; neither is an entry this bind may write but not read.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangeRequest" }
+      responses:
+        "200":
+          description: What reading the directory established.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangeOutcome" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /changeset/preview:
     post:
       tags: [changes]
@@ -6045,6 +6091,32 @@ components:
           description: |
             Findings about the set as a whole, such as an entry created before
             its parent, or the same DN changed twice.
+
+    ChangeOutcome:
+      type: object
+      required: [verdict, reason]
+      description: |
+        What reading the directory established about a change whose outcome
+        was never confirmed.
+      properties:
+        verdict:
+          type: string
+          enum: [applied, not_applied, conflicted, undeterminable]
+        reason:
+          type: string
+          description: |
+            One sentence saying what was looked at and what was found. It
+            never says what Alder supposes.
+        attribute:
+          type: string
+          description: The first attribute that did not match, where one did not.
+        resolvable:
+          type: boolean
+          description: |
+            True only for `not_applied`: the change can be made again, as a
+            new change planned against the directory as it is now. Never true
+            for the other three, and never an invitation to resend the
+            original request.
 
     ChangesetOutcome:
       type: object
