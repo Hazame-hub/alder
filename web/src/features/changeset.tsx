@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  CircleHelp,
   ListChecks,
   Loader2,
   SearchCheck,
@@ -22,6 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { LdifBlock } from "@/components/ldif-block";
 import { PlanSummary } from "@/components/plan-summary";
 import { ErrorNote } from "@/components/change-dialog";
+import { UnknownOutcome } from "@/components/unknown-outcome";
 import { DownloadButton } from "@/components/ldif-block";
 import { assessmentLine, bundleText, overallRecovery, recoveryFilename } from "@/lib/recovery";
 import { RecoveryLoader } from "@/features/recovery-loader";
@@ -158,7 +160,7 @@ export function ChangesetView({
     return (
       <div className="mx-auto max-w-2xl px-6 py-16">
         {result ? (
-          <ResultPanel result={result} onDismiss={() => setResult(null)} />
+          <ResultPanel result={result} submitted={body.changes} onDismiss={() => setResult(null)} />
         ) : null}
         <RecoveryLoader canStage onStaged={() => setPendingCheck(true)} />
         <div className="rounded-lg border border-dashed p-10 text-center">
@@ -203,7 +205,7 @@ export function ChangesetView({
       </div>
 
       {result ? (
-        <ResultPanel result={result} onDismiss={() => setResult(null)} />
+        <ResultPanel result={result} submitted={body.changes} onDismiss={() => setResult(null)} />
       ) : null}
 
       <ol className="mb-5 space-y-1.5">
@@ -450,14 +452,46 @@ export function ChangesetView({
  * the user should be able to check against the list they submitted rather than
  * infer from the absence of an error.
  */
+// What the run did, when one of its changes cannot be accounted for.
+//
+// "Nothing was applied" is the sentence that must not survive an unknown
+// outcome: the interrupted change may well have been applied, and a reader
+// who believes nothing happened will stage it again.
+function headline(result: ChangesetResult, hasUnknown: boolean): string {
+  const stoppedAt = (result.failedIndex ?? 0) + 1;
+  if (result.failedIndex === undefined) {
+    return `All ${result.appliedCount} changes applied.`;
+  }
+  if (hasUnknown) {
+    return result.appliedCount === 0
+      ? `Stopped at change ${stoppedAt}, whose outcome is unknown.`
+      : `Stopped at change ${stoppedAt}, whose outcome is unknown, after applying ${result.appliedCount}.`;
+  }
+  return result.appliedCount === 0
+    ? `Stopped at change ${stoppedAt}. Nothing was applied.`
+    : `Stopped at change ${stoppedAt}, after applying ${result.appliedCount}.`;
+}
+
 function ResultPanel({
   result,
+  submitted,
   onDismiss,
 }: {
   result: ChangesetResult;
+  /* The changes as they were sent. An outcome names an index, and checking
+     what became of one needs the change itself, not a reconstruction of it:
+     asking the directory the wrong question would get a confident wrong
+     answer. */
+  submitted: ChangeRequest[];
   onDismiss: () => void;
 }) {
   const failed = result.failedIndex !== undefined;
+  // The one change in the run whose outcome nobody knows, if there is one.
+  // It stops the run the way a failure does, and it is not one.
+  const unknown = result.outcomes.find((o) => o.state === "unknown");
+  // Bound here so the type narrows: the panel needs the change itself, and
+  // an outcome can name an index the caller no longer holds.
+  const unknownChange = unknown ? submitted[unknown.index] : undefined;
   return (
     <div
       className={`mb-5 rounded-md border p-3 ${
@@ -477,11 +511,7 @@ function ResultPanel({
           ) : (
             <Check className="size-4" />
           )}
-          {!failed
-            ? `All ${result.appliedCount} changes applied.`
-            : result.appliedCount === 0
-              ? `Stopped at change ${(result.failedIndex ?? 0) + 1}. Nothing was applied.`
-              : `Stopped at change ${(result.failedIndex ?? 0) + 1}, after applying ${result.appliedCount}.`}
+          {headline(result, unknown !== undefined)}
         </div>
         <Button variant="ghost" size="icon" onClick={onDismiss} title="Dismiss">
           <X />
@@ -507,12 +537,22 @@ function ResultPanel({
         </div>
       ) : null}
 
+      {unknownChange ? (
+        <div className="mt-2.5">
+          <UnknownOutcome change={unknownChange} />
+        </div>
+      ) : null}
+
       <ul className="mt-2.5 space-y-1">
         {result.outcomes.map((o) => (
           <li key={o.index} className="flex items-start gap-2 text-sm">
             <span className="mt-0.5 shrink-0">
               {o.applied ? (
                 <Check className="size-3.5 text-success" />
+              ) : o.state === "unknown" ? (
+                // Not a cross. A cross says it did not happen, and that is
+                // the one thing nobody knows about this change.
+                <CircleHelp className="size-3.5 text-warning-tint-foreground" />
               ) : o.error ? (
                 <X className="size-3.5 text-destructive" />
               ) : (
@@ -521,7 +561,11 @@ function ResultPanel({
             </span>
             <span className="min-w-0">
               <span className="font-dn">{safeText(o.summary)}</span>
-              {o.error ? (
+              {o.state === "unknown" ? (
+                <span className="ml-2 text-warning-tint-foreground">
+                  may already have been applied
+                </span>
+              ) : o.error ? (
                 <span className="ml-2 text-destructive">{safeText(o.error.message)}</span>
               ) : !o.applied ? (
                 <span className="ml-2 text-muted-foreground">

@@ -361,6 +361,19 @@ func joinInts(ns []int) string {
 // where an unexplained result code is least welcome: the run has stopped, part
 // of it has applied, and the operator has to decide what to do next.
 func errorBody(err error, record directory.ChangeRecord, caps directory.Capabilities) Error {
+	// Checked before the LDAP error it wraps. Reporting "upstream" beside a
+	// state of "unknown" would have the outcome and the error disagreeing
+	// about the same change, and a client reading only the error code --
+	// which is the older half of this document -- would be told the
+	// directory failed, which is the claim that cannot be supported.
+	if errors.Is(err, directory.ErrWriteOutcomeUnknown) {
+		return Error{
+			Error: ErrorErrorWriteOutcomeUnknown,
+			Message: "The connection was lost while this change was being sent, so whether the " +
+				"directory applied it is unknown. Alder will not send it again by itself.",
+			Detail: ptr(err.Error()),
+		}
+	}
 	body := Error{Error: ErrorErrorUpstream, Message: err.Error()}
 	var ldapErr *ldapdriver.Error
 	if errors.As(err, &ldapErr) {
