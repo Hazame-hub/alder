@@ -4850,3 +4850,36 @@ The schema is read so values compare by the directory's own equality
 rules, and a schema that cannot be read does not fail the answer — the
 stricter byte comparison stands instead, which can only over-report a
 difference, never hide one.
+
+**The interface, and a hole the first pass left (same release).** The panel
+for an interrupted change is not an error note and deliberately does not
+look like one: "the directory refused this change" is false when the
+directory may never have been asked, and a reader who believes it will
+make the change again. It says the change may already have been applied,
+offers one button that *reads* -- "Check the directory. Reads the entry.
+Changes nothing." -- and offers no way to resend. Where the check finds
+the change did not land, the route back is the ordinary one, from the
+entry, with a fresh plan and a fresh look at the LDIF.
+
+The first pass wired that into the single-change dialog only, and the
+changeset path was the worse of the two bugs. Three things were still
+wrong there: the row drew a red cross, which says it did not happen; the
+heading said **"Nothing was applied"**, which is exactly the false claim;
+and the per-outcome error body still carried `upstream`, so a client
+reading the error rather than the new `state` was told the directory
+failed. All three are fixed, and the heading now reads "Stopped at change
+N, whose outcome is unknown."
+
+**Driving it in a browser found something worth keeping.** The ambiguous
+case is much rarer through the interface than through the API, because
+the apply path re-reads the baseline first and *that* read absorbs the
+dead connection and recovers -- so the write goes out on a connection
+that works. Reaching the panel on purpose took cutting repeatedly until
+a cut landed in the window between the read and the write. The feature
+matters anyway: rare is not never, and the operator who hits it is the
+one who most needs to be told the truth.
+
+Proved end to end against a live 389 DS: cut, apply, `409
+write_outcome_unknown`; ask, `not_applied`; and the directory agrees --
+the entry was still there. Then the same through the interface, on a
+genuinely interrupted changeset.

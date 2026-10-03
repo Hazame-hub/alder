@@ -61,6 +61,7 @@ export type Plan = Schemas["Plan"];
 export type PlanItem = Schemas["PlanItem"];
 export type PlanAction = Schemas["PlanAction"];
 export type PlanProblemCode = Schemas["PlanProblemCode"];
+export type ChangeOutcome = Schemas["ChangeOutcome"];
 export type ChangesetOutcome = Schemas["ChangesetOutcome"];
 export type ImportResult = Schemas["ImportResult"];
 export type ApiError = Schemas["Error"];
