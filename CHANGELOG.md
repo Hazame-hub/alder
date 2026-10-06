@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.36.0](https://github.com/Hazame-hub/alder/compare/v1.35.0...v1.36.0) (2026-10-06)
+
+
+### Features
+
+* **api:** a change whose connection was lost is reported as unknown rather than failed, and can be judged by reading the directory ([6a98523](https://github.com/Hazame-hub/alder/commit/6a9852344c45ccb271f0e9cf2c0b2b999990f263))
+* **web:** a change interrupted in flight says it may already have landed, and offers to find out ([cac9432](https://github.com/Hazame-hub/alder/commit/cac94320d81b3134408ccf498965828a7f8ccfc6))
+
 ## [1.35.0](https://github.com/Hazame-hub/alder/compare/v1.34.2...v1.35.0) (2026-09-30)
 
 
