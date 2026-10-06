@@ -23,6 +23,7 @@ import { canNavigate, navigate } from "@/lib/navigate";
 import { AccessDialog } from "@/features/access";
 import { PolicyDialog } from "@/features/policy";
 import { safeText } from "@/lib/display";
+import { UnknownOutcome } from "@/components/unknown-outcome";
 import { bench } from "@/lib/snapshot-bench";
 
 /**
@@ -351,8 +352,19 @@ export function ChangeDialog({
               </div>
             ) : null}
 
+            {/*
+              An interrupted change is not a refused one, and the two must not
+              share a panel. "The directory refused this change" is false when
+              the directory may never have been asked -- and a reader who
+              believes it will make the change again, which is the one thing
+              that must not follow from this state.
+            */}
             {applyError && !stale ? (
-              <ErrorNote title="The directory refused this change" error={applyError} />
+              applyError.code === "write_outcome_unknown" ? (
+                <UnknownOutcome change={change as ChangeRequest} />
+              ) : (
+                <ErrorNote title="The directory refused this change" error={applyError} />
+              )
             ) : null}
           </div>
         )}
