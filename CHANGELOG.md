@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.36.3](https://github.com/Hazame-hub/alder/compare/v1.36.2...v1.36.3) (2026-10-10)
+
+
+### Documentation
+
+* commit the charter that comments and decisions cite ([#195](https://github.com/Hazame-hub/alder/issues/195)) ([d89a0ee](https://github.com/Hazame-hub/alder/commit/d89a0eeef551fd2439037252b3ac2f4270c351e3))
+* record the project format review in the specification ([#202](https://github.com/Hazame-hub/alder/issues/202)) ([02d46ed](https://github.com/Hazame-hub/alder/commit/02d46ed254e6e7f9b6fee47c5582aa61a0d5f593))
+* specify the Alder project format, for review ([#196](https://github.com/Hazame-hub/alder/issues/196)) ([2c3ec8c](https://github.com/Hazame-hub/alder/commit/2c3ec8c7aaf7428aac7fa439aafdc478dfcf2935))
+
 ## [1.36.2](https://github.com/Hazame-hub/alder/compare/v1.36.1...v1.36.2) (2026-10-10)
 
 
