@@ -254,6 +254,24 @@ tasks:
       - task: compose:up
       - task: test:conformance
 
+  test:e2e:
+    desc: Run the end-to-end journeys against both servers (harness must be up)
+    # The real UI in a real browser, served by the real binary, against the
+    # same two directories as the conformance suite. Playwright starts Alder
+    # itself; the SPA is built first because the binary embeds it, and a
+    # journey run against yesterday's SPA would be testing the wrong thing.
+    deps: [web]
+    cmds:
+      - npm --prefix test/e2e run typecheck
+      - npm --prefix test/e2e test
+
+  test:e2e:up:
+    desc: Bring the harness up, run the end-to-end journeys, and tear it down
+    cmds:
+      - task: compose:up
+      - defer: { task: compose:down }
+      - task: test:e2e
+
   # --- packaging -----------------------------------------------------------
 
   docker:

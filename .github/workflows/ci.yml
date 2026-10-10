@@ -223,6 +223,38 @@ jobs:
       # OpenLDAP and 389 Directory Server both.
       - name: run the conformance suite
         run: task test:conformance
+
+      # The end-to-end journeys run here, on the harness already up, rather
+      # than in a job of their own that would bring all four servers up a
+      # second time. They run whether or not the suite passed: a journey that
+      # fails beside a failing suite says something different from one that
+      # fails alone.
+      - uses: actions/setup-node@v6
+        if: ${{ !cancelled() }}
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            test/e2e/package-lock.json
+      - name: install the journey dependencies and browser
+        if: ${{ !cancelled() }}
+        run: |
+          npm --prefix test/e2e ci
+          npm --prefix test/e2e exec -- playwright install --with-deps chromium
+      - name: run the end-to-end journeys
+        if: ${{ !cancelled() }}
+        run: task test:e2e
+      - name: keep the journey report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            test/e2e/playwright-report
+            test/e2e/test-results
+          retention-days: 7
+
       - name: show the logs on failure
         if: failure()
         run: docker compose -f test/compose/docker-compose.yml logs

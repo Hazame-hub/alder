@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TooltipProvider } from "@/components/ui";
-import { AttributeEditor, type ConfigMark } from "./attribute-editor";
+import { AttributeEditor, type ConfigMark, valueLabel } from "./attribute-editor";
 
 // A field on a configuration entry says what the model knows about it. The
 // mark marks and never blocks: an attribute Alder's model has no answer for is
@@ -58,5 +58,16 @@ describe("a field on a configuration entry", () => {
     // inside Tailwind class names, which is not the same thing.
     expect(field({ mutability: "read_only" })).not.toContain('disabled=""');
     expect(textOf(field())).not.toContain("Alder");
+  });
+});
+
+describe("what each value's input is announced as", () => {
+  it("is the attribute's name when there is one value", () => {
+    expect(valueLabel("description", 0, 1)).toBe("description");
+  });
+
+  it("says which value and of how many when there are several", () => {
+    expect(valueLabel("mail", 0, 2)).toBe("mail, value 1 of 2");
+    expect(valueLabel("mail", 1, 2)).toBe("mail, value 2 of 2");
   });
 });
