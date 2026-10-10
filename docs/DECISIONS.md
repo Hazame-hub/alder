@@ -4932,3 +4932,40 @@ exit 201 while still printing "0 issues".
 
 CI builds the linter with `go install` now rather than downloading it
 through the action, so it is the same binary a developer gets.
+
+### 2026-10-10 — the frontend brought up to date, except TypeScript
+
+Every frontend package moved to its latest version but one. Done a group
+at a time, each verified and committed on its own, so a regression points
+at its cause: the in-range updates; vitest 3 to 5, which cleared the last
+two npm advisories; vite 6 to 8 with its React plugin; lucide-react 0.474
+to 1.x; and openapi-fetch 0.13 to 0.17. `npm audit` now reports nothing,
+development dependencies included.
+
+**TypeScript stays on 5.9, deliberately.** TypeScript 7 is the native
+rewrite, and its package's main entry now exports only a version string;
+the compiler API moved under `unstable/`. Two tools here are built on that
+API and neither supports 7 yet, both at their latest:
+
+- typescript-eslint accepts `>=4.8.4 <6.1.0`;
+- openapi-typescript accepts `^5.x`, and prints the generated client
+  through the compiler API -- so moving would break `task generate`, and
+  with it the spec-first rule in section 4 of the charter.
+
+Revisit when both publish support. Until then 5.9.3 is the newest 5.x and
+is what is installed.
+
+**What the type checker could not prove was checked against the real
+server.** openapi-fetch is pre-1.0, so a minor can break, and it carries
+every API call; types cover the call sites, not how a DN is encoded in a
+query string or how an error body reaches `unwrap()`. Both went through
+the browser: an escaped comma (`cn=Liddell\, Alice`) and a non-ASCII DN
+round-trip, a missing entry comes back as the server's own "No such entry"
+with its result code, and a delete was planned, reviewed as LDIF, applied,
+and confirmed gone in 389 DS. lucide 1.0 renamed icons; every import
+still resolves and the tree draws the same glyphs. No console errors on a
+clean load.
+
+Vite 8 bundles with Rolldown. The output is the same size to a kilobyte
+(855 kB raw, 244 kB gzip, under the 1000 kB ceiling) and the build takes
+about 2.4 seconds instead of 16 to 80.
