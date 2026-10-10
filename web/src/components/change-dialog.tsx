@@ -138,7 +138,13 @@ export function ChangeDialog({
   // the planned change. Apply stays disabled until a new plan has been shown.
   const stale = applyError?.isStalePlan ? applyError : null;
   const replanning = planned.isFetching;
-  const canApply = review?.state === "apply" && !apply.isPending && !replanning && !stale;
+  // A change sent and never answered for. The panel says Alder will not send
+  // it again by itself, and the dialog must not then offer to: applying or
+  // staging this reviewed change again would resend it, against a review of
+  // a directory that may since have moved. The way back is a fresh plan.
+  const outcomeUnknown = applyError?.code === "write_outcome_unknown";
+  const canApply =
+    review?.state === "apply" && !apply.isPending && !replanning && !stale && !outcomeUnknown;
   const bundle = applied?.recovery;
 
   return (
@@ -384,7 +390,9 @@ export function ChangeDialog({
               */}
               <Button
                 variant="outline"
-                disabled={!review || review.state === "nothing" || apply.isPending || replanning}
+                disabled={
+                  !review || review.state === "nothing" || apply.isPending || replanning || outcomeUnknown
+                }
                 onClick={() => {
                   changeset.add(change as ChangeRequest, preview?.summary ?? item?.dn ?? "change");
                   close();

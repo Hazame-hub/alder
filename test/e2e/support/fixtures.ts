@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, expect, type Locator, type Page } from "@playwright/test";
 import * as directory from "./directory";
 import { CutProxy } from "./proxy";
 import { type DirectoryServer, suffix } from "./servers";
@@ -21,7 +21,8 @@ export class Alder {
   constructor(
     readonly page: Page,
     private server: DirectoryServer,
-    private proxy: CutProxy,
+    /** The proxy this session connects through, for journeys that cut it. */
+    readonly proxy: CutProxy,
   ) {}
 
   /**
@@ -54,6 +55,22 @@ export class Alder {
   async openEntry(dn: string): Promise<void> {
     await this.page.goto(`/?view=browse&dn=${encodeURIComponent(dn)}`);
     await expect(this.page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+  }
+
+  /**
+   * Changes one single-valued attribute in the editor and opens the review,
+   * returning the dialog. Nothing has been written when this returns.
+   */
+  async reviewEdit(attribute: string, from: string, to: string): Promise<Locator> {
+    const { page } = this;
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const field = page.getByRole("textbox", { name: attribute, exact: true });
+    await expect(field).toHaveValue(from);
+    await field.fill(to);
+    await page.getByRole("button", { name: "Review 1 change", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText(`replace: ${attribute}`);
+    return dialog;
   }
 }
 
