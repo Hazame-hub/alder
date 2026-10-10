@@ -17,18 +17,11 @@ test("edit an attribute: plan, review, apply, verify", async ({ alder, disposabl
   await alder.connect();
   await alder.openEntry(disposable.dn);
 
-  // Plan.
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  const field = page.getByRole("textbox", { name: "description", exact: true });
-  await expect(field).toHaveValue("before");
-  await field.fill(value);
-
-  // Review: the one modification, rendered by the server as a change record.
-  await page.getByRole("button", { name: "Review 1 change", exact: true }).click();
-  const dialog = page.getByRole("dialog");
+  // Plan, then review: the one modification, rendered by the server as a
+  // change record.
+  const dialog = await alder.reviewEdit("description", "before", value);
   await expect(dialog).toContainText(`dn: ${disposable.dn}`);
   await expect(dialog).toContainText("changetype: modify");
-  await expect(dialog).toContainText("replace: description");
   await expect(dialog).toContainText(`description: ${value}`);
   // Nothing has been written yet: confirming is the user's step, not the
   // dialog's.

@@ -5029,3 +5029,59 @@ all four servers a second time. They run whether or not the suite passed,
 and the report and traces are kept on failure. Locally, `task test:e2e`
 expects the harness up; `task test:e2e:up` brings it up, runs, and tears it
 down.
+
+### 2026-10-10 — the interrupted write, driven on purpose
+
+The second journey. The connection dies while a change is going out, and
+the journey checks the four things 1.36 promised: the answer is 409
+`write_outcome_unknown`, the change is not sent again, the panel says the
+change *may* have been applied rather than that it was refused, and
+"Check the directory" reads the verdict.
+
+**Deterministic, not a race.** The browser work behind 1.36 reached this
+state by cutting repeatedly until a cut fell between the baseline re-read
+and the write, which is fine for a person and useless for CI. The proxy
+cannot read TLS, but it can see sizes. The journey types a 1000-character
+value, making the modify request the one large thing the client sends
+(over 1100 bytes; measured, every other request during an apply is under
+150), and the proxy acts on the first request over 800 bytes. Two modes
+give both sides of the ambiguity on demand, on both servers:
+
+- *lose the reply*: the write is forwarded and applied, the server's
+  answer is swallowed, the connection severed. Verdict: applied.
+- *lose the write*: the connection is severed before the write is
+  forwarded. Verdict: not applied -- and the journey then makes the change
+  again the ordinary way, with a fresh plan, and sees it land.
+
+Twelve consecutive runs, twelve passes. The value is 1000 characters, not
+4000, because the editor holds a value to the `{1024}` bound in
+`description`'s syntax -- which is how the first attempt found out.
+
+**"Not resent" is measured, and the first measurement was wrong.** A resend
+has to dial, so the proxy counts dials. The first version counted until the
+panel rendered and saw a second dial every time. The timeline showed it
+arriving a millisecond after the 409 was sent, from a `/tree` request that
+had been running before the cut. So the journey waits for the page's
+network to go quiet before arming, and counts at the moment the apply's
+answer arrives. In the lose-write case the directory itself is the second
+witness: a resend would have landed.
+
+**What it found: the dialog still offered to resend.** The panel says Alder
+will not send the change again by itself, and two buttons below it --
+"Apply to the directory" and "Add to changeset" -- stayed enabled, each of
+which sends the change again against a review of a directory that may
+have moved. Both are disabled now while the outcome is unknown; the way
+back is the one the panel names, a fresh plan from the entry. The
+journey's assertion failed on both servers before the fix and passes
+after.
+
+**The same hole in the changeset is open, and is a decision.** After a run
+stops at a change whose outcome is unknown, that change stays staged
+(only applied ones are removed) and "Apply N changes in order" is enabled
+again, under a note saying applying again "resumes rather than repeats" --
+untrue for that one change. What should happen to it depends on the
+verdict, so it is not fixed in passing.
+
+**Also seen, not fixed here.** The tree handler asks `HasChildren` once per
+child, so a page of 100 children is 101 searches. It showed up as a few
+hundred requests in a twenty-second journey.
