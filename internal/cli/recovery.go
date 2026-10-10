@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/recovery"
 )
 
@@ -20,24 +20,24 @@ import (
 // to Alder, which validates it and returns ordinary change requests, and those
 // are planned, shown, confirmed and applied exactly as --changes would be.
 
-var recoverabilityText = map[api.RecoveryRecoverability]string{
-	api.RecoverabilityExact:       "exact recovery available",
-	api.RecoverabilityPartial:     "partial recovery only",
-	api.RecoverabilityUnavailable: "recovery unavailable",
+var recoverabilityText = map[apiclient.RecoveryRecoverability]string{
+	apiclient.RecoverabilityExact:       "exact recovery available",
+	apiclient.RecoverabilityPartial:     "partial recovery only",
+	apiclient.RecoverabilityUnavailable: "recovery unavailable",
 }
 
-var reasonText = map[api.RecoveryReasonCode]string{
-	api.RecoveryReasonPasswordNotCaptured:        "a previous password is never captured",
-	api.RecoveryReasonSensitiveValueNotCaptured:  "the earlier value of a sensitive attribute is never captured",
-	api.RecoveryReasonServerOwnedAttribute:       "the server maintains this attribute",
-	api.RecoveryReasonIdentityRegenerated:        "a recreated entry gets a new identity and timestamps",
-	api.RecoveryReasonHiddenAttributesUnknown:    "attributes this login cannot read are not restored",
-	api.RecoveryReasonSensitiveValuesNotRestored: "passwords and other sensitive values are not restored",
-	api.RecoveryReasonSchemaOrConfigNotSupported: "schema and configuration changes are not recovered",
-	api.RecoveryReasonPreStateUnavailable:        "the entry could not be read before the change",
+var reasonText = map[apiclient.RecoveryReasonCode]string{
+	apiclient.RecoveryReasonPasswordNotCaptured:        "a previous password is never captured",
+	apiclient.RecoveryReasonSensitiveValueNotCaptured:  "the earlier value of a sensitive attribute is never captured",
+	apiclient.RecoveryReasonServerOwnedAttribute:       "the server maintains this attribute",
+	apiclient.RecoveryReasonIdentityRegenerated:        "a recreated entry gets a new identity and timestamps",
+	apiclient.RecoveryReasonHiddenAttributesUnknown:    "attributes this login cannot read are not restored",
+	apiclient.RecoveryReasonSensitiveValuesNotRestored: "passwords and other sensitive values are not restored",
+	apiclient.RecoveryReasonSchemaOrConfigNotSupported: "schema and configuration changes are not recovered",
+	apiclient.RecoveryReasonPreStateUnavailable:        "the entry could not be read before the change",
 }
 
-func assessmentText(level api.RecoveryRecoverability, reasons *[]api.RecoveryReason) string {
+func assessmentText(level apiclient.RecoveryRecoverability, reasons *[]apiclient.RecoveryReason) string {
 	text := recoverabilityText[level]
 	if text == "" {
 		text = safe(string(level))
@@ -63,25 +63,25 @@ func assessmentText(level api.RecoveryRecoverability, reasons *[]api.RecoveryRea
 // client's types first would drop a field this client does not know, and the
 // server's refusal of an unknown field is part of treating a bundle as
 // untrusted.
-func inspectRecovery(ctx context.Context, r *remote, data []byte) (api.RecoveryInspection, error) {
+func inspectRecovery(ctx context.Context, r *remote, data []byte) (apiclient.RecoveryInspection, error) {
 	res, err := r.api.InspectRecoveryWithBodyWithResponse(ctx, "application/json", bytes.NewReader(data))
 	if err != nil {
-		return api.RecoveryInspection{}, transportFailure(ctx, "reading the recovery bundle", err)
+		return apiclient.RecoveryInspection{}, transportFailure(ctx, "reading the recovery bundle", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return api.RecoveryInspection{}, r.refusal(ctx, "reading the recovery bundle", res.HTTPResponse, res.Body)
+		return apiclient.RecoveryInspection{}, r.refusal(ctx, "reading the recovery bundle", res.HTTPResponse, res.Body)
 	}
 	if res.JSON200 == nil {
-		return api.RecoveryInspection{}, failf("unexpected_response", "Alder answered with something that is not a recovery inspection")
+		return apiclient.RecoveryInspection{}, failf("unexpected_response", "Alder answered with something that is not a recovery inspection")
 	}
 	return *res.JSON200, nil
 }
 
 // renderRecovery describes a bundle before its plan. Every string in it came
 // from a file, and goes through safe.
-func renderRecovery(w io.Writer, in api.RecoveryInspection) {
+func renderRecovery(w io.Writer, in apiclient.RecoveryInspection) {
 	integrity := "checksum verified"
-	if in.Integrity != api.SnapshotIntegrityVerified {
+	if in.Integrity != apiclient.SnapshotIntegrityVerified {
 		integrity = "no checksum"
 	}
 	writef(w, "Recovery bundle created %s: %s (%s).\n", safe(in.CreatedAt), recoverabilityText[in.Recoverability], integrity)
@@ -112,7 +112,7 @@ func renderRecovery(w io.Writer, in api.RecoveryInspection) {
 	}
 	drifted := 0
 	for _, d := range in.Drift {
-		if d.State == api.RecoveryDriftDrifted || d.State == api.RecoveryDriftBlocked {
+		if d.State == apiclient.RecoveryDriftDrifted || d.State == apiclient.RecoveryDriftBlocked {
 			drifted++
 		}
 	}

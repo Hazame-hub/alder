@@ -16,7 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/envflags"
 	"github.com/hazame-hub/alder/internal/session"
 )
@@ -190,7 +190,7 @@ type remote struct {
 	env       *Env
 	base      string
 	doer      *sessionDoer
-	api       *api.ClientWithResponses
+	api       *apiclient.ClientWithResponses
 	connected bool
 }
 
@@ -258,7 +258,7 @@ func (c *connection) client(env *Env) (*remote, error) {
 		// redirect is a misconfiguration to report, not to follow.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
-	cl, err := api.NewClientWithResponses(base, api.WithHTTPClient(doer))
+	cl, err := apiclient.NewClientWithResponses(base, apiclient.WithHTTPClient(doer))
 	if err != nil {
 		return nil, usagef("--api-url: %v", err)
 	}
@@ -271,7 +271,7 @@ func (c *connection) open(ctx context.Context, env *Env) (*remote, error) {
 	if err != nil {
 		return nil, err
 	}
-	req := api.ConnectRequest{Host: c.host, Port: c.effectivePort(), Tls: api.ConnectRequestTls(c.tlsMode)}
+	req := apiclient.ConnectRequest{Host: c.host, Port: c.effectivePort(), Tls: apiclient.ConnectRequestTls(c.tlsMode)}
 	if c.caFile != "" {
 		pem, readErr := readSmallFile(c.caFile, 1<<20)
 		if readErr != nil {

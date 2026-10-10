@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 )
 
 // Configuration comparisons, as the command line shows and stages them.
@@ -18,7 +18,7 @@ import (
 // which can be changed. When the two sides are different providers, all there
 // is to print is that, and what each side holds.
 
-func renderConfigDiff(w io.Writer, d api.Diff, sourceName, targetName string, summaryOnly, sourceLive bool) {
+func renderConfigDiff(w io.Writer, d apiclient.Diff, sourceName, targetName string, summaryOnly, sourceLive bool) {
 	c := d.Config
 	writef(w, "Source: %s\n", sideLabel(sourceName, d.Source))
 	writef(w, "Target: %s\n", sideLabel(targetName, d.Target))
@@ -31,7 +31,7 @@ func renderConfigDiff(w io.Writer, d api.Diff, sourceName, targetName string, su
 		writeln(w)
 		for _, side := range []struct {
 			name    string
-			summary api.ConfigProviderSummary
+			summary apiclient.ConfigProviderSummary
 		}{{sourceName, c.Source}, {targetName, c.Target}} {
 			writef(w, "%s: %s, %d settings in %d resources (%s)\n", side.name, side.summary.Provider,
 				side.summary.Settings, side.summary.Resources, side.summary.Completeness)
@@ -85,9 +85,9 @@ func renderConfigDiff(w io.Writer, d api.Diff, sourceName, targetName string, su
 			writef(w, "  %-10s %-10s %s\n", object.Kind, safe(object.Object), name)
 			removal := object.Destructive != nil && *object.Destructive
 			switch {
-			case object.Actionable == api.ConfigActionableWritable && removal:
+			case object.Actionable == apiclient.ConfigActionableWritable && removal:
 				writef(w, "      Alder can remove it from the server (select with --stage-deletion %s)\n", safe(object.Id))
-			case object.Actionable == api.ConfigActionableWritable:
+			case object.Actionable == apiclient.ConfigActionableWritable:
 				writef(w, "      Alder can create it (select with --stage %s)\n", safe(object.Id))
 			default:
 				writef(w, "      reported only%s\n", refusalText(object.Refusal))
@@ -137,10 +137,10 @@ func renderConfigDiff(w io.Writer, d api.Diff, sourceName, targetName string, su
 
 // actionableObjects are the object differences worth a line: an object both
 // sides hold is the ordinary case and says nothing.
-func actionableObjects(c *api.ConfigDiff) []api.ConfigDiffObject {
-	var out []api.ConfigDiffObject
+func actionableObjects(c *apiclient.ConfigDiff) []apiclient.ConfigDiffObject {
+	var out []apiclient.ConfigDiffObject
 	for _, object := range c.Objects {
-		if object.Kind != api.DiffKindUnchanged {
+		if object.Kind != apiclient.DiffKindUnchanged {
 			out = append(out, object)
 		}
 	}
@@ -171,11 +171,11 @@ func refusalText(refusal *string) string {
 }
 
 // actionLine says whether Alder could make this change, and why not.
-func actionLine(item api.ConfigDiffItem) string {
+func actionLine(item apiclient.ConfigDiffItem) string {
 	switch item.Actionable {
-	case api.ConfigActionableWritable:
+	case apiclient.ConfigActionableWritable:
 		return "Alder     can change this setting through a plan (--stage " + item.Id + ")"
-	case api.ConfigActionableUnknown:
+	case apiclient.ConfigActionableUnknown:
 		return "Alder     does not know whether this setting can be changed; it is reported only"
 	}
 	return "Alder     has no proven way to change this setting; it is reported only"
@@ -201,7 +201,7 @@ func valueLines(sign string, values *[]string) []string {
 	return out
 }
 
-func derefProvider(p *api.ConfigProvider) api.ConfigProvider {
+func derefProvider(p *apiclient.ConfigProvider) apiclient.ConfigProvider {
 	if p == nil {
 		return ""
 	}
@@ -215,7 +215,7 @@ func derefProvider(p *api.ConfigProvider) api.ConfigProvider {
 // Anything Alder offered no change for is refused by name rather than skipped,
 // and a removal is never selected by --stage: a person asking to remove a
 // configuration object says so in as many words.
-func stageConfigSelected(env *Env, d api.Diff, body []byte, o diffOptions) error {
+func stageConfigSelected(env *Env, d apiclient.Diff, body []byte, o diffOptions) error {
 	var raw struct {
 		Config struct {
 			Items   []rawCandidate `json:"items"`
@@ -235,7 +235,7 @@ func stageConfigSelected(env *Env, d api.Diff, body []byte, o diffOptions) error
 			object := d.Config.Objects[i]
 			removal := object.Destructive != nil && *object.Destructive
 			switch {
-			case object.Actionable != api.ConfigActionableWritable:
+			case object.Actionable != apiclient.ConfigActionableWritable:
 				return notApplicable("selection_not_applicable", "%s is reported only%s",
 					safe(want), refusalText(object.Refusal))
 			case removal && !selection.deletion:
@@ -271,7 +271,7 @@ func stageConfigSelected(env *Env, d api.Diff, body []byte, o diffOptions) error
 		}
 		item := d.Config.Items[found]
 		switch {
-		case item.Actionable != api.ConfigActionableWritable:
+		case item.Actionable != apiclient.ConfigActionableWritable:
 			return notApplicable("selection_not_applicable",
 				"%s is %s: Alder has no proven way to change that setting, so it is reported only", safe(want), item.Actionable)
 		case raw.Config.Items[found].Candidate == nil || len(raw.Config.Items[found].Candidate.Changes) == 0:
@@ -332,7 +332,7 @@ func staged(names []string, deletion bool) []configSelection {
 }
 
 // matchObject finds a configuration object by the identity diff prints.
-func matchObject(objects []api.ConfigDiffObject, want string) (int, bool) {
+func matchObject(objects []apiclient.ConfigDiffObject, want string) (int, bool) {
 	for i, object := range objects {
 		if strings.EqualFold(object.Id, want) {
 			return i, true
