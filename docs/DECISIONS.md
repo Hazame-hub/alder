@@ -5229,3 +5229,28 @@ where behaviour against the two servers is pinned, and it is cheaper,
 faster and more exact than a browser. A journey earns its place by
 covering a path where the UI and the server have to agree and have been
 seen not to -- each of the five found or guarded something real.
+
+### 2026-10-10 — the project format, reviewed
+
+All five open questions in `docs/PROJECT.md` were answered as recommended,
+and the review added two things that matter more than any of them:
+
+- **Project files hold no secrets.** The specification kept passwords out
+  of `alder.yaml` and said nothing about the LDIF beside it, where a
+  `userPassword` line would put a secret in Git -- the thing the export
+  already refuses to do. `validate` refuses every attribute
+  `schema.IsSensitive` names, with no option to include them.
+- **Every plan names its environment and host.** Same DNs in every
+  environment means a production plan reads exactly like a development
+  one. The environment and host go above the plan, and the later `apply`
+  refuses a plan made for another `--env`.
+
+Two amendments make the client's rule enforceable rather than stated. The
+rule becomes "no LDAP code; LDIF, DNs and the sensitive-attribute list only
+through the server's own packages", and a `go list -deps` test will check
+that `internal/cli` reaches neither the driver nor go-ldap. It would fail
+today -- the client imports `internal/api` for its generated types, and
+that package carries the server and the driver -- so the first slice
+starts by generating the wire types into their own package. And `--env` is
+excluded from `ALDER_*` with `envflags.Exclude`, the mechanism `--yes`
+uses, so an inherited environment variable cannot choose production.
