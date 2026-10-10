@@ -4969,3 +4969,63 @@ clean load.
 Vite 8 bundles with Rolldown. The output is the same size to a kilobyte
 (855 kB raw, 244 kB gzip, under the 1000 kB ceiling) and the build takes
 about 2.4 seconds instead of 16 to 80.
+
+### 2026-10-10 — end-to-end journeys, in a real browser
+
+Everything below the UI was proved against both servers; the UI itself was
+proved by hand, in a browser, one release at a time. `test/e2e` is a
+Playwright harness that drives the real SPA, served by the real binary,
+against the same OpenLDAP and 389 DS the conformance suite uses. It starts
+with one journey -- edit an attribute: plan, review the LDIF, apply, verify
+-- and is built so the interrupted-write journey can be added next without
+new machinery. Playwright was approved as a dependency for this; it lives
+in its own `package.json` under `test/e2e`, not in `web/`, so the SPA's
+dependency tree and its audit are unchanged.
+
+**One project per directory server.** Every journey runs against both, as
+the conformance suite does, because a journey that only tried one server
+would quietly lower the bar section 3 of the charter sets.
+
+**The last step asks the directory, not Alder.** Ground truth is read with
+the server's own `ldapsearch`, inside its container, on the loopback -- a
+different client and a different code path. A UI that shows its own write
+back proves only that it agrees with itself. The same journey also checks
+that nothing reached the directory while the review dialog was open: the
+confirm click is the write, not the dialog.
+
+**The review step asserts the record, not that a dialog opened.** The
+change type, the `replace:` line and the new value, as the server rendered
+them. That is the "exact LDIF first" rule from the charter, tested where a
+person meets it.
+
+**Every journey connects through a TCP proxy a test can sever.** It passes
+bytes straight through -- TLS still terminates in Alder, verified against
+the harness CA, with "Certificate name override" set to `localhost` as an
+operator connecting by address would set it. Routing every journey through
+it means the seam the interrupted-write journey needs is exercised by every
+other journey, rather than being switched on only for the one test that
+depends on it. `cut()` can be called repeatedly and `opened()` counts
+dials, because the browser work behind 1.36 showed a single cut is usually
+absorbed by the baseline re-read before the write.
+
+**The journey drives the page by label and role, and that found a gap.**
+The value inputs in the attribute editor had no accessible name -- the
+attribute's name was beside them, not attached to them -- so neither a
+screen reader nor a test could tell `description` from `mail`. They are
+named now: the attribute name, or "mail, value 2 of 3" when there are
+several. No test IDs were added; a test that needs one is reporting
+something a person using assistive technology would also miss.
+
+**Disposable entries, removed whatever happens.** Each journey creates its
+own entry out of band with a token unique to the run, and removes it in a
+`finally`. An entry left behind breaks the conformance inventory checks on
+the next run. The token is short on purpose: LDIF folds lines at 76
+characters, and a check against a folded line would fail for a reason that
+has nothing to do with Alder.
+
+**In CI the journeys run in the conformance job,** on the harness that job
+has already brought up, rather than in a job of their own that would start
+all four servers a second time. They run whether or not the suite passed,
+and the report and traces are kept on failure. Locally, `task test:e2e`
+expects the harness up; `task test:e2e:up` brings it up, runs, and tears it
+down.

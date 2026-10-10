@@ -1,0 +1,16 @@
+{
+  "name": "alder-e2e",
+  "private": true,
+  "description": "Drives the real Alder binary in a real browser against the real directory servers in test/compose.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.5",
+    "typescript": "~5.9.3"
+  }
+}
