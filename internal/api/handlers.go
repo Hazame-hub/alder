@@ -172,19 +172,23 @@ func (s *Server) ListChildren(c *fiber.Ctx, params ListChildrenParams) error {
 	if !ok {
 		return s.fail(c, errors.New("the directory driver does not support tree browsing"))
 	}
-	res, err := browser.Children(ctx, parent, []string{"objectClass"}, limit, []byte(deref(params.Cookie)))
+	res, err := browser.Children(ctx, parent, childListingAttrs, limit, []byte(deref(params.Cookie)))
 	if err != nil {
 		return s.fail(c, err)
 	}
 
 	page := TreePage{Nodes: make([]TreeNode, 0, len(res.Entries))}
 	for _, e := range res.Entries {
-		hasKids, kidErr := browser.HasChildren(ctx, e.DN)
-		if kidErr != nil {
-			// Not being allowed to look below a node is not a reason to fail
-			// the whole listing; it means the node is drawn without an
-			// expander, which is what the user's access actually permits.
-			hasKids = false
+		hasKids := false
+		if !knownChildless(e) {
+			var kidErr error
+			hasKids, kidErr = browser.HasChildren(ctx, e.DN)
+			if kidErr != nil {
+				// Not being allowed to look below a node is not a reason to fail
+				// the whole listing; it means the node is drawn without an
+				// expander, which is what the user's access actually permits.
+				hasKids = false
+			}
 		}
 		page.Nodes = append(page.Nodes, treeNode(e, sch, hasKids, false))
 	}
@@ -1718,6 +1722,35 @@ func clamp(v, fallback, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+// childListingAttrs is what a tree listing asks for: the object classes,
+// for the icon, and the two subordinate counts some servers compute.
+var childListingAttrs = []string{"objectClass", "hasSubordinates", "numSubordinates"}
+
+// knownChildless reports whether the server has already said, in the listing
+// itself, that an entry has no children at all.
+//
+// It only ever saves a probe; it never decides that a node has children. The
+// subordinate counts are computed by the server without regard to what this
+// bind may see, so "TRUE" or "3" could name children that are hidden, and the
+// node would draw an expander that opens onto nothing. "FALSE" and "0" carry
+// no such doubt: no children means no visible children. So those skip the
+// one-level probe, and everything else -- including an entry where neither
+// attribute is published or readable -- is still asked, with the bind's own
+// access, exactly as before.
+//
+// Before this, a page of a hundred leaf entries cost a hundred and one
+// searches. Both target servers publish hasSubordinates, but that is read
+// from the entry, never assumed from which server answered.
+func knownChildless(e *directory.Entry) bool {
+	if v := strings.TrimSpace(e.GetOne("hasSubordinates")); v != "" {
+		return strings.EqualFold(v, "FALSE")
+	}
+	if v := strings.TrimSpace(e.GetOne("numSubordinates")); v != "" {
+		return v == "0"
+	}
+	return false
 }
 
 // hiddenChildCount reports how many children a parent has that this session

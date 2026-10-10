@@ -5129,3 +5129,34 @@ deterministically like the single-change ones. Against the SPA before this
 change both fail where expected -- "Apply in order" enabled after an
 interrupted run -- and with it all ten journeys pass, the interrupted ones
 twenty-four times out of twenty-four.
+
+### 2026-10-10 — the tree stops probing leaves
+
+A tree listing asked every child, one search each, whether it had children
+of its own: a page of a hundred entries was a hundred and one searches.
+The E2E journeys showed it as several hundred requests in a twenty-second
+run, almost all of them asking a user entry whether it had children.
+
+**The listing now asks for `hasSubordinates` and `numSubordinates`, and an
+entry the server already calls childless is not probed.** Everything else
+still is, with the bind's own access, exactly as before.
+
+Why not trust the counts outright: they are computed by the server without
+regard to what this bind may see. "TRUE" or "3" can name children the
+access rules hide, and the node would draw an expander that opens onto
+nothing -- the opposite of the existing rule that a node is drawn as what
+the user's access actually permits. "FALSE" and "0" carry no such doubt:
+no children means no visible children. So the counts only ever *save* a
+probe; they never decide that a node has children. An entry where neither
+is published, or this bind cannot read them, is probed as before. Both
+target servers publish `hasSubordinates`; that is read from each entry,
+not assumed from which server is answering.
+
+Proved, not argued: a conformance test lists the suffix, `ou=people` and
+`ou=groups` through the real `/tree` endpoint and checks every node
+against the old probe asked with the same identity -- as the administrator
+and as the delegated account the access rules restrict, on both servers.
+Measured on the harness, listing `ou=people` (305 leaves) went from 219 ms
+to 14 ms on OpenLDAP and from 834 ms to 134 ms on 389 DS, over loopback.
+Over a real network each probe skipped is a round trip saved, so the
+difference grows with distance.
