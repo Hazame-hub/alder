@@ -27,13 +27,22 @@ import { safeText } from "@/lib/display";
  */
 export function UnknownOutcome({
   change,
+  resolved,
   onResolved,
 }: {
   change: ChangeRequest;
+  /**
+   * An answer already read, held by the caller. For a screen that may redraw
+   * this panel somewhere else once it has the answer -- a changeset that the
+   * verdict has just emptied -- and must not then offer the check again as if
+   * nothing were known.
+   */
+  resolved?: ChangeOutcome | null;
   /** Called once the directory has been read, with what it said. */
   onResolved?: (outcome: ChangeOutcome) => void;
 }) {
-  const [outcome, setOutcome] = useState<ChangeOutcome | null>(null);
+  const [read, setOutcome] = useState<ChangeOutcome | null>(null);
+  const outcome = resolved ?? read;
 
   const check = useMutation<ChangeOutcome, ApiFailure>({
     mutationFn: async () =>
