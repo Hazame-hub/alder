@@ -326,6 +326,7 @@ export function AttributeEditor({
                 value={value}
                 rows={3}
                 className="font-dn"
+                aria-label={valueLabel(name, i, values.length)}
                 onChange={(e) => setAt(i, e.target.value)}
               />
             ) : (
@@ -335,6 +336,7 @@ export function AttributeEditor({
                   type={inputType(kind)}
                   maxLength={kind.maxLength}
                   className="font-dn"
+                  aria-label={valueLabel(name, i, values.length)}
                   // A datalist, not a select. The suggestion is a suggestion:
                   // the box stays free text and sends exactly what it holds.
                   list={wordPair ? `${listId}-words` : undefined}
@@ -478,4 +480,20 @@ export function AddAttribute({
       </Button>
     </div>
   );
+}
+
+/**
+ * The name a value's input is announced by.
+ *
+ * The attribute name sits above the values as a heading, which a sighted
+ * reader connects to the boxes beneath it and nothing else does: the inputs
+ * had no accessible name at all, so a screen reader said "edit text" for
+ * every one of them. Found by the end-to-end harness, which drives the
+ * interface the way a person does and could not find "description" either.
+ *
+ * Numbered only when there is more than one, so a single-valued attribute is
+ * announced by its name alone.
+ */
+export function valueLabel(name: string, index: number, count: number): string {
+  return count > 1 ? `${name}, value ${index + 1} of ${count}` : name;
 }
