@@ -58,6 +58,14 @@ export class Alder {
   }
 
   /**
+   * Opens the changeset by its tab. Not by address: the changeset lives in
+   * the page's memory, and loading a URL would empty it.
+   */
+  async openChangeset(): Promise<void> {
+    await this.page.getByRole("button", { name: /^Changeset/ }).click();
+  }
+
+  /**
    * Changes one single-valued attribute in the editor and opens the review,
    * returning the dialog. Nothing has been written when this returns.
    */
