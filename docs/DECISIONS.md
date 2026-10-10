@@ -4883,3 +4883,52 @@ Proved end to end against a live 389 DS: cut, apply, `409
 write_outcome_unknown`; ask, `not_applied`; and the directory agrees --
 the entry was still there. Then the same through the interface, on a
 genuinely interrupted changeset.
+
+### 2026-10-10 — the toolchain had stopped receiving security fixes
+
+An audit of the actual state of the project, rather than the state it was
+remembered in, found the code healthy and the toolchain not. 1.36.0 was
+built on go1.25.14, which is the last release of the 1.25 line: Go supports
+the two newest major versions, and 1.27 had shipped. govulncheck found eight
+standard-library vulnerabilities the code reaches -- HTTP/2 and HTTP/1
+connection desynchronisation, a TLS ECH check, a MIME header limit --
+mostly through the command-line client's HTTP calls. All fixed in 1.27.2,
+none of them ever to be fixed in 1.25. Nothing had flagged it: Dependabot
+alerts were disabled and no job ran govulncheck.
+
+**The floor is now `go 1.27.2`, and it is the only place the version is
+written.** The workflows read it with `go-version-file`. Before, five jobs
+each pinned `"1.25"`, three of them without `check-latest`, so each could
+build on whichever patch the runner had cached -- and the release job was
+one of those. A minimum in go.mod also means an older Go switches up to it
+rather than compiling against an unpatched standard library; the Docker
+build image sets `GOTOOLCHAIN=local`, so there an image older than the
+floor fails outright, which is the right failure.
+
+**Four modules moved to the minimum version that fixes them, not to
+latest.** x/crypto 0.56.0, x/text 0.41.0, fasthttp 1.70.0, klauspost
+compress 1.18.7. `@latest` was tried first and pulled in a new transitive
+dependency (a Brotli library for newer fasthttp), which this repository does
+not add without asking, and moved fasthttp twenty-four minor versions under
+Fiber. The minimum fixes moved it nineteen, added nothing, and dropped one
+module (`valyala/tcplisten`). `asn1-ber` and `pflag` changed from indirect
+to direct because the code imports them directly; Go 1.27's tidy says so.
+
+**govulncheck is a CI job now**, in source mode: it follows the call graph
+and fails only on what the code reaches, so an advisory in a function we
+never call does not block anything, and a new one in something we do call
+fails the next pull request -- which is how anybody here learns it is time
+to move the toolchain. One advisory remains and is not reached:
+`x/crypto/openpgp` is unmaintained, has no fixed version, and is not
+imported.
+
+**The lint had been lying, and only the toolchain change revealed it.**
+golangci-lint v2.13.2 could not decode Go 1.27.2's export data, failed to
+type-check, and printed "0 issues" with exit 0. A version that lints
+nothing and reports a clean run is worse than no linter. Bumped to v2.14.0,
+and both CI and `task lint` now fail when the output contains a
+type-checking error. Proved both ways: v2.14.0 passes, v2.13.2 fails with
+exit 201 while still printing "0 issues".
+
+CI builds the linter with `go install` now rather than downloading it
+through the action, so it is the same binary a developer gets.

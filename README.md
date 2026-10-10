@@ -527,7 +527,8 @@ task generate        # regenerate the API types after editing api/openapi.yaml
 task dev             # prints the two commands for hot-reloading the SPA
 ```
 
-You need Go 1.25 or newer, Node 22 or newer, and Docker. See
+You need Go 1.27.2 or newer (an older Go downloads it on first build), Node 22
+or newer, and Docker. See
 `test/compose/README.md` for what the harness gives you.
 
 `api/openapi.yaml` is the source of truth for the HTTP API. The Go server

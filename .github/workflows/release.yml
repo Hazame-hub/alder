@@ -53,6 +53,12 @@ jobs:
           # it, the release pull request behaves like any other and merges on
           # its own checks. Without it everything still works, with two manual
           # steps per release, which is why this falls back rather than failing.
+          #
+          # But only when the secret is *missing*. `a || b` falls back when a
+          # is empty, and an expired token is not empty: it is used, and the
+          # run fails with "Bad credentials". That is what happened in October
+          # 2026 when the first 30-day token ran out. The fix is a new token,
+          # not this line -- and a longer expiry when it is made.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
@@ -85,7 +91,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
 
       - uses: actions/setup-node@v7
         with:
