@@ -41,7 +41,8 @@ v1 is stateless by design.
 
 ## The rules that are not style preferences
 
-These are correctness and security requirements, not style preferences:
+These are correctness and security requirements, not style preferences. They
+are section 7 of [`CHARTER.md`](CHARTER.md), in short:
 
 1. **No write without a `ChangeRecord`.** If you are calling `conn.Modify()`
    outside `Session.Apply`, stop.
@@ -142,6 +143,9 @@ expired.
 
 ## Scope
 
+[`CHARTER.md`](CHARTER.md) is the authority on scope and on the rules above;
+what follows is the short version.
+
 v1 does eleven things: connect over LDAPS or StartTLS, browse the DIT and the
 server's own configuration tree, browse and edit the schema, view and edit
 entries, preview every write as LDIF, stage changes into a changeset, export
@@ -151,10 +155,11 @@ Schema editing was moved in from the list below on 2026-09-04, deliberately and
 on the record; see the decisions log. It waited for the conformance harness to
 be green because it is the most vendor-divergent write in LDAP.
 
-Editing the configuration tree, including access rules, is in scope as of the
-same date. It was never built as a feature: it falls out of the entry editor
-being general and writes being routed by DN. Rather than take it away, it now
-warns before it lets you do something you cannot undo.
+In the configuration tree, the entry editor writes the settings a comparison
+has proved, creates OpenLDAP overlays whose module is loaded, and switches 389
+DS plugins on or off, warning before anything that cannot be undone. Access
+rules are read and shown, never written: the editor shows `aci` and
+`olcAccess` read-only. See the decisions log for why.
 
 Staging many changes for one review is in scope, and has been since the
 changeset shipped. A subtree's deletions, a parsed LDIF document and a table's
