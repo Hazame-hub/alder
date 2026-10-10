@@ -15,9 +15,17 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
-import type { ChangeRequest, ChangesetResult, Plan } from "@/lib/api";
+import type { ChangeOutcome, ChangeRequest, ChangesetResult, Plan } from "@/lib/api";
 import { changeset, useChangeset } from "@/lib/changeset";
 import { changesFromPlan } from "@/lib/plan";
+import {
+  appliedIds,
+  heldBy,
+  resolve,
+  sentIds,
+  unknownId,
+  type Resolution,
+} from "@/lib/changeset-outcome";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { LdifBlock } from "@/components/ldif-block";
@@ -47,6 +55,22 @@ export function ChangesetView({
   const staged = useChangeset();
   const queryClient = useQueryClient();
   const [result, setResult] = useState<ChangesetResult | null>(null);
+  // The changes the last run sent, as sent. Its outcomes are numbered by
+  // these, not by the staged list, which differs whenever a plan dropped
+  // something.
+  const [sent, setSent] = useState<{ ids: string[]; changes: ChangeRequest[] }>({
+    ids: [],
+    changes: [],
+  });
+  // A change the last run sent and never heard back about. While it is
+  // staged and unsettled, applying again would resend it.
+  const [interrupted, setInterrupted] = useState<{
+    id: string;
+    resolution: Resolution | null;
+    // Held here, not only in the panel: a verdict that empties the basket
+    // redraws the panel in the empty layout, and the answer must survive it.
+    outcome?: ChangeOutcome;
+  } | null>(null);
   const [prepareRecovery, setPrepareRecovery] = useState(false);
   // Set when a recovery bundle has just been staged, so the plan is made as
   // soon as the staged changes have rendered.
@@ -115,20 +139,21 @@ export function ChangesetView({
   const needsPlan = staged.some((s) => s.change.expect !== undefined);
 
   const apply = useMutation({
-    mutationFn: async () =>
-      unwrap(await api.POST("/changeset/apply", { body: applyBody })),
-    onSuccess: (res) => {
+    // What is sent travels with the request, so the answer is read against
+    // exactly that -- not against whatever is staged when it arrives.
+    mutationFn: async (run: { ids: string[]; body: typeof applyBody }) =>
+      unwrap(await api.POST("/changeset/apply", { body: run.body })),
+    onSuccess: (res, run) => {
       setResult(res);
+      setSent({ ids: run.ids, changes: run.body.changes });
+      const unknown = unknownId(res, run);
+      setInterrupted(unknown ? { id: unknown, resolution: null } : null);
       void queryClient.invalidateQueries({ queryKey: ["entry"] });
       void queryClient.invalidateQueries({ queryKey: ["tree"] });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
       // Keep what did not apply, in order. The basket ends up holding exactly
       // the work still to do.
-      const applied = res.outcomes
-        .filter((o) => o.applied)
-        .map((o) => staged[o.index]?.id)
-        .filter((id): id is string => id !== undefined);
-      changeset.removeApplied(applied);
+      changeset.removeApplied(appliedIds(res, run));
       setPlan(null);
     },
   });
@@ -156,12 +181,39 @@ export function ChangesetView({
   const stalePlan = applyError?.isStalePlan ? applyError : null;
   const data = preview.data;
 
+  const stagedIds = staged.map((s) => s.id);
+  const held = heldBy(
+    interrupted,
+    stagedIds,
+    (id) => stagedIds.indexOf(id) + 1,
+    current !== null,
+  );
+  // The check lives in the result panel. Dismissing it before the directory
+  // has been read would leave Apply held with no way to release it but
+  // deleting the change.
+  const mustCheck = held !== null && interrupted?.resolution === null;
+
+  const onVerdict = (outcome: ChangeOutcome) => {
+    if (!interrupted) return;
+    const resolution = resolve(outcome.verdict);
+    if (resolution === "remove") changeset.removeApplied([interrupted.id]);
+    setInterrupted({ id: interrupted.id, resolution, outcome });
+  };
+
+  const resultPanel = result ? (
+    <ResultPanel
+      result={result}
+      submitted={sent.changes}
+      verdict={interrupted?.outcome ?? null}
+      onVerdict={onVerdict}
+      onDismiss={mustCheck ? undefined : () => setResult(null)}
+    />
+  ) : null;
+
   if (staged.length === 0) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16">
-        {result ? (
-          <ResultPanel result={result} submitted={body.changes} onDismiss={() => setResult(null)} />
-        ) : null}
+        {resultPanel}
         <RecoveryLoader canStage onStaged={() => setPendingCheck(true)} />
         <div className="rounded-lg border border-dashed p-10 text-center">
           <ListChecks className="mx-auto mb-3 size-8 text-muted-foreground" />
@@ -204,9 +256,7 @@ export function ChangesetView({
         </Button>
       </div>
 
-      {result ? (
-        <ResultPanel result={result} submitted={body.changes} onDismiss={() => setResult(null)} />
-      ) : null}
+      {resultPanel}
 
       <ol className="mb-5 space-y-1.5">
         {staged.map((item, i) => (
@@ -405,6 +455,13 @@ export function ChangesetView({
         </div>
       ) : null}
 
+      {held ? (
+        <p className="mt-4 flex items-center gap-1.5 text-sm text-warning-tint-foreground">
+          <CircleHelp className="size-4 shrink-0" />
+          {held}
+        </p>
+      ) : null}
+
       <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t pt-4">
         {recovery ? (
           <span
@@ -429,10 +486,10 @@ export function ChangesetView({
           </span>
         )}
         <Button
-          disabled={!data || apply.isPending || stalePlan !== null || (needsPlan && !current) || (current !== null && applyBody.changes.length === 0)}
+          disabled={!data || apply.isPending || stalePlan !== null || held !== null || (needsPlan && !current) || (current !== null && applyBody.changes.length === 0)}
           onClick={() => {
             setResult(null);
-            apply.mutate();
+            apply.mutate({ ids: sentIds(stagedIds, current), body: applyBody });
           }}
         >
           {apply.isPending ? <Loader2 className="animate-spin" /> : null}
@@ -475,6 +532,8 @@ function headline(result: ChangesetResult, hasUnknown: boolean): string {
 function ResultPanel({
   result,
   submitted,
+  verdict,
+  onVerdict,
   onDismiss,
 }: {
   result: ChangesetResult;
@@ -483,7 +542,11 @@ function ResultPanel({
      asking the directory the wrong question would get a confident wrong
      answer. */
   submitted: ChangeRequest[];
-  onDismiss: () => void;
+  /** What the directory said about the interrupted change, once checked. */
+  verdict: ChangeOutcome | null;
+  onVerdict: (outcome: ChangeOutcome) => void;
+  /** Absent while dismissing would lose the only way to check. */
+  onDismiss?: () => void;
 }) {
   const failed = result.failedIndex !== undefined;
   // The one change in the run whose outcome nobody knows, if there is one.
@@ -513,9 +576,11 @@ function ResultPanel({
           )}
           {headline(result, unknown !== undefined)}
         </div>
-        <Button variant="ghost" size="icon" onClick={onDismiss} title="Dismiss">
-          <X />
-        </Button>
+        {onDismiss ? (
+          <Button variant="ghost" size="icon" onClick={onDismiss} title="Dismiss">
+            <X />
+          </Button>
+        ) : null}
       </div>
 
       {result.recovery ? (
@@ -539,7 +604,7 @@ function ResultPanel({
 
       {unknownChange ? (
         <div className="mt-2.5">
-          <UnknownOutcome change={unknownChange} />
+          <UnknownOutcome change={unknownChange} resolved={verdict} onResolved={onVerdict} />
         </div>
       ) : null}
 
@@ -580,9 +645,12 @@ function ResultPanel({
       {failed ? (
         <p className="mt-2.5 text-xs text-muted-foreground">
           The changes that applied are done and nothing reverses them by itself —
-          LDAP has no transaction spanning entries. The ones that did not are still
-          staged, in order, so fixing the failure and applying again resumes
-          rather than repeats.
+          LDAP has no transaction spanning entries.{" "}
+          {unknown
+            ? // "Resumes rather than repeats" is untrue of the one change
+              // nobody can account for: applying again would send it again.
+              "The rest are still staged, in order. Applying again is held until the directory has been checked for the interrupted change: if it landed, it leaves the changeset; if it did not, it is planned again first."
+            : "The ones that did not are still staged, in order, so fixing the failure and applying again resumes rather than repeats."}
         </p>
       ) : null}
     </div>

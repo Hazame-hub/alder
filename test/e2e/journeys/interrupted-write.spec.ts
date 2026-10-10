@@ -1,6 +1,7 @@
 import { expect, test, type Alder } from "../support/fixtures";
 import type { Locator } from "@playwright/test";
 import type { InterruptMode } from "../support/proxy";
+import { longValue } from "../support/values";
 
 /**
  * The connection dies while a change is going out.
@@ -16,17 +17,6 @@ import type { InterruptMode } from "../support/proxy";
  * not. A test that could only produce whichever outcome the race favoured
  * would prove half of this.
  */
-
-/**
- * Long on purpose: it makes the modify request the one large thing the
- * client sends, which is how the proxy finds the write inside TLS it cannot
- * read. Under 1024 characters, because that is the bound in description's
- * syntax and the editor holds a value to it.
- */
-function longValue(token: string): string {
-  const head = `interrupted-${token}-`;
-  return head + "x".repeat(1_000 - head.length);
-}
 
 /** Applies the reviewed change with the next write interrupted. */
 async function applyInterrupted(alder: Alder, dialog: Locator, mode: InterruptMode) {
