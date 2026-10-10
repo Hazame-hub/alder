@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.36.2](https://github.com/Hazame-hub/alder/compare/v1.36.1...v1.36.2) (2026-10-10)
+
+
+### Fixes
+
+* **api:** log a changeset stopped by an unknown outcome as unknown ([#193](https://github.com/Hazame-hub/alder/issues/193)) ([417b154](https://github.com/Hazame-hub/alder/commit/417b15476383433e24e1faa5ff0985a488071b28))
+* **web:** give attribute value inputs an accessible name ([36d73f2](https://github.com/Hazame-hub/alder/commit/36d73f290f64aa103eda4a970aed6d787f5130cf))
+* **web:** hold a changeset whose run stopped on an unknown outcome until the directory has been checked ([115ddc9](https://github.com/Hazame-hub/alder/commit/115ddc93ab183ae34f2017a99187a37cdc0653db))
+* **web:** no way to resend a change whose outcome is unknown ([bca4cda](https://github.com/Hazame-hub/alder/commit/bca4cdaa4777937b73371180add6d6092ce85e96))
+* **web:** read a changeset run's outcomes by what was sent, not by staged position ([115ddc9](https://github.com/Hazame-hub/alder/commit/115ddc93ab183ae34f2017a99187a37cdc0653db))
+
+
+### Performance
+
+* **api:** stop probing tree entries the server already calls childless ([#192](https://github.com/Hazame-hub/alder/issues/192)) ([1cd0246](https://github.com/Hazame-hub/alder/commit/1cd024660414c158367a801b751c89febbc030b2))
+
 ## [1.36.1](https://github.com/Hazame-hub/alder/compare/v1.36.0...v1.36.1) (2026-10-10)
 
 
