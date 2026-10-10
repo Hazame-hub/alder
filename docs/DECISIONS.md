@@ -5188,3 +5188,27 @@ configuration tree "including access rules" was in scope, a line from
 and never written, and the code agrees: the editor treats `aci` and
 `olcAccess` as edited elsewhere. CONTRIBUTING now says what the code does
 and points at the charter for scope.
+
+### 2026-10-10 — the project format, confirmed as a specification
+
+A scope change, confirmed before anything was written for it: the Alder
+project format -- an `alder.yaml` declaring the subtrees a repository is
+responsible for and the environments it plans against. What is confirmed
+is the specification, `docs/PROJECT.md`, and only that. No code until it
+has been reviewed and its open questions answered.
+
+It is shaped by four commitments already on the record, each of which it
+keeps rather than bends: absence from a document never means deletion, so
+a managed subtree reports entries it does not mention and never removes
+them; Alder keeps no state, so there is no state file and every plan is
+made against the live directory; secrets never sit in files and nothing
+that widens a write comes from configuration, so a password is named by
+environment variable or file and `--env` is command-line only; and the
+plan engine is the existing desired-state plan, so the first slice --
+`alder project validate` and `alder project plan --env` -- adds a file
+format and almost no engine code.
+
+One of those commitments collides with an offline `validate`: the client
+commands have no LDIF parser by design. The specification recommends
+reusing the server's own `internal/ldif` rather than requiring a server to
+validate a file, and leaves that, with four smaller questions, for review.
