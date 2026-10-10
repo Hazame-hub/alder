@@ -5212,3 +5212,20 @@ One of those commitments collides with an offline `validate`: the client
 commands have no LDIF parser by design. The specification recommends
 reusing the server's own `internal/ldif` rather than requiring a server to
 validate a file, and leaves that, with four smaller questions, for review.
+
+### 2026-10-10 — the end-to-end journeys are complete, and stop here
+
+Two more journeys finish the set: **drift** (snapshot an entry, change it
+out of band, compare, apply the change the comparison proposes, confirm
+with the directory) and **recovery** (apply with a recovery bundle,
+download it, load it, review the compensation's plan, apply, confirm the
+entry is back). With edit, the interrupted write and the interrupted
+changeset, that is every path where Alder writes on a person's behalf
+from a different starting point, on both servers.
+
+**From here a journey is added when a bug escapes, not to cover more
+screens.** Full UI coverage is not the goal. The conformance suite is
+where behaviour against the two servers is pinned, and it is cheaper,
+faster and more exact than a browser. A journey earns its place by
+covering a path where the UI and the server have to agree and have been
+seen not to -- each of the five found or guarded something real.

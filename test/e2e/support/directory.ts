@@ -60,6 +60,15 @@ export function add(server: DirectoryServer, ldif: string): void {
   if (code !== 0) throw new Error(`adding on ${server.name} exited ${code}: ${err.trim()}`);
 }
 
+/**
+ * Changes an entry behind Alder's back, from LDIF change records: the
+ * out-of-band edit a drift journey has to find.
+ */
+export function modify(server: DirectoryServer, ldif: string): void {
+  const { code, err } = run(server, "ldapmodify", [], ldif);
+  if (code !== 0) throw new Error(`modifying on ${server.name} exited ${code}: ${err.trim()}`);
+}
+
 /** Removes an entry; one that is already gone is not an error. */
 export function remove(server: DirectoryServer, dn: string): void {
   const { code, err } = run(server, "ldapdelete", [dn]);
