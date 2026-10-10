@@ -115,8 +115,19 @@ tasks:
 
   lint:
     desc: Run golangci-lint
+    # A linter that cannot type-check the code still prints "0 issues" and
+    # exits 0, which is how a toolchain bump nearly shipped with lint doing
+    # nothing. The same guard as CI: no type-checking, no pass.
     cmds:
-      - golangci-lint run
+      - |
+        status=0
+        out="$(golangci-lint run 2>&1)" || status=$?
+        echo "$out"
+        if echo "$out" | grep -q "typechecking error"; then
+          echo "golangci-lint could not type-check this code, so its result means nothing" >&2
+          exit 1
+        fi
+        exit "$status"
 
   fmt:
     desc: Format the Go sources

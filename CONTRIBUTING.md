@@ -2,7 +2,7 @@
 
 ## Getting set up
 
-You need Go 1.25+, Node 22+, and Docker.
+You need Go 1.27.2+ (an older Go downloads it on first build), Node 22+, and Docker.
 
 ```sh
 task compose:up             # OpenLDAP and 389 DS, seeded, with TLS
