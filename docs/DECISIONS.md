@@ -5161,6 +5161,58 @@ to 14 ms on OpenLDAP and from 834 ms to 134 ms on 389 DS, over loopback.
 Over a real network each probe skipped is a round trip saved, so the
 difference grows with distance.
 
+### 2026-10-10 — the charter, committed
+
+Code comments and this log cite "section 3 of the charter" and "section 4"
+throughout, and the charter was a file kept out of git. A reader could
+not follow a single one of those references. `CHARTER.md` is now in the
+repository, with the same section numbers, so every existing citation --
+including the four older entries here that name `CLAUDE.md` -- points at
+the right section of it.
+
+**It is the public part, not the whole working document.** Product, scope,
+target servers, stack, layout, the core abstraction, the hard rules and
+the harness. Left out: the notes on how the maintainer works with
+contributors and tools, the milestone plan that has been delivered, and
+the reasoning behind keeping dual-licensing open, which lives with the
+licence decision above.
+
+**It describes what is true now, not what was planned.** The Go floor is
+the one in `go.mod`, the in-scope list includes what was added on the
+record since, and the scope section names the project format confirmed
+today as a specification only.
+
+**Writing it found a contradiction.** CONTRIBUTING said editing the
+configuration tree "including access rules" was in scope, a line from
+2026-09-04. The 1.19 decision three weeks later says access rules are read
+and never written, and the code agrees: the editor treats `aci` and
+`olcAccess` as edited elsewhere. CONTRIBUTING now says what the code does
+and points at the charter for scope.
+
+### 2026-10-10 — the project format, confirmed as a specification
+
+A scope change, confirmed before anything was written for it: the Alder
+project format -- an `alder.yaml` declaring the subtrees a repository is
+responsible for and the environments it plans against. What is confirmed
+is the specification, `docs/PROJECT.md`, and only that. No code until it
+has been reviewed and its open questions answered.
+
+It is shaped by four commitments already on the record, each of which it
+keeps rather than bends: absence from a document never means deletion, so
+a managed subtree reports entries it does not mention and never removes
+them; Alder keeps no state, so there is no state file and every plan is
+made against the live directory; secrets never sit in files and nothing
+that widens a write comes from configuration, so a password is named by
+environment variable or file and `--env` is command-line only; and the
+plan engine is the existing desired-state plan, so the first slice --
+`alder project validate` and `alder project plan --env` -- adds a file
+format and almost no engine code.
+
+One of those commitments collides with an offline `validate`: the client
+commands have no LDIF parser by design. The specification recommends
+reusing the server's own `internal/ldif` rather than requiring a server to
+validate a file, and leaves that, with four smaller questions, for review.
+
 ### 2026-10-10 — the end-to-end journeys are complete, and stop here
 
 Two more journeys finish the set: **drift** (snapshot an entry, change it
