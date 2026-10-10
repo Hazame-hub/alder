@@ -173,8 +173,20 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 	}
 	if failed >= 0 {
 		result.FailedIndex = ptr(failed)
-		s.logger.Warn("changeset stopped at a failure",
-			"applied", result.AppliedCount, "failed_at", failed, "total", len(records))
+		// The log says what the response says. An operator reading "stopped
+		// at a failure" in the server's own log, while the UI says the change
+		// may already have been applied, is told the same lie the UI was
+		// changed to stop telling.
+		// One outcome per record, in order, so the stopping one is at its
+		// own index -- not last: the changes after it follow as not attempted.
+		if stopped := result.Outcomes[failed]; stopped.State != nil &&
+			*stopped.State == ChangesetOutcomeStateUnknown {
+			s.logger.Warn("changeset stopped at a change whose outcome is unknown",
+				"applied", result.AppliedCount, "unknown_at", failed, "total", len(records))
+		} else {
+			s.logger.Warn("changeset stopped at a failure",
+				"applied", result.AppliedCount, "failed_at", failed, "total", len(records))
+		}
 	} else {
 		s.logger.Info("changeset applied", "changes", result.AppliedCount)
 	}
