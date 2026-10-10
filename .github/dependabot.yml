@@ -25,6 +25,16 @@ updates:
     groups:
       go-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # Held at 1.70. 1.75 replaces andybalholm/brotli with a new module,
+      # molecule-man/go-brrr, and moves klauspost/compress to 1.20 -- the new
+      # transitive dependency docs/DECISIONS.md, "the toolchain had stopped
+      # receiving security fixes", chose to avoid, and this repository adds no
+      # dependency without review. Revisit when Fiber requires a newer
+      # fasthttp or govulncheck flags 1.70; review go-brrr then: who maintains
+      # it, whether it needs cgo, its licence. Patch releases still arrive.
+      - dependency-name: github.com/valyala/fasthttp
+        update-types: [version-update:semver-minor, version-update:semver-major]
 
   - package-ecosystem: npm
     directory: /web
