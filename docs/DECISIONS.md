@@ -5086,6 +5086,50 @@ verdict, so it is not fixed in passing.
 child, so a page of 100 children is 101 searches. It showed up as a few
 hundred requests in a twenty-second journey.
 
+### 2026-10-10 — the changeset no longer offers to resend an unknown change
+
+The hole the interrupted-write journey left open, closed as recommended
+and confirmed. After a run stops at a change whose outcome is unknown,
+applying is **held** until the directory has been checked, and the verdict
+decides what happens to the change:
+
+- **applied** -- it leaves the changeset. Leaving it staged invited a
+  second, separate change.
+- **not applied** -- it stays, and the run may go again only from a fresh
+  "Check against the directory", so it is planned against the directory as
+  it is now rather than as it was reviewed before the interruption.
+- **conflicted** or **undeterminable** -- applying stays held, with a line
+  saying to look at the entry; it is released when the operator removes
+  the change.
+
+The reason is shown beside the disabled button rather than leaving a grey
+button to be puzzled over, and the result panel cannot be dismissed while
+it holds the only "Check the directory". Its closing note no longer says
+re-applying "resumes rather than repeats" when the run stopped on an
+unknown change, because for that change it would have repeated it.
+
+**A second bug, under the first.** A run's outcomes are numbered by what
+was *sent*. With a checked plan that dropped a change that would do
+nothing, that is not the staged list -- and the screen read
+`staged[o.index]` anyway. After a partial run it could remove the wrong
+change and leave an applied one staged; after an interrupted run, "Check
+the directory" asked about the wrong change, and would have answered
+confidently. A run now carries the staged id of each change it sent, and
+which staged changes a plan sends is decided in one place
+(`sentStagedIndices`) that `changesFromPlan` itself uses, so the two cannot
+drift.
+
+**Found by writing the journey, too:** when the verdict emptied the
+basket, the screen redrew the result panel in its empty layout and the
+answer was lost -- it offered "Check the directory" again as if nothing
+were known. The verdict is held by the screen now, not only the panel.
+
+Proved with two changeset journeys on both servers, interrupted
+deterministically like the single-change ones. Against the SPA before this
+change both fail where expected -- "Apply in order" enabled after an
+interrupted run -- and with it all ten journeys pass, the interrupted ones
+twenty-four times out of twenty-four.
+
 ### 2026-10-10 — the tree stops probing leaves
 
 A tree listing asked every child, one search each, whether it had children

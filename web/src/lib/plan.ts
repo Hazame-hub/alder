@@ -26,12 +26,27 @@ export function changesFromPlan(
   plan: Plan,
   staged: ChangeRequest[],
 ): ChangeRequest[] {
-  return plan.items
-    .filter((item) => item.record !== undefined && item.baseline !== undefined)
-    .map((item) => {
-      const exact = item.intent !== "desired";
-      const source = exact ? staged[item.index] : undefined;
-      const record = source ?? (item.record as ChangeRequest);
-      return { ...record, baseline: item.baseline };
-    });
+  return sentItems(plan).map((item) => {
+    const exact = item.intent !== "desired";
+    const source = exact ? staged[item.index] : undefined;
+    const record = source ?? (item.record as ChangeRequest);
+    return { ...record, baseline: item.baseline };
+  });
+}
+
+/**
+ * Which staged changes a checked plan sends, by their index in the staged
+ * list, in the order they are sent.
+ *
+ * A run's outcomes are numbered by what was sent, not by what was staged, and
+ * the two differ whenever the plan dropped something. Anything that maps an
+ * outcome back to a staged change goes through this, so it cannot drift from
+ * what changesFromPlan actually sent.
+ */
+export function sentStagedIndices(plan: Plan): number[] {
+  return sentItems(plan).map((item) => item.index);
+}
+
+function sentItems(plan: Plan): Plan["items"] {
+  return plan.items.filter((item) => item.record !== undefined && item.baseline !== undefined);
 }
