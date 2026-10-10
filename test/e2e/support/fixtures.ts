@@ -65,6 +65,12 @@ export class Alder {
     await this.page.getByRole("button", { name: /^Changeset/ }).click();
   }
 
+  /** Opens Snapshots & drift by its tab, for the same reason. */
+  async openSnapshots(): Promise<void> {
+    await this.page.getByRole("button", { name: "Snapshots & drift", exact: true }).click();
+    await expect(this.page.getByRole("heading", { name: "Snapshots & drift" })).toBeVisible();
+  }
+
   /**
    * Changes one single-valued attribute in the editor and opens the review,
    * returning the dialog. Nothing has been written when this returns.
@@ -95,6 +101,8 @@ type Fixtures = {
   alder: Alder;
   disposable: Disposable;
   read: (dn: string, attributes?: string[]) => directory.Attributes | null;
+  /** Applies LDIF change records out of band, as an administrator would by hand. */
+  modifyOutOfBand: (ldif: string) => void;
 };
 
 type Options = { server: DirectoryServer };
@@ -116,6 +124,10 @@ export const test = base.extend<Fixtures & Options>({
 
   read: async ({ server }, use) => {
     await use((dn, attributes = []) => directory.read(server, dn, attributes));
+  },
+
+  modifyOutOfBand: async ({ server }, use) => {
+    await use((ldif) => directory.modify(server, ldif));
   },
 
   disposable: async ({ server }, use, testInfo) => {

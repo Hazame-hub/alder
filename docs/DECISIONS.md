@@ -5160,3 +5160,20 @@ Measured on the harness, listing `ou=people` (305 leaves) went from 219 ms
 to 14 ms on OpenLDAP and from 834 ms to 134 ms on 389 DS, over loopback.
 Over a real network each probe skipped is a round trip saved, so the
 difference grows with distance.
+
+### 2026-10-10 — the end-to-end journeys are complete, and stop here
+
+Two more journeys finish the set: **drift** (snapshot an entry, change it
+out of band, compare, apply the change the comparison proposes, confirm
+with the directory) and **recovery** (apply with a recovery bundle,
+download it, load it, review the compensation's plan, apply, confirm the
+entry is back). With edit, the interrupted write and the interrupted
+changeset, that is every path where Alder writes on a person's behalf
+from a different starting point, on both servers.
+
+**From here a journey is added when a bug escapes, not to cover more
+screens.** Full UI coverage is not the goal. The conformance suite is
+where behaviour against the two servers is pinned, and it is cheaper,
+faster and more exact than a browser. A journey earns its place by
+covering a path where the UI and the server have to agree and have been
+seen not to -- each of the five found or guarded something real.
