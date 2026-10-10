@@ -1,0 +1,67 @@
+# Dependency updates, for every ecosystem the repository ships or builds with.
+#
+# govulncheck already fails CI on a Go vulnerability the code reaches; this is
+# the other half -- knowing an update exists before it is urgent, and covering
+# what govulncheck does not see: the SPA, the end-to-end harness, and the
+# Actions the workflows run.
+#
+# Weekly, and minor and patch updates grouped per ecosystem, so the queue is a
+# handful of pull requests rather than one per package. Majors arrive alone:
+# each is a decision, and the frontend upgrade showed why -- some of them break.
+#
+# "chore(deps)" keeps these out of the release notes, which describe what
+# changed for someone running Alder; a security fix that matters to them gets
+# its own fix: commit, as the Go 1.27.2 move did.
+
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      web-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Held at 5.9 on purpose: typescript-eslint and openapi-typescript do
+      # not support TypeScript 7 yet. See docs/DECISIONS.md, "the frontend
+      # brought up to date, except TypeScript".
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: npm
+    directory: /test/e2e
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      e2e-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Matched to web/, for the same reason.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      actions:
+        patterns: ["*"]
