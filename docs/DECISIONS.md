@@ -5254,3 +5254,35 @@ that package carries the server and the driver -- so the first slice
 starts by generating the wire types into their own package. And `--env` is
 excluded from `ALDER_*` with `envflags.Exclude`, the mechanism `--yes`
 uses, so an inherited environment variable cannot choose production.
+
+### 2026-10-11 — the project format's first slice
+
+`alder project validate` and `alder project plan --env`, built as
+`docs/PROJECT.md` specifies, with `go.yaml.in/yaml/v3` as the one new
+dependency (approved; the maintained successor to go-yaml, with no
+dependencies of its own). Strict decoding is what refuses unknown keys.
+
+**The client's rule is a test now.** It imported `internal/api` for its
+generated types, and that package carries the server and the LDAP driver,
+so the client linked go-ldap while the docs said it had no LDAP code. The
+types are generated a second time, from the same spec, into
+`internal/apiclient`; CI checks that file against the spec like the
+others; and a test fails if `internal/cli` reaches go-ldap, the driver or
+the server. The review had worded the ban to include `internal/directory`
+as well. That package holds no protocol code -- it is the
+driver-independent model -- and the client already uses it through
+recovery bundles, so the test forbids what "no LDAP code" means and no
+more. The specification says so where the rule is stated.
+
+**Planning against the real servers found a rule the stub could not.**
+The server reads every desired-state record as a possible add, so a record
+without `objectClass` is refused even for an entry that exists. A project
+therefore describes whole entries, and `validate` says so, offline, so a
+project that validates also plans. The conformance test that found it
+plans a project against both servers -- one entry to modify, one to add,
+nothing written -- and stays as the guard.
+
+Each environment names its own password variable, so a shell holding the
+development password cannot hand it to production; `connection` grew two
+optional fields for the variable names, and every other command reads
+`ALDER_BIND_PASSWORD` exactly as before.

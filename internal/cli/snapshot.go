@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/envflags"
 )
 
@@ -106,15 +106,15 @@ func runSnapshot(ctx context.Context, env *Env, conn *connection, o snapshotOpti
 	}
 	defer r.close()
 
-	var req api.SnapshotCaptureRequest
+	var req apiclient.SnapshotCaptureRequest
 	switch o.kind {
 	case "schema":
-		req.Kind = ptr(api.StateKindSchema)
+		req.Kind = ptr(apiclient.StateKindSchema)
 	case "config":
-		req.Kind = ptr(api.StateKindConfig)
+		req.Kind = ptr(apiclient.StateKindConfig)
 	default:
-		scope := api.SnapshotScope(o.scope)
-		req = api.SnapshotCaptureRequest{Base: &o.base, Scope: &scope}
+		scope := apiclient.SnapshotScope(o.scope)
+		req = apiclient.SnapshotCaptureRequest{Base: &o.base, Scope: &scope}
 		if o.filter != "" {
 			req.Filter = &o.filter
 		}

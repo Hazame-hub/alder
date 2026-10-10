@@ -1,9 +1,10 @@
 # The Alder project format
 
-**Status: reviewed, not implemented.** Confirmed as a scope change on
-2026-10-10 as a specification, and reviewed the same day; the decisions that
-review made are at the end, and the sections above already reflect them. The
-first slice can now be built against this document.
+**Status: the first slice is implemented** -- `alder project validate` and
+`alder project plan --env` (see [CLI.md](CLI.md)). Confirmed as a scope change
+on 2026-10-10 as a specification and reviewed the same day; the decisions that
+review made are at the end, and the sections above reflect them. The later
+slices below are not built.
 
 ---
 
@@ -95,6 +96,11 @@ Rules, all checked by `validate`:
 - Every file is **content records only**, the same rule as `--mode desired`. A
   `changetype` record is refused: a project describes state, it does not issue
   operations.
+- Every entry is **whole**, with its `objectClass`. The plan may have to
+  create any entry, so the server reads each record as a possible add and
+  refuses one without object classes, even for an entry that exists. Found
+  by the first slice's conformance test, and checked by `validate` so a
+  project that validates also plans.
 - Every entry lies **at or below** its subtree's `base`. An entry outside it is
   refused, because the project would be claiming something it says it does not
   manage.
@@ -248,13 +254,22 @@ hold no secrets, and every plan names its environment and host.
    the sensitive-attribute list only through the server's own packages.*
 
    **Enforced by a test, not a comment.** A `go list -deps` check that
-   `internal/cli` reaches neither `internal/directory` nor go-ldap. It cannot
-   pass today: the client imports `internal/api` for the generated request
-   and response types, and that package also holds the HTTP server, which
-   brings the driver with it. So the first slice starts by generating the
-   wire types into a package of their own, which the client imports instead,
-   and adds the test in the same change. `internal/ldif`, `internal/dn` and
-   `internal/schema` already depend on neither.
+   `internal/cli` reaches neither go-ldap, the LDAP driver nor the server
+   package. The client used to import `internal/api` for the generated
+   request and response types, and that package also holds the HTTP server,
+   which builds the driver; so the first slice began by generating the wire
+   types into `internal/apiclient`, which the client imports instead, and
+   added the test in the same change.
+
+   *Amended when it was built:* the review worded the rule as "never
+   `internal/directory` or go-ldap". `internal/directory` turned out to hold
+   no protocol code -- it is Alder's driver-independent model, the
+   `ChangeRecord` and the interfaces -- and recovery bundles and the session
+   cookie names, which the client already uses, are expressed in it. Banning
+   it would have meant rewriting both for no safety gain, so the test forbids
+   what "no LDAP code" means: go-ldap, the driver built on it, and the server
+   that builds the driver. `internal/ldif`, `internal/dn` and
+   `internal/schema` depend on none of those.
 
 2. **Environments with different suffixes**, `dc=dev,dc=example,dc=com` against
    `dc=example,dc=com`. Supporting it means rewriting every DN in every file per

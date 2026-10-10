@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 )
 
 // Human output. Every string that came from a directory goes through safe.
@@ -15,12 +15,12 @@ import (
 // everything Alder sent.
 const maxValuesShown = 20
 
-func renderDiff(w io.Writer, d api.Diff, sourceName, targetName string, summaryOnly, sourceLive bool) {
-	if d.Kind == api.StateKindSchema && d.Schema != nil {
+func renderDiff(w io.Writer, d apiclient.Diff, sourceName, targetName string, summaryOnly, sourceLive bool) {
+	if d.Kind == apiclient.StateKindSchema && d.Schema != nil {
 		renderSchemaDiff(w, d, sourceName, targetName, summaryOnly, sourceLive)
 		return
 	}
-	if d.Kind == api.StateKindConfig && d.Config != nil {
+	if d.Kind == apiclient.StateKindConfig && d.Config != nil {
 		renderConfigDiff(w, d, sourceName, targetName, summaryOnly, sourceLive)
 		return
 	}
@@ -74,7 +74,7 @@ func renderDiff(w io.Writer, d api.Diff, sourceName, targetName string, summaryO
 		writeln(w)
 		dnText := ""
 		switch {
-		case it.Kind == api.DiffKindRenamed && it.SourceDn != nil && it.TargetDn != nil:
+		case it.Kind == apiclient.DiffKindRenamed && it.SourceDn != nil && it.TargetDn != nil:
 			dnText = safe(*it.SourceDn) + "\n          -> " + safe(*it.TargetDn)
 		case it.TargetDn != nil:
 			dnText = safe(*it.TargetDn)
@@ -104,7 +104,7 @@ func renderDiff(w io.Writer, d api.Diff, sourceName, targetName string, summaryO
 	}
 }
 
-func renderAttributeChange(w io.Writer, a api.DiffAttributeChange) {
+func renderAttributeChange(w io.Writer, a apiclient.DiffAttributeChange) {
 	var notes []string
 	if a.Operational != nil && *a.Operational {
 		notes = append(notes, "operational")
@@ -128,7 +128,7 @@ func renderAttributeChange(w io.Writer, a api.DiffAttributeChange) {
 	printValues(w, "+", a.Added, deref(a.AddedOmitted))
 }
 
-func printValues(w io.Writer, mark string, values *[]api.SnapshotValue, omitted int) {
+func printValues(w io.Writer, mark string, values *[]apiclient.SnapshotValue, omitted int) {
 	shown := 0
 	if values != nil {
 		for _, v := range *values {
@@ -145,7 +145,7 @@ func printValues(w io.Writer, mark string, values *[]api.SnapshotValue, omitted 
 	}
 }
 
-func valueText(v api.SnapshotValue) string {
+func valueText(v apiclient.SnapshotValue) string {
 	switch {
 	case v.Text != nil:
 		return safe(*v.Text)
@@ -159,7 +159,7 @@ func valueText(v api.SnapshotValue) string {
 	return "(empty)"
 }
 
-func sideLabel(name string, s api.DiffSideSummary) string {
+func sideLabel(name string, s apiclient.DiffSideSummary) string {
 	scope := fmt.Sprintf("%s of %s", s.Scope, safe(s.Base))
 	if s.Filter != "" && s.Filter != "(objectClass=*)" {
 		scope += " matching " + safe(s.Filter)
@@ -168,7 +168,7 @@ func sideLabel(name string, s api.DiffSideSummary) string {
 	if s.Vendor != nil && *s.Vendor != "" {
 		vendor = ", " + safe(*s.Vendor)
 	}
-	if s.Kind == api.DiffSideKindLive {
+	if s.Kind == apiclient.DiffSideKindLive {
 		return fmt.Sprintf("%s (%s%s)", name, scope, vendor)
 	}
 	details := []string{scope, plural(s.EntryCount, "entry", "entries")}
@@ -181,7 +181,7 @@ func sideLabel(name string, s api.DiffSideSummary) string {
 	return fmt.Sprintf("%s (%s%s)", safe(name), strings.Join(details, ", "), vendor)
 }
 
-func renderPlan(w io.Writer, p api.Plan, showItems bool) {
+func renderPlan(w io.Writer, p apiclient.Plan, showItems bool) {
 	c := p.Counts
 	invalid := deref(c.Invalid)
 	writef(w, "Plan: %s examined\n", plural(c.Examined, "change", "changes"))
@@ -221,10 +221,10 @@ func renderPlan(w io.Writer, p api.Plan, showItems bool) {
 	for _, it := range p.Items {
 		writeln(w)
 		var notes []string
-		if it.Kind != nil && *it.Kind != api.PlanTargetData {
+		if it.Kind != nil && *it.Kind != apiclient.PlanTargetData {
 			notes = append(notes, string(*it.Kind))
 		}
-		if it.Intent != nil && *it.Intent == api.PlanIntentDesired {
+		if it.Intent != nil && *it.Intent == apiclient.PlanIntentDesired {
 			notes = append(notes, "desired state")
 		}
 		line := fmt.Sprintf("%-12s %s", it.Action, safe(it.Dn))
@@ -264,7 +264,7 @@ func renderPlan(w io.Writer, p api.Plan, showItems bool) {
 	writeln(w)
 }
 
-func renderApplyResult(w io.Writer, r api.ChangesetResult, sent int) {
+func renderApplyResult(w io.Writer, r apiclient.ChangesetResult, sent int) {
 	for _, o := range r.Outcomes {
 		status := "not applied"
 		if o.Applied {

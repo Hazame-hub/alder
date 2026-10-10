@@ -16,7 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/envflags"
 	"github.com/hazame-hub/alder/internal/session"
 )
@@ -54,6 +54,13 @@ type connection struct {
 
 	configBindDN           string
 	configBindPasswordFile string
+
+	// The environment variables the passwords are read from, when they are
+	// not ALDER_BIND_PASSWORD and ALDER_CONFIG_BIND_PASSWORD. Only a project
+	// sets these: each of its environments names its own, so a shell holding
+	// the development password cannot hand it to production.
+	bindPasswordEnvName       string
+	configBindPasswordEnvName string
 }
 
 func (c *connection) registerAPI(cmd *cobra.Command) {
@@ -190,7 +197,7 @@ type remote struct {
 	env       *Env
 	base      string
 	doer      *sessionDoer
-	api       *api.ClientWithResponses
+	api       *apiclient.ClientWithResponses
 	connected bool
 }
 
@@ -258,7 +265,7 @@ func (c *connection) client(env *Env) (*remote, error) {
 		// redirect is a misconfiguration to report, not to follow.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
-	cl, err := api.NewClientWithResponses(base, api.WithHTTPClient(doer))
+	cl, err := apiclient.NewClientWithResponses(base, apiclient.WithHTTPClient(doer))
 	if err != nil {
 		return nil, usagef("--api-url: %v", err)
 	}
@@ -271,7 +278,7 @@ func (c *connection) open(ctx context.Context, env *Env) (*remote, error) {
 	if err != nil {
 		return nil, err
 	}
-	req := api.ConnectRequest{Host: c.host, Port: c.effectivePort(), Tls: api.ConnectRequestTls(c.tlsMode)}
+	req := apiclient.ConnectRequest{Host: c.host, Port: c.effectivePort(), Tls: apiclient.ConnectRequestTls(c.tlsMode)}
 	if c.caFile != "" {
 		pem, readErr := readSmallFile(c.caFile, 1<<20)
 		if readErr != nil {
@@ -287,14 +294,14 @@ func (c *connection) open(ctx context.Context, env *Env) (*remote, error) {
 		req.InsecureSkipVerify = &c.insecureSkipVerify
 	}
 	if c.bindDN != "" {
-		secret, pwErr := c.password(env, c.bindPasswordFile, c.bindPasswordStdin, bindPasswordEnv, "--bind-dn")
+		secret, pwErr := c.password(env, c.bindPasswordFile, c.bindPasswordStdin, orDefault(c.bindPasswordEnvName, bindPasswordEnv), "--bind-dn")
 		if pwErr != nil {
 			return nil, pwErr
 		}
 		req.BindDn, req.BindPassword = &c.bindDN, &secret
 	}
 	if c.configBindDN != "" {
-		secret, pwErr := c.password(env, c.configBindPasswordFile, false, configBindPasswordEnv, "--config-bind-dn")
+		secret, pwErr := c.password(env, c.configBindPasswordFile, false, orDefault(c.configBindPasswordEnvName, configBindPasswordEnv), "--config-bind-dn")
 		if pwErr != nil {
 			return nil, pwErr
 		}
@@ -332,6 +339,13 @@ func (c *connection) password(env *Env, file string, stdin bool, envName, forFla
 	}
 	return "", usagef("%s needs a password: set %s, or pass %s-file or --bind-password-stdin",
 		forFlag, envName, strings.TrimSuffix(strings.TrimPrefix(forFlag, "--"), "-dn")+"-password")
+}
+
+func orDefault(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
 }
 
 // close ends the session. It uses a context of its own, so an interrupted
