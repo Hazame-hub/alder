@@ -6,6 +6,7 @@
 ### Fixes
 
 * **build:** built on Go 1.27.2 with the dependency fixes for every vulnerability the code reaches, and govulncheck now runs in CI ([246f9a2](https://github.com/Hazame-hub/alder/commit/246f9a2ba9e408b0d392023fba4d4f9a32aaa59f))
+* **web:** frontend dependencies brought up to date -- Vite 8, Vitest 5, lucide-react 1.x, openapi-fetch 0.17 -- clearing every npm advisory; TypeScript stays on 5.9 until its tooling supports 7 ([6ba14c0](https://github.com/Hazame-hub/alder/commit/6ba14c0))
 
 ## [1.36.0](https://github.com/Hazame-hub/alder/compare/v1.35.0...v1.36.0) (2026-10-06)
 
