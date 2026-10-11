@@ -402,9 +402,13 @@ func applicable(p apiclient.Plan) int {
 // applyEnvelope is apply's JSON: the plan that was reviewed, and what applying
 // it did or why it did not.
 type applyEnvelope struct {
-	Plan   json.RawMessage `json:"plan,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  json.RawMessage `json:"error,omitempty"`
+	// Environment and Host are set by alder project apply only, for the same
+	// reason project plan prints them: two environments' plans read alike.
+	Environment string          `json:"environment,omitempty"`
+	Host        string          `json:"host,omitempty"`
+	Plan        json.RawMessage `json:"plan,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	Error       json.RawMessage `json:"error,omitempty"`
 	// RecoveryFile is where the recovery bundle was written, when it was.
 	RecoveryFile string `json:"recoveryFile,omitempty"`
 }
