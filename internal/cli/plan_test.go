@@ -337,3 +337,13 @@ func TestAnApplyWithNoAnswerSaysTheOutcomeIsUnknown(t *testing.T) {
 		t.Errorf("stderr = %s", r.stderr)
 	}
 }
+
+// alder plan takes --detailed-exitcode too, with the same meanings as
+// alder project plan; the cases are covered there.
+func TestPlanDetailedExitcode(t *testing.T) {
+	s := newStub(t)
+	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
+	file := writeTemp(t, t.TempDir(), "a.ldif", restoreLDIF)
+	expectCode(t, s.run(t, runOpts{}, "plan", file), ExitOK)
+	expectCode(t, s.run(t, runOpts{}, "plan", file, "--detailed-exitcode"), ExitDifferences)
+}

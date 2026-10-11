@@ -28,6 +28,9 @@ type planOptions struct {
 	schemaTarget string
 	json         bool
 	summary      bool
+	// detailedExitcode makes "changes pending" an exit status of its own.
+	// Only plan has it: apply's 0 already means "applied, or nothing to do".
+	detailedExitcode bool
 
 	yes                 bool
 	allowDeletes        bool
@@ -72,7 +75,8 @@ func planCmd(env *Env) *cobra.Command {
 			"whose entry has moved on since the original apply is a conflict, never an\n" +
 			"overwrite.\n\n" +
 			"Exit status: 0 planned, 3 some change cannot be applied as written, 7 usage,\n" +
-			"8 failure.",
+			"8 failure. With --detailed-exitcode: 0 nothing to change, 1 changes pending,\n" +
+			"3 some change cannot be applied as written (it wins over 1).",
 		Args: argsBetween(0, 1, "at most one LDIF file, or - for standard input"),
 	}, func(ctx context.Context, args []string) error {
 		return runPlan(ctx, env, &conn, o, cmd.Flags(), args)
@@ -80,7 +84,35 @@ func planCmd(env *Env) *cobra.Command {
 	conn.registerAPI(cmd)
 	conn.registerDirectory(cmd)
 	o.register(cmd)
+	registerDetailedExitcode(cmd, &o.detailedExitcode)
 	return cmd
+}
+
+// registerDetailedExitcode adds --detailed-exitcode to a command that plans.
+// It is a flag and not the default because the default is part of the 1.x
+// promise: a script that reads 0 as "planned" keeps reading it so.
+func registerDetailedExitcode(cmd *cobra.Command, v *bool) {
+	f := cmd.Flags()
+	f.BoolVar(v, "detailed-exitcode", false,
+		"exit 1 when the plan has changes to make, and 0 only when there is nothing to change")
+	envflags.Exclude(f, "detailed-exitcode")
+}
+
+// planExit is the exit status a plan earns once it has been written. A change
+// that cannot be applied as written is 3, and wins over everything: a plan that
+// would partly fail is not merely "pending". With --detailed-exitcode, a plan
+// with anything to apply is 1, the meaning diff already gives 1.
+func planExit(env *Env, p apiclient.Plan, detailed bool) error {
+	if n := blocked(p); n > 0 {
+		// The plan is the answer and is already written; this only sets the
+		// exit status, so no second JSON document.
+		writef(env.Stderr, "alder: %d change(s) cannot be applied as written\n", n)
+		return &ExitError{Code: ExitNotApplicable}
+	}
+	if detailed && applicable(p) > 0 {
+		return &ExitError{Code: ExitDifferences}
+	}
+	return nil
 }
 
 func applyCmd(env *Env) *cobra.Command {
@@ -336,13 +368,7 @@ func runPlan(ctx context.Context, env *Env, conn *connection, o planOptions, fla
 	} else {
 		renderPlan(env.Stdout, p, !o.summary)
 	}
-	if n := blocked(p); n > 0 {
-		// The plan is the answer and is already written; this only sets the
-		// exit status, so no second JSON document.
-		writef(env.Stderr, "alder: %d change(s) cannot be applied as written\n", n)
-		return &ExitError{Code: ExitNotApplicable}
-	}
-	return nil
+	return planExit(env, p, o.detailedExitcode)
 }
 
 func requestPlan(ctx context.Context, r *remote, req apiclient.PlanRequest) (apiclient.Plan, []byte, error) {

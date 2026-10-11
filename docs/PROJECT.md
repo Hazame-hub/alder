@@ -91,8 +91,20 @@ The subtrees the project is responsible for, in order. Each has:
 | `base` | The subtree's root DN. Parsed as a DN, never compared as text. |
 | `files` | The LDIF files that describe it: paths or globs, relative to `alder.yaml`. A glob matches in sorted order, so the plan is the same on every machine. |
 
+A pattern is a `filepath.Glob` pattern: `*`, `?` and `[...]`, within one
+directory. **`**` is not supported, and a pattern containing it is refused**
+rather than read as `*`, which would match one level and silently leave out
+every deeper file. List one pattern per directory instead --
+`people/*.ldif` and `people/contractors/*.ldif`. No glob library is added to
+support it.
+
 Rules, all checked by `validate`:
 
+- Every file is **inside the project directory**, by its real path. A pattern
+  with `..` or an absolute path is refused as written, and a symlink that
+  resolves outside the project is refused once resolved, named but never read,
+  so a repository cannot make `validate` or `plan` read a file it does not
+  contain. A symlink that stays inside is an ordinary file of the project.
 - Every file is **content records only**, the same rule as `--mode desired`. A
   `changetype` record is refused: a project describes state, it does not issue
   operations.
@@ -208,6 +220,12 @@ read.
 That is the whole engine. Reconciliation, the schema checks, membership and
 reference impact, recovery assessment and baselines are the existing plan's; the
 project adds a file format and the decision of which records to send.
+
+**`--detailed-exitcode`** answers "does this environment match the project?" in
+the exit status alone: 0 nothing to change, 1 changes pending, 3 some change
+cannot be applied as written (it wins over 1). Without it, 0 means planned,
+as for every other plan; the default is part of the 1.x compatibility promise,
+so the stricter meaning is asked for, never assumed.
 
 ### Later slices, named so the first one does not paint them into a corner
 

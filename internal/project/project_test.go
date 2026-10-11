@@ -159,6 +159,14 @@ func TestEveryRuleIsEnforced(t *testing.T) {
 			where: "people/a.ldif:1:",
 		},
 		{
+			// userPassword by its OID, with an option: as much a secret as
+			// by name, and it must not reach a repository either.
+			name:  "a secret written by OID",
+			edit:  func(f map[string]string) { f["people/a.ldif"] = peopleA + "2.5.4.35;binary: {SSHA}abc\n" },
+			want:  "carries 2.5.4.35;binary, a secret",
+			where: "people/a.ldif:1:",
+		},
+		{
 			name: "a changetype record",
 			edit: func(f map[string]string) {
 				f["people/a.ldif"] = "dn: uid=alice,ou=people,dc=alder,dc=test\nchangetype: delete\n"
@@ -200,6 +208,15 @@ func TestEveryRuleIsEnforced(t *testing.T) {
 				f["alder.yaml"] = strings.Replace(validYAML, "groups.ldif", "missing.ldif", 1)
 			},
 			want: "matches no file",
+		},
+		{
+			// filepath.Glob would read ** as *, match one level and drop
+			// every deeper file without a word.
+			name: "a ** pattern",
+			edit: func(f map[string]string) {
+				f["alder.yaml"] = strings.Replace(validYAML, "people/*.ldif", "people/**/*.ldif", 1)
+			},
+			want: "uses **, which a project pattern does not support; list one pattern per directory",
 		},
 		{
 			name: "a path outside the project",
@@ -278,4 +295,22 @@ func problemsOf(err error) string {
 		lines[i] = p.String()
 	}
 	return strings.Join(lines, "\n")
+}
+
+// Only the first YAML document used to be read, so anything after a "---"
+// was silently ignored. A leading "---" is the ordinary start of the one
+// document and is fine.
+func TestAlderYAMLIsOneDocument(t *testing.T) {
+	files := valid()
+	files["alder.yaml"] = "---\n" + validYAML
+	if _, err := load(t, write(t, files)); err != nil {
+		t.Fatalf("a leading --- was refused: %v", problemsOf(err))
+	}
+
+	files["alder.yaml"] = validYAML + "---\nenvironments:\n  prod:\n    api-url: https://alder.example.invalid\n"
+	_, err := load(t, write(t, files))
+	var inv *Invalid
+	if !errors.As(err, &inv) || !strings.Contains(problemsOf(err), "more than one YAML document") {
+		t.Fatalf("a second document was not refused: %v", problemsOf(err))
+	}
 }

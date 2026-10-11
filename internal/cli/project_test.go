@@ -189,3 +189,62 @@ func TestAProjectPlanThatCannotBeAppliedExitsThree(t *testing.T) {
 	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev")
 	expectCode(t, r, ExitNotApplicable)
 }
+
+// --detailed-exitcode lets a CI job ask "does this environment match the
+// project?" from the exit status alone. Without it nothing changes: the
+// default is part of the 1.x promise.
+func TestProjectPlanDetailedExitcode(t *testing.T) {
+	unchanged := map[string]any{"index": 0, "dn": "uid=alice,ou=people,dc=alder,dc=test", "action": "unchanged", "exists": true}
+	conflict := map[string]any{
+		"index": 1, "dn": "uid=bob,ou=people,dc=alder,dc=test", "action": "conflict", "exists": true,
+		"problem": map[string]any{"code": "entry_exists"},
+	}
+	for _, tc := range []struct {
+		name string
+		plan func(t *testing.T) string
+		args []string
+		env  map[string]string
+		want int
+	}{
+		{"changes pending, without the flag, is 0 as before",
+			func(t *testing.T) string { return planJSON(t, counts{modify: 1}, exactModify("b0")) }, nil, nil, ExitOK},
+		{"nothing to change is 0",
+			func(t *testing.T) string { return planJSON(t, counts{unchanged: 1}, unchanged) },
+			[]string{"--detailed-exitcode"}, nil, ExitOK},
+		{"changes pending is 1",
+			func(t *testing.T) string { return planJSON(t, counts{modify: 1}, exactModify("b0")) },
+			[]string{"--detailed-exitcode"}, nil, ExitDifferences},
+		{"changes pending is 1 with --json too",
+			func(t *testing.T) string { return planJSON(t, counts{modify: 1}, exactModify("b0")) },
+			[]string{"--detailed-exitcode", "--json"}, nil, ExitDifferences},
+		{"a change that cannot be applied is 3, and wins over pending changes",
+			func(t *testing.T) string {
+				return planJSON(t, counts{modify: 1, conflict: 1}, exactModify("b0"), conflict)
+			},
+			[]string{"--detailed-exitcode"}, nil, ExitNotApplicable},
+		{"ALDER_DETAILED_EXITCODE is not read",
+			func(t *testing.T) string { return planJSON(t, counts{modify: 1}, exactModify("b0")) },
+			nil, map[string]string{"ALDER_DETAILED_EXITCODE": "true"}, ExitOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStub(t)
+			s.reply("POST /api/v1/plan", http.StatusOK, tc.plan(t))
+			dir := writeProject(t, s, nil)
+			opts := projectRun
+			opts.env = map[string]string{"ALDER_DEV_BIND_PASSWORD": testSecret}
+			for k, v := range tc.env {
+				opts.env[k] = v
+			}
+			args := append([]string{"project", "plan", "--project", dir, "--env", "dev"}, tc.args...)
+			r := s.run(t, opts, args...)
+			expectCode(t, r, tc.want)
+			if strings.Contains(strings.Join(tc.args, " "), "--json") {
+				// Exit 1 sets a status; it is not an error document.
+				doc := oneJSONDocument(t, r.stdout)
+				if _, isError := doc["error"]; isError {
+					t.Errorf("--detailed-exitcode wrote an error document: %v", doc)
+				}
+			}
+		})
+	}
+}

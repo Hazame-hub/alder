@@ -30,11 +30,12 @@ func projectCmd(env *Env) *cobra.Command {
 }
 
 type projectOptions struct {
-	path    string
-	envName string
-	json    bool
-	summary bool
-	timeout time.Duration
+	path             string
+	envName          string
+	json             bool
+	summary          bool
+	detailedExitcode bool
+	timeout          time.Duration
 }
 
 func (o *projectOptions) registerPath(cmd *cobra.Command) {
@@ -87,6 +88,9 @@ func projectPlanCmd(env *Env) *cobra.Command {
 			"--env is read from the command line only, never from ALDER_ENV: which\n" +
 			"directory a command acts on is not something an inherited environment\n" +
 			"decides.\n\n" +
+			"--detailed-exitcode answers \"does this environment match the project?\" in\n" +
+			"the exit status: 0 nothing to change, 1 changes pending, 3 some change\n" +
+			"cannot be applied as written (it wins over 1). Without it, 0 means planned.\n\n" +
 			"Exit status: 0 planned, 3 the project is not valid or some change cannot be\n" +
 			"applied as written, 7 usage, 8 failure.",
 		Args: argsBetween(0, 0, "no arguments; name the project with --project and the environment with --env"),
@@ -100,6 +104,7 @@ func projectPlanCmd(env *Env) *cobra.Command {
 	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
 	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "give up on the whole command after this long; 0 waits indefinitely")
 	envflags.Exclude(f, "project", "env", "json", "summary")
+	registerDetailedExitcode(cmd, &o.detailedExitcode)
 	return cmd
 }
 
@@ -168,11 +173,7 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 		writef(env.Stdout, "Environment %s (%s)\n\n", o.envName, conn.label())
 		renderPlan(env.Stdout, plan, !o.summary)
 	}
-	if n := blocked(plan); n > 0 {
-		writef(env.Stderr, "alder: %d change(s) cannot be applied as written\n", n)
-		return &ExitError{Code: ExitNotApplicable}
-	}
-	return nil
+	return planExit(env, plan, o.detailedExitcode)
 }
 
 // connectionFor turns an environment into the connection the other client

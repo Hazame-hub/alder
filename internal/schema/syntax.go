@@ -131,10 +131,62 @@ var sensitiveAttrs = map[string]bool{
 	"nsslapd-keypassword":         true,
 }
 
-// IsSensitive reports whether an attribute description names a secret. Options
-// are ignored, so "userPassword;binary" is caught too.
+// sensitiveOIDs maps the numeric OID of each sensitive attribute to its name
+// in sensitiveAttrs, because an attribute description may be written either
+// way: "2.5.4.35: {SSHA}..." in an LDIF file is userPassword, and matching on
+// names alone let it through validate and into a repository.
+//
+// A static table, not a schema lookup, because the paths that need it --
+// validating a project offline, an export, the entry view -- must decide
+// without asking a server. Each OID was checked against a published source:
+//
+//   - userPassword: RFC 4519 section 2.41, and both harness servers' schemas.
+//   - unicodePwd: Microsoft's Active Directory schema (Unicode-Pwd).
+//   - krbPrincipalKey: MIT krb5, kerberos.schema.
+//   - sambaNTPassword, sambaLMPassword, nsSymmetricKey,
+//     nsds5ReplicaCredentials, passwordHistory: 389 DS's published schema.
+//   - pwdHistory: the password policy draft (draft-behera-ldap-password-
+//     policy), as OpenLDAP's ppolicy overlay publishes it. On 389 DS the
+//     name pwdHistory is an alias of passwordHistory, whose OID is listed
+//     under passwordHistory.
+//   - olcRootPW, olcSyncrepl: OpenLDAP's published configuration schema.
+//
+// Not listed, because no published OID could be found: nsslapd-rootpw,
+// nsslapd-keypassword, nsds5ReplicaBindCredentials and
+// nsMultiplexorCredentials, which 389 DS's own schema does not define, and
+// olcDbCryptKey, which current OpenLDAP does not define. They are matched by
+// name, as before. A guessed OID would be worse than none: it would claim a
+// coverage nobody verified.
+var sensitiveOIDs = map[string]string{
+	"2.5.4.35":                         "userpassword",
+	"1.2.840.113556.1.4.90":            "unicodepwd",
+	"2.16.840.1.113719.1.301.4.39.1":   "krbprincipalkey",
+	"1.3.6.1.4.1.7165.2.1.25":          "sambantpassword",
+	"1.3.6.1.4.1.7165.2.1.24":          "sambalmpassword",
+	"2.16.840.1.113730.3.1.2084":       "nssymmetrickey",
+	"2.16.840.1.113730.3.1.582":        "nsds5replicacredentials",
+	"1.3.6.1.4.1.42.2.27.8.1.20":       "pwdhistory",
+	"2.16.840.1.113730.3.1.96":         "passwordhistory",
+	"1.3.6.1.4.1.4203.1.12.2.3.2.0.9":  "olcrootpw",
+	"1.3.6.1.4.1.4203.1.12.2.3.2.0.11": "olcsyncrepl",
+}
+
+// sensitiveName reduces an attribute description to the name the sensitive
+// tables are keyed on: options dropped, case folded, and a known OID replaced
+// by its name.
+func sensitiveName(attrDescription string) string {
+	name := fold(attrDescription)
+	if byName, ok := sensitiveOIDs[name]; ok {
+		return byName
+	}
+	return name
+}
+
+// IsSensitive reports whether an attribute description names a secret, by
+// name or by OID. Options are ignored, so "userPassword;binary" and
+// "2.5.4.35;binary" are caught too.
 func IsSensitive(attrDescription string) bool {
-	return sensitiveAttrs[fold(attrDescription)]
+	return sensitiveAttrs[sensitiveName(attrDescription)]
 }
 
 // neverReleased are the secrets no export writes, whatever the caller asks
@@ -174,7 +226,7 @@ var neverReleased = map[string]bool{
 // is the rule the viewer already shows the operator, applied where it has
 // consequences.
 func Releasable(attrDescription string, value []byte) bool {
-	name := fold(attrDescription)
+	name := sensitiveName(attrDescription)
 	if !sensitiveAttrs[name] {
 		return true
 	}

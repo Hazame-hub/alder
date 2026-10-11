@@ -5286,3 +5286,57 @@ Each environment names its own password variable, so a shell holding the
 development password cannot hand it to production; `connection` grew two
 optional fields for the variable names, and every other command reads
 `ALDER_BIND_PASSWORD` exactly as before.
+
+### 2026-10-11 — the project format, hardened before 1.37.0
+
+Five things the first slice let through, each found by asking what a CI
+job or a careless commit would do with it, each fixed in its own commit.
+
+**A plan can say whether there is anything to do.** `alder project plan`
+exited 0 whether or not the plan had changes, so "does this environment
+match the repository?" needed a JSON parser. `--detailed-exitcode`, on
+`alder project plan` and on `alder plan`, makes it the exit status: 0
+nothing to change, 1 changes pending -- the meaning `diff` already gives 1
+-- and 3 a change cannot be applied, which wins. **It is a flag, not a new
+default, on purpose.** Exit codes are part of the 1.x promise, and 0 today
+means "planned": a script that reads it that way would start failing on
+every pending change, which is exactly the break the promise exists to
+prevent. Asking for the stricter meaning costs one flag; assuming it would
+cost every existing pipeline. Like `--json`, it is never read from the
+environment. `apply` does not take it: its 0 already means "applied, or
+nothing to do".
+
+**A secret written by its OID is a secret.** `schema.IsSensitive` matched
+names, so `2.5.4.35: {SSHA}...` -- userPassword -- passed `validate` and
+could reach Git, and an export or the entry view would have treated it as
+ordinary. A static table now maps every sensitive attribute with a
+published OID to its name, options included, and both `IsSensitive` and
+`Releasable` read through it, so validate, the export and the browser all
+gain it at once. Static, because validate runs with no server to ask.
+Every OID was checked against an RFC, a vendor's schema or the harness
+servers' own published schemas, and the table says which. Five attributes
+have no published OID that could be found -- `nsslapd-rootpw`,
+`nsslapd-keypassword`, `nsds5ReplicaBindCredentials`,
+`nsMultiplexorCredentials`, which 389 DS's schema does not define, and
+`olcDbCryptKey`, which current OpenLDAP does not -- and stay matched by
+name. A guessed OID would claim coverage nobody verified.
+
+**A symlink cannot lead a project out of its directory.** Patterns with
+`..` were refused, but a symlink inside the project could point anywhere on
+the runner and was read. Matches and the project directory are now
+resolved, and a file whose real path is outside is refused by name, never
+read. The test that proves it showed the stakes when the check was
+removed: the escaped file's DN surfaced in a problem message.
+
+**alder.yaml is one document.** Only the first YAML document was decoded;
+anything after a `---` was silently ignored. A second decode must now reach
+the end.
+
+**`**` is refused, not misread.** `filepath.Glob` has no `**`, so
+`people/**/*.ldif` matched one level and quietly dropped the rest. A
+pattern containing it is refused with a suggestion to list one pattern per
+directory. No glob library was added to support it.
+
+Running the whole E2E suite for this also found a race in the drift
+journey, failing two runs in six: it waited for text that is on the page
+before the snapshot is taken. It now waits for the capture itself.
