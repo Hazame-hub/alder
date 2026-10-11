@@ -187,10 +187,10 @@ compatibility promise.
 
 | Code | Meaning |
 |---|---|
-| 0 | Done. For `diff`, complete with no differences. For `apply`, applied, or nothing to apply. |
-| 1 | `diff`: complete, and there are differences. `preflight`: compatible once the listed prerequisites are done |
+| 0 | Done. For `diff`, complete with no differences. For `apply`, applied, or nothing to apply. For `plan` and `project plan` with `--detailed-exitcode`, nothing to change. |
+| 1 | `diff`: complete, and there are differences. `preflight`: compatible once the listed prerequisites are done. `plan` and `project plan` with `--detailed-exitcode`: changes pending |
 | 2 | `diff`: incomplete, because something could not be seen. This wins over 1. `preflight`: incomplete |
-| 3 | A change cannot be applied as written (a conflict or a schema violation), or a selected difference offers no change. `preflight`: incompatible. Nothing was written. |
+| 3 | A change cannot be applied as written (a conflict or a schema violation), or a selected difference offers no change. This wins over 1. `preflight`: incompatible. `project`: the project is not valid. Nothing was written. |
 | 4 | The plan no longer holds: the directory changed after it was made (`plan_stale`), or the operations sent are not the ones planned (`plan_mismatch`). Nothing was written. |
 | 5 | Not confirmed: declined, or no confirmation could be given. Nothing was written. |
 | 6 | `apply` stopped after writing some of its changes |
@@ -489,6 +489,14 @@ line only: `ALDER_ENV` is not read, because which directory a command acts on
 is not something an inherited environment decides.
 
 Exit codes are `alder plan`'s, and 3 also when the project is not valid.
+`--detailed-exitcode` works as it does for `alder plan` -- 0 nothing to
+change, 1 changes pending, 3 some change cannot be applied -- which turns
+"does this environment match the repository?" into one exit status a CI job
+can branch on:
+
+```sh
+alder project plan --env prod --detailed-exitcode --summary
+```
 
 ---
 
@@ -646,6 +654,14 @@ password or any other sensitive value**: the server withholds it, as
 
 Exit status is 0 when planned, and 3 when some change cannot be applied as
 written.
+
+**`--detailed-exitcode`** makes the exit status answer "is there anything to
+do?": 0 when the plan has nothing to change, 1 when it has changes pending, and
+3 when some change cannot be applied as written, which wins over 1. A plan
+whose changes are all `unchanged` is 0. It is a flag, never the default, because
+0 meaning "planned" is part of the 1.x promise, and it is never read from the
+environment. With `--json` the plan is still the one document on standard
+output; 1 is only the status.
 
 ---
 

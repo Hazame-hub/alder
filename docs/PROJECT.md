@@ -209,6 +209,12 @@ That is the whole engine. Reconciliation, the schema checks, membership and
 reference impact, recovery assessment and baselines are the existing plan's; the
 project adds a file format and the decision of which records to send.
 
+**`--detailed-exitcode`** answers "does this environment match the project?" in
+the exit status alone: 0 nothing to change, 1 changes pending, 3 some change
+cannot be applied as written (it wins over 1). Without it, 0 means planned,
+as for every other plan; the default is part of the 1.x compatibility promise,
+so the stricter meaning is asked for, never assumed.
+
 ### Later slices, named so the first one does not paint them into a corner
 
 - **`alder project apply --env NAME`**: plan, show, confirm, apply, with
