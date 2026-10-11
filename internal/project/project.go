@@ -173,6 +173,14 @@ func Load(path string) (*Project, error) {
 		}
 		return nil, &Invalid{Problems: problems}
 	}
+	// Decode reads one document. Anything after a "---" would be silently
+	// ignored -- a second environments block, a pasted copy with a password
+	// in it -- so a file with more than one is refused rather than half read.
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		add(name, 0, "the file holds more than one YAML document; everything after the first --- "+
+			"would be ignored, so put the whole project in one document")
+	}
 	if len(problems) > 0 {
 		return nil, &Invalid{Problems: problems}
 	}

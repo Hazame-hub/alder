@@ -287,3 +287,21 @@ func problemsOf(err error) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// Only the first YAML document used to be read, so anything after a "---"
+// was silently ignored. A leading "---" is the ordinary start of the one
+// document and is fine.
+func TestAlderYAMLIsOneDocument(t *testing.T) {
+	files := valid()
+	files["alder.yaml"] = "---\n" + validYAML
+	if _, err := load(t, write(t, files)); err != nil {
+		t.Fatalf("a leading --- was refused: %v", problemsOf(err))
+	}
+
+	files["alder.yaml"] = validYAML + "---\nenvironments:\n  prod:\n    api-url: https://alder.example.invalid\n"
+	_, err := load(t, write(t, files))
+	var inv *Invalid
+	if !errors.As(err, &inv) || !strings.Contains(problemsOf(err), "more than one YAML document") {
+		t.Fatalf("a second document was not refused: %v", problemsOf(err))
+	}
+}
