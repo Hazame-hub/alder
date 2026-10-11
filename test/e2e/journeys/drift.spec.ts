@@ -22,8 +22,15 @@ test("drift: snapshot, change out of band, compare, put back", async ({ alder, d
   if (await another.isVisible()) await another.click();
   await page.getByLabel("Base DN", { exact: true }).fill(disposable.dn);
   await page.getByLabel("Scope", { exact: true }).selectOption("base");
+  // Wait for the capture itself. Waiting for something on the page raced:
+  // "The directory now" is there before the capture finishes, so the edit
+  // below could land first and be captured as the baseline -- which the
+  // comparison then reported, correctly, as "1 unchanged".
+  const captured = page.waitForResponse(
+    (r) => r.url().includes("/api/v1/snapshots/capture") && r.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Capture into snapshot A" }).click();
-  await expect(page.getByText("The directory now", { exact: true })).toBeVisible();
+  expect((await captured).ok()).toBe(true);
 
   // Somebody edits it by hand.
   modifyOutOfBand(
