@@ -210,6 +210,15 @@ func TestEveryRuleIsEnforced(t *testing.T) {
 			want: "matches no file",
 		},
 		{
+			// filepath.Glob would read ** as *, match one level and drop
+			// every deeper file without a word.
+			name: "a ** pattern",
+			edit: func(f map[string]string) {
+				f["alder.yaml"] = strings.Replace(validYAML, "people/*.ldif", "people/**/*.ldif", 1)
+			},
+			want: "uses **, which a project pattern does not support; list one pattern per directory",
+		},
+		{
 			name: "a path outside the project",
 			edit: func(f map[string]string) {
 				f["alder.yaml"] = strings.Replace(validYAML, "groups.ldif", "../groups.ldif", 1)

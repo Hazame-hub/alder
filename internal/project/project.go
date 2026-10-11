@@ -371,6 +371,13 @@ func expand(dir, pattern string) ([]string, []string) {
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return nil, []string{fmt.Sprintf("%s is outside the project directory", pattern)}
 	}
+	// filepath.Glob has no "**": it would read it as "*", match one level,
+	// and quietly leave out every deeper file. Refused rather than half
+	// honoured, and no glob library is brought in to support it.
+	if strings.Contains(pattern, "**") {
+		return nil, []string{fmt.Sprintf("%s uses **, which a project pattern does not support; "+
+			"list one pattern per directory, such as people/*.ldif and people/contractors/*.ldif", pattern)}
+	}
 	matches, err := filepath.Glob(filepath.Join(dir, clean))
 	if err != nil {
 		return nil, []string{fmt.Sprintf("%s is not a valid pattern: %v", pattern, err)}

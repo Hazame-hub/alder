@@ -91,6 +91,13 @@ The subtrees the project is responsible for, in order. Each has:
 | `base` | The subtree's root DN. Parsed as a DN, never compared as text. |
 | `files` | The LDIF files that describe it: paths or globs, relative to `alder.yaml`. A glob matches in sorted order, so the plan is the same on every machine. |
 
+A pattern is a `filepath.Glob` pattern: `*`, `?` and `[...]`, within one
+directory. **`**` is not supported, and a pattern containing it is refused**
+rather than read as `*`, which would match one level and silently leave out
+every deeper file. List one pattern per directory instead --
+`people/*.ldif` and `people/contractors/*.ldif`. No glob library is added to
+support it.
+
 Rules, all checked by `validate`:
 
 - Every file is **inside the project directory**, by its real path. A pattern
