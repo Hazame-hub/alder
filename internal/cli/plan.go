@@ -75,8 +75,8 @@ func planCmd(env *Env) *cobra.Command {
 			"whose entry has moved on since the original apply is a conflict, never an\n" +
 			"overwrite.\n\n" +
 			"Exit status: 0 planned, 3 some change cannot be applied as written, 7 usage,\n" +
-			"8 failure. With --detailed-exitcode: 0 nothing to change, 1 changes pending,\n" +
-			"3 some change cannot be applied as written (it wins over 1).",
+			"8 failure. With --detailed-exitcode: 0 nothing to change, 2 changes pending,\n" +
+			"3 some change cannot be applied as written (it wins over 2).",
 		Args: argsBetween(0, 1, "at most one LDIF file, or - for standard input"),
 	}, func(ctx context.Context, args []string) error {
 		return runPlan(ctx, env, &conn, o, cmd.Flags(), args)
@@ -94,14 +94,15 @@ func planCmd(env *Env) *cobra.Command {
 func registerDetailedExitcode(cmd *cobra.Command, v *bool) {
 	f := cmd.Flags()
 	f.BoolVar(v, "detailed-exitcode", false,
-		"exit 1 when the plan has changes to make, and 0 only when there is nothing to change")
+		"exit 2 when the plan has changes to make, and 0 only when there is nothing to change")
 	envflags.Exclude(f, "detailed-exitcode")
 }
 
 // planExit is the exit status a plan earns once it has been written. A change
 // that cannot be applied as written is 3, and wins over everything: a plan that
 // would partly fail is not merely "pending". With --detailed-exitcode, a plan
-// with anything to apply is 1, the meaning diff already gives 1.
+// with anything to apply is 2, the number terraform plan -detailed-exitcode
+// gives it.
 func planExit(env *Env, p apiclient.Plan, detailed bool) error {
 	if n := blocked(p); n > 0 {
 		// The plan is the answer and is already written; this only sets the
@@ -110,7 +111,7 @@ func planExit(env *Env, p apiclient.Plan, detailed bool) error {
 		return &ExitError{Code: ExitNotApplicable}
 	}
 	if detailed && applicable(p) > 0 {
-		return &ExitError{Code: ExitDifferences}
+		return &ExitError{Code: ExitPending}
 	}
 	return nil
 }
