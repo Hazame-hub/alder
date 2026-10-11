@@ -93,6 +93,11 @@ The subtrees the project is responsible for, in order. Each has:
 
 Rules, all checked by `validate`:
 
+- Every file is **inside the project directory**, by its real path. A pattern
+  with `..` or an absolute path is refused as written, and a symlink that
+  resolves outside the project is refused once resolved, named but never read,
+  so a repository cannot make `validate` or `plan` read a file it does not
+  contain. A symlink that stays inside is an ordinary file of the project.
 - Every file is **content records only**, the same rule as `--mode desired`. A
   `changetype` record is refused: a project describes state, it does not issue
   operations.

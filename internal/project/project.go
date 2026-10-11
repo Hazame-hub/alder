@@ -201,10 +201,9 @@ func Load(path string) (*Project, error) {
 			add(name, 0, "%s (%s): files is empty", where, m.Base)
 		}
 		for _, pattern := range m.Files {
-			matches, problem := expand(p.Dir, pattern)
-			if problem != "" {
+			matches, patternProblems := expand(p.Dir, pattern)
+			for _, problem := range patternProblems {
 				add(name, 0, "%s (%s): %s", where, m.Base, problem)
-				continue
 			}
 			for _, rel := range matches {
 				if other, ok := claimed[rel]; ok {
@@ -352,16 +351,27 @@ func checkIdentity(name, where, prefix, bindDN, fromEnv, fromFile string) []Prob
 // expand matches one files entry. A path must stay inside the project: a
 // project is what is in its directory, and a file outside it is not reviewed
 // with it.
-func expand(dir, pattern string) ([]string, string) {
+//
+// Inside means the real path, not the spelling. A pattern with ".." or an
+// absolute path is refused as written; a symlink inside the project that
+// points elsewhere on the machine is refused once resolved, so a repository
+// cannot have validate or plan read a file it does not contain -- a CI
+// runner's secrets, say. A symlink that stays inside is fine. A refused file
+// is named, never read, so nothing of its content can reach a message.
+func expand(dir, pattern string) ([]string, []string) {
 	clean := filepath.Clean(filepath.FromSlash(pattern))
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return nil, fmt.Sprintf("%s is outside the project directory", pattern)
+		return nil, []string{fmt.Sprintf("%s is outside the project directory", pattern)}
 	}
 	matches, err := filepath.Glob(filepath.Join(dir, clean))
 	if err != nil {
-		return nil, fmt.Sprintf("%s is not a valid pattern: %v", pattern, err)
+		return nil, []string{fmt.Sprintf("%s is not a valid pattern: %v", pattern, err)}
 	}
-	var rel []string
+	realDir, err := realPath(dir)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("the project directory cannot be resolved: %v", err)}
+	}
+	var rel, problems []string
 	for _, m := range matches {
 		info, statErr := os.Stat(m)
 		if statErr != nil || info.IsDir() {
@@ -371,14 +381,39 @@ func expand(dir, pattern string) ([]string, string) {
 		if relErr != nil {
 			continue
 		}
-		rel = append(rel, filepath.ToSlash(r))
+		r = filepath.ToSlash(r)
+		real, realErr := realPath(m)
+		if realErr != nil || !within(realDir, real) {
+			problems = append(problems, fmt.Sprintf("%s resolves to a file outside the project directory; "+
+				"a symlink in a project must point inside it", r))
+			continue
+		}
+		rel = append(rel, r)
 	}
-	if len(rel) == 0 {
-		return nil, fmt.Sprintf("%s matches no file", pattern)
+	if len(rel) == 0 && len(problems) == 0 {
+		return nil, []string{fmt.Sprintf("%s matches no file", pattern)}
 	}
 	// Sorted, so the plan is the same on every machine.
 	sort.Strings(rel)
-	return rel, ""
+	return rel, problems
+}
+
+// realPath is a path with every symlink resolved, made absolute.
+func realPath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
+}
+
+// within reports whether path is dir or below it. Both are real paths.
+func within(dir, path string) bool {
+	r, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && !filepath.IsAbs(r)
 }
 
 type seenEntry struct {
