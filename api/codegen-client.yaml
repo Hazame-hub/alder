@@ -1,0 +1,20 @@
+# oapi-codegen configuration for the command-line client's side of the API.
+# Run "task generate" after editing openapi.yaml; it generates both files.
+#
+# The models and the client, and nothing else, in a package of their own.
+# internal/api holds the HTTP server, and the server builds the LDAP driver, so
+# a client importing internal/api for its request and response types was
+# linking the whole directory stack into code whose rule is to have no LDAP in
+# it. The types are generated twice from one spec -- here and in internal/api
+# -- and the two meet only as JSON on the wire, so they cannot disagree while
+# both come from the same openapi.yaml, which CI checks.
+package: apiclient
+output: internal/apiclient/apiclient.gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  skip-prune: true
+  # Same as the server's: "search" would otherwise make SearchResponse, which
+  # is already a model.
+  response-type-suffix: Reply

@@ -1,7 +1,7 @@
 # The command line
 
-The `alder` binary that runs the web interface (`alder serve`) also has five
-client commands:
+The `alder` binary that runs the web interface (`alder serve`) also has client
+commands. The main ones:
 
 | Command | What it does |
 |---|---|
@@ -9,6 +9,7 @@ client commands:
 | `alder diff` | Compare two snapshots, or a snapshot and the live directory |
 | `alder plan` | Show what an LDIF document or a set of change requests would do |
 | `alder apply` | Plan, show the plan, and apply exactly that plan |
+| `alder project` | Check an Alder project, and plan it against one of its environments |
 | `alder version` | Print this binary's version, and a server's |
 
 They exist so that the workflow the web interface offers, from snapshot through
@@ -34,8 +35,10 @@ the session when it finishes, even when it is interrupted. Comparing two
 snapshot files reads no directory, so it opens no session and needs no
 directory credentials.
 
-The client has no LDAP code. It does not parse LDIF, compare values, derive
-changes or write to a directory. **It uses the same server-side Snapshot, Diff,
+The client has no LDAP code. It does not compare values, derive changes or
+write to a directory, and it reads LDIF and DNs only through the server's own
+packages, to check an Alder project before anything is sent. A test fails the
+build if the client ever links go-ldap, the driver or the server. **It uses the same server-side Snapshot, Diff,
 Plan and Apply as the web interface**, and with `--json` it writes the server's
 own response as it came.
 
@@ -117,7 +120,9 @@ command-line only:**
 An inherited environment must never confirm an apply nobody typed.
 
 There is no configuration file, and nothing is stored between runs: every
-command connects, works and disconnects.
+command connects, works and disconnects. An Alder project's `alder.yaml` is not
+one: it is an input you keep in a repository, read like any other document,
+and it supplies connection settings only to `alder project`.
 
 If `--api-url` is plain `http://` to another machine, the client warns on
 standard error, because the bind password would cross the network unencrypted.
@@ -438,6 +443,52 @@ or with a schema.
   setting: `--stage overlay:dc=alder,dc=test/memberof` creates it.
 - **A removal needs `--stage-deletion`.** `--stage` on an object that would be
   removed is refused by name, and a setting has no deletion at all.
+
+---
+
+## `alder project`
+
+```sh
+alder project validate
+alder project validate --project path/to/directory
+alder project plan --env dev
+alder project plan --env prod --project path/to/alder.yaml --json
+```
+
+An Alder project is an `alder.yaml` naming the subtrees a repository is
+responsible for, the LDIF files that describe them, and the environments it is
+planned against. [PROJECT.md](PROJECT.md) is the specification.
+
+`--project` names the project's directory or its `alder.yaml`; without it, the
+current directory. Parent directories are not searched.
+
+**`validate`** connects to nothing. It checks that `alder.yaml` is version 1
+with no unknown keys and no password in it, that every glob matches, that every
+file is LDIF of content records, that every entry is whole (it has its
+`objectClass`), that every entry lies in its managed subtree,
+that subtrees do not overlap, that no entry appears twice, and that no file
+carries a secret -- `userPassword` and every other attribute Alder withholds
+from an export. It lists every problem, with the file and line, not only the
+first. Exit 0 valid, 3 not valid, 8 a file could not be read.
+
+**`plan --env NAME`** validates, connects with that environment's settings, and
+plans the project's entries as desired state: `alder plan --mode desired` on
+one document holding them all, in the order `alder.yaml` declares them. Nothing
+is written, and an entry the project does not mention is never deleted.
+
+Every environment manages the same entries under the same names, so a plan for
+production reads exactly like one for development. The environment and the
+directory are printed before the plan is requested, and at the top of the plan;
+with `--json`, standard output is `{"environment": …, "host": …, "plan": <the
+plan>}`.
+
+Connection settings come from the environment in `alder.yaml`, never from the
+connection flags or their `ALDER_*` variables. A password comes from the
+variable or file that environment names. `--env` and `--project` are command-
+line only: `ALDER_ENV` is not read, because which directory a command acts on
+is not something an inherited environment decides.
+
+Exit codes are `alder plan`'s, and 3 also when the project is not valid.
 
 ---
 
@@ -799,3 +850,5 @@ promise: version 1 is read by every 1.x release from 1.7 on.
 - **Every comparison must fit in one 16 MB request.**
 - No colour, no shell completion, no configuration file, and no YAML or table
   output formats.
+- **A project is planned in one request,** so it is bounded by what one plan
+  carries: the changeset limit on records, and 8 MB of LDIF.

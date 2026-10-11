@@ -1,6 +1,7 @@
 # oapi-codegen configuration. Run "task generate" after editing openapi.yaml.
 #
-# Models, the Fiber server interface and a Go client are generated. The handlers that
+# Models and the Fiber server interface are generated; the client the command
+# line uses is generated separately (api/codegen-client.yaml). The handlers that
 # satisfy that interface are written by hand in internal/api: generated
 # handlers would have to be edited to do anything, and an edited generated file
 # is the worst of both worlds.
@@ -9,7 +10,6 @@ output: internal/api/api.gen.go
 generate:
   models: true
   fiber-server: true
-  client: true
   embedded-spec: true
 output-options:
   skip-prune: true

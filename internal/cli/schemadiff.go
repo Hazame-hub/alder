@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 )
 
 // Schema comparisons, as the command line shows and stages them.
@@ -15,7 +15,7 @@ import (
 // out the change requests a person named. It parses no definition and decides
 // no difference.
 
-func renderSchemaDiff(w io.Writer, d api.Diff, sourceName, targetName string, summaryOnly, sourceLive bool) {
+func renderSchemaDiff(w io.Writer, d apiclient.Diff, sourceName, targetName string, summaryOnly, sourceLive bool) {
 	s := d.Schema
 	writef(w, "Source: %s\n", schemaSideLabel(sourceName, d.Source))
 	writef(w, "Target: %s\n", schemaSideLabel(targetName, d.Target))
@@ -25,7 +25,7 @@ func renderSchemaDiff(w io.Writer, d api.Diff, sourceName, targetName string, su
 	writef(w, "%-16s %9s %9s %9s %9s %9s %9s %9s\n", "", "compared", "added", "modified", "removed", "metadata", "unchanged", "unknown")
 	for _, row := range []struct {
 		name string
-		c    api.SchemaDiffCounts
+		c    apiclient.SchemaDiffCounts
 	}{{"attribute types", s.AttributeTypes}, {"object classes", s.ObjectClasses}} {
 		writef(w, "%-16s %9d %9d %9d %9d %9d %9d %9d\n", row.name, row.c.Compared, row.c.Added, row.c.Modified,
 			row.c.Removed, row.c.MetadataOnly, row.c.Unchanged, row.c.Unknown)
@@ -106,12 +106,12 @@ func renderSchemaDiff(w io.Writer, d api.Diff, sourceName, targetName string, su
 	}
 }
 
-func schemaSideLabel(name string, s api.DiffSideSummary) string {
+func schemaSideLabel(name string, s apiclient.DiffSideSummary) string {
 	vendor := ""
 	if s.Vendor != nil && *s.Vendor != "" {
 		vendor = ", " + safe(*s.Vendor)
 	}
-	if s.Kind == api.DiffSideKindLive {
+	if s.Kind == apiclient.DiffSideKindLive {
 		return fmt.Sprintf("%s (the schema at %s%s)", name, safe(s.Base), vendor)
 	}
 	details := []string{"the schema at " + safe(s.Base) + vendor}
@@ -132,7 +132,7 @@ func schemaSideLabel(name string, s api.DiffSideSummary) string {
 // Every difference is named by OID; a removal is named as one; and a change
 // that needs another is refused unless that one is named too, because leaving
 // it out would plan a change the directory refuses.
-func stageSchemaSelected(env *Env, d api.Diff, body []byte, o diffOptions) error {
+func stageSchemaSelected(env *Env, d apiclient.Diff, body []byte, o diffOptions) error {
 	var raw struct {
 		Schema struct {
 			Items []struct {

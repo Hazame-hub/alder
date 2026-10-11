@@ -8,48 +8,48 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 )
 
 // changesFromPlan is web/src/lib/plan.ts in Go. These are that file's cases.
 
-func item(index int, intent api.PlanIntent, record *api.ChangeRequest, baseline *string) api.PlanItem {
-	return api.PlanItem{Index: index, Dn: aliceDN, Action: api.PlanActionModify, Intent: &intent, Record: record, Baseline: baseline}
+func item(index int, intent apiclient.PlanIntent, record *apiclient.ChangeRequest, baseline *string) apiclient.PlanItem {
+	return apiclient.PlanItem{Index: index, Dn: aliceDN, Action: apiclient.PlanActionModify, Intent: &intent, Record: record, Baseline: baseline}
 }
 
 func TestChangesFromPlanIsTheWebInterfacesRule(t *testing.T) {
-	staged := api.ChangeRequest{Dn: aliceDN, Type: api.ChangeRequestTypeModify, NewRdn: ptr("the staged copy")}
-	withheld := api.ChangeRequest{Dn: aliceDN, Type: api.ChangeRequestTypeModify, NewRdn: ptr("the plan's record")}
+	staged := apiclient.ChangeRequest{Dn: aliceDN, Type: apiclient.ChangeRequestTypeModify, NewRdn: ptr("the staged copy")}
+	withheld := apiclient.ChangeRequest{Dn: aliceDN, Type: apiclient.ChangeRequestTypeModify, NewRdn: ptr("the plan's record")}
 
 	t.Run("an exact item is sent from the staged copy with the plan's baseline", func(t *testing.T) {
-		got := changesFromPlan(api.Plan{Items: []api.PlanItem{item(0, api.PlanIntentExact, &withheld, ptr("b0"))}}, []api.ChangeRequest{staged})
+		got := changesFromPlan(apiclient.Plan{Items: []apiclient.PlanItem{item(0, apiclient.PlanIntentExact, &withheld, ptr("b0"))}}, []apiclient.ChangeRequest{staged})
 		if len(got) != 1 || *got[0].NewRdn != "the staged copy" || *got[0].Baseline != "b0" {
 			t.Fatalf("got %+v", got)
 		}
 	})
 	t.Run("items that apply nothing are dropped", func(t *testing.T) {
-		got := changesFromPlan(api.Plan{Items: []api.PlanItem{
-			item(0, api.PlanIntentExact, nil, nil),
-			item(1, api.PlanIntentExact, &staged, ptr("b1")),
-		}}, []api.ChangeRequest{staged, staged})
+		got := changesFromPlan(apiclient.Plan{Items: []apiclient.PlanItem{
+			item(0, apiclient.PlanIntentExact, nil, nil),
+			item(1, apiclient.PlanIntentExact, &staged, ptr("b1")),
+		}}, []apiclient.ChangeRequest{staged, staged})
 		if len(got) != 1 || *got[0].Baseline != "b1" {
 			t.Fatalf("got %+v", got)
 		}
 	})
 	t.Run("a record with no baseline is never sent", func(t *testing.T) {
-		if got := changesFromPlan(api.Plan{Items: []api.PlanItem{item(0, api.PlanIntentExact, &staged, nil)}}, []api.ChangeRequest{staged}); len(got) != 0 {
+		if got := changesFromPlan(apiclient.Plan{Items: []apiclient.PlanItem{item(0, apiclient.PlanIntentExact, &staged, nil)}}, []apiclient.ChangeRequest{staged}); len(got) != 0 {
 			t.Fatalf("got %+v", got)
 		}
 	})
 	t.Run("a desired-state item the planner rewrote is sent from the plan's record", func(t *testing.T) {
-		got := changesFromPlan(api.Plan{Items: []api.PlanItem{item(0, api.PlanIntentDesired, &withheld, ptr("b"))}}, []api.ChangeRequest{staged})
+		got := changesFromPlan(apiclient.Plan{Items: []apiclient.PlanItem{item(0, apiclient.PlanIntentDesired, &withheld, ptr("b"))}}, []apiclient.ChangeRequest{staged})
 		if len(got) != 1 || *got[0].NewRdn != "the plan's record" {
 			t.Fatalf("got %+v", got)
 		}
 	})
 	t.Run("the staged copy is not modified", func(t *testing.T) {
-		copies := []api.ChangeRequest{staged}
-		_ = changesFromPlan(api.Plan{Items: []api.PlanItem{item(0, api.PlanIntentExact, &staged, ptr("b0"))}}, copies)
+		copies := []apiclient.ChangeRequest{staged}
+		_ = changesFromPlan(apiclient.Plan{Items: []apiclient.PlanItem{item(0, apiclient.PlanIntentExact, &staged, ptr("b0"))}}, copies)
 		if copies[0].Baseline != nil {
 			t.Error("the baseline was written into the caller's copy")
 		}

@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/envflags"
 )
 
@@ -162,7 +162,7 @@ func runPackageCreate(ctx context.Context, env *Env, conn *connection, o package
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	var changes []api.ChangeRequest
+	var changes []apiclient.ChangeRequest
 	if err := dec.Decode(&changes); err != nil {
 		return failf("changes_invalid", "%s is not a JSON array of change requests: %v", name, err)
 	}
@@ -173,7 +173,7 @@ func runPackageCreate(ctx context.Context, env *Env, conn *connection, o package
 		return failf("changes_invalid", "%s holds no change requests", name)
 	}
 
-	req := api.PackageBuildRequest{Changes: changes}
+	req := apiclient.PackageBuildRequest{Changes: changes}
 	if o.title != "" {
 		req.Title = &o.title
 	}
@@ -181,12 +181,12 @@ func runPackageCreate(ctx context.Context, env *Env, conn *connection, o package
 		req.Description = &o.description
 	}
 	if len(o.assume) > 0 {
-		req.Assumptions = &api.PackageAssumptions{NamingContexts: &o.assume}
+		req.Assumptions = &apiclient.PackageAssumptions{NamingContexts: &o.assume}
 	}
 	if o.recordSource {
 		req.RecordSource = ptr(true)
 	}
-	method := api.PackageBuildCLI
+	method := apiclient.PackageBuildCLI
 	req.Method = &method
 
 	ctx, cancel := conn.bound(ctx)
@@ -345,14 +345,14 @@ func readPackage(env *Env, path string) ([]byte, error) {
 
 // validatePackage sends the package as the bytes it is, so the server decides
 // whether it is a valid package rather than this client.
-func validatePackage(ctx context.Context, r *remote, document []byte, schemaTarget string) (api.PackageValidation, []byte, error) {
+func validatePackage(ctx context.Context, r *remote, document []byte, schemaTarget string) (apiclient.PackageValidation, []byte, error) {
 	var body bytes.Buffer
 	body.WriteString(`{"package":`)
 	body.Write(document)
 	if schemaTarget != "" {
 		target, err := json.Marshal(schemaTarget)
 		if err != nil {
-			return api.PackageValidation{}, nil, failf("output", "cannot encode --schema-target: %v", err)
+			return apiclient.PackageValidation{}, nil, failf("output", "cannot encode --schema-target: %v", err)
 		}
 		body.WriteString(`,"schemaTarget":`)
 		body.Write(target)
@@ -361,13 +361,13 @@ func validatePackage(ctx context.Context, r *remote, document []byte, schemaTarg
 
 	res, err := r.api.ValidatePackageWithBodyWithResponse(ctx, "application/json", bytes.NewReader(body.Bytes()))
 	if err != nil {
-		return api.PackageValidation{}, nil, transportFailure(ctx, "validating the package", err)
+		return apiclient.PackageValidation{}, nil, transportFailure(ctx, "validating the package", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return api.PackageValidation{}, nil, r.refusal(ctx, "the package", res.HTTPResponse, res.Body)
+		return apiclient.PackageValidation{}, nil, r.refusal(ctx, "the package", res.HTTPResponse, res.Body)
 	}
 	if res.JSON200 == nil {
-		return api.PackageValidation{}, nil, failf("unexpected_response", "Alder answered with something that is not a validation")
+		return apiclient.PackageValidation{}, nil, failf("unexpected_response", "Alder answered with something that is not a validation")
 	}
 	return *res.JSON200, res.Body, nil
 }
@@ -375,7 +375,7 @@ func validatePackage(ctx context.Context, r *remote, document []byte, schemaTarg
 // validationOutcome is the exit status of a finished validation. It reuses the
 // client's own codes: something that cannot be applied is "not applicable", and
 // something that could not be decided is "incomplete", as everywhere else.
-func validationOutcome(v api.PackageValidation) error {
+func validationOutcome(v apiclient.PackageValidation) error {
 	c := v.Counts
 	if c.Unknown > 0 {
 		return &ExitError{Code: ExitIncomplete}
@@ -388,15 +388,15 @@ func validationOutcome(v api.PackageValidation) error {
 
 // readyChanges are the prepared changes of the ready items, in the order the
 // validation gave.
-func readyChanges(v api.PackageValidation) []api.ChangeRequest {
-	byID := map[string]api.PackageValidationItem{}
+func readyChanges(v apiclient.PackageValidation) []apiclient.ChangeRequest {
+	byID := map[string]apiclient.PackageValidationItem{}
 	for _, item := range v.Items {
 		byID[item.Id] = item
 	}
-	var out []api.ChangeRequest
+	var out []apiclient.ChangeRequest
 	for _, id := range v.Order {
 		item, ok := byID[id]
-		if !ok || item.Status != api.PackageStatusReady || item.Changes == nil {
+		if !ok || item.Status != apiclient.PackageStatusReady || item.Changes == nil {
 			continue
 		}
 		out = append(out, *item.Changes...)

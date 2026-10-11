@@ -141,7 +141,7 @@ jobs:
           if ! diff -u /tmp/committed.go /tmp/regenerated.go; then
             status=1
           fi
-          if ! git diff --exit-code -- web/src/lib/api.gen.ts; then
+          if ! git diff --exit-code -- web/src/lib/api.gen.ts internal/apiclient/apiclient.gen.go; then
             status=1
           fi
           if [ "$status" -ne 0 ]; then

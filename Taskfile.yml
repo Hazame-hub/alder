@@ -37,6 +37,7 @@ tasks:
       # business in go.mod. Without the version this needs it to be a
       # dependency, and it is not one.
       - go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0 -config api/codegen.yaml api/openapi.yaml
+      - go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0 -config api/codegen-client.yaml api/openapi.yaml
       - npm --prefix web run generate
 
   web:

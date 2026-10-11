@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/envflags"
 )
 
@@ -200,7 +200,7 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 	}
 	defer r.close()
 
-	send := func() (*api.DiffStatesReply, error) {
+	send := func() (*apiclient.DiffStatesReply, error) {
 		readers := make([]io.Reader, 0, len(parts))
 		for _, p := range parts {
 			readers = append(readers, bytes.NewReader(p))
@@ -254,9 +254,9 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 	if selecting {
 		stage := stageSelected
 		switch d.Kind {
-		case api.StateKindSchema:
+		case apiclient.StateKindSchema:
 			stage = stageSchemaSelected
-		case api.StateKindConfig:
+		case apiclient.StateKindConfig:
 			stage = stageConfigSelected
 		}
 		if err := stage(env, d, res.Body, o); err != nil {
@@ -273,13 +273,13 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 	return diffOutcome(d)
 }
 
-func liveRequest(o diffOptions, flags *pflag.FlagSet) api.DiffLiveSide {
-	var side api.DiffLiveSide
+func liveRequest(o diffOptions, flags *pflag.FlagSet) apiclient.DiffLiveSide {
+	var side apiclient.DiffLiveSide
 	if flags.Changed("base") {
 		side.Base = &o.base
 	}
 	if flags.Changed("scope") {
-		scope := api.SnapshotScope(o.scope)
+		scope := apiclient.SnapshotScope(o.scope)
 		side.Scope = &scope
 	}
 	if flags.Changed("filter") {
@@ -297,7 +297,7 @@ func liveRequest(o diffOptions, flags *pflag.FlagSet) api.DiffLiveSide {
 // diffOutcome is the exit status of a finished comparison. Incomplete wins over
 // differences: a partial answer that found differences has still not said
 // what the rest holds.
-func diffOutcome(d api.Diff) error {
+func diffOutcome(d apiclient.Diff) error {
 	if !d.Complete || d.Counts.Unknown > 0 {
 		return &ExitError{Code: ExitIncomplete}
 	}
@@ -311,7 +311,7 @@ func diffOutcome(d api.Diff) error {
 // named on the command line. It chooses nothing itself: every DN is named, a
 // deletion is named as one, and a difference Alder offered no change for is
 // refused rather than skipped.
-func stageSelected(env *Env, d api.Diff, body []byte, o diffOptions) error {
+func stageSelected(env *Env, d apiclient.Diff, body []byte, o diffOptions) error {
 	var rawItems struct {
 		Items []struct {
 			Candidate *struct {

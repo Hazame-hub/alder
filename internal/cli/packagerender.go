@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 )
 
 // Printing a package and what a target makes of it.
@@ -15,7 +15,7 @@ import (
 // string goes through safe(): a package is untrusted input, and a DN or a
 // definition can carry anything a directory can hold.
 
-func renderPackageInspection(w io.Writer, in api.PackageInspection) {
+func renderPackageInspection(w io.Writer, in apiclient.PackageInspection) {
 	title := safe(text(in.Title))
 	if title == "" {
 		title = "(untitled)"
@@ -65,7 +65,7 @@ func renderPackageInspection(w io.Writer, in api.PackageInspection) {
 	}
 }
 
-func renderAssumptions(w io.Writer, a api.PackageAssumptions) {
+func renderAssumptions(w io.Writer, a apiclient.PackageAssumptions) {
 	var parts []string
 	for _, context := range derefSlice(a.NamingContexts) {
 		parts = append(parts, "naming context "+safe(context))
@@ -97,7 +97,7 @@ func derefSlice(list *[]string) []string {
 	return *list
 }
 
-func renderPackageChange(w io.Writer, change api.PackageChange) {
+func renderPackageChange(w io.Writer, change apiclient.PackageChange) {
 	mark := " "
 	if change.Destructive {
 		mark = "!"
@@ -112,7 +112,7 @@ func renderPackageChange(w io.Writer, change api.PackageChange) {
 }
 
 // packageChangeLine is one change in a line: what it does, to what.
-func packageChangeLine(change api.PackageChange) string {
+func packageChangeLine(change apiclient.PackageChange) string {
 	if change.Schema != nil {
 		s := change.Schema
 		line := fmt.Sprintf("%s %s %s", s.Op, s.Element, safe(s.Oid))
@@ -125,20 +125,20 @@ func packageChangeLine(change api.PackageChange) string {
 		d := change.Data
 		line := fmt.Sprintf("%s %s", d.Type, safe(d.Dn))
 		switch {
-		case d.Type == api.PackageOpRename && d.NewSuperior != nil && d.NewRdn != nil:
+		case d.Type == apiclient.PackageOpRename && d.NewSuperior != nil && d.NewRdn != nil:
 			line += fmt.Sprintf(" -> %s,%s", safe(*d.NewRdn), safe(*d.NewSuperior))
-		case d.Type == api.PackageOpRename && d.NewRdn != nil:
+		case d.Type == apiclient.PackageOpRename && d.NewRdn != nil:
 			line += " -> " + safe(*d.NewRdn)
-		case d.Type == api.PackageOpRename && d.NewSuperior != nil:
+		case d.Type == apiclient.PackageOpRename && d.NewSuperior != nil:
 			line += " -> under " + safe(*d.NewSuperior)
-		case d.Type == api.PackageOpModify && d.Mods != nil:
+		case d.Type == apiclient.PackageOpModify && d.Mods != nil:
 			var names []string
 			for _, m := range *d.Mods {
 				names = append(names, string(m.Op)+" "+safe(m.Name))
 			}
 			line += ": " + strings.Join(names, ", ")
 		}
-		if change.Intent != nil && *change.Intent == api.PackageIntentDesired {
+		if change.Intent != nil && *change.Intent == apiclient.PackageIntentDesired {
 			line += " (desired state)"
 		}
 		return line
@@ -161,7 +161,7 @@ func definitionName(definition string) string {
 	return rest[:end]
 }
 
-func renderPackageValidation(w io.Writer, v api.PackageValidation) {
+func renderPackageValidation(w io.Writer, v apiclient.PackageValidation) {
 	writef(w, "Package %s against %s\n", safe(v.PackageId), targetLine(v.Target))
 	writef(w, "  checksum %s\n", v.Integrity)
 	writeln(w)
@@ -221,7 +221,7 @@ func renderPackageValidation(w io.Writer, v api.PackageValidation) {
 	writeln(w, "alder apply --package applies exactly the plan it shows.")
 }
 
-func derefProblems(problems *[]api.PackageProblem) []api.PackageProblem {
+func derefProblems(problems *[]apiclient.PackageProblem) []apiclient.PackageProblem {
 	if problems == nil {
 		return nil
 	}
@@ -230,12 +230,12 @@ func derefProblems(problems *[]api.PackageProblem) []api.PackageProblem {
 
 // sortedItems lists the ready changes in the order they would be applied, then
 // everything else by identifier: the work first, the reasons after.
-func sortedItems(v api.PackageValidation) []api.PackageValidationItem {
+func sortedItems(v apiclient.PackageValidation) []apiclient.PackageValidationItem {
 	position := map[string]int{}
 	for i, id := range v.Order {
 		position[id] = i
 	}
-	out := append([]api.PackageValidationItem(nil), v.Items...)
+	out := append([]apiclient.PackageValidationItem(nil), v.Items...)
 	sort.SliceStable(out, func(i, j int) bool {
 		left, leftOrdered := position[out[i].Id]
 		right, rightOrdered := position[out[j].Id]
@@ -250,7 +250,7 @@ func sortedItems(v api.PackageValidation) []api.PackageValidationItem {
 	return out
 }
 
-func targetLine(t api.PackageTarget) string {
+func targetLine(t apiclient.PackageTarget) string {
 	line := strings.Join(t.NamingContexts, ", ")
 	if line == "" {
 		line = "a directory holding no naming context"

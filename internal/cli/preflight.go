@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/envflags"
 )
 
@@ -100,14 +100,14 @@ func runPreflight(ctx context.Context, env *Env, conn *connection, o preflightOp
 
 // preflightArtifact sends the artifact as the bytes it is, so the server
 // decides what it is and whether it is valid.
-func preflightArtifact(ctx context.Context, r *remote, document []byte, schemaTarget string) (api.PreflightReport, []byte, error) {
+func preflightArtifact(ctx context.Context, r *remote, document []byte, schemaTarget string) (apiclient.PreflightReport, []byte, error) {
 	var body bytes.Buffer
 	body.WriteString(`{"artifact":`)
 	body.Write(document)
 	if schemaTarget != "" {
 		target, err := json.Marshal(schemaTarget)
 		if err != nil {
-			return api.PreflightReport{}, nil, failf("output", "cannot encode --schema-target: %v", err)
+			return apiclient.PreflightReport{}, nil, failf("output", "cannot encode --schema-target: %v", err)
 		}
 		body.WriteString(`,"schemaTarget":`)
 		body.Write(target)
@@ -116,16 +116,16 @@ func preflightArtifact(ctx context.Context, r *remote, document []byte, schemaTa
 
 	res, err := r.api.PreflightWithBodyWithResponse(ctx, "application/json", bytes.NewReader(body.Bytes()))
 	if err != nil {
-		return api.PreflightReport{}, nil, transportFailure(ctx, "running the preflight", err)
+		return apiclient.PreflightReport{}, nil, transportFailure(ctx, "running the preflight", err)
 	}
 	if res.StatusCode() == http.StatusNotFound {
-		return api.PreflightReport{}, nil, r.unsupported(ctx, "a preflight")
+		return apiclient.PreflightReport{}, nil, r.unsupported(ctx, "a preflight")
 	}
 	if res.StatusCode() != http.StatusOK {
-		return api.PreflightReport{}, nil, r.refusal(ctx, "the artifact", res.HTTPResponse, res.Body)
+		return apiclient.PreflightReport{}, nil, r.refusal(ctx, "the artifact", res.HTTPResponse, res.Body)
 	}
 	if res.JSON200 == nil {
-		return api.PreflightReport{}, nil, failf("unexpected_response", "Alder answered with something that is not a preflight report")
+		return apiclient.PreflightReport{}, nil, failf("unexpected_response", "Alder answered with something that is not a preflight report")
 	}
 	return *res.JSON200, res.Body, nil
 }
@@ -133,33 +133,33 @@ func preflightArtifact(ctx context.Context, r *remote, document []byte, schemaTa
 // preflightOutcome is the exit status of a finished preflight, in the client's
 // existing codes: work to do is a difference, something undecided is
 // incomplete, and something that cannot carry across is not applicable.
-func preflightOutcome(r api.PreflightReport) error {
+func preflightOutcome(r apiclient.PreflightReport) error {
 	switch r.Overall {
-	case api.PreflightCompatible:
+	case apiclient.PreflightCompatible:
 		return nil
-	case api.PreflightCompatibleWithPrerequisites:
+	case apiclient.PreflightCompatibleWithPrerequisites:
 		return &ExitError{Code: ExitDifferences}
-	case api.PreflightNotCompatible:
+	case apiclient.PreflightNotCompatible:
 		return &ExitError{Code: ExitNotApplicable}
 	}
 	return &ExitError{Code: ExitIncomplete}
 }
 
-var preflightOverallText = map[api.PreflightOverall]string{
-	api.PreflightCompatible:                  "Compatible",
-	api.PreflightCompatibleWithPrerequisites: "Compatible with prerequisites",
-	api.PreflightNotCompatible:               "Incompatible",
-	api.PreflightIncomplete:                  "Incomplete",
+var preflightOverallText = map[apiclient.PreflightOverall]string{
+	apiclient.PreflightCompatible:                  "Compatible",
+	apiclient.PreflightCompatibleWithPrerequisites: "Compatible with prerequisites",
+	apiclient.PreflightNotCompatible:               "Incompatible",
+	apiclient.PreflightIncomplete:                  "Incomplete",
 }
 
-var preflightSourceText = map[api.PreflightSourceType]string{
-	api.PreflightSourceChangePackage:  "change package",
-	api.PreflightSourceSchemaSnapshot: "schema snapshot",
-	api.PreflightSourceDataSnapshot:   "data snapshot",
-	api.PreflightSourceConfigSnapshot: "configuration snapshot",
+var preflightSourceText = map[apiclient.PreflightSourceType]string{
+	apiclient.PreflightSourceChangePackage:  "change package",
+	apiclient.PreflightSourceSchemaSnapshot: "schema snapshot",
+	apiclient.PreflightSourceDataSnapshot:   "data snapshot",
+	apiclient.PreflightSourceConfigSnapshot: "configuration snapshot",
 }
 
-func renderPreflight(w io.Writer, r api.PreflightReport, all bool) {
+func renderPreflight(w io.Writer, r apiclient.PreflightReport, all bool) {
 	source := preflightSourceText[r.Source.Type]
 	if vendor := safe(text(r.Source.Vendor)); vendor != "" {
 		source += " from " + vendor
@@ -210,7 +210,7 @@ func renderPreflight(w io.Writer, r api.PreflightReport, all bool) {
 	writeln(w)
 	shown := 0
 	for _, f := range r.Findings {
-		if !all && (f.Classification == api.PreflightPortable || f.Classification == api.PreflightAlreadySatisfied) {
+		if !all && (f.Classification == apiclient.PreflightPortable || f.Classification == apiclient.PreflightAlreadySatisfied) {
 			continue
 		}
 		shown++
@@ -239,31 +239,31 @@ func renderPreflight(w io.Writer, r api.PreflightReport, all bool) {
 	writeln(w, "plan: changes still go through alder plan and alder apply.")
 }
 
-func sectionTitle(c api.PreflightCategory) string {
+func sectionTitle(c apiclient.PreflightCategory) string {
 	switch c {
-	case api.PreflightCategoryArtifact:
+	case apiclient.PreflightCategoryArtifact:
 		return "Artifact"
-	case api.PreflightCategorySchema:
+	case apiclient.PreflightCategorySchema:
 		return "Schema"
-	case api.PreflightCategoryNaming:
+	case apiclient.PreflightCategoryNaming:
 		return "Naming"
-	case api.PreflightCategoryEntries:
+	case apiclient.PreflightCategoryEntries:
 		return "Entries"
-	case api.PreflightCategoryReferences:
+	case apiclient.PreflightCategoryReferences:
 		return "References"
-	case api.PreflightCategoryConfiguration:
+	case apiclient.PreflightCategoryConfiguration:
 		return "Configuration"
-	case api.PreflightCategoryCapabilities:
+	case apiclient.PreflightCategoryCapabilities:
 		return "Capabilities"
-	case api.PreflightCategoryOperational:
+	case apiclient.PreflightCategoryOperational:
 		return "Operational attributes"
-	case api.PreflightCategorySensitive:
+	case apiclient.PreflightCategorySensitive:
 		return "Sensitive data"
 	}
 	return string(c)
 }
 
-func findingSubject(f api.PreflightFinding) string {
+func findingSubject(f apiclient.PreflightFinding) string {
 	s := f.Source
 	var parts []string
 	if item := safe(text(s.Item)); item != "" {
@@ -280,7 +280,7 @@ func findingSubject(f api.PreflightFinding) string {
 	return strings.Join(parts, " ")
 }
 
-func prerequisiteText(p api.PreflightPrerequisite) string {
+func prerequisiteText(p apiclient.PreflightPrerequisite) string {
 	parts := []string{safe(p.Type)}
 	for _, v := range []*string{p.Element, p.Oid, p.Name, p.Dn, p.Capability, p.Setting, p.Resource} {
 		if value := safe(text(v)); value != "" {

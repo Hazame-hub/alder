@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/envflags"
 )
 
@@ -133,20 +133,20 @@ func applyCmd(env *Env) *cobra.Command {
 // planInput is what a plan was asked for, and the client's own copy of each
 // exact change.
 type planInput struct {
-	request    api.PlanRequest
+	request    apiclient.PlanRequest
 	ldif       *string
-	mode       api.PlanLdifMode
-	staged     []api.ChangeRequest
+	mode       apiclient.PlanLdifMode
+	staged     []apiclient.ChangeRequest
 	readsStdin bool
 	// bundle is a recovery bundle as read, turned into changes once there is
 	// a server to ask.
 	bundle     []byte
-	inspection *api.RecoveryInspection
+	inspection *apiclient.RecoveryInspection
 	// pkg is a change package as read. It becomes changes only after the
 	// directory has been asked what its intent means here.
 	pkg          []byte
 	schemaTarget string
-	validation   *api.PackageValidation
+	validation   *apiclient.PackageValidation
 }
 
 func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*planInput, error) {
@@ -158,7 +158,7 @@ func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*plan
 		if flags.Changed("mode") {
 			return nil, usagef("--mode says how to read LDIF; a package holds exact changes and schema intent")
 		}
-		return &planInput{mode: api.PlanLdifModeChanges, readsStdin: o.pkg == "-", schemaTarget: o.schemaTarget}, nil
+		return &planInput{mode: apiclient.PlanLdifModeChanges, readsStdin: o.pkg == "-", schemaTarget: o.schemaTarget}, nil
 	}
 	if flags.Changed("schema-target") {
 		return nil, usagef("--schema-target describes where a package's schema changes go, so it needs --package")
@@ -170,7 +170,7 @@ func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*plan
 		if flags.Changed("mode") {
 			return nil, usagef("--mode says how to read LDIF; a recovery bundle holds exact change requests")
 		}
-		return &planInput{mode: api.PlanLdifModeChanges, readsStdin: o.recovery == "-"}, nil
+		return &planInput{mode: apiclient.PlanLdifModeChanges, readsStdin: o.recovery == "-"}, nil
 	}
 	if hasLDIF == (o.changes != "") {
 		return nil, usagef("give an LDIF document or --changes, and only one of them")
@@ -178,8 +178,8 @@ func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*plan
 	if o.changes != "" && flags.Changed("mode") {
 		return nil, usagef("--mode says how to read LDIF; --changes are already exact change requests")
 	}
-	mode := api.PlanLdifMode(o.mode)
-	if mode != api.PlanLdifModeChanges && mode != api.PlanLdifModeDesired {
+	mode := apiclient.PlanLdifMode(o.mode)
+	if mode != apiclient.PlanLdifModeChanges && mode != apiclient.PlanLdifModeDesired {
 		return nil, usagef("--mode must be changes or desired, not %q", o.mode)
 	}
 	in := &planInput{mode: mode, readsStdin: (hasLDIF && args[0] == "-") || o.changes == "-"}
@@ -212,7 +212,7 @@ func (in *planInput) load(env *Env, o planOptions, args []string) error {
 		}
 		text := string(data)
 		in.ldif = &text
-		in.request = api.PlanRequest{Ldif: &text, Mode: &in.mode, Reconcile: ptr(false)}
+		in.request = apiclient.PlanRequest{Ldif: &text, Mode: &in.mode, Reconcile: ptr(false)}
 		return nil
 	}
 	data, name, err := env.readInput(o.changes, "the change requests", maxRequestBytes)
@@ -223,7 +223,7 @@ func (in *planInput) load(env *Env, o planOptions, args []string) error {
 	// A field the client does not know is refused, not dropped: a change with
 	// part of it silently ignored is a different change.
 	dec.DisallowUnknownFields()
-	var changes []api.ChangeRequest
+	var changes []apiclient.ChangeRequest
 	if err := dec.Decode(&changes); err != nil {
 		return failf("changes_invalid", "%s is not a JSON array of change requests: %v", name, err)
 	}
@@ -234,7 +234,7 @@ func (in *planInput) load(env *Env, o planOptions, args []string) error {
 		return failf("changes_invalid", "%s holds no change requests", name)
 	}
 	in.staged = changes
-	in.request = api.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
+	in.request = apiclient.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
 	return nil
 }
 
@@ -259,7 +259,7 @@ func (in *planInput) resolve(ctx context.Context, r *remote, w io.Writer) (bool,
 	}
 	changes := inspection.Changes
 	in.staged = changes
-	in.request = api.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
+	in.request = apiclient.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
 	return true, nil
 }
 
@@ -282,7 +282,7 @@ func (in *planInput) resolvePackage(ctx context.Context, r *remote, w io.Writer)
 		return false, nil
 	}
 	in.staged = changes
-	in.request = api.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
+	in.request = apiclient.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
 	return true, nil
 }
 
@@ -317,7 +317,7 @@ func runPlan(ctx context.Context, env *Env, conn *connection, o planOptions, fla
 	}
 	if !proceed {
 		if o.json {
-			empty, _ := json.Marshal(api.Plan{Items: []api.PlanItem{}})
+			empty, _ := json.Marshal(apiclient.Plan{Items: []apiclient.PlanItem{}})
 			if err := writeDocument(env.Stdout, empty); err != nil {
 				return failf("output", "cannot write to standard output: %v", err)
 			}
@@ -345,21 +345,21 @@ func runPlan(ctx context.Context, env *Env, conn *connection, o planOptions, fla
 	return nil
 }
 
-func requestPlan(ctx context.Context, r *remote, req api.PlanRequest) (api.Plan, []byte, error) {
+func requestPlan(ctx context.Context, r *remote, req apiclient.PlanRequest) (apiclient.Plan, []byte, error) {
 	res, err := r.api.PlanChangesWithResponse(ctx, req)
 	if err != nil {
-		return api.Plan{}, nil, transportFailure(ctx, "planning", err)
+		return apiclient.Plan{}, nil, transportFailure(ctx, "planning", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return api.Plan{}, nil, r.refusal(ctx, "planning", res.HTTPResponse, res.Body)
+		return apiclient.Plan{}, nil, r.refusal(ctx, "planning", res.HTTPResponse, res.Body)
 	}
 	if res.JSON200 == nil {
-		return api.Plan{}, nil, failf("unexpected_response", "Alder answered the plan request with something that is not a plan")
+		return apiclient.Plan{}, nil, failf("unexpected_response", "Alder answered the plan request with something that is not a plan")
 	}
 	return *res.JSON200, res.Body, nil
 }
 
-func blocked(p api.Plan) int {
+func blocked(p apiclient.Plan) int {
 	n := p.Counts.Conflict
 	if p.Counts.Invalid != nil {
 		n += *p.Counts.Invalid
@@ -367,7 +367,7 @@ func blocked(p api.Plan) int {
 	return n
 }
 
-func applicable(p api.Plan) int {
+func applicable(p apiclient.Plan) int {
 	c := p.Counts
 	return c.Add + c.Modify + c.Delete + c.Rename + c.SetPassword
 }
@@ -437,8 +437,8 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 	// withholds sensitive values from its response. For LDIF that copy is the
 	// document as Alder parses it -- by the same reader the plan uses, record for
 	// record -- so no LDIF is interpreted here.
-	if in.ldif != nil && in.mode == api.PlanLdifModeChanges {
-		parsed, parseErr := r.api.ParseLdifWithResponse(ctx, api.ImportRequest{Ldif: *in.ldif, Reconcile: ptr(false)})
+	if in.ldif != nil && in.mode == apiclient.PlanLdifModeChanges {
+		parsed, parseErr := r.api.ParseLdifWithResponse(ctx, apiclient.ImportRequest{Ldif: *in.ldif, Reconcile: ptr(false)})
 		if parseErr != nil {
 			return transportFailure(ctx, "reading the LDIF", parseErr)
 		}
@@ -501,7 +501,7 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 	}
 
 	changes := changesFromPlan(p, in.staged)
-	body := api.ApplyChangesetJSONRequestBody{Changes: changes}
+	body := apiclient.ApplyChangesetJSONRequestBody{Changes: changes}
 	if o.recoveryOut != "" {
 		body.Recovery = ptr(true)
 	}
@@ -567,14 +567,14 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 // desired-state change may have been rewritten by the planner, so the plan's
 // record is sent. Each carries the baseline the plan issued, which binds the
 // operation and the directory state it was planned against.
-func changesFromPlan(p api.Plan, staged []api.ChangeRequest) []api.ChangeRequest {
-	out := []api.ChangeRequest{}
+func changesFromPlan(p apiclient.Plan, staged []apiclient.ChangeRequest) []apiclient.ChangeRequest {
+	out := []apiclient.ChangeRequest{}
 	for _, item := range p.Items {
 		if item.Record == nil || item.Baseline == nil {
 			continue
 		}
-		exact := item.Intent == nil || *item.Intent != api.PlanIntentDesired
-		var change api.ChangeRequest
+		exact := item.Intent == nil || *item.Intent != apiclient.PlanIntentDesired
+		var change apiclient.ChangeRequest
 		if exact && item.Index >= 0 && item.Index < len(staged) {
 			change = staged[item.Index]
 		} else {

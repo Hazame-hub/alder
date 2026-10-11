@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/apiclient"
 )
 
 // refusal turns a response Alder did not answer with success into an ExitError.
@@ -22,7 +22,7 @@ import (
 // planned -- get their own exit code, because the right response to both is to
 // plan again and review, never to retry.
 func (r *remote) refusal(ctx context.Context, what string, res *http.Response, body []byte) *ExitError {
-	var apiErr api.Error
+	var apiErr apiclient.Error
 	if isJSON(res.Header) && json.Unmarshal(body, &apiErr) == nil && apiErr.Error != "" {
 		e := &ExitError{Code: ExitFailed, Server: compactJSON(body), Message: describeAPIError(what, apiErr)}
 		if planNoLongerHolds(apiErr) {
@@ -42,20 +42,20 @@ func (r *remote) refusal(ctx context.Context, what string, res *http.Response, b
 	return failf("unexpected_response", "Alder answered %s with HTTP %d and no error description", what, res.StatusCode)
 }
 
-func planNoLongerHolds(e api.Error) bool {
-	if e.Error == api.ErrorErrorPlanMismatch {
+func planNoLongerHolds(e apiclient.Error) bool {
+	if e.Error == apiclient.ErrorErrorPlanMismatch {
 		return true
 	}
-	return e.Error == api.ErrorErrorConflict && e.Cause != nil && *e.Cause == api.ErrorCausePlanStale
+	return e.Error == apiclient.ErrorErrorConflict && e.Cause != nil && *e.Cause == apiclient.ErrorCausePlanStale
 }
 
-func describeAPIError(what string, e api.Error) string {
+func describeAPIError(what string, e apiclient.Error) string {
 	var b strings.Builder
 	switch {
-	case e.Error == api.ErrorErrorConflict && e.Cause != nil && *e.Cause == api.ErrorCausePlanStale:
+	case e.Error == apiclient.ErrorErrorConflict && e.Cause != nil && *e.Cause == apiclient.ErrorCausePlanStale:
 		b.WriteString("the plan is stale: the directory changed after it was made, so nothing was written.\n" +
 			"Run the command again to review a new plan.")
-	case e.Error == api.ErrorErrorPlanMismatch:
+	case e.Error == apiclient.ErrorErrorPlanMismatch:
 		b.WriteString("the changes sent are not the operations that were planned, so nothing was written.\n" +
 			"Run the command again to review a new plan.")
 	default:
