@@ -600,6 +600,34 @@ one, and the alternative — flipping it to `true` — would be far worse.
 `applied` now means "the directory confirmed it", and `state` carries the
 rest. The schema says so.
 
+### 1.37
+
+1.37.0 added, only by adding: `alder project validate` and `alder project
+plan` ([PROJECT.md](PROJECT.md)), and `--detailed-exitcode` on `alder plan`
+and `alder project plan`, off by default.
+
+**Then the exit-code promise was broken once, deliberately, in the patch
+that followed it** -- hours after 1.37.0, before anyone outside the project
+had run it. Two things changed:
+
+- **`--detailed-exitcode` reports "changes pending" as 2, not 1.** 2 is the
+  number `terraform plan -detailed-exitcode` uses, which is what anyone
+  wiring a plan into CI already switches on. 0 and 3 are unchanged, and
+  without the flag nothing changed at all.
+- **A command line Alder cannot parse exits 7, not 1.** An unknown command,
+  an unknown flag on the root, anything else Cobra refuses: 7 is what every
+  other wrong command line already exits, and 1 is `diff`'s "differences
+  found", which a script could not tell apart from a typo. `alder serve`
+  started wrongly -- without TLS, say -- also exits 7; one that cannot listen
+  exits 8.
+
+An internal error, which used to crash with the Go runtime's exit 2, now
+prints "alder: internal error" and exits 8, so a crash can never read as
+"changes pending".
+
+This is the only break in 1.x, and it is recorded here so it stays the only
+one. From this patch on, these numbers are covered like every other.
+
 ---
 
 ## Not covered

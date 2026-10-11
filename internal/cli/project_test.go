@@ -211,12 +211,12 @@ func TestProjectPlanDetailedExitcode(t *testing.T) {
 		{"nothing to change is 0",
 			func(t *testing.T) string { return planJSON(t, counts{unchanged: 1}, unchanged) },
 			[]string{"--detailed-exitcode"}, nil, ExitOK},
-		{"changes pending is 1",
+		{"changes pending is 2",
 			func(t *testing.T) string { return planJSON(t, counts{modify: 1}, exactModify("b0")) },
-			[]string{"--detailed-exitcode"}, nil, ExitDifferences},
-		{"changes pending is 1 with --json too",
+			[]string{"--detailed-exitcode"}, nil, ExitPending},
+		{"changes pending is 2 with --json too",
 			func(t *testing.T) string { return planJSON(t, counts{modify: 1}, exactModify("b0")) },
-			[]string{"--detailed-exitcode", "--json"}, nil, ExitDifferences},
+			[]string{"--detailed-exitcode", "--json"}, nil, ExitPending},
 		{"a change that cannot be applied is 3, and wins over pending changes",
 			func(t *testing.T) string {
 				return planJSON(t, counts{modify: 1, conflict: 1}, exactModify("b0"), conflict)
@@ -239,7 +239,7 @@ func TestProjectPlanDetailedExitcode(t *testing.T) {
 			r := s.run(t, opts, args...)
 			expectCode(t, r, tc.want)
 			if strings.Contains(strings.Join(tc.args, " "), "--json") {
-				// Exit 1 sets a status; it is not an error document.
+				// Exit 2 sets a status; it is not an error document.
 				doc := oneJSONDocument(t, r.stdout)
 				if _, isError := doc["error"]; isError {
 					t.Errorf("--detailed-exitcode wrote an error document: %v", doc)

@@ -5340,3 +5340,41 @@ directory. No glob library was added to support it.
 Running the whole E2E suite for this also found a race in the drift
 journey, failing two runs in six: it waited for text that is on the page
 before the snapshot is taken. It now waits for the capture itself.
+
+### 2026-10-11 — the exit-code promise, broken once, on purpose
+
+Hours after 1.37.0, before anyone outside the project had run it, three
+exit codes changed. The 1.x promise covers exit codes, and this is the one
+time it bends -- recorded here and in COMPATIBILITY.md so it stays the only
+time.
+
+**`--detailed-exitcode` says "changes pending" with 2, not 1.** 1.37.0
+chose 1 because `diff` already used it for "differences found". That was
+the wrong precedent. `diff` follows diff(1), where 1 means "they differ";
+a plan answers a different question, and the tool people already wire into
+CI for that question, `terraform plan -detailed-exitcode`, answers it with
+2. A pipeline written against Terraform's convention should work against
+Alder's without a lookup table. 0 stays "nothing to change", and 3 -- a
+change that cannot be applied as written -- still wins. `ExitPending` is
+its own constant with the same value as `ExitIncomplete`, because the two
+mean different things and a reader of the code should not have to know
+which command it is in to tell which.
+
+**A command line Alder cannot parse exits 7, not 1.** An unknown command or
+root flag exited 1 "as it always has" -- the same number as `diff`'s
+"differences found", so a typo in a script read as a result. 7 is what every
+other wrong command line already exits. Making every non-exit error 7 would
+have labelled `alder serve` failing to listen as a usage error, which it is
+not; serve now returns exit 8 for that, an unreadable key file and a failed
+shutdown, and keeps 7 for being started wrongly.
+
+**A panic exits 8.** The Go runtime exits 2 on a panic, which is now
+"changes pending". `Execute` recovers, prints "alder: internal error" with
+the stack, and exits 8, so a crash can never be read as an answer.
+
+Why now and not never: the alternative was to keep 1 for pending changes
+for the rest of 1.x, permanently out of step with the convention it was
+meant to match, to spare users that did not yet exist. Shipped as a patch
+with a plain `fix:` commit, because a breaking-change marker would make it
+2.0.0, which would announce a break to everybody for a change that, in
+practice, reaches nobody.

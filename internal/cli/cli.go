@@ -26,6 +26,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 
@@ -43,6 +44,11 @@ const (
 	// ExitIncomplete: diff could not see everything, so what it reports is not
 	// the whole answer. It wins over ExitDifferences.
 	ExitIncomplete = 2
+	// ExitPending: with --detailed-exitcode, the plan has changes to make.
+	// The same number as ExitIncomplete, kept apart because it means
+	// something else: plan follows terraform plan -detailed-exitcode, where
+	// 2 is "changes pending", as diff follows diff(1).
+	ExitPending = 2
 	// ExitNotApplicable: the plan holds a change that cannot be applied as
 	// written (a conflict or a schema violation), or a selected difference
 	// offers no change. Nothing was written.
@@ -166,10 +172,22 @@ func Commands(env *Env) []*cobra.Command {
 // Execute runs root with args and returns the process exit code, having printed
 // whatever a failure has to say to standard error.
 //
-// Errors that are not ExitErrors -- an unknown command, a failure in alder
-// serve -- are printed the way Cobra printed them before the client existed and
-// exit 1, so nothing about the server's command line changes.
-func Execute(ctx context.Context, root *cobra.Command, env *Env, args []string) int {
+// Errors that are not ExitErrors -- an unknown command, an unknown flag on the
+// root, anything else Cobra refuses -- are mistakes on the command line, and
+// exit 7 like every other one. They used to exit 1, which a script could not
+// tell apart from "diff found differences". A command that fails for another
+// reason returns an ExitError saying so.
+//
+// A panic is recovered and exits 8. Left alone, the Go runtime exits 2 -- which
+// is "changes pending" from plan --detailed-exitcode, and a crash must never
+// read as an answer.
+func Execute(ctx context.Context, root *cobra.Command, env *Env, args []string) (code int) {
+	defer func() {
+		if r := recover(); r != nil {
+			writef(env.Stderr, "alder: internal error: %v\n%s", r, debug.Stack())
+			code = ExitFailed
+		}
+	}()
 	root.SetArgs(args)
 	root.SetIn(env.Stdin)
 	root.SetOut(env.Stdout)
@@ -188,7 +206,7 @@ func Execute(ctx context.Context, root *cobra.Command, env *Env, args []string) 
 		return exit.Code
 	}
 	writeln(env.Stderr, "Error:", err.Error())
-	return 1
+	return ExitUsage
 }
 
 // command is the shape every client command shares: a usage error for a bad

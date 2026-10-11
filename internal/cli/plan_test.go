@@ -345,5 +345,5 @@ func TestPlanDetailedExitcode(t *testing.T) {
 	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
 	file := writeTemp(t, t.TempDir(), "a.ldif", restoreLDIF)
 	expectCode(t, s.run(t, runOpts{}, "plan", file), ExitOK)
-	expectCode(t, s.run(t, runOpts{}, "plan", file, "--detailed-exitcode"), ExitDifferences)
+	expectCode(t, s.run(t, runOpts{}, "plan", file, "--detailed-exitcode"), ExitPending)
 }
