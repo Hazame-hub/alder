@@ -21,6 +21,7 @@ import (
 
 	"github.com/hazame-hub/alder/internal/allowlist"
 	"github.com/hazame-hub/alder/internal/api"
+	"github.com/hazame-hub/alder/internal/cli"
 	"github.com/hazame-hub/alder/internal/signing"
 	"github.com/hazame-hub/alder/internal/web"
 )
@@ -160,7 +161,7 @@ func runServe(ctx context.Context, o serveOptions) error {
 	// when the first signed document arrives is worse than not starting.
 	trusted, err := signing.LoadTrustedKeys(o.trustedKeys)
 	if err != nil {
-		return err
+		return serveFailed(err)
 	}
 	switch {
 	case len(trusted) > 0:
@@ -268,7 +269,7 @@ func runServe(ctx context.Context, o serveOptions) error {
 	select {
 	case err := <-errc:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("alder serve: %w", err)
+			return serveFailed(err)
 		}
 		return nil
 	case sig := <-sigc:
@@ -280,9 +281,17 @@ func runServe(ctx context.Context, o serveOptions) error {
 	// Shutting down closes every directory connection, which is what discards
 	// the credentials held for them.
 	if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
-		return fmt.Errorf("alder serve: shutdown: %w", err)
+		return serveFailed(fmt.Errorf("shutdown: %w", err))
 	}
 	return nil
+}
+
+// serveFailed marks a failure that is not the command line's fault -- the
+// address is taken, a key file cannot be read, shutdown did not finish -- as
+// exit 8. Anything else alder serve returns is a mistake in how it was
+// started, which Execute reports as exit 7.
+func serveFailed(err error) error {
+	return &cli.ExitError{Code: cli.ExitFailed, Local: "serve", Message: "alder serve: " + err.Error()}
 }
 
 // requestLogger logs one line per request.
