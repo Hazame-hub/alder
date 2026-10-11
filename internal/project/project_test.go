@@ -159,6 +159,14 @@ func TestEveryRuleIsEnforced(t *testing.T) {
 			where: "people/a.ldif:1:",
 		},
 		{
+			// userPassword by its OID, with an option: as much a secret as
+			// by name, and it must not reach a repository either.
+			name:  "a secret written by OID",
+			edit:  func(f map[string]string) { f["people/a.ldif"] = peopleA + "2.5.4.35;binary: {SSHA}abc\n" },
+			want:  "carries 2.5.4.35;binary, a secret",
+			where: "people/a.ldif:1:",
+		},
+		{
 			name: "a changetype record",
 			edit: func(f map[string]string) {
 				f["people/a.ldif"] = "dn: uid=alice,ou=people,dc=alder,dc=test\nchangetype: delete\n"
