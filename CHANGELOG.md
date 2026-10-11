@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.37.0](https://github.com/Hazame-hub/alder/compare/v1.36.2...v1.37.0) (2026-10-11)
+
+
+### Features
+
+* **cli:** --detailed-exitcode on alder plan and alder project plan, so 1 means changes pending ([d13ac9c](https://github.com/Hazame-hub/alder/commit/d13ac9c26c87c7defd6fe83f3c3649efc777f915))
+* **cli:** alder project validate and alder project plan --env, the first slice of the Alder project format ([b207c8a](https://github.com/Hazame-hub/alder/commit/b207c8af197bf5ed18261ceb5cf69d91dfebf311))
+
+
+### Fixes
+
+* **project:** refuse ** in file patterns instead of silently matching one level ([d13ac9c](https://github.com/Hazame-hub/alder/commit/d13ac9c26c87c7defd6fe83f3c3649efc777f915))
+* **project:** refuse a symlink that leads out of the project directory ([d13ac9c](https://github.com/Hazame-hub/alder/commit/d13ac9c26c87c7defd6fe83f3c3649efc777f915))
+* **project:** refuse an alder.yaml holding more than one YAML document ([d13ac9c](https://github.com/Hazame-hub/alder/commit/d13ac9c26c87c7defd6fe83f3c3649efc777f915))
+* **schema:** recognise sensitive attributes written by their OID, in validate, the export and the browser ([d13ac9c](https://github.com/Hazame-hub/alder/commit/d13ac9c26c87c7defd6fe83f3c3649efc777f915))
+
+
+### Refactoring
+
+* **cli:** take API types from a generated client package, so the client links no LDAP code ([b207c8a](https://github.com/Hazame-hub/alder/commit/b207c8af197bf5ed18261ceb5cf69d91dfebf311))
+
+
+### Documentation
+
+* commit the charter that comments and decisions cite ([#195](https://github.com/Hazame-hub/alder/issues/195)) ([d89a0ee](https://github.com/Hazame-hub/alder/commit/d89a0eeef551fd2439037252b3ac2f4270c351e3))
+* record the project format review in the specification ([#202](https://github.com/Hazame-hub/alder/issues/202)) ([02d46ed](https://github.com/Hazame-hub/alder/commit/02d46ed254e6e7f9b6fee47c5582aa61a0d5f593))
+* specify the Alder project format, for review ([#196](https://github.com/Hazame-hub/alder/issues/196)) ([2c3ec8c](https://github.com/Hazame-hub/alder/commit/2c3ec8c7aaf7428aac7fa439aafdc478dfcf2935))
+
 ## [1.36.2](https://github.com/Hazame-hub/alder/compare/v1.36.1...v1.36.2) (2026-10-10)
 
 
