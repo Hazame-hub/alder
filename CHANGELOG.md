@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.37.1](https://github.com/Hazame-hub/alder/compare/v1.37.0...v1.37.1) (2026-10-11)
+
+
+### Fixes
+
+* **cli:** a panic exits 8 as an internal error, never the runtime's 2 ([05a9ede](https://github.com/Hazame-hub/alder/commit/05a9ede71d577f4e6f5c40f98baa5cceef181d98))
+* **cli:** an unknown command or flag exits 7, the usage error, not 1 ([05a9ede](https://github.com/Hazame-hub/alder/commit/05a9ede71d577f4e6f5c40f98baa5cceef181d98))
+* **cli:** with --detailed-exitcode, changes pending exits 2 as in terraform plan, not 1 ([05a9ede](https://github.com/Hazame-hub/alder/commit/05a9ede71d577f4e6f5c40f98baa5cceef181d98))
+* **serve:** a failure to listen exits 8, not as a usage error ([05a9ede](https://github.com/Hazame-hub/alder/commit/05a9ede71d577f4e6f5c40f98baa5cceef181d98))
+
 ## [1.37.0](https://github.com/Hazame-hub/alder/compare/v1.36.2...v1.37.0) (2026-10-11)
 
 
