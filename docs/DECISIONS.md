@@ -5378,3 +5378,44 @@ meant to match, to spare users that did not yet exist. Shipped as a patch
 with a plain `fix:` commit, because a breaking-change marker would make it
 2.0.0, which would announce a break to everybody for a change that, in
 practice, reaches nobody.
+
+### 2026-10-11 — alder project apply, in one run
+
+The second slice of the project format: `alder project apply --env NAME`
+validates, connects, plans the project as desired state, shows the plan
+under the environment and the directory, asks -- naming both -- and applies
+exactly that plan with its baselines.
+
+**One run, not a saved plan, decided before any code.** The specification
+said a plan "carries the environment it was made for, and apply refuses one
+made for a different --env", which assumed the Terraform workflow: plan in a
+pull request, save it, apply the saved plan after merge. Alder's baselines
+cannot carry that. Each is a MAC under a key that exists only in the server
+process that issued it, so a saved plan would stop applying at the first
+restart of the Alder server between review and merge -- and the failure
+would arrive at the worst moment, after the change was approved. Planning
+and applying in one run against one environment makes "a plan for another
+environment" impossible rather than checked, and the question names the
+environment and host before anything is written. Review still happens in
+the pull request, with `project plan`; apply plans again against the
+directory as it is at merge and shows that plan before applying it. A
+saved-plan workflow waits for baselines that can outlive a process.
+
+**One apply path.** Everything `alder apply` did after receiving a plan --
+render it, refuse conflicts, ask or take `--yes`, refuse deletions without
+`--allow-deletes`, apply with baselines, write the recovery bundle, account
+for a run that stopped partway -- moved into one function both commands
+call, in a refactor that changed no behaviour and kept every apply test
+passing. The two commands cannot drift apart, because there is nothing to
+drift.
+
+**Nothing is sent unconfirmable.** Without a terminal and without `--yes`,
+`project apply` refuses before connecting, so a CI job that forgot `--yes`
+never opens a session on production to find out. `--yes`, `--env` and
+`--project` are never read from `ALDER_*`: with the exclusion removed, the
+test that guards it watched an inherited `ALDER_YES=true` apply to the
+environment with no one asked.
+
+Proved against both servers: the project applies, the directory holds what
+it describes, `project plan --detailed-exitcode` then exits 0, and a second
+apply has nothing to do.

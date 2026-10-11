@@ -454,6 +454,8 @@ alder project validate
 alder project validate --project path/to/directory
 alder project plan --env dev
 alder project plan --env prod --project path/to/alder.yaml --json
+alder project apply --env dev
+alder project apply --env prod --yes --recovery-out prod-recovery.json
 ```
 
 An Alder project is an `alder.yaml` naming the subtrees a repository is
@@ -498,6 +500,32 @@ can branch on:
 ```sh
 alder project plan --env prod --detailed-exitcode --summary
 ```
+
+**`apply --env NAME`** makes the environment match the project. It validates,
+connects, plans exactly as `project plan` does, shows the plan under the
+environment and the directory, and asks -- naming both: *Apply 3 changes to
+environment prod (ldap.example.com:636)?* -- before applying exactly the plan
+it showed, with the baselines Alder issued for it. Everything after the plan is
+`alder apply`'s own path, so its rules hold unchanged: anywhere a terminal
+cannot be asked, nothing is applied without `--yes`; a plan with a change that
+cannot be applied is refused whole (exit 3); a directory that moved since the
+plan is refused whole (exit 4) and never planned again and applied unseen;
+`--recovery-out FILE` writes a recovery bundle for what was applied. A plan
+with nothing to change applies nothing and exits 0.
+
+The plan is made and applied in one run, against one environment. There is no
+saved plan to carry to another environment: a baseline is a MAC under a key
+that exists only in the Alder process that issued it, so a plan written to a
+file would stop applying the moment that server restarted. Review with
+`project plan` in a pull request; apply after merge, where the plan is made
+again against the directory as it is then and shown before it is applied.
+
+Without a terminal and without `--yes`, `apply` refuses before connecting to
+anything. `--yes`, like `--env` and `--project`, is never read from the
+environment: an inherited `ALDER_YES` must not confirm an apply nobody typed.
+Exit codes are `alder apply`'s, and 3 also when the project is not valid; with
+`--json`, standard output is `alder apply`'s document with `environment` and
+`host` beside it.
 
 ---
 
