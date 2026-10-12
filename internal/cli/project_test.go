@@ -414,6 +414,11 @@ func TestProjectFmtRewritesOnlyWhatIsNotCanonical(t *testing.T) {
 	if err := os.Chmod(alice, 0o640); err != nil {
 		t.Fatal(err)
 	}
+	// What the file holds after the chmod, which on Windows is not 0640.
+	before, err := os.Stat(alice)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	r := s.run(t, projectRun, "project", "fmt", "--project", dir, "--check")
 	expectCode(t, r, ExitDifferences)
@@ -433,8 +438,8 @@ func TestProjectFmtRewritesOnlyWhatIsNotCanonical(t *testing.T) {
 	if want := "# Alice, by hand.\n" + projectAlice; string(got) != want {
 		t.Errorf("formatted file =\n%q\nwant\n%q", got, want)
 	}
-	if info, _ := os.Stat(alice); info.Mode().Perm() != 0o640 {
-		t.Errorf("mode = %v; formatting must keep the file's permissions", info.Mode().Perm())
+	if info, _ := os.Stat(alice); info.Mode().Perm() != before.Mode().Perm() {
+		t.Errorf("mode = %v, was %v; formatting must keep the file's permissions", info.Mode().Perm(), before.Mode().Perm())
 	}
 	if len(s.calls) != 0 {
 		t.Errorf("fmt sent %d request(s); it must connect to nothing", len(s.calls))
