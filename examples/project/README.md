@@ -28,6 +28,12 @@ alder project validate --project examples/project/directory
 entry is whole, sits under its subtree, appears once and carries no secret.
 Exit 0 is valid, 3 is not, with every problem listed.
 
+`alder project fmt` rewrites the LDIF in the form Alder's own exports take,
+so a diff shows what changed rather than how it was wrapped; `fmt --check`
+writes nothing and exits 1 if a file is not canonical. These files already
+are. Once the release you pin has `fmt`, add `alder project fmt --check
+--project directory` to the validate job.
+
 To plan against a directory you have, change the bases, the DNs and the
 environments to yours, set the password variable an environment names, and:
 
@@ -38,7 +44,9 @@ alder project plan --project directory --env staging --detailed-exitcode --summa
 
 `--detailed-exitcode` makes the exit status the answer: 0 the directory
 matches the repository, 2 changes are pending, 3 some change cannot be
-applied as written. A plan never writes; `alder project apply --env
+applied as written. Entries the directory holds under a managed subtree that
+no file mentions are listed beside the plan as unmanaged: reported, never
+deleted. A plan never writes; `alder project apply --env
 staging` shows the same plan, asks, and applies it.
 
 ## What the CI does

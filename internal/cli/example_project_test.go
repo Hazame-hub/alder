@@ -16,6 +16,10 @@ func TestTheExampleProjectValidates(t *testing.T) {
 	dir := filepath.Join("..", "..", "examples", "project", "directory")
 	r := newStub(t).run(t, runOpts{noConnection: true}, "project", "validate", "--project", dir)
 	expectCode(t, r, ExitOK)
+	// And is already in the form fmt writes, so copying it and running fmt
+	// produces no diff to puzzle over.
+	r = newStub(t).run(t, runOpts{noConnection: true}, "project", "fmt", "--check", "--project", dir)
+	expectCode(t, r, ExitOK)
 }
 
 func TestTheExampleCIFilesParseAndRunTheProject(t *testing.T) {
