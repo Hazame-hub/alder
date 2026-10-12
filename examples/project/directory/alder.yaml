@@ -1,0 +1,28 @@
+# An Alder project: the intended state of two subtrees of a directory, and
+# the environments it is planned against. docs/PROJECT.md is the reference.
+version: 1
+
+# The subtrees this repository is responsible for. An entry under one of
+# these bases that no file mentions is never deleted; Alder only reports or
+# changes what the files describe.
+managed:
+  - base: ou=people,dc=example,dc=com
+    files: [people/*.ldif]
+  - base: ou=groups,dc=example,dc=com
+    files: [groups.ldif]
+
+# Where to plan. Every environment holds the same entries under the same
+# DNs; they differ in where they connect. A password is never written here:
+# each environment names the variable it comes from, so a job that holds
+# one environment's password cannot use it for another.
+environments:
+  staging:
+    api-url: https://alder.staging.example.com
+    host: ldap.staging.example.com
+    bind-dn: cn=alder-ci,ou=services,dc=example,dc=com
+    bind-password-env: ALDER_STAGING_BIND_PASSWORD
+  production:
+    api-url: https://alder.example.com
+    host: ldap.example.com
+    bind-dn: cn=alder-ci,ou=services,dc=example,dc=com
+    bind-password-env: ALDER_PRODUCTION_BIND_PASSWORD

@@ -1,0 +1,20 @@
+dn: ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: groups
+
+dn: cn=engineering,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: engineering
+description: Everyone who ships the product
+member: uid=ada,ou=people,dc=example,dc=com
+member: uid=grace,ou=people,dc=example,dc=com
+
+dn: cn=on-call,ou=groups,dc=example,dc=com
+objectClass: top
+objectClass: groupOfNames
+cn: on-call
+description: Paged out of hours
+member: uid=margaret,ou=people,dc=example,dc=com
+member: uid=grace,ou=people,dc=example,dc=com
