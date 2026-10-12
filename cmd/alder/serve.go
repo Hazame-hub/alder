@@ -43,6 +43,7 @@ type serveOptions struct {
 
 	allowedTargets string
 	maxInFlight    int
+	maxSessions    int
 }
 
 func serveCmd() *cobra.Command {
@@ -102,6 +103,9 @@ func serveCmd() *cobra.Command {
 	f.IntVar(&o.maxInFlight, "max-in-flight", api.DefaultMaxInFlight,
 		"how many API requests to answer at once. A request that waits longer than "+
 			"five seconds for a slot is refused with 503. Negative turns the bound off")
+	f.IntVar(&o.maxSessions, "max-sessions", api.DefaultMaxSessions,
+		"how many directory sessions to hold at once. A connection beyond it is refused "+
+			"with 503 until one closes or times out. Negative turns the bound off")
 
 	return cmd
 }
@@ -183,6 +187,7 @@ func runServe(ctx context.Context, o serveOptions) error {
 		MaxLifetime:        o.maxLifetime,
 		AllowedTargets:     allowed,
 		MaxInFlight:        o.maxInFlight,
+		MaxSessions:        o.maxSessions,
 		SourceURL:          o.sourceURL,
 		TrustedKeys:        trusted,
 		RequireSignature:   o.requireSig,

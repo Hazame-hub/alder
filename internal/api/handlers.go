@@ -72,6 +72,10 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		return badRequest(c, "The connection settings are not usable.", err.Error())
 	}
 
+	if s.sessions.Full() {
+		return s.sessionsFull(c)
+	}
+
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 
@@ -88,10 +92,29 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 	sess, err := s.sessions.Add(conn, cfg, s.cfg.ReadOnly)
 	if err != nil {
 		_ = conn.Close()
+		if errors.Is(err, session.ErrFull) {
+			return s.sessionsFull(c)
+		}
 		return s.fail(c, err)
+	}
+	// Connecting again from a browser that already had a session replaces
+	// it. The old one is closed now rather than left holding its directory
+	// connection and its password until it times out, unreachable because
+	// its cookie has just been overwritten.
+	if previous := c.Cookies(s.cookieName()); previous != "" {
+		s.sessions.Remove(previous)
 	}
 	s.setSessionCookie(c, sess.ID)
 	return c.Status(fiber.StatusCreated).JSON(s.sessionInfo(sess))
+}
+
+// sessionsFull refuses a connection because --max-sessions are open.
+func (s *Server) sessionsFull(c *fiber.Ctx) error {
+	s.logger.Warn("refused a connection: the session limit is reached")
+	return writeError(c, fiber.StatusServiceUnavailable, ErrorErrorUpstream,
+		"This Alder already holds as many directory sessions as it allows.",
+		"Disconnect a session you no longer need, or wait for an idle one to time out. "+
+			"If this happens in ordinary use, --max-sessions is too low.")
 }
 
 // GetSession describes the current session.
