@@ -404,3 +404,191 @@ func TestProjectApplyUsageErrors(t *testing.T) {
 		t.Errorf("%d request(s) sent for command lines that were wrong", len(s.calls))
 	}
 }
+
+func TestProjectFmtRewritesOnlyWhatIsNotCanonical(t *testing.T) {
+	s := newStub(t)
+	messy := "# Alice, by hand.\r\ndn: uid=alice, ou=people, dc=alder, dc=test\r\nobjectClass:inetOrgPerson\r\nuid: alice\r\n" +
+		"cn: Alice\r\nsn:: QQ==\r\n\r\n\r\n"
+	dir := writeProject(t, s, map[string]string{"people/alice.ldif": messy})
+	alice := filepath.Join(dir, "people", "alice.ldif")
+	if err := os.Chmod(alice, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	// What the file holds after the chmod, which on Windows is not 0640.
+	before, err := os.Stat(alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r := s.run(t, projectRun, "project", "fmt", "--project", dir, "--check")
+	expectCode(t, r, ExitDifferences)
+	if r.stdout != alice+"\n" {
+		t.Errorf("--check stdout = %q, want only the file that is not canonical", r.stdout)
+	}
+	if got, _ := os.ReadFile(alice); string(got) != messy {
+		t.Errorf("--check wrote to the file:\n%q", got)
+	}
+
+	r = s.run(t, projectRun, "project", "fmt", "--project", dir)
+	expectCode(t, r, ExitOK)
+	if r.stdout != alice+"\n" {
+		t.Errorf("stdout = %q, want the file it rewrote", r.stdout)
+	}
+	got, _ := os.ReadFile(alice)
+	if want := "# Alice, by hand.\n" + projectAlice; string(got) != want {
+		t.Errorf("formatted file =\n%q\nwant\n%q", got, want)
+	}
+	if info, _ := os.Stat(alice); info.Mode().Perm() != before.Mode().Perm() {
+		t.Errorf("mode = %v, was %v; formatting must keep the file's permissions", info.Mode().Perm(), before.Mode().Perm())
+	}
+	if len(s.calls) != 0 {
+		t.Errorf("fmt sent %d request(s); it must connect to nothing", len(s.calls))
+	}
+
+	r = s.run(t, projectRun, "project", "fmt", "--project", dir, "--check")
+	expectCode(t, r, ExitOK)
+	if r.stdout != "" {
+		t.Errorf("a canonical project still lists files: %q", r.stdout)
+	}
+}
+
+func TestProjectFmtLeavesAnInvalidProjectAlone(t *testing.T) {
+	s := newStub(t)
+	messy := "dn: uid=alice,ou=people,dc=alder,dc=test\nobjectClass:inetOrgPerson\nuid: alice\ncn: Alice\nsn: A\n"
+	dir := writeProject(t, s, map[string]string{
+		"people/alice.ldif": messy,
+		"people/bob.ldif":   projectBob + "userPassword: {SSHA}x\n",
+	})
+	r := s.run(t, projectRun, "project", "fmt", "--project", dir)
+	expectCode(t, r, ExitNotApplicable)
+	if got, _ := os.ReadFile(filepath.Join(dir, "people", "alice.ldif")); string(got) != messy {
+		t.Errorf("a file of an invalid project was rewritten:\n%q", got)
+	}
+}
+
+// A symlink inside the project is written through, so it stays a link and
+// its target takes the canonical form.
+func TestProjectFmtWritesThroughASymlink(t *testing.T) {
+	s := newStub(t)
+	dir := writeProject(t, s, map[string]string{"shared/alice.ldif": "dn: uid=alice,ou=people,dc=alder,dc=test\nobjectClass:inetOrgPerson\nuid: alice\ncn: Alice\nsn: A\n"})
+	link := filepath.Join(dir, "people", "alice.ldif")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "shared", "alice.ldif"), link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	r := s.run(t, projectRun, "project", "fmt", "--project", dir)
+	expectCode(t, r, ExitOK)
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the symlink was replaced by a file: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "shared", "alice.ldif")); string(got) != projectAlice {
+		t.Errorf("target =\n%q", got)
+	}
+}
+
+// snapshotOf is a capture as the stub returns it: only the names matter here.
+func snapshotOf(dns ...string) string {
+	entries := make([]string, len(dns))
+	for i, d := range dns {
+		entries[i] = `{"dn":"` + d + `","attributes":[]}`
+	}
+	return `{"format":"alder-snapshot","version":1,"kind":"data","completeness":"complete","entries":[` +
+		strings.Join(entries, ",") + `]}`
+}
+
+func TestProjectPlanListsUnmanagedEntriesAndPlansNothingForThem(t *testing.T) {
+	s := newStub(t)
+	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
+	// The directory holds the OU, Alice, and Carol; the project describes
+	// Alice and Bob. Alice is spelt differently, and is still Alice.
+	s.reply("POST /api/v1/snapshots/capture", http.StatusOK, snapshotOf(
+		"ou=people,dc=alder,dc=test", "UID=Alice,ou=people,dc=alder,dc=test", "uid=carol,ou=people,dc=alder,dc=test"))
+	dir := writeProject(t, s, nil)
+
+	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--detailed-exitcode")
+	// Unmanaged entries are not changes: the exit status is the plan's.
+	expectCode(t, r, ExitPending)
+	want := "Unmanaged: 2 entries the directory holds that no project file describes. Reported, never deleted.\n" +
+		"  2 entries in ou=people,dc=alder,dc=test\n" +
+		"    ou=people,dc=alder,dc=test\n" +
+		"    uid=carol,ou=people,dc=alder,dc=test\n"
+	if !strings.HasSuffix(r.stdout, want) {
+		t.Errorf("stdout does not end with the unmanaged entries:\n%s", r.stdout)
+	}
+	var capture map[string]any
+	_ = json.Unmarshal(s.called("POST /api/v1/snapshots/capture")[0].Body, &capture)
+	if capture["base"] != "ou=people,dc=alder,dc=test" || capture["scope"] != "sub" {
+		t.Errorf("capture request = %v", capture)
+	}
+	var req map[string]any
+	_ = json.Unmarshal(s.called("POST /api/v1/plan")[0].Body, &req)
+	if ldifText, _ := req["ldif"].(string); strings.Contains(ldifText, "carol") || strings.Contains(ldifText, "changetype") {
+		t.Errorf("an unmanaged entry reached the plan request:\n%s", ldifText)
+	}
+
+	r = s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--json")
+	expectCode(t, r, ExitOK)
+	doc := oneJSONDocument(t, r.stdout)
+	unmanaged, _ := doc["unmanaged"].([]any)
+	if len(unmanaged) != 1 {
+		t.Fatalf("unmanaged = %v", doc["unmanaged"])
+	}
+	sub := unmanaged[0].(map[string]any)
+	if entries, _ := sub["entries"].([]any); sub["base"] != "ou=people,dc=alder,dc=test" || len(entries) != 2 {
+		t.Errorf("unmanaged[0] = %v", sub)
+	}
+}
+
+func TestProjectPlanSaysWhenNothingIsUnmanaged(t *testing.T) {
+	for name, capture := range map[string]struct {
+		status int
+		body   string
+	}{
+		"every entry described": {http.StatusOK, snapshotOf("uid=alice,ou=people,dc=alder,dc=test", "uid=bob,ou=people,dc=alder,dc=test")},
+		"the base is absent":    {http.StatusNotFound, `{"error":"not_found","message":"No such entry."}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStub(t)
+			s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
+			s.reply("POST /api/v1/snapshots/capture", capture.status, capture.body)
+			dir := writeProject(t, s, nil)
+			r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev")
+			expectCode(t, r, ExitOK)
+			if !strings.HasSuffix(r.stdout, "Unmanaged: none. Every entry in the managed subtrees is one the project describes.\n") {
+				t.Errorf("stdout:\n%s", r.stdout)
+			}
+			if r.stderr != "" && strings.Contains(r.stderr, "could not be listed") {
+				t.Errorf("stderr:\n%s", r.stderr)
+			}
+		})
+	}
+}
+
+// A subtree that cannot be read whole is said to be unreadable; the plan
+// beside it stands, and so does its exit status.
+func TestProjectPlanSaysWhichSubtreeCouldNotBeRead(t *testing.T) {
+	s := newStub(t)
+	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
+	s.reply("POST /api/v1/snapshots/capture", http.StatusBadRequest,
+		`{"error":"snapshot_too_large","message":"The subtree could not be captured whole, so no snapshot was made."}`)
+	dir := writeProject(t, s, nil)
+
+	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev")
+	expectCode(t, r, ExitOK)
+	if !strings.Contains(r.stderr, "the unmanaged entries in ou=people,dc=alder,dc=test could not be listed") {
+		t.Errorf("stderr:\n%s", r.stderr)
+	}
+	if !strings.HasSuffix(r.stdout, "Unmanaged: none in the subtrees that could be read.\n") {
+		t.Errorf("stdout:\n%s", r.stdout)
+	}
+
+	r = s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--json")
+	expectCode(t, r, ExitOK)
+	doc := oneJSONDocument(t, r.stdout)
+	sub := doc["unmanaged"].([]any)[0].(map[string]any)
+	if msg, _ := sub["error"].(string); msg == "" {
+		t.Errorf("unmanaged[0] carries no error: %v", sub)
+	}
+}
