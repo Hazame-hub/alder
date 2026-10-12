@@ -65,6 +65,14 @@ It will not, within 1.x:
 - remove a field from a response's `required` list
 - change the type or meaning of an existing field
 
+**A request body is JSON because the contract says so.** Every operation
+here that takes a body declares `application/json`, and a body of
+any other type is refused with `415` before a handler reads it. Earlier
+releases decoded a form-encoded body too, which nothing in the contract
+offered and which let a page on another origin of the same site submit a
+change (see the 2026-10-12 decision). A client that sent what the contract
+describes is unaffected.
+
 Tightening a promise is allowed: a field that was optional in a response may
 become required, because a client that already handles it absent still works.
 
