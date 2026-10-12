@@ -5458,3 +5458,31 @@ target so it stays a symlink.
 **`--check` exits 1.** It is the number `diff` gives "they differ", which is
 the question `--check` asks. `terraform fmt -check` exits 3, but 3 already
 means "cannot be applied as written" here.
+
+### 2026-10-12 — unmanaged entries, reported beside the plan
+
+The last slice the project specification named: for each managed subtree,
+what the directory holds that no project file describes.
+
+**Read with the snapshot capture, as the specification said, and for its
+all-or-nothing.** A paged search for names alone would be cheaper, but a
+capture is refused whole when it cannot read a subtree whole -- too many
+entries, a server size limit, referrals -- so the report is never a list
+that silently stops short. Only the names are kept from the document; the
+values are read past.
+
+**A report, not a result.** Unmanaged entries do not change the exit
+status. `--detailed-exitcode` answers "does the directory match the
+project?", and an entry the project does not mention is not part of that
+question; making it one would turn every pre-existing entry into a
+permanent "changes pending" with no change that could clear it. For the
+same reason a subtree that cannot be read is said on standard error and
+the plan stands.
+
+**On `project plan`, not on `project apply`.** Apply's job is to write what
+the project describes; the report is about what it does not, and is read
+when reviewing, which is what `plan` is for.
+
+**Names compared as the directory compares them**, with `dn.Equal`, so an
+entry the server spells `UID=Alice` is the project's `uid=alice` and is not
+reported.

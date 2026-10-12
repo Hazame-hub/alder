@@ -485,13 +485,23 @@ Every environment manages the same entries under the same names, so a plan for
 production reads exactly like one for development. The environment and the
 directory are printed before the plan is requested, and at the top of the plan;
 with `--json`, standard output is `{"environment": …, "host": …, "plan": <the
-plan>}`.
+plan>, "unmanaged": […]}`.
 
 Connection settings come from the environment in `alder.yaml`, never from the
 connection flags or their `ALDER_*` variables. A password comes from the
 variable or file that environment names. `--env` and `--project` are command-
 line only: `ALDER_ENV` is not read, because which directory a command acts on
 is not something an inherited environment decides.
+
+Below the plan, `project plan` lists the **unmanaged** entries: what the
+directory holds in each managed subtree that no project file describes. They
+are reported, never planned and never deleted. Each subtree is read whole with
+the snapshot capture or not at all, so a subtree too large to capture, or one
+the bind cannot read, is named on standard error as unreadable rather than
+half listed, and the plan stands. `--summary` gives the counts and not the
+names. With `--json` the document carries `unmanaged`: one object per managed
+subtree with `base`, `entries` and, when it could not be read, `error`. The
+report does not change the exit status.
 
 Exit codes are `alder plan`'s, and 3 also when the project is not valid.
 `--detailed-exitcode` works as it does for `alder plan` -- 0 nothing to

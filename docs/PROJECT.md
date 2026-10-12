@@ -1,10 +1,10 @@
 # The Alder project format
 
-**Status: implemented** -- `alder project validate`, `alder project plan --env`,
-`alder project apply --env` and `alder project fmt` (see [CLI.md](CLI.md)).
-Confirmed as a scope change on 2026-10-10 as a specification and reviewed the
-same day; the decisions that review made are at the end, and the sections above
-reflect them. The unmanaged-entries report, below, is not built.
+**Status: implemented** -- `alder project validate`, `alder project plan --env`
+with its unmanaged-entries report, `alder project apply --env` and
+`alder project fmt` (see [CLI.md](CLI.md)). Confirmed as a scope change on
+2026-10-10 as a specification and reviewed the same day; the decisions that
+review made are at the end, and the sections above reflect them.
 
 ---
 
@@ -263,12 +263,26 @@ so the stricter meaning is asked for, never assumed.
   hold exactly the records the old one did before it replaces the file.
   `--check` writes nothing and exits 1 when a file is not canonical: the
   number `diff` uses for "they differ".
-- **Unmanaged entries.** For each managed subtree, the entries the directory
-  holds that no file mentions, listed beside the plan as *unmanaged*. Read with
-  the existing snapshot capture of the subtree; reported, never deleted. A
-  project that wants one removed says so with an explicit delete, which the
-  project format does not express, so it goes through `alder apply` like any
-  other deliberate deletion.
+- **Unmanaged entries** (built). For each managed subtree, the entries the
+  directory holds that no file mentions, listed beside the plan as
+  *unmanaged*. Read with the existing snapshot capture of the subtree;
+  reported, never deleted. A project that wants one removed says so with an
+  explicit delete, which the project format does not express, so it goes
+  through `alder apply` like any other deliberate deletion.
+
+  *Settled when it was built:* `project plan` makes the report on every run,
+  after the plan, by capturing each managed subtree and comparing names with
+  `dn.Equal`, as the directory would. A capture is whole or refused, so a
+  subtree too large to capture (more than a snapshot holds) or one the bind
+  cannot read is said to be unreadable on standard error, never half listed,
+  and the plan beside it stands. A base the directory does not hold has
+  nothing unmanaged below it. The report never changes the exit status:
+  unmanaged entries are not changes, and `--detailed-exitcode` still answers
+  only "does the directory match what the project describes?". With `--json`
+  it is `unmanaged`, one object per subtree with its `base`, its `entries`
+  and, when it could not be read, an `error`. `project apply` does not make
+  it: it applies what the project describes, and the report is about what it
+  does not.
 - **The web interface.** Opening a project in the browser is not in this
   specification.
 
