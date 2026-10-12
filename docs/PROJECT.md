@@ -161,6 +161,33 @@ refused. An unknown key is far more likely to be a typo or a pasted secret than
 an extension. It also keeps later additions backward compatible: a key added
 in a later version is one no valid version-1 file can already be using.
 
+### What `alder.yaml` decides, and who may change it
+
+An environment says where a command connects *and* where its credentials go:
+`plan` and `apply` send the environment's password, read from the variable or
+file it names, to the `api-url` it names. Whoever can change `alder.yaml` can
+therefore point a run at a server of their choosing, and the password goes
+with it. That is true of any tool whose configuration names both a server and
+its credentials, and the answer is the usual one for CI:
+
+- **`validate` connects to nothing and reads no password**, so it is safe to
+  run on any pull request, including one from a fork.
+- **Run `plan` and `apply` with credentials only on changes you trust**: a
+  protected branch, a schedule, a pull request from the same repository
+  after review. Give the job a password variable named for that environment
+  alone, so a run for one environment cannot reach another's.
+
+Two things narrow what a changed `alder.yaml` can take with it:
+
+- **A `ca-file` must be PEM certificates and nothing else.** Its content is
+  sent to the Alder server with the connection, so a file holding any other
+  block, or text outside the blocks, is refused before anything is sent, and
+  only the parsed certificates are sent. Pointing `ca-file` at a runner's
+  credentials file reads it and stops. (`--ca-file` on every other command
+  follows the same rule.)
+- **A password file contributes its first line only**, as everywhere else in
+  the client.
+
 Deliberately **not** settable in `alder.yaml`, for the reason they are not
 settable from the environment today: anything that confirms or widens a write.
 There is no `yes`, `allow-deletes`, `force` or `insecure-skip-verify` key.

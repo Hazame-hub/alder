@@ -5419,3 +5419,31 @@ environment with no one asked.
 Proved against both servers: the project applies, the directory holds what
 it describes, `project plan --detailed-exitcode` then exits 0, and a second
 apply has nothing to do.
+
+### 2026-10-12 — a ca-file is certificates, and only certificates leave
+
+`--ca-file` was read and sent to Alder as it stood, up to a megabyte,
+because the server is what verifies the directory's certificate. For a
+person typing the flag that was harmless. For a project it was not: an
+environment in `alder.yaml` names both the Alder server (`api-url`) and the
+CA file, and a pull request can change both. `ca-file:
+/home/runner/.docker/config.json` beside an `api-url` of the author's
+choosing made `project plan` post that file to them. The LDIF patterns were
+already held inside the project, by real path; the environment's files were
+not, and could not simply be, because an absolute path is how a password
+file at `/run/secrets/...` is named.
+
+**The guard is on what leaves, not on where the file is.** The client
+parses the file as PEM, refuses it if it holds any block but `CERTIFICATE`,
+a certificate that does not parse, or text outside the blocks other than
+`#` comment lines (which distribution CA bundles carry), and sends only the
+certificates, re-encoded. A refusal is before the session request, so
+nothing at all is sent. The same rule applies to the flag on every client
+command, since a file that is not certificates was never a working CA file.
+
+**The rest is inherent, and is now said rather than implied.** The password
+an environment names goes to the `api-url` the same environment names, so
+whoever can change `alder.yaml` can redirect it -- as with any tool whose
+configuration names a server and its credentials. `docs/PROJECT.md` now says
+so plainly: `validate` connects to nothing and is safe on any pull request;
+`plan` and `apply` with credentials belong to changes you trust.
