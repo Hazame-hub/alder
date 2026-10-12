@@ -8,6 +8,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/dn"
 )
 
 // Finding out where, and whether, this session can write schema.
@@ -31,11 +32,10 @@ import (
 
 // The attributes that carry definitions under each arrangement.
 const (
-	attrObjectClasses      = "objectClasses"
-	attrAttributeTypes     = "attributeTypes"
-	attrOLCObjectClasses   = "olcObjectClasses"
-	attrOLCAttributeTypes  = "olcAttributeTypes"
-	configSchemaRDNKeyword = "cn=schema,"
+	attrObjectClasses     = "objectClasses"
+	attrAttributeTypes    = "attributeTypes"
+	attrOLCObjectClasses  = "olcObjectClasses"
+	attrOLCAttributeTypes = "olcAttributeTypes"
 )
 
 func (s *session) findSchemaTargets(ctx context.Context, caps directory.Capabilities) directory.SchemaWrite {
@@ -92,7 +92,18 @@ func (s *session) subschemaTarget(ctx context.Context, caps directory.Capabiliti
 // to something defined before it. Alder lists them and lets the person choose
 // rather than picking one, because there is no defensible default.
 func (s *session) configSchemaTargets(ctx context.Context, caps directory.Capabilities) directory.SchemaWrite {
-	base := configSchemaRDNKeyword + caps.ConfigContext
+	// Built with the dn package, per rule 2 of the charter: the configuration
+	// context is the server's own answer, but a DN is a DN wherever it came
+	// from. One that does not parse has no schema below it to offer.
+	configContext, parseErr := dn.Parse(caps.ConfigContext)
+	if parseErr != nil {
+		return directory.SchemaWrite{Style: directory.SchemaStyleNone}
+	}
+	schemaDN, parseErr := configContext.ChildAttr("cn", "schema")
+	if parseErr != nil {
+		return directory.SchemaWrite{Style: directory.SchemaStyleNone}
+	}
+	base := schemaDN.String()
 	req := ldap.NewSearchRequest(base, ldap.ScopeSingleLevel, ldap.NeverDerefAliases,
 		0, int(s.timeout.Seconds()), false, "(objectClass=*)",
 		[]string{"cn", attrOLCObjectClasses, attrOLCAttributeTypes}, nil)

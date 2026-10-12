@@ -5486,3 +5486,17 @@ when reviewing, which is what `plan` is for.
 **Names compared as the directory compares them**, with `dn.Equal`, so an
 entry the server spells `UID=Alice` is the project's `uid=alice` and is not
 reported.
+
+### 2026-10-12 — which identity an operation runs as is decided on parsed DNs
+
+A session with a configuration identity routes each operation by DN: below
+the configuration root it goes over the configuration bind, elsewhere over
+the data bind. The test was a lower-cased string ending in `,cn=config`,
+which read `cn=a\,cn=config` -- one RDN at the root whose value holds a
+comma -- as an entry below `cn=config`, and sent it over the configuration
+identity. Such an entry is unlikely to exist, so the practical risk was
+small; the rule it broke is not small, and the fix is the `dn` package's
+own `HasSuffix`. The same comparison in the configuration warnings, and
+the one DN the driver built by concatenation (`"cn=schema," +
+ConfigContext`), go through the `dn` package too, per section 7 rule 2 of
+the charter.
