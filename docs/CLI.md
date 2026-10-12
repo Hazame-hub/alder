@@ -587,13 +587,16 @@ connection flags.
 
 - **`alder key generate`** writes an Ed25519 private key to `--output` and the
   public key beside it. `--public-output` says where instead. The private key is
-  written readable by you only, and never to standard output.
+  written readable by you only, and never to standard output. Both paths are
+  checked before either is written, so an existing file stops the command with
+  nothing written, and the two may not be the same file.
 - **`alder key show FILE`** prints a public key's key id. A private key is
   refused.
 - **`alder sign DOCUMENT --key K --output F`** wraps a snapshot, change package
   or recovery bundle in a signed envelope. Signing an already-signed document
   adds a signature beside the first, so two people can sign one document; the
-  same key twice is refused. `--signer` records a label.
+  same key twice is refused. `--signer` records a label. `--json` reports
+  on standard output, so it cannot be combined with `--output -`.
 - **`alder verify DOCUMENT --trusted-keys K`** exits 0 verified, 3 untrusted or
   unsigned, 8 invalid. `--trusted-keys` takes a file, a file of several keys, or
   a directory of `.pem` files, and repeats. `--json` prints the result and what

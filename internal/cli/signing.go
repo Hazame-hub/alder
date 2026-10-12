@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/hazame-hub/alder/internal/envflags"
 	"github.com/hazame-hub/alder/internal/signing"
 )
 
@@ -75,6 +77,10 @@ func keyGenerateCmd(env *Env) *cobra.Command {
 	f.StringVar(&o.out, "output", "", "where to write the private key")
 	f.StringVar(&o.publicOut, "public-output", "", "where to write the public key (default: the private key's path with .pub)")
 	f.BoolVar(&o.force, "force", false, "overwrite existing files")
+	// None of these is a connection setting, so none reads ALDER_*: an
+	// inherited ALDER_FORCE=true would overwrite a private key nobody asked
+	// to replace.
+	envflags.Exclude(f, "output", "public-output", "force")
 	_ = cmd.MarkFlagRequired("output")
 	return cmd
 }
@@ -86,6 +92,18 @@ func runKeyGenerate(env *Env, o keyOptions) error {
 	publicOut := strings.TrimSpace(o.publicOut)
 	if publicOut == "" {
 		publicOut = publicKeyPath(o.out)
+	}
+	// Both destinations are checked before either is written, so a refusal
+	// leaves nothing half done -- a private key with no public key beside it
+	// -- and one path given twice cannot have the public key overwrite the
+	// private one.
+	if samePath(o.out, publicOut) {
+		return usagef("--public-output and --output name the same file; the public key would replace the private one")
+	}
+	for _, p := range []string{o.out, publicOut} {
+		if err := refuseExisting(p, o.force); err != nil {
+			return err
+		}
 	}
 	pub, priv, err := signing.GenerateKey()
 	if err != nil {
@@ -115,6 +133,15 @@ func runKeyGenerate(env *Env, o keyOptions) error {
 		"Keep the private key to yourself. Give the public key to whoever starts the Alder\n"+
 		"server, as --trusted-keys %s\n", o.out, publicOut, signing.KeyID(pub), publicOut)
 	return nil
+}
+
+// samePath reports whether two paths name one file, by spelling once cleaned
+// and absolute; it does not follow symlinks, which writeFile's own checks
+// cover.
+func samePath(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	return errA == nil && errB == nil && absA == absB
 }
 
 // publicKeyPath is where the public key goes when nobody said: signing.pem
@@ -169,12 +196,17 @@ func signCmd(env *Env) *cobra.Command {
 	f.StringVar(&o.output, "output", "", "where to write the signed document, or - for standard output")
 	f.BoolVar(&o.force, "force", false, "overwrite an existing file")
 	f.BoolVar(&o.json, "json", false, "report what was signed as JSON on standard output")
+	envflags.Exclude(f, "key", "signer", "output", "force", "json")
 	_ = cmd.MarkFlagRequired("key")
 	_ = cmd.MarkFlagRequired("output")
 	return cmd
 }
 
 func runSign(env *Env, o signOptions, args []string) (err error) {
+	if o.json && o.output == "-" {
+		// Both would go to standard output, which carries one document.
+		return usagef("--json and --output - both write to standard output; write the signed document to a file")
+	}
 	defer func() { err = asJSON(env, o.json, err) }()
 	data, name, err := env.readInput(args[0], "the document", maxRequestBytes)
 	if err != nil {
@@ -249,6 +281,7 @@ func verifyCmd(env *Env) *cobra.Command {
 	f := cmd.Flags()
 	f.StringArrayVar(&o.trusted, "trusted-keys", nil, "a public key file or a directory of them; repeatable")
 	f.BoolVar(&o.json, "json", false, "report the result as JSON on standard output")
+	envflags.Exclude(f, "trusted-keys", "json")
 	return cmd
 }
 
@@ -289,6 +322,16 @@ func runVerify(env *Env, o verifyOptions, args []string) (err error) {
 		if err := writeJSON(env, verifyEnvelope{Status: string(result.Status), Signers: result.Signers,
 			Detail: result.Detail, Payload: payloadSummary(envelope.Payload)}); err != nil {
 			return err
+		}
+		// The result is the answer and is already written; what follows only
+		// sets the exit status, so no second JSON document.
+		switch result.Status {
+		case signing.Verified:
+			return nil
+		case signing.Invalid:
+			return &ExitError{Code: ExitFailed}
+		default:
+			return &ExitError{Code: ExitNotApplicable}
 		}
 	}
 	switch result.Status {
