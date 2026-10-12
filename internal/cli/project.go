@@ -18,7 +18,7 @@ import (
 func projectCmd(env *Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
-		Short: "Check and plan an Alder project: a directory's intended state, kept in a repository",
+		Short: "Check, plan, apply and format an Alder project: a directory's intended state, kept in a repository",
 		Long: "An Alder project is an alder.yaml naming the subtrees a repository is\n" +
 			"responsible for, the LDIF files that describe them, and the environments the\n" +
 			"project is planned against. See docs/PROJECT.md.\n\n" +
@@ -26,7 +26,7 @@ func projectCmd(env *Env) *cobra.Command {
 			"deleted, and nothing about a project is stored anywhere: every plan is made\n" +
 			"against the directory as it is.",
 	}
-	cmd.AddCommand(projectValidateCmd(env), projectPlanCmd(env), projectApplyCmd(env))
+	cmd.AddCommand(projectValidateCmd(env), projectPlanCmd(env), projectApplyCmd(env), projectFmtCmd(env))
 	return cmd
 }
 
@@ -245,6 +245,9 @@ type projectPlanDocument struct {
 	Environment string          `json:"environment"`
 	Host        string          `json:"host"`
 	Plan        json.RawMessage `json:"plan"`
+	// Unmanaged is, for each managed subtree, what the directory holds there
+	// that no project file describes. Reported, never planned.
+	Unmanaged []unmanagedSubtree `json:"unmanaged"`
 }
 
 func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error) {
@@ -291,8 +294,10 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	if err != nil {
 		return err
 	}
+	unmanaged := listUnmanaged(ctx, r, p)
 	if o.json {
-		doc, marshalErr := json.Marshal(projectPlanDocument{Environment: o.envName, Host: conn.label(), Plan: raw})
+		reportUnreadable(env.Stderr, unmanaged)
+		doc, marshalErr := json.Marshal(projectPlanDocument{Environment: o.envName, Host: conn.label(), Plan: raw, Unmanaged: unmanaged})
 		if marshalErr != nil {
 			return failf("output", "cannot encode the plan: %v", marshalErr)
 		}
@@ -302,6 +307,7 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	} else {
 		writef(env.Stdout, "Environment %s (%s)\n\n", o.envName, conn.label())
 		renderPlan(env.Stdout, plan, !o.summary)
+		renderUnmanaged(env.Stdout, env.Stderr, unmanaged, !o.summary)
 	}
 	return planExit(env, plan, o.detailedExitcode)
 }

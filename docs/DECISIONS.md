@@ -5420,6 +5420,73 @@ Proved against both servers: the project applies, the directory holds what
 it describes, `project plan --detailed-exitcode` then exits 0, and a second
 apply has nothing to do.
 
+### 2026-10-12 — alder project fmt, and the comments it keeps
+
+The third slice of the project format, named in the specification as "a
+tidier file, not a second format".
+
+**The canonical form is the writer's.** A form defined by its own rules
+would be a second LDIF dialect to keep stable. Defined as what
+`ldif.Writer` produces, an export is already formatted, formatting one is a
+no-op (a test says so), and the form is held still by the golden files that
+already pin every byte Alder writes.
+
+**Not built on parse and write.** The reader drops comments, so `Unmarshal`
+then `Marshal` would have deleted every comment in a repository on the
+first run -- the one thing a formatter must never do to a person's file.
+`ldif.Format` works line by line instead: it unfolds exactly as the reader
+does, rewrites each record line through the writer's own line renderer, and
+leaves each comment where it was, verbatim. Comments are not refolded: they
+are prose, and column 76 would break them mid-word.
+
+**It proves itself before it writes.** Every call reads its own output back
+and requires the same records, the same DNs and the same values in the same
+order as the input; a mismatch refuses the file and writes nothing. A fuzz
+test looks for the inputs where that check would fire, and for output that
+does not format to itself. It found three on its first run -- two carriage
+returns at the end of a line (the scanner drops one and the reader another),
+a stray carriage return after a comment, and an attribute literally named
+`dn` inside a record -- each fixed before this was committed.
+
+**Validate first, all files before any.** A project that does not validate
+is not touched, and every file is formatted in memory before the first is
+replaced, so a file that cannot be formatted leaves the whole project as it
+was. A file is replaced through a temporary beside it, keeping its
+permissions, and a symlink inside the project is written through to its
+target so it stays a symlink.
+
+**`--check` exits 1.** It is the number `diff` gives "they differ", which is
+the question `--check` asks. `terraform fmt -check` exits 3, but 3 already
+means "cannot be applied as written" here.
+
+### 2026-10-12 — unmanaged entries, reported beside the plan
+
+The last slice the project specification named: for each managed subtree,
+what the directory holds that no project file describes.
+
+**Read with the snapshot capture, as the specification said, and for its
+all-or-nothing.** A paged search for names alone would be cheaper, but a
+capture is refused whole when it cannot read a subtree whole -- too many
+entries, a server size limit, referrals -- so the report is never a list
+that silently stops short. Only the names are kept from the document; the
+values are read past.
+
+**A report, not a result.** Unmanaged entries do not change the exit
+status. `--detailed-exitcode` answers "does the directory match the
+project?", and an entry the project does not mention is not part of that
+question; making it one would turn every pre-existing entry into a
+permanent "changes pending" with no change that could clear it. For the
+same reason a subtree that cannot be read is said on standard error and
+the plan stands.
+
+**On `project plan`, not on `project apply`.** Apply's job is to write what
+the project describes; the report is about what it does not, and is read
+when reviewing, which is what `plan` is for.
+
+**Names compared as the directory compares them**, with `dn.Equal`, so an
+entry the server spells `UID=Alice` is the project's `uid=alice` and is not
+reported.
+
 ### 2026-10-12 — a ca-file is certificates, and only certificates leave
 
 `--ca-file` was read and sent to Alder as it stood, up to a megabyte,
