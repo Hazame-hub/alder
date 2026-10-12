@@ -487,3 +487,108 @@ func TestProjectFmtWritesThroughASymlink(t *testing.T) {
 		t.Errorf("target =\n%q", got)
 	}
 }
+
+// snapshotOf is a capture as the stub returns it: only the names matter here.
+func snapshotOf(dns ...string) string {
+	entries := make([]string, len(dns))
+	for i, d := range dns {
+		entries[i] = `{"dn":"` + d + `","attributes":[]}`
+	}
+	return `{"format":"alder-snapshot","version":1,"kind":"data","completeness":"complete","entries":[` +
+		strings.Join(entries, ",") + `]}`
+}
+
+func TestProjectPlanListsUnmanagedEntriesAndPlansNothingForThem(t *testing.T) {
+	s := newStub(t)
+	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
+	// The directory holds the OU, Alice, and Carol; the project describes
+	// Alice and Bob. Alice is spelt differently, and is still Alice.
+	s.reply("POST /api/v1/snapshots/capture", http.StatusOK, snapshotOf(
+		"ou=people,dc=alder,dc=test", "UID=Alice,ou=people,dc=alder,dc=test", "uid=carol,ou=people,dc=alder,dc=test"))
+	dir := writeProject(t, s, nil)
+
+	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--detailed-exitcode")
+	// Unmanaged entries are not changes: the exit status is the plan's.
+	expectCode(t, r, ExitPending)
+	want := "Unmanaged: 2 entries the directory holds that no project file describes. Reported, never deleted.\n" +
+		"  2 entries in ou=people,dc=alder,dc=test\n" +
+		"    ou=people,dc=alder,dc=test\n" +
+		"    uid=carol,ou=people,dc=alder,dc=test\n"
+	if !strings.HasSuffix(r.stdout, want) {
+		t.Errorf("stdout does not end with the unmanaged entries:\n%s", r.stdout)
+	}
+	var capture map[string]any
+	_ = json.Unmarshal(s.called("POST /api/v1/snapshots/capture")[0].Body, &capture)
+	if capture["base"] != "ou=people,dc=alder,dc=test" || capture["scope"] != "sub" {
+		t.Errorf("capture request = %v", capture)
+	}
+	var req map[string]any
+	_ = json.Unmarshal(s.called("POST /api/v1/plan")[0].Body, &req)
+	if ldifText, _ := req["ldif"].(string); strings.Contains(ldifText, "carol") || strings.Contains(ldifText, "changetype") {
+		t.Errorf("an unmanaged entry reached the plan request:\n%s", ldifText)
+	}
+
+	r = s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--json")
+	expectCode(t, r, ExitOK)
+	doc := oneJSONDocument(t, r.stdout)
+	unmanaged, _ := doc["unmanaged"].([]any)
+	if len(unmanaged) != 1 {
+		t.Fatalf("unmanaged = %v", doc["unmanaged"])
+	}
+	sub := unmanaged[0].(map[string]any)
+	if entries, _ := sub["entries"].([]any); sub["base"] != "ou=people,dc=alder,dc=test" || len(entries) != 2 {
+		t.Errorf("unmanaged[0] = %v", sub)
+	}
+}
+
+func TestProjectPlanSaysWhenNothingIsUnmanaged(t *testing.T) {
+	for name, capture := range map[string]struct {
+		status int
+		body   string
+	}{
+		"every entry described": {http.StatusOK, snapshotOf("uid=alice,ou=people,dc=alder,dc=test", "uid=bob,ou=people,dc=alder,dc=test")},
+		"the base is absent":    {http.StatusNotFound, `{"error":"not_found","message":"No such entry."}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStub(t)
+			s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
+			s.reply("POST /api/v1/snapshots/capture", capture.status, capture.body)
+			dir := writeProject(t, s, nil)
+			r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev")
+			expectCode(t, r, ExitOK)
+			if !strings.HasSuffix(r.stdout, "Unmanaged: none. Every entry in the managed subtrees is one the project describes.\n") {
+				t.Errorf("stdout:\n%s", r.stdout)
+			}
+			if r.stderr != "" && strings.Contains(r.stderr, "could not be listed") {
+				t.Errorf("stderr:\n%s", r.stderr)
+			}
+		})
+	}
+}
+
+// A subtree that cannot be read whole is said to be unreadable; the plan
+// beside it stands, and so does its exit status.
+func TestProjectPlanSaysWhichSubtreeCouldNotBeRead(t *testing.T) {
+	s := newStub(t)
+	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
+	s.reply("POST /api/v1/snapshots/capture", http.StatusBadRequest,
+		`{"error":"snapshot_too_large","message":"The subtree could not be captured whole, so no snapshot was made."}`)
+	dir := writeProject(t, s, nil)
+
+	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev")
+	expectCode(t, r, ExitOK)
+	if !strings.Contains(r.stderr, "the unmanaged entries in ou=people,dc=alder,dc=test could not be listed") {
+		t.Errorf("stderr:\n%s", r.stderr)
+	}
+	if !strings.HasSuffix(r.stdout, "Unmanaged: none in the subtrees that could be read.\n") {
+		t.Errorf("stdout:\n%s", r.stdout)
+	}
+
+	r = s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--json")
+	expectCode(t, r, ExitOK)
+	doc := oneJSONDocument(t, r.stdout)
+	sub := doc["unmanaged"].([]any)[0].(map[string]any)
+	if msg, _ := sub["error"].(string); msg == "" {
+		t.Errorf("unmanaged[0] carries no error: %v", sub)
+	}
+}

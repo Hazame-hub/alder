@@ -24,6 +24,7 @@ func TestAProjectPlansAsDesiredStateOnBothServers(t *testing.T) {
 	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
 		base := startAlder(t)
 		seedCLIOU(t, sess) // uid=cli-probe, with title Before
+		mustApply(t, sess, person(t, cliDN("uid=cli-extra"), "cli-extra"))
 
 		dir := writeHarnessProject(t, s, base)
 
@@ -53,6 +54,23 @@ func TestAProjectPlansAsDesiredStateOnBothServers(t *testing.T) {
 		}
 		if len(actions) != len(want) {
 			t.Errorf("planned %d items, want %d: %v", len(actions), len(want), actions)
+		}
+
+		// The OU and an entry no file mentions are reported as unmanaged,
+		// the probe the project describes is not, and none of them is
+		// planned: a project never deletes what it does not mention.
+		unmanaged, _ := doc["unmanaged"].([]any)
+		if len(unmanaged) != 1 {
+			t.Fatalf("unmanaged = %v", doc["unmanaged"])
+		}
+		sub := unmanaged[0].(map[string]any)
+		var got []string
+		for _, d := range sub["entries"].([]any) {
+			got = append(got, strings.ToLower(d.(string)))
+		}
+		wantUnmanaged := []string{strings.ToLower(cliOU), strings.ToLower(cliDN("uid=cli-extra"))}
+		if sub["error"] != nil || strings.Join(got, "|") != strings.Join(wantUnmanaged, "|") {
+			t.Errorf("unmanaged entries = %v (error %v), want %v", got, sub["error"], wantUnmanaged)
 		}
 
 		// A plan writes nothing.
