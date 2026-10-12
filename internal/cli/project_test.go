@@ -404,3 +404,81 @@ func TestProjectApplyUsageErrors(t *testing.T) {
 		t.Errorf("%d request(s) sent for command lines that were wrong", len(s.calls))
 	}
 }
+
+func TestProjectFmtRewritesOnlyWhatIsNotCanonical(t *testing.T) {
+	s := newStub(t)
+	messy := "# Alice, by hand.\r\ndn: uid=alice, ou=people, dc=alder, dc=test\r\nobjectClass:inetOrgPerson\r\nuid: alice\r\n" +
+		"cn: Alice\r\nsn:: QQ==\r\n\r\n\r\n"
+	dir := writeProject(t, s, map[string]string{"people/alice.ldif": messy})
+	alice := filepath.Join(dir, "people", "alice.ldif")
+	if err := os.Chmod(alice, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	r := s.run(t, projectRun, "project", "fmt", "--project", dir, "--check")
+	expectCode(t, r, ExitDifferences)
+	if r.stdout != alice+"\n" {
+		t.Errorf("--check stdout = %q, want only the file that is not canonical", r.stdout)
+	}
+	if got, _ := os.ReadFile(alice); string(got) != messy {
+		t.Errorf("--check wrote to the file:\n%q", got)
+	}
+
+	r = s.run(t, projectRun, "project", "fmt", "--project", dir)
+	expectCode(t, r, ExitOK)
+	if r.stdout != alice+"\n" {
+		t.Errorf("stdout = %q, want the file it rewrote", r.stdout)
+	}
+	got, _ := os.ReadFile(alice)
+	if want := "# Alice, by hand.\n" + projectAlice; string(got) != want {
+		t.Errorf("formatted file =\n%q\nwant\n%q", got, want)
+	}
+	if info, _ := os.Stat(alice); info.Mode().Perm() != 0o640 {
+		t.Errorf("mode = %v; formatting must keep the file's permissions", info.Mode().Perm())
+	}
+	if len(s.calls) != 0 {
+		t.Errorf("fmt sent %d request(s); it must connect to nothing", len(s.calls))
+	}
+
+	r = s.run(t, projectRun, "project", "fmt", "--project", dir, "--check")
+	expectCode(t, r, ExitOK)
+	if r.stdout != "" {
+		t.Errorf("a canonical project still lists files: %q", r.stdout)
+	}
+}
+
+func TestProjectFmtLeavesAnInvalidProjectAlone(t *testing.T) {
+	s := newStub(t)
+	messy := "dn: uid=alice,ou=people,dc=alder,dc=test\nobjectClass:inetOrgPerson\nuid: alice\ncn: Alice\nsn: A\n"
+	dir := writeProject(t, s, map[string]string{
+		"people/alice.ldif": messy,
+		"people/bob.ldif":   projectBob + "userPassword: {SSHA}x\n",
+	})
+	r := s.run(t, projectRun, "project", "fmt", "--project", dir)
+	expectCode(t, r, ExitNotApplicable)
+	if got, _ := os.ReadFile(filepath.Join(dir, "people", "alice.ldif")); string(got) != messy {
+		t.Errorf("a file of an invalid project was rewritten:\n%q", got)
+	}
+}
+
+// A symlink inside the project is written through, so it stays a link and
+// its target takes the canonical form.
+func TestProjectFmtWritesThroughASymlink(t *testing.T) {
+	s := newStub(t)
+	dir := writeProject(t, s, map[string]string{"shared/alice.ldif": "dn: uid=alice,ou=people,dc=alder,dc=test\nobjectClass:inetOrgPerson\nuid: alice\ncn: Alice\nsn: A\n"})
+	link := filepath.Join(dir, "people", "alice.ldif")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "shared", "alice.ldif"), link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	r := s.run(t, projectRun, "project", "fmt", "--project", dir)
+	expectCode(t, r, ExitOK)
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the symlink was replaced by a file: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "shared", "alice.ldif")); string(got) != projectAlice {
+		t.Errorf("target =\n%q", got)
+	}
+}

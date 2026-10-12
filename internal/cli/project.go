@@ -18,7 +18,7 @@ import (
 func projectCmd(env *Env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
-		Short: "Check and plan an Alder project: a directory's intended state, kept in a repository",
+		Short: "Check, plan, apply and format an Alder project: a directory's intended state, kept in a repository",
 		Long: "An Alder project is an alder.yaml naming the subtrees a repository is\n" +
 			"responsible for, the LDIF files that describe them, and the environments the\n" +
 			"project is planned against. See docs/PROJECT.md.\n\n" +
@@ -26,7 +26,7 @@ func projectCmd(env *Env) *cobra.Command {
 			"deleted, and nothing about a project is stored anywhere: every plan is made\n" +
 			"against the directory as it is.",
 	}
-	cmd.AddCommand(projectValidateCmd(env), projectPlanCmd(env), projectApplyCmd(env))
+	cmd.AddCommand(projectValidateCmd(env), projectPlanCmd(env), projectApplyCmd(env), projectFmtCmd(env))
 	return cmd
 }
 
