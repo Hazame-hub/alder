@@ -511,7 +511,10 @@ and refuses a file that carries a password. `alder project plan --env prod
 --detailed-exitcode` answers "does production match the repository?" with an
 exit status, and `alder project apply` plans again against the directory as it
 is, shows that plan, asks, and applies it. There is no state file, and an entry
-the files do not mention is never deleted. See [`docs/PROJECT.md`](docs/PROJECT.md).
+the files do not mention is never deleted: the plan lists it as unmanaged.
+`alder project fmt` keeps the LDIF in one canonical form so a diff shows what
+changed. See [`docs/PROJECT.md`](docs/PROJECT.md), and
+[`examples/project/`](examples/project/) for a project with its CI.
 
 ## Two servers, one behaviour
 
