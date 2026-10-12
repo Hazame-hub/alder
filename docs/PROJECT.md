@@ -1,10 +1,11 @@
 # The Alder project format
 
-**Status: the first slice is implemented** -- `alder project validate` and
-`alder project plan --env` (see [CLI.md](CLI.md)). Confirmed as a scope change
-on 2026-10-10 as a specification and reviewed the same day; the decisions that
-review made are at the end, and the sections above reflect them. The later
-slices below are not built.
+**Status: implemented** -- `alder project validate`, `alder project plan --env`
+and `alder project apply --env` (see [CLI.md](CLI.md)). Confirmed as a scope
+change on 2026-10-10 as a specification and reviewed the same day; the
+decisions that review made are at the end, and the sections above reflect
+them. The unmanaged-entries report and `alder project fmt`, below, are not
+built.
 
 ---
 
@@ -230,10 +231,20 @@ so the stricter meaning is asked for, never assumed.
 
 ### Later slices, named so the first one does not paint them into a corner
 
-- **`alder project apply --env NAME`**: plan, show, confirm, apply, with
-  `alder apply`'s confirmation rules unchanged (`--yes`, `--allow-deletes`,
-  refusing a plan with conflicts). A plan carries the environment it was made
-  for, and `apply` refuses one made for a different `--env`.
+- **`alder project apply --env NAME`** (built): plan, show, confirm, apply,
+  through `alder apply`'s own path, so its rules are unchanged (`--yes`,
+  refusing a plan with conflicts or one gone stale, `--recovery-out`).
+  `--allow-deletes` has nothing to permit: desired state never deletes.
+
+  *Amended when it was built:* this said a plan "carries the environment it
+  was made for, and `apply` refuses one made for a different `--env`" --
+  which assumed a plan saved by `project plan` and applied later. A baseline
+  is a MAC under a key that exists only in the Alder process that issued it,
+  so such a file would stop applying at the first server restart. `apply`
+  therefore plans and applies in one run against one environment, where a
+  plan for another environment cannot reach it by construction, and its
+  question names the environment and the directory. A saved-plan workflow
+  waits until baselines can outlive a process.
 - **`alder project fmt`**: rewrite the project's LDIF in a canonical form, so
   a Git diff shows what changed and not how it was wrapped. A tidier file, not
   a second format.

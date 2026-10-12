@@ -25,47 +25,7 @@ func TestAProjectPlansAsDesiredStateOnBothServers(t *testing.T) {
 		base := startAlder(t)
 		seedCLIOU(t, sess) // uid=cli-probe, with title Before
 
-		ca, err := filepath.Abs(filepath.Join("..", "compose", "certs", "ca.crt"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		dir := t.TempDir()
-		writeFile(t, dir, "alder.yaml", `version: 1
-managed:
-  - base: `+cliOU+`
-    files: [entries/*.ldif]
-environments:
-  harness:
-    api-url: `+base+`
-    host: `+s.host+`
-    port: `+strconv.Itoa(s.port)+`
-    ca-file: `+filepath.ToSlash(ca)+`
-    server-name: localhost
-    bind-dn: `+s.bindDN+`
-    bind-password-env: ALDER_HARNESS_BIND_PASSWORD
-`)
-		// The probe as the project wants it, and an entry the directory does
-		// not have yet. Nothing about the OU itself is said, so nothing is
-		// planned for it.
-		writeFile(t, dir, "entries/a-probe.ldif", "dn: "+cliDN("uid=cli-probe")+`
-objectClass: top
-objectClass: person
-objectClass: organizationalPerson
-objectClass: inetOrgPerson
-uid: cli-probe
-cn: Snapshot cli-probe
-sn: Snapshot
-title: After
-`)
-		writeFile(t, dir, "entries/b-new.ldif", "dn: "+cliDN("uid=cli-new")+`
-objectClass: top
-objectClass: person
-objectClass: organizationalPerson
-objectClass: inetOrgPerson
-uid: cli-new
-cn: CLI New
-sn: New
-`)
+		dir := writeHarnessProject(t, s, base)
 
 		r := runProject(t, s, "project", "validate", "--project", dir)
 		wantExit(t, r, cli.ExitOK, "validate")
@@ -103,6 +63,92 @@ sn: New
 			t.Error("the new entry exists after planning; a plan must not write")
 		}
 	})
+}
+
+// alder project apply, against both real directories: the project lands, the
+// directory says so, and planning again with --detailed-exitcode says there
+// is nothing left to change -- the environment matches the repository.
+func TestAProjectAppliesAndThenMatchesOnBothServers(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		base := startAlder(t)
+		seedCLIOU(t, sess) // uid=cli-probe, with title Before
+		dir := writeHarnessProject(t, s, base)
+
+		r := runProject(t, s, "project", "apply", "--project", dir, "--env", "harness", "--yes", "--json")
+		wantExit(t, r, cli.ExitOK, "apply")
+		doc := decodeMap(t, r.stdout)
+		if doc["environment"] != "harness" || doc["result"] == nil {
+			t.Errorf("apply JSON = %v", doc)
+		}
+
+		// The directory, not Alder, says it landed.
+		if got := titleOf(t, sess); got != "After" {
+			t.Errorf("the probe's title is %q after apply, want After", got)
+		}
+		if !exists(t, sess, cliDN("uid=cli-new")) {
+			t.Error("the new entry does not exist after apply")
+		}
+
+		// And the environment now matches the project.
+		r = runProject(t, s, "project", "plan", "--project", dir, "--env", "harness", "--detailed-exitcode", "--summary")
+		wantExit(t, r, cli.ExitOK, "plan after apply")
+
+		// Applying again is a no-op, not a second change.
+		r = runProject(t, s, "project", "apply", "--project", dir, "--env", "harness", "--yes")
+		wantExit(t, r, cli.ExitOK, "second apply")
+		if !strings.Contains(r.stdout, "Nothing to apply") {
+			t.Errorf("a second apply should have nothing to do:\n%s", r.stdout)
+		}
+	})
+}
+
+// writeHarnessProject lays out a project against the harness server s,
+// through the Alder at base: the probe as seeded but for its title, and an
+// entry the directory does not have.
+func writeHarnessProject(t *testing.T, s server, base string) string {
+	t.Helper()
+	ca, err := filepath.Abs(filepath.Join("..", "compose", "certs", "ca.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, "alder.yaml", `version: 1
+managed:
+  - base: `+cliOU+`
+    files: [entries/*.ldif]
+environments:
+  harness:
+    api-url: `+base+`
+    host: `+s.host+`
+    port: `+strconv.Itoa(s.port)+`
+    ca-file: `+filepath.ToSlash(ca)+`
+    server-name: localhost
+    bind-dn: `+s.bindDN+`
+    bind-password-env: ALDER_HARNESS_BIND_PASSWORD
+`)
+	// The probe as the project wants it, and an entry the directory does
+	// not have yet. Nothing about the OU itself is said, so nothing is
+	// planned for it.
+	writeFile(t, dir, "entries/a-probe.ldif", "dn: "+cliDN("uid=cli-probe")+`
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: cli-probe
+cn: Snapshot cli-probe
+sn: Snapshot
+title: After
+`)
+	writeFile(t, dir, "entries/b-new.ldif", "dn: "+cliDN("uid=cli-new")+`
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: cli-new
+cn: CLI New
+sn: New
+`)
+	return dir
 }
 
 // runProject runs a project command as a person types it. Unlike alderCLI it

@@ -248,3 +248,159 @@ func TestProjectPlanDetailedExitcode(t *testing.T) {
 		})
 	}
 }
+
+// projectApplyStub answers a desired-state plan of one modification, and an
+// apply of it.
+func projectApplyStub(t *testing.T, plan string) *stub {
+	t.Helper()
+	s := newStub(t)
+	s.reply("POST /api/v1/plan", http.StatusOK, plan)
+	s.reply("POST /api/v1/changeset/apply", http.StatusOK,
+		`{"appliedCount":1,"outcomes":[{"index":0,"dn":"uid=alice,ou=people,dc=alder,dc=test","applied":true,"summary":"modified"}]}`)
+	return s
+}
+
+func desiredModify(baseline string) map[string]any {
+	item := exactModify(baseline)
+	item["intent"] = "desired"
+	return item
+}
+
+func TestProjectApplyAsksNamingTheEnvironmentAndTheDefaultIsNo(t *testing.T) {
+	s := projectApplyStub(t, planJSON(t, counts{modify: 1}, desiredModify("b0")))
+	dir := writeProject(t, s, nil)
+	opts := projectRun
+	opts.interactive, opts.stdin = true, "\n"
+	r := s.run(t, opts, "project", "apply", "--project", dir, "--env", "dev")
+	expectCode(t, r, ExitNotConfirmed)
+	if !strings.Contains(r.stderr, "Apply 1 change to environment dev (ldap.dev.test:636)? [y/N]") {
+		t.Errorf("the question does not name the environment and the directory:\n%s", r.stderr)
+	}
+	if len(s.called("POST /api/v1/changeset/apply")) != 0 {
+		t.Error("applied after the answer was no")
+	}
+}
+
+func TestProjectApplyAppliesThePlanThatWasShown(t *testing.T) {
+	s := projectApplyStub(t, planJSON(t, counts{modify: 1}, desiredModify("token-from-the-plan")))
+	dir := writeProject(t, s, nil)
+	opts := projectRun
+	opts.interactive, opts.stdin = true, "y\n"
+	r := s.run(t, opts, "project", "apply", "--project", dir, "--env", "dev")
+	expectCode(t, r, ExitOK)
+	if !strings.HasPrefix(r.stdout, "Environment dev (ldap.dev.test:636)\n") || !strings.Contains(r.stdout, "Applied 1 change.") {
+		t.Errorf("stdout:\n%s", r.stdout)
+	}
+	if !strings.Contains(r.stderr, "applying "+filepath.Join(dir, "alder.yaml")+" to environment dev") {
+		t.Errorf("stderr does not say what is being applied where:\n%s", r.stderr)
+	}
+	if n := len(s.called("POST /api/v1/plan")); n != 1 {
+		t.Errorf("planned %d times; the plan shown is the plan applied", n)
+	}
+	var req map[string]any
+	_ = json.Unmarshal(s.called("POST /api/v1/plan")[0].Body, &req)
+	if req["mode"] != "desired" {
+		t.Errorf("planned in mode %v, want desired", req["mode"])
+	}
+	var sent struct {
+		Changes []struct {
+			Baseline string `json:"baseline"`
+		} `json:"changes"`
+	}
+	_ = json.Unmarshal(s.called("POST /api/v1/changeset/apply")[0].Body, &sent)
+	if len(sent.Changes) != 1 || sent.Changes[0].Baseline != "token-from-the-plan" {
+		t.Fatalf("did not apply the planned change with its baseline: %s", s.called("POST /api/v1/changeset/apply")[0].Body)
+	}
+}
+
+// Without a terminal and without --yes, nothing is even sent: a run that
+// will not be allowed to apply has no business opening a session.
+func TestProjectApplyWithoutATerminalNeedsYesAndConnectsToNothing(t *testing.T) {
+	s := projectApplyStub(t, planJSON(t, counts{modify: 1}, desiredModify("b0")))
+	dir := writeProject(t, s, nil)
+	opts := projectRun
+	opts.env = map[string]string{"ALDER_DEV_BIND_PASSWORD": testSecret, "ALDER_YES": "true", "ALDER_ENV": "dev"}
+	r := s.run(t, opts, "project", "apply", "--project", dir, "--env", "dev")
+	expectCode(t, r, ExitNotConfirmed)
+	if len(s.calls) != 0 {
+		t.Errorf("%d request(s) sent; ALDER_YES must not confirm, and nothing should be sent unconfirmable", len(s.calls))
+	}
+	r = s.run(t, opts, "project", "apply", "--project", dir)
+	expectCode(t, r, ExitUsage) // ALDER_ENV is not read either
+}
+
+func TestProjectApplyWithYesAndJSON(t *testing.T) {
+	s := projectApplyStub(t, planJSON(t, counts{modify: 1}, desiredModify("b0")))
+	dir := writeProject(t, s, nil)
+	r := s.run(t, projectRun, "project", "apply", "--project", dir, "--env", "dev", "--yes", "--json")
+	expectCode(t, r, ExitOK)
+	doc := oneJSONDocument(t, r.stdout)
+	if doc["environment"] != "dev" || doc["host"] != "ldap.dev.test:636" {
+		t.Errorf("environment = %v, host = %v", doc["environment"], doc["host"])
+	}
+	if doc["plan"] == nil || doc["result"] == nil {
+		t.Errorf("want the plan and the result beside them: %v", doc)
+	}
+}
+
+func TestProjectApplyOutcomes(t *testing.T) {
+	unchanged := map[string]any{"index": 0, "dn": "uid=alice,ou=people,dc=alder,dc=test", "action": "unchanged", "exists": true, "intent": "desired"}
+	conflict := map[string]any{"index": 0, "dn": "uid=alice,ou=people,dc=alder,dc=test", "action": "conflict", "exists": true,
+		"intent": "desired", "problem": map[string]any{"code": "entry_exists"}}
+	for _, tc := range []struct {
+		name      string
+		plan      func(t *testing.T) string
+		refusal   string
+		want      int
+		wantApply bool
+	}{
+		{"nothing to apply", func(t *testing.T) string { return planJSON(t, counts{unchanged: 1}, unchanged) }, "", ExitOK, false},
+		{"a change that cannot be applied", func(t *testing.T) string { return planJSON(t, counts{conflict: 1}, conflict) }, "", ExitNotApplicable, false},
+		{"the directory moved since the plan", func(t *testing.T) string { return planJSON(t, counts{modify: 1}, desiredModify("b0")) },
+			apiErrorJSON("conflict", "The directory changed.", map[string]any{"cause": "plan_stale",
+				"affected": []any{map[string]any{"index": 0, "dn": "uid=alice,ou=people,dc=alder,dc=test"}}}), ExitStale, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := projectApplyStub(t, tc.plan(t))
+			if tc.refusal != "" {
+				s.reply("POST /api/v1/changeset/apply", http.StatusConflict, tc.refusal)
+			}
+			dir := writeProject(t, s, nil)
+			r := s.run(t, projectRun, "project", "apply", "--project", dir, "--env", "dev", "--yes")
+			expectCode(t, r, tc.want)
+			if applied := len(s.called("POST /api/v1/changeset/apply")) > 0; applied != tc.wantApply {
+				t.Errorf("apply sent = %v, want %v", applied, tc.wantApply)
+			}
+			// A stale plan is never planned again and applied unseen.
+			if n := len(s.called("POST /api/v1/plan")); n != 1 {
+				t.Errorf("planned %d times", n)
+			}
+		})
+	}
+}
+
+func TestAnInvalidProjectIsNotApplied(t *testing.T) {
+	s := projectApplyStub(t, planJSON(t, counts{modify: 1}, desiredModify("b0")))
+	dir := writeProject(t, s, map[string]string{"people/bob.ldif": projectBob + "userPassword: x\n"})
+	r := s.run(t, projectRun, "project", "apply", "--project", dir, "--env", "dev", "--yes")
+	expectCode(t, r, ExitNotApplicable)
+	if len(s.calls) != 0 {
+		t.Errorf("%d request(s) sent for a project that is not valid", len(s.calls))
+	}
+}
+
+func TestProjectApplyUsageErrors(t *testing.T) {
+	s := projectApplyStub(t, planJSON(t, counts{modify: 1}, desiredModify("b0")))
+	dir := writeProject(t, s, nil)
+	for _, args := range [][]string{
+		{"--env", "dev", "--force", "--yes"},
+		{"--env", "dev", "--recovery-out", "-", "--yes"},
+		{"--env", "staging", "--yes"},
+	} {
+		r := s.run(t, projectRun, append([]string{"project", "apply", "--project", dir}, args...)...)
+		expectCode(t, r, ExitUsage)
+	}
+	if len(s.calls) != 0 {
+		t.Errorf("%d request(s) sent for command lines that were wrong", len(s.calls))
+	}
+}

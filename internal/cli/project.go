@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -25,7 +26,7 @@ func projectCmd(env *Env) *cobra.Command {
 			"deleted, and nothing about a project is stored anywhere: every plan is made\n" +
 			"against the directory as it is.",
 	}
-	cmd.AddCommand(projectValidateCmd(env), projectPlanCmd(env))
+	cmd.AddCommand(projectValidateCmd(env), projectPlanCmd(env), projectApplyCmd(env))
 	return cmd
 }
 
@@ -36,6 +37,11 @@ type projectOptions struct {
 	summary          bool
 	detailedExitcode bool
 	timeout          time.Duration
+
+	// apply only
+	yes         bool
+	recoveryOut string
+	force       bool
 }
 
 func (o *projectOptions) registerPath(cmd *cobra.Command) {
@@ -106,6 +112,130 @@ func projectPlanCmd(env *Env) *cobra.Command {
 	envflags.Exclude(f, "project", "env", "json", "summary")
 	registerDetailedExitcode(cmd, &o.detailedExitcode)
 	return cmd
+}
+
+func projectApplyCmd(env *Env) *cobra.Command {
+	var o projectOptions
+	cmd := command(env, &cobra.Command{
+		Use:   "apply --env NAME",
+		Short: "Make an environment match the project: plan, show, confirm, apply",
+		Long: "Validates the project, connects to the named environment, plans the project\n" +
+			"as desired state exactly as alder project plan does, shows the plan under the\n" +
+			"environment and the directory it was made against, and asks before applying\n" +
+			"it. What is applied is the plan that was shown, with the baselines Alder\n" +
+			"issued for it: if the directory has moved since, Alder refuses the whole set,\n" +
+			"nothing is written, and the plan is never made again and applied unseen.\n\n" +
+			"The plan is made and applied in one run, against one environment, so a plan\n" +
+			"made for another environment cannot reach it. The question names the\n" +
+			"environment and the directory. Anywhere a terminal cannot be asked, nothing is\n" +
+			"applied without --yes. A project never deletes an entry it does not mention.\n\n" +
+			"--recovery-out FILE asks Alder for a recovery bundle for what was applied.\n\n" +
+			"--env, --project and --yes are read from the command line only, never from\n" +
+			"ALDER_*.\n\n" +
+			"Exit status: 0 applied (or nothing to apply), 3 the project is not valid or\n" +
+			"some change cannot be applied as written, 4 the plan went stale, 5 not\n" +
+			"confirmed, 6 stopped partway, 7 usage, 8 failure.",
+		Args: argsBetween(0, 0, "no arguments; name the project with --project and the environment with --env"),
+	}, func(ctx context.Context, _ []string) error {
+		return runProjectApply(ctx, env, o)
+	})
+	o.registerPath(cmd)
+	f := cmd.Flags()
+	f.StringVar(&o.envName, "env", "", "the environment, as alder.yaml names it (required)")
+	f.BoolVar(&o.yes, "yes", false, "apply without asking; required when no terminal can be asked")
+	f.StringVar(&o.recoveryOut, "recovery-out", "", "write a recovery bundle for the changes that were applied to this file")
+	f.BoolVar(&o.force, "force", false, "replace --recovery-out if it already exists")
+	f.BoolVar(&o.json, "json", false, "write JSON to standard output")
+	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
+	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "give up on the whole command after this long; 0 waits indefinitely")
+	envflags.Exclude(f, "project", "env", "yes", "recovery-out", "force", "json", "summary")
+	return cmd
+}
+
+func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error) {
+	var envelope applyEnvelope
+	defer func() {
+		if !o.json {
+			return
+		}
+		var exit *ExitError
+		if errors.As(err, &exit) && (len(exit.Server) > 0 || exit.Local != "") {
+			envelope.Error = exit.document()
+		}
+		doc, _ := json.Marshal(envelope)
+		_ = writeDocument(env.Stdout, doc)
+	}()
+
+	switch {
+	case o.envName == "":
+		return usagef("--env is required: the environment to apply to, as alder.yaml names it")
+	case o.recoveryOut == "-":
+		return usagef("--recovery-out needs a file: standard output carries the plan and the result")
+	case o.force && o.recoveryOut == "":
+		return usagef("--force replaces the --recovery-out file, and none was given")
+	}
+	if err := refuseExisting(o.recoveryOut, o.force); err != nil {
+		return err
+	}
+	p, err := loadProject(env, o.path)
+	if err != nil {
+		return err
+	}
+	e, ok := p.Environments[o.envName]
+	if !ok {
+		return usagef("%s has no environment %q; it has %s", p.File, o.envName, strings.Join(p.EnvironmentNames(), ", "))
+	}
+	conn := connectionFor(p, e, o.timeout)
+	if err := conn.check(false); err != nil {
+		return err
+	}
+	envelope.Environment, envelope.Host = o.envName, conn.label()
+	// Refused before connecting: a run that will not be allowed to apply has
+	// no business opening a session on production to find that out.
+	if !o.yes && !env.Interactive() {
+		return &ExitError{Code: ExitNotConfirmed, Local: "confirmation_required",
+			Message: "not applied: there is no terminal to ask for confirmation, and --yes was not given. " +
+				"Review with alder project plan, then run apply with --yes"}
+	}
+	document, err := p.Document()
+	if err != nil {
+		return failf("project", "cannot render the project as LDIF: %v", err)
+	}
+	if len(document) > maxLDIFBytes {
+		return failf("project_too_large", "the project renders to %d bytes of LDIF, more than one plan request carries (%d)",
+			len(document), maxLDIFBytes)
+	}
+
+	writef(env.Stderr, "alder: applying %s to environment %s: %s through %s\n",
+		p.File, o.envName, conn.label(), conn.apiURL)
+
+	ctx, cancel := conn.bound(ctx)
+	defer cancel()
+	r, err := conn.open(ctx, env)
+	if err != nil {
+		return err
+	}
+	defer r.close()
+
+	mode := apiclient.PlanLdifModeDesired
+	plan, raw, err := requestPlan(ctx, r, apiclient.PlanRequest{Ldif: &document, Mode: &mode, Reconcile: ptr(false)})
+	if err != nil {
+		return err
+	}
+	out := env.Stdout
+	if o.json {
+		out = env.Stderr
+	}
+	writef(out, "Environment %s (%s)\n\n", o.envName, conn.label())
+	// Desired state only: every item is the plan's own record, so there is
+	// no client copy of an exact change to send instead.
+	return applyReviewed(ctx, env, r, plan, raw, nil, applySettings{
+		target:      fmt.Sprintf("environment %s (%s)", o.envName, conn.label()),
+		summary:     o.summary,
+		yes:         o.yes,
+		recoveryOut: o.recoveryOut,
+		force:       o.force,
+	}, out, &envelope)
 }
 
 // projectPlanDocument is project plan's JSON: the plan, with the environment

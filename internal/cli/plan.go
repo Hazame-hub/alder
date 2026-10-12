@@ -402,9 +402,13 @@ func applicable(p apiclient.Plan) int {
 // applyEnvelope is apply's JSON: the plan that was reviewed, and what applying
 // it did or why it did not.
 type applyEnvelope struct {
-	Plan   json.RawMessage `json:"plan,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  json.RawMessage `json:"error,omitempty"`
+	// Environment and Host are set by alder project apply only, for the same
+	// reason project plan prints them: two environments' plans read alike.
+	Environment string          `json:"environment,omitempty"`
+	Host        string          `json:"host,omitempty"`
+	Plan        json.RawMessage `json:"plan,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	Error       json.RawMessage `json:"error,omitempty"`
 	// RecoveryFile is where the recovery bundle was written, when it was.
 	RecoveryFile string `json:"recoveryFile,omitempty"`
 }
@@ -499,6 +503,36 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 	if err != nil {
 		return err
 	}
+	return applyReviewed(ctx, env, r, p, raw, in.staged, applySettings{
+		target:       conn.label(),
+		summary:      o.summary,
+		yes:          o.yes,
+		allowDeletes: o.allowDeletes,
+		recoveryOut:  o.recoveryOut,
+		force:        o.force,
+	}, out, &envelope)
+}
+
+// applySettings is how a reviewed plan is to be applied: what the confirmation
+// calls the directory, and the answers the command line gave in advance.
+type applySettings struct {
+	// target names the directory in the question, as a person would want to
+	// read it before saying yes.
+	target       string
+	summary      bool
+	yes          bool
+	allowDeletes bool
+	recoveryOut  string
+	force        bool
+}
+
+// applyReviewed shows a plan, asks, and applies exactly that plan with the
+// baselines it issued. It is the one apply path the client has: alder apply
+// and alder project apply both end here, so the confirmation rules, the
+// refusal of a plan with conflicts, the recovery bundle and the account of a
+// run that stopped partway cannot differ between them.
+func applyReviewed(ctx context.Context, env *Env, r *remote, p apiclient.Plan, raw []byte,
+	staged []apiclient.ChangeRequest, o applySettings, out io.Writer, envelope *applyEnvelope) error {
 	envelope.Plan = compactJSON(raw)
 	renderPlan(out, p, !o.summary)
 
@@ -517,17 +551,17 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 				Message: fmt.Sprintf("not applied: the plan deletes %s, and --yes does not permit a deletion without --allow-deletes", plural(deletes, "entry", "entries"))}
 		}
 	} else {
-		question := fmt.Sprintf("Apply %s to %s?", plural(applicable(p), "change", "changes"), conn.label())
+		question := fmt.Sprintf("Apply %s to %s?", plural(applicable(p), "change", "changes"), o.target)
 		if deletes > 0 {
 			question = fmt.Sprintf("Apply %s to %s, deleting %s?", plural(applicable(p), "change", "changes"),
-				conn.label(), plural(deletes, "entry", "entries"))
+				o.target, plural(deletes, "entry", "entries"))
 		}
 		if !confirm(env, question) {
 			return &ExitError{Code: ExitNotConfirmed, Local: "declined", Message: "not applied: nothing was written"}
 		}
 	}
 
-	changes := changesFromPlan(p, in.staged)
+	changes := changesFromPlan(p, staged)
 	body := apiclient.ApplyChangesetJSONRequestBody{Changes: changes}
 	if o.recoveryOut != "" {
 		body.Recovery = ptr(true)
