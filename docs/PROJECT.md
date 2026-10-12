@@ -1,11 +1,10 @@
 # The Alder project format
 
-**Status: implemented** -- `alder project validate`, `alder project plan --env`
-and `alder project apply --env` (see [CLI.md](CLI.md)). Confirmed as a scope
-change on 2026-10-10 as a specification and reviewed the same day; the
-decisions that review made are at the end, and the sections above reflect
-them. The unmanaged-entries report and `alder project fmt`, below, are not
-built.
+**Status: implemented** -- `alder project validate`, `alder project plan --env`,
+`alder project apply --env` and `alder project fmt` (see [CLI.md](CLI.md)).
+Confirmed as a scope change on 2026-10-10 as a specification and reviewed the
+same day; the decisions that review made are at the end, and the sections above
+reflect them. The unmanaged-entries report, below, is not built.
 
 ---
 
@@ -245,9 +244,25 @@ so the stricter meaning is asked for, never assumed.
   plan for another environment cannot reach it by construction, and its
   question names the environment and the directory. A saved-plan workflow
   waits until baselines can outlive a process.
-- **`alder project fmt`**: rewrite the project's LDIF in a canonical form, so
-  a Git diff shows what changed and not how it was wrapped. A tidier file, not
-  a second format.
+- **`alder project fmt`** (built): rewrite the project's LDIF in a canonical
+  form, so a Git diff shows what changed and not how it was wrapped. A tidier
+  file, not a second format.
+
+  *Settled when it was built:* the canonical form is the one Alder's own LDIF
+  writer produces, so an export is already formatted and formatting it changes
+  nothing, and the form is held still by the writer's golden files rather than
+  by a second set of rules. Each line keeps its place -- records, attributes and
+  values in the order written, attribute names as spelled -- and only how it is
+  written down changes: refolded at 76 columns, one space after the colon,
+  base64 exactly where `NeedsBase64` says, the DN as the `dn` package renders
+  it, one blank line between records, LF endings. Comments are kept verbatim,
+  where they were: the reader drops them, so a formatter built on parse and
+  write would have deleted every one, and refolding them would break prose
+  mid-word. A project that does not validate is not touched, every file is
+  formatted before any is written, and each new form is read back and must
+  hold exactly the records the old one did before it replaces the file.
+  `--check` writes nothing and exits 1 when a file is not canonical: the
+  number `diff` uses for "they differ".
 - **Unmanaged entries.** For each managed subtree, the entries the directory
   holds that no file mentions, listed beside the plan as *unmanaged*. Read with
   the existing snapshot capture of the subtree; reported, never deleted. A

@@ -188,7 +188,7 @@ compatibility promise.
 | Code | Meaning |
 |---|---|
 | 0 | Done. For `diff`, complete with no differences. For `apply`, applied, or nothing to apply. For `plan` and `project plan` with `--detailed-exitcode`, nothing to change. |
-| 1 | `diff`: complete, and there are differences. `preflight`: compatible once the listed prerequisites are done |
+| 1 | `diff`: complete, and there are differences. `preflight`: compatible once the listed prerequisites are done. `project fmt --check`: some file is not in canonical form |
 | 2 | `diff`: incomplete, because something could not be seen. This wins over 1. `preflight`: incomplete. `plan` and `project plan` with `--detailed-exitcode`: changes pending |
 | 3 | A change cannot be applied as written (a conflict or a schema violation), or a selected difference offers no change. This wins over 1 and 2. `preflight`: incompatible. `project`: the project is not valid. Nothing was written. |
 | 4 | The plan no longer holds: the directory changed after it was made (`plan_stale`), or the operations sent are not the ones planned (`plan_mismatch`). Nothing was written. |
@@ -456,6 +456,8 @@ alder project plan --env dev
 alder project plan --env prod --project path/to/alder.yaml --json
 alder project apply --env dev
 alder project apply --env prod --yes --recovery-out prod-recovery.json
+alder project fmt
+alder project fmt --check
 ```
 
 An Alder project is an `alder.yaml` naming the subtrees a repository is
@@ -526,6 +528,26 @@ environment: an inherited `ALDER_YES` must not confirm an apply nobody typed.
 Exit codes are `alder apply`'s, and 3 also when the project is not valid; with
 `--json`, standard output is `alder apply`'s document with `environment` and
 `host` beside it.
+
+**`fmt`** rewrites the project's LDIF files in the form Alder's own exports
+take, so that a diff of one shows what changed and not how it was wrapped.
+Records, attributes and values keep their order, attribute names their
+spelling, and comments stay exactly as written and where they were; what
+changes is how each line is written down -- folded at 76 columns, one space
+after the colon, base64 only where a value needs it, the DN as Alder writes
+DNs, one blank line between records, LF line endings. A plain value with a
+trailing space comes out as base64, which is how that space becomes visible.
+
+It validates first and leaves an invalid project untouched, formats every file
+before writing any, checks that each new form reads back to exactly the
+records the old one held, and replaces a file whole. A symlink inside the
+project is written through and stays a symlink. It connects to nothing. The
+files it rewrote are listed on standard output.
+
+`--check` writes nothing: it lists the files that are not canonical and exits
+1 if there are any, for a CI job or a pre-commit hook. Exit 0 formatted (or
+already canonical), 1 with `--check` some file is not, 3 the project is not
+valid, 7 usage, 8 a file could not be read or written.
 
 ---
 
