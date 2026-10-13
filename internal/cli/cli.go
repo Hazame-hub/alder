@@ -123,6 +123,10 @@ type Env struct {
 	// Interactive reports whether standard input is a terminal a person can
 	// answer a question at.
 	Interactive func() bool
+	// ReadPassword asks for a password at the terminal, showing prompt and
+	// not echoing the answer. It is called only when Interactive is true and
+	// standard input is not claimed for anything else. Nil never asks.
+	ReadPassword func(ctx context.Context, prompt string) (string, error)
 	// Version is this client's version.
 	Version string
 
@@ -138,7 +142,10 @@ func OSEnv(version string) *Env {
 		Stderr:      os.Stderr,
 		Getenv:      os.LookupEnv,
 		Interactive: stdinIsTerminal,
-		Version:     version,
+		ReadPassword: func(ctx context.Context, prompt string) (string, error) {
+			return askTerminal(ctx, os.Stdin, os.Stderr, prompt)
+		},
+		Version: version,
 	}
 }
 
@@ -201,11 +208,11 @@ func Execute(ctx context.Context, root *cobra.Command, env *Env, args []string) 
 	var exit *ExitError
 	if errors.As(err, &exit) {
 		if exit.Message != "" {
-			writef(env.Stderr, "alder: %s\n", exit.Message)
+			writef(env.Stderr, "alder: %s\n", safeLines(exit.Message))
 		}
 		return exit.Code
 	}
-	writeln(env.Stderr, "Error:", err.Error())
+	writeln(env.Stderr, "Error:", safeLines(err.Error()))
 	return ExitUsage
 }
 

@@ -83,7 +83,7 @@ func runProjectFmt(env *Env, path string, check bool) error {
 			}
 			formatted, err := ldif.Format(raw)
 			if err != nil {
-				return failf("format", "cannot format %s: %v", shown, err)
+				return failf("format", "cannot format %s: %s", safe(shown), safe(err.Error()))
 			}
 			if !bytes.Equal(raw, formatted) {
 				changed = append(changed, fmtFile{shown: shown, real: real, formatted: formatted, mode: info.Mode().Perm()})
@@ -94,10 +94,12 @@ func runProjectFmt(env *Env, path string, check bool) error {
 	for _, f := range changed {
 		if !check {
 			if err := replaceFile(f.real, f.formatted, f.mode); err != nil {
-				return failf("output", "cannot write %s: %v", f.shown, err)
+				return failf("output", "cannot write %s: %s", safe(f.shown), safe(err.Error()))
 			}
 		}
-		writef(env.Stdout, "%s\n", f.shown)
+		// A file name is the repository's, and safe for the reason
+		// loadProject's problems are.
+		writef(env.Stdout, "%s\n", safe(f.shown))
 	}
 	if check && len(changed) > 0 {
 		return &ExitError{Code: ExitDifferences}

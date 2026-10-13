@@ -5695,6 +5695,171 @@ that happened to ask. The UI asked straight away anyway, and the driver keeps
 the result. A command with no server -- `project validate` -- has only the
 table, and says no more than it did.
 
+### 2026-10-13 — a streamed search holds its slot, and its writer keeps away from the Fiber context
+
+The search and the LDIF export stream their answers from a goroutine fasthttp
+starts, and that goroutine is where every page after the first is asked for.
+Two things about it were wrong, and both are shown by tests under `-race`.
+
+**The `--max-in-flight` slot was let go when the handler returned.** The gate
+released it there on the stated grounds that the slot should cover the part
+that talks to the directory and not the part that writes bytes out -- but for
+these two the part after the handler is the part that talks to the directory.
+A search of ten thousand entries spent all but its first page outside the
+cap. The gate now leaves its slot in the request's locals, and a streaming
+handler takes it (`keepSlot`) and gives it back when its writer finishes. The
+outline and YAML exports have finished with the directory before they stream,
+so they leave the slot to the gate as before.
+
+**The search's writer read from a `*fiber.Ctx` that was no longer its own.**
+Fiber puts the context back in its pool when the handler returns and gives it
+to the next request, while the writer is still running. When a page failed
+partway through, `abandon` asked the context for the path to log, and read the
+next request's. The path is taken before the handler returns now, and nothing
+in either writer touches the context. Reproducing it needs other requests to
+arrive while the writer waits on its failing page -- one that arrives after
+the response is ordered behind it by the body's pipe -- so the test keeps
+several going while forty searches fail.
+
+### 2026-10-13 — saved connections, kept in the browser and without passwords
+
+The connection screen remembered one connection: the last that worked.
+Someone who moves between a primary, a replica, dev and prod retyped a host
+and re-pasted a CA certificate every time they changed directory. It now keeps
+a list of connections under names as well, to pick from, rename and delete.
+
+**In `localStorage`, not on the server.** Alder is stateless (section 2 of the
+charter), and a list held by the server would be state to own, expire, scope
+to a person and secure. The cost is that the list is per browser; a team that
+wants a shared list has its own configuration management for that.
+
+**No password, enforced on the bytes and not only on the type.** The saved
+entries hold the same fields as the last connection and nothing else. Every
+write now copies those fields one by one: a TypeScript type is satisfied by an
+object with more properties than it names, and `JSON.stringify` writes every
+one, so before this change a caller passing the form's state would have stored
+its password. Every read takes only the known fields too. Picking a saved
+connection clears both password boxes, so a password typed for one directory
+is never sent to the one picked next.
+
+**The last connection keeps its key and its format.** `alder.recent-connection.v1`
+means what it meant, so a connection remembered before this change is read as
+it was and an older build still finds it; there is nothing to migrate. The
+list is a separate key, `alder.saved-connections.v1`, so an unreadable list
+costs the list and not the remembered connection.
+
+**25 at most, and the 26th is refused rather than evicting the oldest.** It is
+a picker, not an inventory, each entry can carry a CA certificate against a
+quota the whole origin shares, and the oldest entry may be the one used
+daily. Names are bounded to 64 characters and compared without regard to case,
+since "Prod" beside "prod" is a trap. Unlike the last connection, a failure to
+save is reported: the person asked for it.
+
+**Names and connections from storage are shown through `safeText`.** Storage
+is writable by any script on the origin, so what it holds is displayed like
+any other string Alder did not write. The form fields keep the original
+string, because that is what is sent.
+
+### 2026-10-13 — what a project's files say is printed through safe, as a directory's is
+
+The command line has escaped directory data since `safe` was written: a DN,
+a value or a server's message can hold escape sequences, and printed as they
+are, the terminal acts on them. A project's files had not been given the same
+treatment, and in CI they are the least trusted text Alder prints: whatever
+the pull request under review wrote. A file named
+`people/x<ESC>]0;...<BEL>.ldif`, or one with a line break and `::warning::` in
+its name, went to the job log as it was -- where the escape is interpreted by
+whoever views the log, and a line of its own is a workflow command.
+
+DNs, attribute names and quoted YAML were already safe, because the LDIF and
+DN parsers escape or quote what they report and the YAML parser refuses raw
+control characters. File names were not, and a YAML double-quoted string can
+spell an escape (`"\e"`), so an environment name or a host could hold one too.
+
+**Every problem line goes through `safe`, line breaks included**, and so do the
+file names `project fmt` lists and the environment, host and API URL a plan or
+an apply announces. **Where every error is printed, each line is made safe and
+Alder's own line breaks are kept** (`safeLines`): the last line of defence
+rather than the first, since a value's own line break must already have been
+escaped where it was interpolated.
+
+### 2026-10-13 — the client asks for a password at a terminal
+
+A person running `alder plan` by hand had three places to put the bind
+password, and each cost something: a file to create and remember to delete,
+an `export` that stays in the shell for every command after, or a pipe from
+something that holds it. The client now asks, as `ldapsearch -W` does, when
+none of the three was given -- last, so a shell that set the variable is never
+interrupted by a question.
+
+**Only at a terminal, and only one that is free.** Standard input must be a
+terminal (the test `apply` already uses for its confirmation), so a CI job
+still fails at once with exit 7 and the sources named, instead of waiting for
+an answer that will not come. It must not be the input document either: `plan
+-` has read it already. The error now ends by saying which of the two kept the
+question from being asked. The terminal is not claimed the way standard input
+is for a document, because it is not a stream read once: `apply` asks its
+confirmation on it afterwards, and the password is read a byte at a time so
+that nothing of that answer is taken with it.
+
+**Projects ask too.** An environment names its own variable so that a shell
+holding the development password cannot hand it to production. A question
+keeps that: it names the environment's bind DN, below the line that has just
+said which environment and directory the command is about to reach, and what
+is typed goes to that one session. The configuration identity is asked for
+the same way, with its own DN.
+
+**No echo, with golang.org/x/sys rather than golang.org/x/term.** "The
+command line is a client" (2026-09-14) left the prompt out because it needed
+x/term as a new dependency. It does not: x/term is a thin layer over termios and the console
+mode, and x/sys -- already linked, now a direct requirement -- has both. Echo
+alone is turned off, so the terminal still edits the line and Ctrl+C still
+interrupts. Ctrl+C no longer ends the process, though (the client catches it
+to close its session), and a read from a terminal does not return when a
+signal arrives, so the read runs on its own goroutine and the command's
+context decides: on Ctrl+C or `--timeout` the echo is put back and the
+command ends, leaving the read to the exiting process. A platform with
+neither termios nor a console never asks; a password shown as it is typed
+is not one to accept. An empty answer is refused like an empty file.
+
+### 2026-10-13 — a partial apply is 6 even when its recovery bundle fails
+
+An apply that stopped partway, and whose recovery bundle then failed to
+verify, exited 8 with `recovery_not_written`: the status a script reads as
+"Alder or the directory refused". It had written to the directory, and
+exit 6 exists to say exactly that. A script that switched on the status --
+re-plan on 6, alert on 8, say -- was told the wrong thing about the one
+fact that matters most.
+
+**The partial apply decides the status, and the bundle's failure goes in
+the message.** A complete apply whose bundle fails still exits 8 with
+`recovery_not_written`, as documented: nothing else went wrong, and the
+missing file is the failure.
+
+### 2026-10-13 — a listen address is split as an address, not at its first colon
+
+Whether the session cookie may drop `Secure` -- which a browser otherwise
+refuses to store over plain HTTP -- depends on whether Alder listens on
+loopback only, and that was decided by cutting the listen address at its first
+colon. An IPv6 address is all colons: `[::1]:8443` gave the host `[`, which is
+not loopback, so `alder serve --allow-http --addr [::1]:8443` set a cookie the
+browser would not keep, and nobody could connect. The address printed at
+startup had the same cut, and `[::]:8443` was not shown as `localhost`.
+
+Both use `net.SplitHostPort` now, and loopback is `localhost` or any address
+`net.IP.IsLoopback` says is one, so `127.0.0.2` counts as well as `127.0.0.1`.
+
+### 2026-10-13 — "Which servers the client works with" names a server per command again
+
+The section said "this release adds no endpoint, so a 1.7 server provides
+everything the client calls", written when it was true and left standing
+through recovery bundles (1.9), schema snapshots (1.10), packages (1.11),
+preflight (1.12) and configuration snapshots (1.13 and 1.14). The
+`unsupported_server` error repeated the same claim. The table has a row per
+group of commands now, and the error points at it and names the oldest
+server that has every endpoint, rather than restating versions that will go
+stale again with the next one.
+
 ### 2026-10-13 — the charter says what the code does about secrets and vendor names
 
 Two of the charter's hard rules described something the code does not do.

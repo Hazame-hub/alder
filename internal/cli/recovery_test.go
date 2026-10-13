@@ -194,6 +194,27 @@ func TestABundleThatDoesNotVerifyIsNeverWritten(t *testing.T) {
 	}
 }
 
+// A partial apply whose bundle cannot be written has still changed the
+// directory, and that is what its exit status says: 6, not the 8 a script
+// reads as "refused". The bundle's failure is in the message.
+func TestAPartialApplyWhoseBundleFailsStillExitsPartial(t *testing.T) {
+	failed := 1
+	corrupt := strings.Replace(testBundle(t), `"After"`, `"Planted"`, 1)
+	s := recoveryApplyStub(t, appliedJSON(t, 1, &failed, corrupt))
+	dir := t.TempDir()
+	out := filepath.Join(dir, "recovery.json")
+	r := s.run(t, runOpts{}, "apply", "--changes", writeTemp(t, dir, "c.json", recoveryChanges), "--yes", "--recovery-out", out)
+	expectCode(t, r, ExitPartial)
+	for _, want := range []string{"after applying 1 of", "the recovery bundle for them was not written"} {
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("stderr does not say %q:\n%s", want, r.stderr)
+		}
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("a bundle that does not verify was written")
+	}
+}
+
 func inspectionJSON(t *testing.T, matches bool, changes []any) string {
 	t.Helper()
 	var bundle map[string]any
