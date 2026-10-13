@@ -377,8 +377,29 @@ func (c *connection) password(ctx context.Context, env *Env, dn, file string, st
 	if v, ok := env.Getenv(envName); ok && v != "" {
 		return v, nil
 	}
-	return "", usagef("%s needs a password: set %s, or pass %s-file or --bind-password-stdin",
-		forFlag, envName, strings.TrimSuffix(strings.TrimPrefix(forFlag, "--"), "-dn")+"-password")
+	return "", usagef("%s", c.passwordHint(forFlag, envName))
+}
+
+// passwordHint names the places a missing password can come from, which are
+// not the same for the two identities, nor for a project.
+//
+// It used to be one format for all of them, and read "pass
+// config-bind-password-file or --bind-password-stdin": the flag without its
+// dashes, and standard input offered for the configuration identity, which
+// cannot read its password from there. A project takes no connection flags at
+// all, so it is pointed at alder.yaml instead.
+func (c *connection) passwordHint(forFlag, envName string) string {
+	prefix := strings.TrimSuffix(strings.TrimPrefix(forFlag, "--"), "-dn") // "bind" or "config-bind"
+	if c.bindPasswordEnvName != "" || c.configBindPasswordEnvName != "" {
+		return fmt.Sprintf("%s-dn needs a password: set %s, or name a %s-password-file in alder.yaml",
+			prefix, envName, prefix)
+	}
+	if forFlag == "--bind-dn" {
+		return fmt.Sprintf("%s needs a password: set %s, or pass --%s-password-file or --%s-password-stdin",
+			forFlag, envName, prefix, prefix)
+	}
+	return fmt.Sprintf("%s needs a password: set %s, or pass --%s-password-file",
+		forFlag, envName, prefix)
 }
 
 // canAsk reports whether a password may be asked for at the terminal: none is
