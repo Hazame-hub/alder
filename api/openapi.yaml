@@ -32,6 +32,15 @@ info:
     valid UTF-8 and belongs to a textual syntax, or `{ "base64": ... }` for
     anything else. There is no path by which a JPEG becomes mangled text.
 
+    **Every request body is `application/json`, and a write must come from
+    Alder's own origin or from a client that is not a browser.** A `POST`,
+    `PUT`, `PATCH` or `DELETE` whose body is any other type is refused with
+    `415`, and one a browser labels `Sec-Fetch-Site: same-site` or
+    `cross-site` is refused with `403`, before any handler runs. The session
+    cookie is `SameSite=Strict`, which keeps it off requests from another
+    site but not from another origin on the same site (a sibling subdomain,
+    another port on localhost); these two checks are what refuse those.
+
 servers:
   - url: /api/v1
 
