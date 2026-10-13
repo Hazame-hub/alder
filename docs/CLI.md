@@ -812,6 +812,9 @@ backup, and it holds no password. See [RECOVERY.md](RECOVERY.md).
   applied, no file is written.
 - **If the bundle does not verify,** no file is written and the command exits 8
   with `recovery_not_written`. The changes it applied are in the directory.
+  After a run that stopped partway it exits 6 instead, as any partial apply
+  does, and the message says the bundle was not written: that the directory
+  changed is the fact a script must not miss.
 - **`--recovery FILE` plans and applies a bundle's changes** like any other
   input: shown, confirmed, and applied with the plan's tokens.
   - A compensation whose entry has changed since the original apply is a
