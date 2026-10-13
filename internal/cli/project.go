@@ -58,7 +58,9 @@ func projectValidateCmd(env *Env) *cobra.Command {
 			"version 1 with no unknown keys, every glob matches, every file is LDIF of\n" +
 			"content records, every entry lies in its managed subtree, subtrees do not\n" +
 			"overlap, no entry appears twice, no file carries a secret, and every\n" +
-			"environment names where its password comes from and never the password.\n\n" +
+			"environment names where its password comes from and never the password.\n" +
+			"With a suffix, every managed base lies below it, and an environment's own\n" +
+			"suffix is a DN that replaces it; each such environment is listed.\n\n" +
 			"Every problem is listed, not only the first. The schema is not checked: it\n" +
 			"belongs to a directory, which is what alder project plan is for.\n\n" +
 			"Exit status: 0 valid, 3 not valid, 7 usage, 8 a file could not be read.",
@@ -72,6 +74,13 @@ func projectValidateCmd(env *Env) *cobra.Command {
 			safe(p.File), plural(p.Entries(), "entry", "entries"),
 			plural(len(p.Managed), "managed subtree", "managed subtrees"),
 			safe(strings.Join(p.EnvironmentNames(), ", ")))
+		// Said here too, so a review of the project sees which environments
+		// will not hold the names the files are written with.
+		for _, name := range p.EnvironmentNames() {
+			if from, to, ok := p.Rebasing(name); ok {
+				writef(env.Stdout, "  environment %s: suffix %s -> %s\n", safe(name), safe(from.String()), safe(to.String()))
+			}
+		}
 		return nil
 	})
 	o.registerPath(cmd)
@@ -91,6 +100,11 @@ func projectPlanCmd(env *Env) *cobra.Command {
 			"Every environment manages the same entries under the same names, so the\n" +
 			"environment and the directory it was planned against are printed above the\n" +
 			"plan, and given beside it with --json.\n\n" +
+			"An environment that names a suffix of its own holds the entries under it:\n" +
+			"every entry name, managed base and value of a DN-syntax attribute type\n" +
+			"below the project's suffix is moved onto the environment's, as the\n" +
+			"directory's schema says which types those are. The plan then shows those\n" +
+			"names, and the line above it says \"Suffix FROM -> TO\" (rebase, with --json).\n\n" +
 			"--env is read from the command line only, never from ALDER_ENV: which\n" +
 			"directory a command acts on is not something an inherited environment\n" +
 			"decides.\n\n" +
@@ -197,17 +211,15 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 			Message: "not applied: there is no terminal to ask for confirmation, and --yes was not given. " +
 				"Review with alder project plan, then run apply with --yes"}
 	}
-	document, err := p.Document()
-	if err != nil {
-		return failf("project", "cannot render the project as LDIF: %v", err)
-	}
-	if len(document) > maxLDIFBytes {
-		return failf("project_too_large", "the project renders to %d bytes of LDIF, more than one plan request carries (%d)",
-			len(document), maxLDIFBytes)
+	// Rendered before connecting, so a project too large to plan is said
+	// without a session; an environment that rebases it renders it again.
+	if _, err := projectDocument(p); err != nil {
+		return err
 	}
 
 	writef(env.Stderr, "alder: applying %s to environment %s: %s through %s\n",
 		safe(p.File), safe(o.envName), safe(conn.label()), safe(conn.apiURL))
+	announceRebase(env.Stderr, p, o.envName)
 
 	ctx, cancel := conn.bound(ctx)
 	defer cancel()
@@ -216,6 +228,16 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 		return err
 	}
 	defer r.close()
+
+	p, rebase, err := forEnvironment(ctx, r, p, o.envName)
+	if err != nil {
+		return err
+	}
+	envelope.Rebase = rebase
+	document, err := projectDocument(p)
+	if err != nil {
+		return err
+	}
 
 	mode := apiclient.PlanLdifModeDesired
 	plan, raw, err := requestPlan(ctx, r, apiclient.PlanRequest{Ldif: &document, Mode: &mode, Reconcile: ptr(false)})
@@ -226,7 +248,7 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 	if o.json {
 		out = env.Stderr
 	}
-	writef(out, "Environment %s (%s)\n\n", safe(o.envName), safe(conn.label()))
+	renderEnvironment(out, env.Stderr, o.envName, conn.label(), rebase)
 	// Desired state only: every item is the plan's own record, so there is
 	// no client copy of an exact change to send instead.
 	return applyReviewed(ctx, env, r, plan, raw, nil, applySettings{
@@ -242,9 +264,12 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 // and directory it was made for beside it, because two environments' plans
 // otherwise read identically.
 type projectPlanDocument struct {
-	Environment string          `json:"environment"`
-	Host        string          `json:"host"`
-	Plan        json.RawMessage `json:"plan"`
+	Environment string `json:"environment"`
+	Host        string `json:"host"`
+	// Rebase is present when the environment names a suffix of its own:
+	// the plan is then under its names, not the files' own.
+	Rebase *rebaseReport   `json:"rebase,omitempty"`
+	Plan   json.RawMessage `json:"plan"`
 	// Unmanaged is, for each managed subtree, what the directory holds there
 	// that no project file describes. Reported, never planned.
 	Unmanaged []unmanagedSubtree `json:"unmanaged"`
@@ -267,19 +292,17 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	if err := conn.check(false); err != nil {
 		return err
 	}
-	document, err := p.Document()
-	if err != nil {
-		return failf("project", "cannot render the project as LDIF: %v", err)
-	}
-	if len(document) > maxLDIFBytes {
-		return failf("project_too_large", "the project renders to %d bytes of LDIF, more than one plan request carries (%d)",
-			len(document), maxLDIFBytes)
+	// Rendered before connecting, so a project too large to plan is said
+	// without a session; an environment that rebases it renders it again.
+	if _, err := projectDocument(p); err != nil {
+		return err
 	}
 
 	// Said before anything is sent, so a person sees which directory this is
 	// about before reading a word of the plan.
 	writef(env.Stderr, "alder: planning %s for environment %s: %s through %s\n",
 		safe(p.File), safe(o.envName), safe(conn.label()), safe(conn.apiURL))
+	announceRebase(env.Stderr, p, o.envName)
 
 	ctx, cancel := conn.bound(ctx)
 	defer cancel()
@@ -289,6 +312,17 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	}
 	defer r.close()
 
+	// From here on the project is the one this environment holds: the plan,
+	// and the unmanaged entries beside it, are under its names.
+	p, rebase, err := forEnvironment(ctx, r, p, o.envName)
+	if err != nil {
+		return err
+	}
+	document, err := projectDocument(p)
+	if err != nil {
+		return err
+	}
+
 	mode := apiclient.PlanLdifModeDesired
 	plan, raw, err := requestPlan(ctx, r, apiclient.PlanRequest{Ldif: &document, Mode: &mode, Reconcile: ptr(false)})
 	if err != nil {
@@ -296,8 +330,12 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	}
 	unmanaged := listUnmanaged(ctx, r, p)
 	if o.json {
+		if rebase != nil {
+			reportLeftAsWritten(env.Stderr, rebase)
+		}
 		reportUnreadable(env.Stderr, unmanaged)
-		doc, marshalErr := json.Marshal(projectPlanDocument{Environment: o.envName, Host: conn.label(), Plan: raw, Unmanaged: unmanaged})
+		doc, marshalErr := json.Marshal(projectPlanDocument{Environment: o.envName, Host: conn.label(), Rebase: rebase,
+			Plan: raw, Unmanaged: unmanaged})
 		if marshalErr != nil {
 			return failf("output", "cannot encode the plan: %v", marshalErr)
 		}
@@ -305,7 +343,7 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 			return failf("output", "cannot write to standard output: %v", err)
 		}
 	} else {
-		writef(env.Stdout, "Environment %s (%s)\n\n", safe(o.envName), safe(conn.label()))
+		renderEnvironment(env.Stdout, env.Stderr, o.envName, conn.label(), rebase)
 		renderPlan(env.Stdout, plan, !o.summary)
 		renderUnmanaged(env.Stdout, env.Stderr, unmanaged, !o.summary)
 	}
