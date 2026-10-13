@@ -5950,6 +5950,15 @@ on one that numbers values it would after any insertion. `expect.definitions`
 holds `{attribute, oid, value}`: there is exactly one definition with that
 OID, equal byte for byte with any position stripped, or with no value, none.
 
+**This replaces a 1.13 rule.** The configuration-comparison decision said
+recovery stays unavailable for configuration, and the conformance suite held
+it as invariant 7. Its reason -- compensation is derived from ordinary
+directory state, and a configuration entry is not that -- is answered above by
+reading the entry the server stored, before and after. Invariant 7 now holds
+the part that still matters: a configuration change is planned as one, and its
+recovery is assessed as one -- exact for the ordinary setting the suite
+nominates.
+
 **The format stays version 1.** The additions are new reason codes and an
 optional field. A bundle that uses neither reads in older releases as it
 did. One that does is refused by an older release's strict decoder as
