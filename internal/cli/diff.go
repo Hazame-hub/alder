@@ -264,7 +264,7 @@ func runDiff(ctx context.Context, env *Env, conn *connection, o diffOptions, fla
 			// goes to standard error only.
 			var exit *ExitError
 			if errors.As(err, &exit) && o.json {
-				writef(env.Stderr, "alder: %s\n", exit.Message)
+				writef(env.Stderr, "alder: %s\n", safeLines(exit.Message))
 				return &ExitError{Code: exit.Code}
 			}
 			return err
