@@ -288,6 +288,18 @@ Being explicit about the boundary is more useful than implying a wider one.
   whatever that name resolves to at connection time; a deployment that needs
   more than that should reach the directory through a network path that enforces
   it.
+
+  Without a list, a connection that fails says only which of three things
+  happened: nothing at that address answered as a directory, the server there
+  presented a certificate Alder does not trust, or a directory answered and
+  refused the bind. The underlying error -- "connection refused" against
+  "timeout", a DNS failure, the names in a certificate, what a service that is
+  not LDAP sent back -- goes to Alder's log and not to the caller. That narrows
+  what an unauthenticated caller can learn about the network behind Alder; it
+  does not stop them learning whether something answered, which the sentence
+  and the time it took both show. `--allowed-targets` is what closes that, and
+  with it set the full reason is returned again, since every target is one the
+  operator chose.
 - **It is single-tenant by design.** There is no RBAC, no delegation, no
   approval workflow, and no audit log. Authorisation is whatever your directory
   grants the DN you bind as, which is the right place for it but means the bind

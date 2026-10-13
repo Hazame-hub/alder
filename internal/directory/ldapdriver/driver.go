@@ -40,6 +40,13 @@ func New(logger *slog.Logger, allowPlaintext bool) *Driver {
 	return &Driver{Logger: logger, AllowPlaintext: allowPlaintext}
 }
 
+// ErrPlaintextRefused is a plaintext connection asked of a driver that was not
+// started with --i-know-this-is-insecure. Named so a caller can tell it from a
+// directory that could not be reached: this one is about the request, and is
+// worth repeating to whoever made it.
+var ErrPlaintextRefused = errors.New("directory: refusing a plaintext LDAP connection; " +
+	"use ldaps or StartTLS, or start alder with --i-know-this-is-insecure")
+
 // Connect dials the server, secures the connection, binds, and reads the
 // RootDSE.
 //
@@ -53,8 +60,7 @@ func (d *Driver) Connect(ctx context.Context, cfg directory.ConnConfig) (directo
 		return nil, err
 	}
 	if cfg.TLS == directory.TLSModePlaintext && !d.AllowPlaintext {
-		return nil, errors.New("directory: refusing a plaintext LDAP connection; " +
-			"use ldaps or StartTLS, or start alder with --i-know-this-is-insecure")
+		return nil, ErrPlaintextRefused
 	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {

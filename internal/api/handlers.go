@@ -86,7 +86,7 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		s.logger.Info("connection refused",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
 		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
-			"Could not connect to the directory.", err.Error())
+			"Could not connect to the directory.", s.connectFailureDetail(cfg, err))
 	}
 
 	// Read now, before any entry can be served, because the schema is how
