@@ -5695,6 +5695,32 @@ that happened to ask. The UI asked straight away anyway, and the driver keeps
 the result. A command with no server -- `project validate` -- has only the
 table, and says no more than it did.
 
+### 2026-10-13 — a streamed search holds its slot, and its writer keeps away from the Fiber context
+
+The search and the LDIF export stream their answers from a goroutine fasthttp
+starts, and that goroutine is where every page after the first is asked for.
+Two things about it were wrong, and both are shown by tests under `-race`.
+
+**The `--max-in-flight` slot was let go when the handler returned.** The gate
+released it there on the stated grounds that the slot should cover the part
+that talks to the directory and not the part that writes bytes out -- but for
+these two the part after the handler is the part that talks to the directory.
+A search of ten thousand entries spent all but its first page outside the
+cap. The gate now leaves its slot in the request's locals, and a streaming
+handler takes it (`keepSlot`) and gives it back when its writer finishes. The
+outline and YAML exports have finished with the directory before they stream,
+so they leave the slot to the gate as before.
+
+**The search's writer read from a `*fiber.Ctx` that was no longer its own.**
+Fiber puts the context back in its pool when the handler returns and gives it
+to the next request, while the writer is still running. When a page failed
+partway through, `abandon` asked the context for the path to log, and read the
+next request's. The path is taken before the handler returns now, and nothing
+in either writer touches the context. Reproducing it needs other requests to
+arrive while the writer waits on its failing page -- one that arrives after
+the response is ordered behind it by the body's pipe -- so the test keeps
+several going while forty searches fail.
+
 ### 2026-10-13 — the client asks for a password at a terminal
 
 A person running `alder plan` by hand had three places to put the bind
