@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Bookmark, Loader2, Pencil, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { SessionInfo } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import {
 import { ErrorNote } from "@/components/change-dialog";
 import { AlderMark } from "@/components/mark";
 import * as recent from "@/lib/recent-connection";
+import { safeText } from "@/lib/display";
 
 type Tls = "ldaps" | "starttls" | "plaintext";
 
@@ -32,7 +33,7 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
   // Everything except the password is restored from the last successful
   // connection. Reconnecting to the same directory should not mean finding and
   // re-pasting its CA certificate.
-  const [remembered] = useState(() => recent.load());
+  const [remembered, setRemembered] = useState(() => recent.load());
 
   const [host, setHost] = useState(remembered?.host ?? "");
   const [port, setPort] = useState(remembered?.port ?? 636);
@@ -47,6 +48,42 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
   const [showCa, setShowCa] = useState(false);
   const [caCertificate, setCaCertificate] = useState(remembered?.caCertificate ?? "");
   const [serverName, setServerName] = useState(remembered?.serverName ?? "");
+
+  // The form as it would be remembered: what a successful connection records
+  // and what "Save" keeps under a name. Never a password.
+  const current = (): recent.RecentConnection => ({
+    host: host.trim(),
+    port,
+    tls,
+    bindDn: bindDn.trim(),
+    configBindDn: configBindDn.trim(),
+    serverName: serverName.trim(),
+    caCertificate: caCertificate.trim(),
+    insecureSkipVerify: insecure,
+  });
+
+  // fill puts a connection in the form, or empties it. Both passwords are
+  // cleared every time: a password typed for one directory must not ride along
+  // to the next one picked, and switching from prod to dev with prod's admin
+  // password still in the box is exactly the slip a saved list makes easy.
+  const fill = (c: recent.RecentConnection | null) => {
+    setHost(c?.host ?? "");
+    setPort(c?.port ?? 636);
+    setPortTouched(c !== null);
+    setTls(c?.tls ?? "ldaps");
+    setBindDn(c?.bindDn ?? "");
+    setBindPassword("");
+    setConfigBindDn(c?.configBindDn ?? "");
+    setConfigBindPassword("");
+    setServerName(c?.serverName ?? "");
+    setCaCertificate(c?.caCertificate ?? "");
+    setInsecure(c?.insecureSkipVerify ?? false);
+    if (c?.configBindDn) setShowConfig(true);
+    if (c?.caCertificate || c?.serverName || c?.insecureSkipVerify) setShowCa(true);
+    connect.reset();
+  };
+
+  const [saved, setSaved] = useState(() => recent.listSaved());
 
   const connect = useMutation<SessionInfo, ApiFailure>({
     mutationFn: async () =>
@@ -69,18 +106,9 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
     onSuccess: (info) => {
       // The password is dropped from component state the moment the session
       // exists. The server holds it; this form has no further use for it, and
-      // it is deliberately not among the fields remembered below.
+      // it is deliberately not among the fields current() remembers.
       setBindPassword("");
-      recent.save({
-        host: host.trim(),
-        port,
-        tls,
-        bindDn: bindDn.trim(),
-        configBindDn: configBindDn.trim(),
-        serverName: serverName.trim(),
-        caCertificate: caCertificate.trim(),
-        insecureSkipVerify: insecure,
-      });
+      recent.save(current());
       void queryClient.invalidateQueries();
       onConnected(info);
     },
@@ -103,6 +131,8 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
             </p>
           </div>
         </div>
+
+        <SavedConnections saved={saved} onChange={setSaved} current={current()} onPick={fill} />
 
         <form
           className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-sm"
@@ -311,22 +341,16 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
 
         {remembered ? (
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            Reconnecting to{" "}
-            <span className="font-dn">{recent.describe(remembered)}</span>. The
-            password is never remembered.{" "}
+            Last connected to{" "}
+            <span className="font-dn">{safeText(recent.describe(remembered))}</span>.
+            Passwords are never remembered.{" "}
             <button
               type="button"
               className="underline underline-offset-2 hover:text-foreground"
               onClick={() => {
                 recent.forget();
-                setHost("");
-                setPort(636);
-                setPortTouched(false);
-                setTls("ldaps");
-                setBindDn("");
-                setServerName("");
-                setCaCertificate("");
-                setInsecure(false);
+                setRemembered(null);
+                fill(null);
               }}
             >
               Forget it
@@ -340,5 +364,202 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
         )}
       </div>
     </div>
+  );
+}
+
+type SavedMode = "idle" | "save" | "rename" | "delete";
+
+/**
+ * SavedConnections is the named list above the form: primary, replica, dev,
+ * prod. Picking one fills the form; the password is still typed every time.
+ *
+ * It lives in this browser's localStorage, beside the last connection and under
+ * the same rules (see lib/recent-connection.ts): no password of either kind and
+ * no server state. Alder is stateless, and a list kept on the server would be
+ * state to own, expire and secure. The names are the user's own text, but
+ * storage is writable by anything on the origin, so they are shown through
+ * safeText like any other string Alder did not write itself.
+ */
+export function SavedConnections({
+  saved,
+  onChange,
+  current,
+  onPick,
+}: {
+  saved: recent.SavedConnection[];
+  onChange: (list: recent.SavedConnection[]) => void;
+  current: recent.RecentConnection;
+  onPick: (c: recent.RecentConnection) => void;
+}) {
+  const [picked, setPicked] = useState<string | null>(null);
+  const [mode, setMode] = useState<SavedMode>("idle");
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const entry = saved.find((s) => s.name === picked) ?? null;
+  const edited = entry !== null && !recent.same(entry.connection, current);
+
+  const begin = (next: SavedMode) => {
+    setError(null);
+    setMode(next);
+    // Saving starts from the picked name, so saving an edited entry under the
+    // same name is how it is updated. With nothing picked, the host is a
+    // reasonable first guess at a name.
+    setDraft(next === "save" ? (entry?.name ?? current.host) : (entry?.name ?? ""));
+  };
+
+  const finish = (result: recent.SavedResult, name: string | null) => {
+    if (!result.ok) {
+      setError(recent.failureText(result.reason));
+      return;
+    }
+    onChange(result.list);
+    // Saving under an existing name in another case keeps the new spelling, so
+    // look the entry up again rather than trusting what was typed.
+    const kept = name === null ? null : result.list.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    setPicked(kept?.name ?? null);
+    setMode("idle");
+    setError(null);
+  };
+
+  const commit = () => {
+    const name = recent.cleanName(draft);
+    if (mode === "save") {
+      finish(recent.saveNamed(name, current), name);
+    } else if (mode === "rename" && entry) {
+      finish(recent.renameSaved(entry.name, name), name);
+    } else if (mode === "delete" && entry) {
+      finish(recent.deleteSaved(entry.name), null);
+    }
+  };
+
+  const cancel = () => {
+    setMode("idle");
+    setError(null);
+  };
+
+  return (
+    <section
+      aria-label="Saved connections"
+      className="mb-4 space-y-2 rounded-lg border border-border bg-card p-3 shadow-sm"
+    >
+      <div className="flex items-center gap-2">
+        <Select
+          value={entry?.name ?? ""}
+          disabled={saved.length === 0}
+          onValueChange={(name) => {
+            const chosen = saved.find((s) => s.name === name);
+            if (!chosen) return;
+            setPicked(chosen.name);
+            cancel();
+            onPick(chosen.connection);
+          }}
+        >
+          <SelectTrigger aria-label="Saved connection" className="min-w-0 flex-1">
+            <SelectValue
+              placeholder={saved.length === 0 ? "No saved connections yet" : "Choose a saved connection"}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {saved.map((s) => (
+              <SelectItem key={s.name} value={s.name}>
+                {safeText(s.name)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!current.host}
+          title={current.host ? "Save the form under a name" : "Enter a host first"}
+          onClick={() => begin("save")}
+        >
+          <Bookmark />
+          Save
+        </Button>
+        {entry ? (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Rename saved connection"
+              title="Rename"
+              onClick={() => begin("rename")}
+            >
+              <Pencil />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Delete saved connection"
+              title="Delete"
+              onClick={() => begin("delete")}
+            >
+              <Trash2 />
+            </Button>
+          </>
+        ) : null}
+      </div>
+
+      {mode === "save" || mode === "rename" ? (
+        <div className="flex items-center gap-2">
+          <Input
+            aria-label={mode === "save" ? "Name for this connection" : "New name"}
+            value={draft}
+            maxLength={recent.MAX_NAME}
+            placeholder="prod, replica, dev…"
+            autoFocus
+            className="h-8 min-w-0 flex-1"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // This sits outside the connect form, so Enter would otherwise
+              // do nothing. Make it do the obvious thing, and Escape back out.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+              } else if (e.key === "Escape") {
+                cancel();
+              }
+            }}
+          />
+          <Button type="button" size="sm" onClick={commit}>
+            {mode === "save" ? "Save" : "Rename"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={cancel}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
+
+      {mode === "delete" && entry ? (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="min-w-0 flex-1 truncate">
+            Delete <span className="font-medium">{safeText(entry.name)}</span> from this browser?
+          </span>
+          <Button type="button" variant="destructive" size="sm" onClick={commit}>
+            Delete
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={cancel}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
+
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+
+      <p className="text-xs text-muted-foreground">
+        {entry ? (
+          <>
+            <span className="font-dn">{safeText(recent.describe(entry.connection))}</span>
+            {edited ? " — edited since it was picked; Save to update it." : "."}{" "}
+          </>
+        ) : null}
+        Kept in this browser only, never with a password.
+      </p>
+    </section>
   );
 }
