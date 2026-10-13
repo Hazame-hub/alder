@@ -25,6 +25,18 @@ for the life of a session and nowhere else — not on disk, not in a token the
 browser can read, not in `localStorage`. Restarting the server logs everyone
 out. See `internal/session`.
 
+**What the browser does store is connection details, never a password.** The
+connection screen keeps two things in `localStorage`: the last connection that
+succeeded, and a list of up to 25 connections saved under names. Each holds a
+host, port, transport, bind DN, configuration bind DN, certificate name
+override, CA certificate and the skip-verification choice -- public or
+identifying, not secret. Neither the bind password nor the configuration
+password is among them: every write copies those fields one by one, and every
+read drops anything else it finds, so a password cannot get in even past the
+type. Choosing a saved connection clears both password fields, so a password
+typed for one directory is never sent to the next. Nothing about it reaches
+the server. See `web/src/lib/recent-connection.ts`.
+
 **Credentials are never logged.** Not at any level, not in an error message, not
 in a stack trace. The LDAP driver strips the server's diagnostic text from bind
 failures for the same reason.
@@ -32,7 +44,11 @@ failures for the same reason.
 **Sensitive attributes never reach the browser.** `userPassword` and the rest of
 the deny list in `internal/schema/syntax.go` are withheld from every API
 response, with only a value count reported. They are omitted from LDIF exports
-unless explicitly requested.
+unless explicitly requested. The list is matched by name and by OID, and it
+includes RFC 3112 `authPassword` and any attribute type a directory's
+schema declares below a listed one (`SUP userPassword`): a session reads the
+schema when it connects, so a subtype is known before any entry is served. A
+command run with no server, such as `alder project validate`, has only the list.
 
 **The same holds for changes on their way in.** A plan record, a change preview
 and an apply response show a sensitive value only as its length. Before 1.5 a
@@ -251,7 +267,9 @@ overrides, embeddings, isolates and marks, which would make
 `uid=report<U+202E>txt.exe` display as `uid=reportexe.txt`. Since 1.9 every such
 string is shown with those characters as escapes -- the tree, the entry
 header, values, search results, members and references, plans, comparisons,
-the monitor, the LDIF preview and recovery bundles -- by one helper,
+the monitor, the LDIF preview, recovery bundles and the connection screen's
+saved and remembered connections, which come from browser storage any script
+on the origin could have written -- by one helper,
 `web/src/lib/display.ts`, with the same set the command line escapes. Only what
 is displayed changes: navigation, copying and every request use the original
 string.
@@ -284,6 +302,18 @@ Being explicit about the boundary is more useful than implying a wider one.
   whatever that name resolves to at connection time; a deployment that needs
   more than that should reach the directory through a network path that enforces
   it.
+
+  Without a list, a connection that fails says only which of three things
+  happened: nothing at that address answered as a directory, the server there
+  presented a certificate Alder does not trust, or a directory answered and
+  refused the bind. The underlying error -- "connection refused" against
+  "timeout", a DNS failure, the names in a certificate, what a service that is
+  not LDAP sent back -- goes to Alder's log and not to the caller. That narrows
+  what an unauthenticated caller can learn about the network behind Alder; it
+  does not stop them learning whether something answered, which the sentence
+  and the time it took both show. `--allowed-targets` is what closes that, and
+  with it set the full reason is returned again, since every target is one the
+  operator chose.
 - **It is single-tenant by design.** There is no RBAC, no delegation, no
   approval workflow, and no audit log. Authorisation is whatever your directory
   grants the DN you bind as, which is the right place for it but means the bind
@@ -301,9 +331,11 @@ Being explicit about the boundary is more useful than implying a wider one.
   nothing. What bounds it is size and concurrency: page sizes, result counts,
   export and import sizes, changeset length, a thirty-second timeout on each
   directory operation, and `--max-in-flight`, which caps how many API requests
-  are answered at once and refuses the rest with `503`. A streamed response
-  releases its slot when the handler returns rather than when the last byte is
-  written, so the cap bounds directory work rather than transfer.
+  are answered at once and refuses the rest with `503`. A search or an LDIF
+  export holds its slot until its stream has finished, because the pages after
+  the first are asked for while it streams; the outline and YAML exports, which
+  have finished with the directory before they send a byte, let go of theirs
+  when the handler returns. The cap bounds directory work rather than transfer.
 
 - **A disconnected client does not stop the work it asked for.** A bounded
   handler — a tally, a comparison — runs to its limit for a caller who has gone;

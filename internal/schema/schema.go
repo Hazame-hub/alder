@@ -273,8 +273,11 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-// index builds the lookup maps. It is called once, by the loader.
+// index builds the lookup maps, and records the secrets the schema declares
+// by inheritance. It is called once, by the loader.
 func (s *Schema) index() {
+	defer s.learnSecrets()
+
 	s.objectClassIndex = make(map[string]*ObjectClass, len(s.ObjectClasses)*2)
 	for _, oc := range s.ObjectClasses {
 		s.objectClassIndex[fold(oc.OID)] = oc

@@ -5629,3 +5629,261 @@ own `HasSuffix`. The same comparison in the configuration warnings, and
 the one DN the driver built by concatenation (`"cn=schema," +
 ConfigContext`), go through the `dn` package too, per section 7 rule 2 of
 the charter.
+
+### 2026-10-13 — a failed connection does not describe the network to whoever asked
+
+`POST /session` needs nothing beforehand, and a connection that failed
+returned the driver's error as it was: `dial tcp 10.1.2.3:22: connection
+refused`, an `i/o timeout`, a DNS failure, `x509: certificate is valid for
+payroll.internal, not intranet`. With no `--allowed-targets` that made Alder a
+probe of whatever network it sits on, for anyone who could reach it, with the
+answers spelled out.
+
+**Without a list, three fixed sentences; with one, the error as it was.**
+Nothing at that address answered as a directory; a certificate Alder does not
+trust; or the directory's own refusal of the bind, which was already cleaned
+of its diagnostic text and reveals nothing a correct password would not. A
+certificate is named rather than folded into "unreachable" because it is the
+failure a person connecting to their own directory most needs told, and the
+fix -- a CA, or a server name -- is in the same form. The reason itself goes to
+the log, which is where the operator of a laptop instance reads it anyway.
+With a list, every target is one the operator put there, there is nothing to
+probe, and hiding the reason would only cost the person debugging it. "Capture
+from another server" dials outward the same way and answers the same way.
+
+**This narrows the oracle and does not close it.** Which sentence comes back,
+and how long it took, still say whether something answered; a connection that
+succeeds says it most plainly of all. Closing it means refusing to dial
+addresses nobody approved, which is `--allowed-targets`, and making that the
+default was considered and not done for the reason it is off by default
+(2026-09-12). `SECURITY.md` says what is and is not hidden.
+
+Validation errors and the refusal of plaintext LDAP are about the request, not
+the network, and are repeated as before; the latter is now a named error
+(`ldapdriver.ErrPlaintextRefused`) so it can be told apart without matching
+its text.
+
+### 2026-10-13 — a subtype of a secret is a secret, and authPassword is one
+
+Whether a value is withheld was decided by the attribute's name or OID
+against one table. `( 1.3.6.1.4.1.99999.1 NAME 'appPassword' SUP userPassword
+)` has a name of its own, so its values -- the same hash `userPassword` would
+have withheld, one `SUP` away -- reached the entry view, search results, LDIF
+exports and plans. RFC 3112 `authPassword` was missing from the table
+altogether.
+
+**`authPassword` is listed, by name and by OID.** Its values are written
+`scheme$salt$value`, with no `{scheme}` prefix, so `Releasable` reads one as a
+credential and no export writes it even when asked for secrets. That is the
+cautious mistake, and the viewer does not offer a scheme for it.
+
+**Subtypes are learnt from every schema the process loads, and the set only
+grows.** Per schema would be the more precise model, but the question "is this
+sensitive" is asked in about thirty places, most of which hold an attribute
+name and nothing else -- a plan, an export, a recovery bundle. Threading a
+schema to all of them is a large change for no gain in safety, and the history
+of this table (2026-09, `olcSyncrepl`) is of one path knowing a fact the
+shared one did not. A process-wide set makes every path agree. Its cost is the
+direction it fails in: a directory whose schema declared a standard type below
+`userPassword` would have that type withheld for every session until Alder
+restarts. Withholding too much is the failure this table is allowed; Alder is
+single-tenant and already treats a directory as partly trusted.
+
+**A session reads its schema when it connects**, best-effort, so a subtype is
+known before the first entry is served rather than after the first screen
+that happened to ask. The UI asked straight away anyway, and the driver keeps
+the result. A command with no server -- `project validate` -- has only the
+table, and says no more than it did.
+
+### 2026-10-13 — a streamed search holds its slot, and its writer keeps away from the Fiber context
+
+The search and the LDIF export stream their answers from a goroutine fasthttp
+starts, and that goroutine is where every page after the first is asked for.
+Two things about it were wrong, and both are shown by tests under `-race`.
+
+**The `--max-in-flight` slot was let go when the handler returned.** The gate
+released it there on the stated grounds that the slot should cover the part
+that talks to the directory and not the part that writes bytes out -- but for
+these two the part after the handler is the part that talks to the directory.
+A search of ten thousand entries spent all but its first page outside the
+cap. The gate now leaves its slot in the request's locals, and a streaming
+handler takes it (`keepSlot`) and gives it back when its writer finishes. The
+outline and YAML exports have finished with the directory before they stream,
+so they leave the slot to the gate as before.
+
+**The search's writer read from a `*fiber.Ctx` that was no longer its own.**
+Fiber puts the context back in its pool when the handler returns and gives it
+to the next request, while the writer is still running. When a page failed
+partway through, `abandon` asked the context for the path to log, and read the
+next request's. The path is taken before the handler returns now, and nothing
+in either writer touches the context. Reproducing it needs other requests to
+arrive while the writer waits on its failing page -- one that arrives after
+the response is ordered behind it by the body's pipe -- so the test keeps
+several going while forty searches fail.
+
+### 2026-10-13 — saved connections, kept in the browser and without passwords
+
+The connection screen remembered one connection: the last that worked.
+Someone who moves between a primary, a replica, dev and prod retyped a host
+and re-pasted a CA certificate every time they changed directory. It now keeps
+a list of connections under names as well, to pick from, rename and delete.
+
+**In `localStorage`, not on the server.** Alder is stateless (section 2 of the
+charter), and a list held by the server would be state to own, expire, scope
+to a person and secure. The cost is that the list is per browser; a team that
+wants a shared list has its own configuration management for that.
+
+**No password, enforced on the bytes and not only on the type.** The saved
+entries hold the same fields as the last connection and nothing else. Every
+write now copies those fields one by one: a TypeScript type is satisfied by an
+object with more properties than it names, and `JSON.stringify` writes every
+one, so before this change a caller passing the form's state would have stored
+its password. Every read takes only the known fields too. Picking a saved
+connection clears both password boxes, so a password typed for one directory
+is never sent to the one picked next.
+
+**The last connection keeps its key and its format.** `alder.recent-connection.v1`
+means what it meant, so a connection remembered before this change is read as
+it was and an older build still finds it; there is nothing to migrate. The
+list is a separate key, `alder.saved-connections.v1`, so an unreadable list
+costs the list and not the remembered connection.
+
+**25 at most, and the 26th is refused rather than evicting the oldest.** It is
+a picker, not an inventory, each entry can carry a CA certificate against a
+quota the whole origin shares, and the oldest entry may be the one used
+daily. Names are bounded to 64 characters and compared without regard to case,
+since "Prod" beside "prod" is a trap. Unlike the last connection, a failure to
+save is reported: the person asked for it.
+
+**Names and connections from storage are shown through `safeText`.** Storage
+is writable by any script on the origin, so what it holds is displayed like
+any other string Alder did not write. The form fields keep the original
+string, because that is what is sent.
+
+### 2026-10-13 — what a project's files say is printed through safe, as a directory's is
+
+The command line has escaped directory data since `safe` was written: a DN,
+a value or a server's message can hold escape sequences, and printed as they
+are, the terminal acts on them. A project's files had not been given the same
+treatment, and in CI they are the least trusted text Alder prints: whatever
+the pull request under review wrote. A file named
+`people/x<ESC>]0;...<BEL>.ldif`, or one with a line break and `::warning::` in
+its name, went to the job log as it was -- where the escape is interpreted by
+whoever views the log, and a line of its own is a workflow command.
+
+DNs, attribute names and quoted YAML were already safe, because the LDIF and
+DN parsers escape or quote what they report and the YAML parser refuses raw
+control characters. File names were not, and a YAML double-quoted string can
+spell an escape (`"\e"`), so an environment name or a host could hold one too.
+
+**Every problem line goes through `safe`, line breaks included**, and so do the
+file names `project fmt` lists and the environment, host and API URL a plan or
+an apply announces. **Where every error is printed, each line is made safe and
+Alder's own line breaks are kept** (`safeLines`): the last line of defence
+rather than the first, since a value's own line break must already have been
+escaped where it was interpolated.
+
+### 2026-10-13 — the client asks for a password at a terminal
+
+A person running `alder plan` by hand had three places to put the bind
+password, and each cost something: a file to create and remember to delete,
+an `export` that stays in the shell for every command after, or a pipe from
+something that holds it. The client now asks, as `ldapsearch -W` does, when
+none of the three was given -- last, so a shell that set the variable is never
+interrupted by a question.
+
+**Only at a terminal, and only one that is free.** Standard input must be a
+terminal (the test `apply` already uses for its confirmation), so a CI job
+still fails at once with exit 7 and the sources named, instead of waiting for
+an answer that will not come. It must not be the input document either: `plan
+-` has read it already. The error now ends by saying which of the two kept the
+question from being asked. The terminal is not claimed the way standard input
+is for a document, because it is not a stream read once: `apply` asks its
+confirmation on it afterwards, and the password is read a byte at a time so
+that nothing of that answer is taken with it.
+
+**Projects ask too.** An environment names its own variable so that a shell
+holding the development password cannot hand it to production. A question
+keeps that: it names the environment's bind DN, below the line that has just
+said which environment and directory the command is about to reach, and what
+is typed goes to that one session. The configuration identity is asked for
+the same way, with its own DN.
+
+**No echo, with golang.org/x/sys rather than golang.org/x/term.** "The
+command line is a client" (2026-09-14) left the prompt out because it needed
+x/term as a new dependency. It does not: x/term is a thin layer over termios and the console
+mode, and x/sys -- already linked, now a direct requirement -- has both. Echo
+alone is turned off, so the terminal still edits the line and Ctrl+C still
+interrupts. Ctrl+C no longer ends the process, though (the client catches it
+to close its session), and a read from a terminal does not return when a
+signal arrives, so the read runs on its own goroutine and the command's
+context decides: on Ctrl+C or `--timeout` the echo is put back and the
+command ends, leaving the read to the exiting process. A platform with
+neither termios nor a console never asks; a password shown as it is typed
+is not one to accept. An empty answer is refused like an empty file.
+
+### 2026-10-13 — a partial apply is 6 even when its recovery bundle fails
+
+An apply that stopped partway, and whose recovery bundle then failed to
+verify, exited 8 with `recovery_not_written`: the status a script reads as
+"Alder or the directory refused". It had written to the directory, and
+exit 6 exists to say exactly that. A script that switched on the status --
+re-plan on 6, alert on 8, say -- was told the wrong thing about the one
+fact that matters most.
+
+**The partial apply decides the status, and the bundle's failure goes in
+the message.** A complete apply whose bundle fails still exits 8 with
+`recovery_not_written`, as documented: nothing else went wrong, and the
+missing file is the failure.
+
+### 2026-10-13 — a listen address is split as an address, not at its first colon
+
+Whether the session cookie may drop `Secure` -- which a browser otherwise
+refuses to store over plain HTTP -- depends on whether Alder listens on
+loopback only, and that was decided by cutting the listen address at its first
+colon. An IPv6 address is all colons: `[::1]:8443` gave the host `[`, which is
+not loopback, so `alder serve --allow-http --addr [::1]:8443` set a cookie the
+browser would not keep, and nobody could connect. The address printed at
+startup had the same cut, and `[::]:8443` was not shown as `localhost`.
+
+Both use `net.SplitHostPort` now, and loopback is `localhost` or any address
+`net.IP.IsLoopback` says is one, so `127.0.0.2` counts as well as `127.0.0.1`.
+
+### 2026-10-13 — "Which servers the client works with" names a server per command again
+
+The section said "this release adds no endpoint, so a 1.7 server provides
+everything the client calls", written when it was true and left standing
+through recovery bundles (1.9), schema snapshots (1.10), packages (1.11),
+preflight (1.12) and configuration snapshots (1.13 and 1.14). The
+`unsupported_server` error repeated the same claim. The table has a row per
+group of commands now, and the error points at it and names the oldest
+server that has every endpoint, rather than restating versions that will go
+stale again with the next one.
+
+### 2026-10-13 — the charter says what the code does about secrets and vendor names
+
+Two of the charter's hard rules described something the code does not do.
+
+**Rule 6 named a "configurable deny list".** There is no such setting. The
+list of sensitive attributes is a table in `internal/schema`, plus every
+subtype a loaded schema declares below one of its entries (2026-10-13, above).
+Nothing adds to it from a flag or a file. The rule now names the table and
+says it is not configurable, and `docs/RECOVERY.md` stops calling it
+"configured". Making it configurable was not done: a list an operator can
+shorten is a way to leak a secret by mistake, and the subtype rule already
+covers the case a configurable list would have served, a directory's own
+password attribute.
+
+**Section 3 and rule 8 said never to branch on a vendor name.**
+`config.ProviderFor` and the replication reader do, as a last resort: a
+configuration tree written in neither `olc*` nor `nsslapd-*` attributes says
+nothing about which model it follows, and the RootDSE's vendor name is the
+only remaining evidence. The replication conflict report reads no tree and
+uses the name alone, but only to choose the sentence explaining an empty
+result; it sends the same query to both servers. Removing the tie-break
+would leave a near-empty configuration tree with no model, so `config
+capture` would fail with `ErrNoModel` where it now works. The charter now
+states the exception and how narrow it is: one question, the tree first
+wherever there is one. Nothing else may use the vendor name, so the
+contributing guide's rule stands with the exception named.
+

@@ -95,7 +95,16 @@ Known divergences, handled deliberately:
 into a capabilities structure -- supported controls and extensions, SASL
 mechanisms, naming contexts, the subschema entry -- and code branches on
 those, or on what an entry itself publishes. Vendor identification is for
-display only.
+display, with one exception.
+
+The exception is deciding which configuration and replication model a
+server follows (`olc*` or `nsslapd-*`), because nothing in LDAP announces
+it. When the configuration tree has been read, its shape decides first and
+the vendor name only breaks a tie the tree leaves open. Where no tree is
+read (the conflict report), the name picks the sentence that explains the
+result and nothing else: the query sent to the server is the same either
+way. `config.ProviderFor` and `replication.providerOf` are the only places
+this happens.
 
 ## 4. Stack
 
@@ -178,11 +187,14 @@ Correctness and security requirements, not style.
    session keyed by an httpOnly, Secure, SameSite=Strict cookie. Not on
    disk, not in a token, not in browser storage.
 6. **Sensitive values are never logged:** `userPassword`, `unicodePwd`,
-   `nsslapd-rootpw`, anything on the configurable deny list, and bind
-   credentials at any level.
+   `nsslapd-rootpw`, the rest of the built-in deny list in
+   `internal/schema`, any attribute type a loaded schema declares below one
+   of them, and bind credentials at any level. The list is not
+   configurable.
 7. **TLS by default.** Plaintext LDAP is refused unless
    `--i-know-this-is-insecure` is passed.
-8. **Capability checks, not vendor checks**, as section 3 says.
+8. **Capability checks, not vendor checks**, as section 3 says, with its
+   one stated exception.
 
 ## 8. The harness
 

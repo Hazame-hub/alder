@@ -19,7 +19,7 @@ is mocked up or edited beyond cropping and compression.
 
 ## How they were made
 
-Captured on 2026-10-13 from `main`, at a 1440×900 viewport (1280×800 for the
+Captured on 2026-10-13 from `main` (the connection screen after #222, which added saved connections), at a 1440×900 viewport (1280×800 for the
 web GIF), in Chromium driven by Playwright from outside the repository.
 Screenshots are PNG, reduced with `pngquant`. The web GIF was recorded through
 the DevTools screencast and encoded with `ffmpeg` (a 128-colour palette, 12

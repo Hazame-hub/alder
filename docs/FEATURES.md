@@ -65,6 +65,12 @@ those strings are and a pattern in the browser would drift from them. It never
 guesses: `cn=platform` is a valid one-component DN *and* almost certainly a
 request to find something called platform, so both are offered and you pick.
 
+**Switch between directories by name.** The connection screen remembers the
+last connection that worked and keeps a list of connections saved under names
+-- primary, replica, dev, prod -- to fill the form with one pick, rename or
+delete. Both live in this browser's `localStorage`, up to 25 saved, and hold
+everything except the passwords, which are typed every time.
+
 **See who is in a group,** which is the same question from the other side and a
 harder one than it looks. A member list answers it only while no member is
 itself a group: `cn=everyone` in the test harness lists five members and

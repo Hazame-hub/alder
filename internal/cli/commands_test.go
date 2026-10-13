@@ -223,7 +223,7 @@ func TestAServerWithoutTheEndpointIsNamedWithItsVersion(t *testing.T) {
 	s := newStub(t) // no /snapshots/capture: an older Alder
 	r := s.run(t, runOpts{}, "snapshot", "--base", "dc=example,dc=test", "--output", "-")
 	expectCode(t, r, ExitFailed)
-	if !strings.Contains(r.stderr, "version 9.9.9") || !strings.Contains(r.stderr, "1.7") {
+	if !strings.Contains(r.stderr, "version 9.9.9") || !strings.Contains(r.stderr, "1.14 or later") {
 		t.Errorf("stderr = %s", r.stderr)
 	}
 	if len(s.called("DELETE /api/v1/session")) != 1 {
@@ -238,4 +238,47 @@ func writeTemp(t *testing.T, dir, name, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// The error for a missing password names the places it can come from, with
+// their dashes, and only the ones that apply: the configuration identity has
+// no standard-input option, and a project takes no connection flags at all.
+func TestAMissingPasswordNamesWhereItCanComeFrom(t *testing.T) {
+	dir := t.TempDir()
+	ldifFile := writeTemp(t, dir, "c.ldif", restoreLDIF)
+	noPasswords := map[string]string{"ALDER_BIND_PASSWORD": "", "ALDER_CONFIG_BIND_PASSWORD": ""}
+	cases := []struct {
+		name string
+		opts runOpts
+		args []string
+		want string
+	}{
+		{"the bind identity", runOpts{env: noPasswords}, []string{"plan", ldifFile},
+			"--bind-dn needs a password: set ALDER_BIND_PASSWORD, or pass --bind-password-file or --bind-password-stdin"},
+		{"the configuration identity",
+			runOpts{env: map[string]string{"ALDER_BIND_PASSWORD": testSecret, "ALDER_CONFIG_BIND_PASSWORD": ""}},
+			[]string{"plan", ldifFile, "--config-bind-dn", "cn=config-admin"},
+			"--config-bind-dn needs a password: set ALDER_CONFIG_BIND_PASSWORD, or pass --config-bind-password-file\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStub(t)
+			r := s.run(t, tc.opts, tc.args...)
+			expectCode(t, r, ExitUsage)
+			if !strings.Contains(r.stderr, tc.want) {
+				t.Errorf("stderr = %q\nwant it to contain %q", r.stderr, tc.want)
+			}
+		})
+	}
+
+	t.Run("a project", func(t *testing.T) {
+		s := newStub(t)
+		dir := writeProject(t, s, nil)
+		r := s.run(t, runOpts{noConnection: true}, "project", "plan", "--project", dir, "--env", "dev")
+		expectCode(t, r, ExitUsage)
+		want := "bind-dn needs a password: set ALDER_DEV_BIND_PASSWORD, or name a bind-password-file in alder.yaml"
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("stderr = %q\nwant it to contain %q", r.stderr, want)
+		}
+	})
 }

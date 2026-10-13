@@ -149,11 +149,24 @@ A bind password comes from exactly one of these, in this order:
    before anything is read.
 3. `ALDER_BIND_PASSWORD`: the usual choice for CI, from the CI system's secret
    store.
+4. The terminal. With none of the above, and standard input a terminal, the
+   client asks on standard error -- `Password for cn=admin,dc=example,dc=com: `
+   -- and reads the answer without echoing it. Ctrl+C at the question ends the
+   command and gives the terminal its echo back; `--timeout` counts the time
+   spent answering.
 
-An empty password is refused: many servers treat a simple bind with an empty
-password as an anonymous bind that succeeds. There is no hidden interactive
-prompt in this release. The configuration identity reads
-`--config-bind-password-file` or `ALDER_CONFIG_BIND_PASSWORD`.
+The client asks only at a terminal. When standard input is a pipe, a file or
+`/dev/null`, as in CI, a password given nowhere fails at once with exit 7, and
+the message names the sources above. Nor does it ask when standard input is the
+input document (`plan -`): that input was read already, so the error says so.
+`apply` asks its confirmation on the same terminal after the password.
+
+An empty password is refused, typed or read: many servers treat a simple bind
+with an empty password as an anonymous bind that succeeds. The configuration
+identity reads `--config-bind-password-file` or `ALDER_CONFIG_BIND_PASSWORD`,
+and is asked for at a terminal the same way, with its own DN. A project's
+environment reads the variable or file it names (see
+[`alder project`](#alder-project)), and at a terminal asks in their absence too.
 
 The password goes to the Alder server in the session request, as it does from
 the connection screen. It is never printed, never written to a file and never
@@ -492,7 +505,8 @@ plan>, "unmanaged": […]}`.
 
 Connection settings come from the environment in `alder.yaml`, never from the
 connection flags or their `ALDER_*` variables. A password comes from the
-variable or file that environment names. `--env` and `--project` are command-
+variable or file that environment names, or with neither set is asked for at a
+terminal ([Passwords](#passwords)). `--env` and `--project` are command-
 line only: `ALDER_ENV` is not read, because which directory a command acts on
 is not something an inherited environment decides.
 
@@ -801,6 +815,9 @@ backup, and it holds no password. See [RECOVERY.md](RECOVERY.md).
   applied, no file is written.
 - **If the bundle does not verify,** no file is written and the command exits 8
   with `recovery_not_written`. The changes it applied are in the directory.
+  After a run that stopped partway it exits 6 instead, as any partial apply
+  does, and the message says the bundle was not written: that the directory
+  changed is the fact a script must not miss.
 - **`--recovery FILE` plans and applies a bundle's changes** like any other
   input: shown, confirmed, and applied with the plan's tokens.
   - A compensation whose entry has changed since the original apply is a
@@ -899,7 +916,8 @@ included.
 
 ## Which servers the client works with
 
-The client uses these endpoints:
+The client uses these endpoints. Each row names the oldest server that has
+everything the commands in it call.
 
 | Commands | Endpoints | Needs a server of |
 |---|---|---|
@@ -907,19 +925,25 @@ The client uses these endpoints:
 | `plan`, `apply` | `/plan` with LDIF and `mode`, `/import/ldif`, `/changeset/apply` with plan tokens | 1.6 or later, where a plan token binds the secrets in the operation it plans |
 | `snapshot`, `diff` | `/snapshots/capture`, `/diff` | 1.7 or later |
 | `diff` of two snapshot files, with no directory flags | `/diff` without a session | 1.8 or later |
+| `apply --recovery-out`, `plan` and `apply --recovery` | `recovery` on `/changeset/apply`, `/recovery/inspect` | 1.9 or later |
+| `snapshot --kind schema`, `diff --schema-target` | schema kind on `/snapshots/capture` and `/diff` | 1.10 or later |
+| `package create`, `package inspect`, `package validate`, `plan` and `apply --package` | `/packages/build`, `/packages/inspect`, `/packages/validate` | 1.11 or later |
+| `preflight` | `/preflight` | 1.12 or later; a configuration snapshot as its source needs 1.14 |
+| `snapshot --kind config`, configuration in `diff` | config kind on `/snapshots/capture` and `/diff` | 1.13 or later |
+| `project plan`, `project apply`, the unmanaged-entries report | `/plan`, `/changeset/apply`, `/snapshots/capture` | 1.7 or later |
 
-This release adds no endpoint, so a 1.7 server provides everything the client
-calls. A server without an endpoint the client needs is reported by name and
-version (`unsupported_server`), not as a bare HTTP 404. `alder version --api-url
-…` shows both versions. The snapshot format follows the snapshot compatibility
+`project validate`, `project fmt`, `key`, `sign` and `verify` call no server.
+
+So a server of 1.14 or later provides everything this client calls. A server
+without an endpoint the client needs is reported by name and version
+(`unsupported_server`), not as a bare HTTP 404. `alder version --api-url …`
+shows both versions. The snapshot format follows the snapshot compatibility
 promise: version 1 is read by every 1.x release from 1.7 on.
 
 ---
 
 ## Limitations
 
-- **No interactive password prompt.** Use a file, standard input or the
-  environment.
 - **A desired-state LDIF record that sets a sensitive attribute can be planned
   but not applied.** The plan's record withholds the value, and the server
   refuses a withheld value rather than writing an empty one. The web interface

@@ -172,7 +172,9 @@ same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
 
 - Bind credentials live in server memory keyed by an httpOnly, Secure,
   SameSite=Strict cookie. Not on disk, not in a JWT, not in `localStorage`.
-  Restarting the server logs everyone out.
+  Restarting the server logs everyone out. What the browser keeps -- the last
+  connection and the saved ones -- is hosts, DNs and CA certificates, never a
+  password.
 - Sensitive attributes (`userPassword` and friends) are never sent to the
   browser and never logged. The UI reports them as set, with a count.
 - LDIF exports omit them too, unless explicitly asked for.

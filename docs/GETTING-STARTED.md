@@ -102,7 +102,10 @@ Open <http://127.0.0.1:8443>.
   configuration.
 
 The password stays in the Alder server's memory for this session only. It is
-not written to disk, not put in a token and not stored in your browser.
+not written to disk, not put in a token and not stored in your browser. The
+connection screen does remember the rest: the last connection that worked,
+and any you save under a name such as *dev* or *prod*, so next time it is one
+pick and a password.
 
 <br clear="right">
 
@@ -200,7 +203,8 @@ code of its own: it asks the server to snapshot, compare, plan and apply, so
 a terminal and a browser can never disagree.
 
 Connection settings come from flags or `ALDER_*` variables. A password is
-never a flag:
+never a flag: it comes from a file, standard input or `ALDER_BIND_PASSWORD`,
+and with none of those the client asks for it at the terminal, without echo.
 
 ```sh
 export ALDER_API_URL=http://127.0.0.1:8443
