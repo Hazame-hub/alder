@@ -6023,3 +6023,29 @@ rebase, and `--json` carries `rebase` beside the plan in both `project plan`
 and `project apply`. The plan, the unmanaged-entries report and
 `--detailed-exitcode` are all made under the environment's names. The API is
 unchanged.
+
+### 2026-10-13 — projects in the web interface: the specification is accepted
+
+`docs/proposals/web-projects.md` was reviewed and accepted with every
+recommendation as written: option A (the browser reads a chosen folder and
+sends `alder.yaml` and its `*.ldif` files, outside dot-directories, to one
+stateless endpoint, `POST /project/plan`, which validates with
+`internal/project`, plans against the session's own directory and reports
+unmanaged entries). Its open questions are settled as recommended:
+
+- **Only `alder.yaml` and `*.ldif` are sent.** No other file name in the
+  folder reaches the server; a `files` pattern matching only other files
+  matches nothing and is reported as such.
+- **No environment is named** in the first slice. The heading says which
+  directory the session planned against, never a guess at which
+  `alder.yaml` environment that is. The environments are validated and
+  never followed.
+- **`alder.yaml` must be at the top** of the chosen folder, and its absence
+  is said plainly.
+- **One request** carries the plan and the unmanaged report, as the CLI
+  makes both on every run.
+- **Staging into a non-empty changeset is refused**, with the count of what
+  is staged and a *Clear changeset* action; nothing is replaced silently.
+
+The endpoint is an addition to the API and is covered by the 1.x promise
+from the release that ships it. Nothing here changes the charter.
