@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -606,6 +607,9 @@ func TestAProjectsProblemsCannotDriveTheTerminal(t *testing.T) {
 		"a line break": {"people/x\n::warning::forged.ldif": projectBob + "userPassword: {SSHA}x\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && (name == "a file name" || name == "a line break") {
+				t.Skip("Windows cannot name a file with control characters, so no repository there can carry one")
+			}
 			s := newStub(t)
 			dir := writeProject(t, s, files)
 			r := s.run(t, projectRun, "project", "validate", "--project", dir)
