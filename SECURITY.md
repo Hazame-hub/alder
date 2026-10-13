@@ -301,9 +301,11 @@ Being explicit about the boundary is more useful than implying a wider one.
   nothing. What bounds it is size and concurrency: page sizes, result counts,
   export and import sizes, changeset length, a thirty-second timeout on each
   directory operation, and `--max-in-flight`, which caps how many API requests
-  are answered at once and refuses the rest with `503`. A streamed response
-  releases its slot when the handler returns rather than when the last byte is
-  written, so the cap bounds directory work rather than transfer.
+  are answered at once and refuses the rest with `503`. A search or an LDIF
+  export holds its slot until its stream has finished, because the pages after
+  the first are asked for while it streams; the outline and YAML exports, which
+  have finished with the directory before they send a byte, let go of theirs
+  when the handler returns. The cap bounds directory work rather than transfer.
 
 - **A disconnected client does not stop the work it asked for.** A bounded
   handler — a tally, a comparison — runs to its limit for a caller who has gone;

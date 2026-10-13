@@ -1,6 +1,7 @@
 package api
 
 import (
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -119,16 +120,56 @@ func (g *gate) limit() fiber.Handler {
 					"under load, --max-in-flight is too low for how the interface fetches.")
 		}
 
-		// Released when the handler returns.
+		// Released when the handler returns, unless the handler kept it.
 		//
-		// A streamed response is written after that, by the connection
-		// goroutine, so a search or an export holds its slot for the part that
-		// talks to the directory and not for the part that writes bytes out.
-		// That is the honest place for it: the directory is what is being
-		// protected, and the writing is the client's own pace.
-		defer func() { <-g.slots }()
+		// A streamed response is written after that, by a goroutine fasthttp
+		// starts, and for the search and the LDIF export that goroutine is
+		// where every page after the first is asked for. Letting go here was
+		// meant to hold the slot "for the part that talks to the directory and
+		// not for the part that writes bytes out", and it did the opposite: a
+		// ten-thousand-entry search spent all but its first page outside the
+		// cap. Those handlers take the slot with keepSlot and give it back when
+		// their writer finishes. The tree exports, which have finished with the
+		// directory before they stream, do not, and still let go here.
+		var once sync.Once
+		held := &heldSlot{release: func() { once.Do(func() { <-g.slots }) }}
+		c.Locals(slotKey{}, held)
+		defer func() {
+			if !held.kept {
+				held.release()
+			}
+		}()
 		return c.Next()
 	}
+}
+
+// slotKey is where the gate leaves the slot it holds for a request, so a
+// handler that streams can take it with keepSlot.
+type slotKey struct{}
+
+// heldSlot is one request's slot. kept is only touched by the request's own
+// goroutine -- set by the handler, read by the gate after the handler returns --
+// and release is safe to call from the writer because of the sync.Once.
+type heldSlot struct {
+	release func()
+	kept    bool
+}
+
+// keepSlot takes the request's slot away from the gate, which would otherwise
+// release it when the handler returns, and hands back the function that
+// releases it. A streaming handler calls it before SetBodyStreamWriter and
+// defers the release inside the writer, so the slot is held until the last
+// page has been asked for and written.
+//
+// With no gate, or on a path the gate waves through, there is no slot, and the
+// release does nothing.
+func keepSlot(c *fiber.Ctx) func() {
+	held, ok := c.Locals(slotKey{}).(*heldSlot)
+	if !ok {
+		return func() {}
+	}
+	held.kept = true
+	return held.release
 }
 
 // inFlight is how many slots are taken, for tests.
