@@ -201,11 +201,11 @@ func Execute(ctx context.Context, root *cobra.Command, env *Env, args []string) 
 	var exit *ExitError
 	if errors.As(err, &exit) {
 		if exit.Message != "" {
-			writef(env.Stderr, "alder: %s\n", exit.Message)
+			writef(env.Stderr, "alder: %s\n", safeLines(exit.Message))
 		}
 		return exit.Code
 	}
-	writeln(env.Stderr, "Error:", err.Error())
+	writeln(env.Stderr, "Error:", safeLines(err.Error()))
 	return ExitUsage
 }
 
