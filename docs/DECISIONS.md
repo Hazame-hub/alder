@@ -5783,6 +5783,45 @@ Alder's own line breaks are kept** (`safeLines`): the last line of defence
 rather than the first, since a value's own line break must already have been
 escaped where it was interpolated.
 
+### 2026-10-13 — the client asks for a password at a terminal
+
+A person running `alder plan` by hand had three places to put the bind
+password, and each cost something: a file to create and remember to delete,
+an `export` that stays in the shell for every command after, or a pipe from
+something that holds it. The client now asks, as `ldapsearch -W` does, when
+none of the three was given -- last, so a shell that set the variable is never
+interrupted by a question.
+
+**Only at a terminal, and only one that is free.** Standard input must be a
+terminal (the test `apply` already uses for its confirmation), so a CI job
+still fails at once with exit 7 and the sources named, instead of waiting for
+an answer that will not come. It must not be the input document either: `plan
+-` has read it already. The error now ends by saying which of the two kept the
+question from being asked. The terminal is not claimed the way standard input
+is for a document, because it is not a stream read once: `apply` asks its
+confirmation on it afterwards, and the password is read a byte at a time so
+that nothing of that answer is taken with it.
+
+**Projects ask too.** An environment names its own variable so that a shell
+holding the development password cannot hand it to production. A question
+keeps that: it names the environment's bind DN, below the line that has just
+said which environment and directory the command is about to reach, and what
+is typed goes to that one session. The configuration identity is asked for
+the same way, with its own DN.
+
+**No echo, with golang.org/x/sys rather than golang.org/x/term.** "The
+command line is a client" (2026-09-14) left the prompt out because it needed
+x/term as a new dependency. It does not: x/term is a thin layer over termios and the console
+mode, and x/sys -- already linked, now a direct requirement -- has both. Echo
+alone is turned off, so the terminal still edits the line and Ctrl+C still
+interrupts. Ctrl+C no longer ends the process, though (the client catches it
+to close its session), and a read from a terminal does not return when a
+signal arrives, so the read runs on its own goroutine and the command's
+context decides: on Ctrl+C or `--timeout` the echo is put back and the
+command ends, leaving the read to the exiting process. A platform with
+neither termios nor a console never asks; a password shown as it is typed
+is not one to accept. An empty answer is refused like an empty file.
+
 ### 2026-10-13 — a partial apply is 6 even when its recovery bundle fails
 
 An apply that stopped partway, and whose recovery bundle then failed to
