@@ -125,124 +125,132 @@ func TestLocateTakesTheDirectoryOrTheFile(t *testing.T) {
 
 // Each case breaks one rule from docs/PROJECT.md, and must be refused with a
 // message that says which.
+// ruleCase breaks one rule.
+type ruleCase struct {
+	name  string
+	edit  func(files map[string]string)
+	want  string
+	where string
+}
+
+// ruleCases are the rules, each broken once. They are run against a project
+// on disk here and against the same files held in memory in fs_test.go: one
+// validator, read through either filesystem, says the same thing.
+var ruleCases = []ruleCase{
+	{
+		name: "a password in alder.yaml",
+		edit: func(f map[string]string) {
+			f["alder.yaml"] = strings.Replace(validYAML, "bind-password-env: ALDER_DEV_BIND_PASSWORD", "bind-password: hunter2", 1)
+		},
+		want:  "a password is never written",
+		where: "alder.yaml:",
+	},
+	{
+		name: "an unknown key",
+		edit: func(f map[string]string) {
+			f["alder.yaml"] = strings.Replace(validYAML, "    host:", "    yes: true\n    host:", 1)
+		},
+		want: "not found",
+	},
+	{
+		name: "a version other than 1",
+		edit: func(f map[string]string) { f["alder.yaml"] = strings.Replace(validYAML, "version: 1", "version: 2", 1) },
+		want: "version must be 1",
+	},
+	{
+		name:  "a secret in a project file",
+		edit:  func(f map[string]string) { f["people/a.ldif"] = peopleA + "userPassword: {SSHA}abc\n" },
+		want:  "carries userPassword, a secret",
+		where: "people/a.ldif:1:",
+	},
+	{
+		// userPassword by its OID, with an option: as much a secret as
+		// by name, and it must not reach a repository either.
+		name:  "a secret written by OID",
+		edit:  func(f map[string]string) { f["people/a.ldif"] = peopleA + "2.5.4.35;binary: {SSHA}abc\n" },
+		want:  "carries 2.5.4.35;binary, a secret",
+		where: "people/a.ldif:1:",
+	},
+	{
+		name: "a changetype record",
+		edit: func(f map[string]string) {
+			f["people/a.ldif"] = "dn: uid=alice,ou=people,dc=alder,dc=test\nchangetype: delete\n"
+		},
+		want: "changetype record",
+	},
+	{
+		name: "an entry with no objectClass",
+		edit: func(f map[string]string) {
+			f["people/a.ldif"] = "dn: uid=alice,ou=people,dc=alder,dc=test\ntitle: Engineer\n"
+		},
+		want:  "has no objectClass",
+		where: "people/a.ldif:1:",
+	},
+	{
+		name: "an entry outside its subtree",
+		edit: func(f map[string]string) {
+			f["people/a.ldif"] = strings.Replace(peopleA, "ou=people", "ou=elsewhere", 1)
+		},
+		want: "outside its managed subtree",
+	},
+	{
+		name: "the same entry twice, spelled differently",
+		edit: func(f map[string]string) {
+			f["people/b.ldif"] = strings.Replace(peopleA, "uid=alice,ou=people", "UID=Alice , OU=People", 1)
+		},
+		want: "already described at",
+	},
+	{
+		name: "overlapping subtrees",
+		edit: func(f map[string]string) {
+			f["alder.yaml"] = strings.Replace(validYAML, "base: ou=groups,dc=alder,dc=test", "base: dc=alder,dc=test", 1)
+		},
+		want: "overlap",
+	},
+	{
+		name: "a glob that matches nothing",
+		edit: func(f map[string]string) {
+			f["alder.yaml"] = strings.Replace(validYAML, "groups.ldif", "missing.ldif", 1)
+		},
+		want: "matches no file",
+	},
+	{
+		// filepath.Glob would read ** as *, match one level and drop
+		// every deeper file without a word.
+		name: "a ** pattern",
+		edit: func(f map[string]string) {
+			f["alder.yaml"] = strings.Replace(validYAML, "people/*.ldif", "people/**/*.ldif", 1)
+		},
+		want: "uses **, which a project pattern does not support; list one pattern per directory",
+	},
+	{
+		name: "a path outside the project",
+		edit: func(f map[string]string) {
+			f["alder.yaml"] = strings.Replace(validYAML, "groups.ldif", "../groups.ldif", 1)
+		},
+		want: "outside the project directory",
+	},
+	{
+		name: "a bind DN with no password source",
+		edit: func(f map[string]string) {
+			f["alder.yaml"] = strings.Replace(validYAML, "    bind-password-env: ALDER_DEV_BIND_PASSWORD\n", "", 1)
+		},
+		want: "needs a password source",
+	},
+	{
+		name: "no environments",
+		edit: func(f map[string]string) { f["alder.yaml"] = validYAML[:strings.Index(validYAML, "environments:")] },
+		want: "environments names none",
+	},
+	{
+		name: "malformed LDIF",
+		edit: func(f map[string]string) { f["groups.ldif"] = "dn: cn=admins,ou=groups,dc=alder,dc=test\nnot a line\n" },
+		want: "groups.ldif:",
+	},
+}
+
 func TestEveryRuleIsEnforced(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		edit  func(files map[string]string)
-		want  string
-		where string
-	}{
-		{
-			name: "a password in alder.yaml",
-			edit: func(f map[string]string) {
-				f["alder.yaml"] = strings.Replace(validYAML, "bind-password-env: ALDER_DEV_BIND_PASSWORD", "bind-password: hunter2", 1)
-			},
-			want:  "a password is never written",
-			where: "alder.yaml:",
-		},
-		{
-			name: "an unknown key",
-			edit: func(f map[string]string) {
-				f["alder.yaml"] = strings.Replace(validYAML, "    host:", "    yes: true\n    host:", 1)
-			},
-			want: "not found",
-		},
-		{
-			name: "a version other than 1",
-			edit: func(f map[string]string) { f["alder.yaml"] = strings.Replace(validYAML, "version: 1", "version: 2", 1) },
-			want: "version must be 1",
-		},
-		{
-			name:  "a secret in a project file",
-			edit:  func(f map[string]string) { f["people/a.ldif"] = peopleA + "userPassword: {SSHA}abc\n" },
-			want:  "carries userPassword, a secret",
-			where: "people/a.ldif:1:",
-		},
-		{
-			// userPassword by its OID, with an option: as much a secret as
-			// by name, and it must not reach a repository either.
-			name:  "a secret written by OID",
-			edit:  func(f map[string]string) { f["people/a.ldif"] = peopleA + "2.5.4.35;binary: {SSHA}abc\n" },
-			want:  "carries 2.5.4.35;binary, a secret",
-			where: "people/a.ldif:1:",
-		},
-		{
-			name: "a changetype record",
-			edit: func(f map[string]string) {
-				f["people/a.ldif"] = "dn: uid=alice,ou=people,dc=alder,dc=test\nchangetype: delete\n"
-			},
-			want: "changetype record",
-		},
-		{
-			name: "an entry with no objectClass",
-			edit: func(f map[string]string) {
-				f["people/a.ldif"] = "dn: uid=alice,ou=people,dc=alder,dc=test\ntitle: Engineer\n"
-			},
-			want:  "has no objectClass",
-			where: "people/a.ldif:1:",
-		},
-		{
-			name: "an entry outside its subtree",
-			edit: func(f map[string]string) {
-				f["people/a.ldif"] = strings.Replace(peopleA, "ou=people", "ou=elsewhere", 1)
-			},
-			want: "outside its managed subtree",
-		},
-		{
-			name: "the same entry twice, spelled differently",
-			edit: func(f map[string]string) {
-				f["people/b.ldif"] = strings.Replace(peopleA, "uid=alice,ou=people", "UID=Alice , OU=People", 1)
-			},
-			want: "already described at",
-		},
-		{
-			name: "overlapping subtrees",
-			edit: func(f map[string]string) {
-				f["alder.yaml"] = strings.Replace(validYAML, "base: ou=groups,dc=alder,dc=test", "base: dc=alder,dc=test", 1)
-			},
-			want: "overlap",
-		},
-		{
-			name: "a glob that matches nothing",
-			edit: func(f map[string]string) {
-				f["alder.yaml"] = strings.Replace(validYAML, "groups.ldif", "missing.ldif", 1)
-			},
-			want: "matches no file",
-		},
-		{
-			// filepath.Glob would read ** as *, match one level and drop
-			// every deeper file without a word.
-			name: "a ** pattern",
-			edit: func(f map[string]string) {
-				f["alder.yaml"] = strings.Replace(validYAML, "people/*.ldif", "people/**/*.ldif", 1)
-			},
-			want: "uses **, which a project pattern does not support; list one pattern per directory",
-		},
-		{
-			name: "a path outside the project",
-			edit: func(f map[string]string) {
-				f["alder.yaml"] = strings.Replace(validYAML, "groups.ldif", "../groups.ldif", 1)
-			},
-			want: "outside the project directory",
-		},
-		{
-			name: "a bind DN with no password source",
-			edit: func(f map[string]string) {
-				f["alder.yaml"] = strings.Replace(validYAML, "    bind-password-env: ALDER_DEV_BIND_PASSWORD\n", "", 1)
-			},
-			want: "needs a password source",
-		},
-		{
-			name: "no environments",
-			edit: func(f map[string]string) { f["alder.yaml"] = validYAML[:strings.Index(validYAML, "environments:")] },
-			want: "environments names none",
-		},
-		{
-			name: "malformed LDIF",
-			edit: func(f map[string]string) { f["groups.ldif"] = "dn: cn=admins,ou=groups,dc=alder,dc=test\nnot a line\n" },
-			want: "groups.ldif:",
-		},
-	} {
+	for _, tc := range ruleCases {
 		t.Run(tc.name, func(t *testing.T) {
 			files := valid()
 			tc.edit(files)

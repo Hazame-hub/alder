@@ -2,8 +2,9 @@
 // repository is responsible for, the LDIF files that describe them, and the
 // environments it is planned against. docs/PROJECT.md is the specification.
 //
-// It reads files and nothing else. It holds no LDAP code and opens no
-// connection: checking a project needs no server, so it can run in a
+// It reads files and nothing else, through an fs.FS: the operating system's
+// filesystem for the command-line client, the files a request carried for the
+// server's POST /project/plan. It holds no LDAP code and opens no connection: checking a project needs no server, so it can run in a
 // pre-commit hook, and planning one is the existing desired-state plan, asked
 // of a running Alder server by the command-line client. LDIF, DNs and the
 // sensitive-attribute list come from the server's own packages, so a project
@@ -15,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -151,20 +153,54 @@ type managed struct {
 	Files []string `yaml:"files"`
 }
 
-// Load reads and checks a project. A project that was read but is not valid
-// returns *Invalid listing every problem; any other error is a file that
-// could not be read.
+// source is where a project's files are read from. Every read goes through
+// fsys; dir is set only when fsys is the operating system's filesystem rooted
+// there, which is what makes a symlink something to check and what an error
+// names a file by.
+type source struct {
+	fsys fs.FS
+	dir  string
+}
+
+// display is how a file is named in an error that is not a Problem: the path
+// the operating system would print, or the relative name of a file a request
+// carried.
+func (s source) display(rel string) string {
+	if s.dir == "" {
+		return rel
+	}
+	return filepath.Join(s.dir, filepath.FromSlash(rel))
+}
+
+// Load reads and checks a project from the operating system's filesystem:
+// path is its alder.yaml, and the paths in it are relative to the directory
+// that holds it. A project that was read but is not valid returns *Invalid
+// listing every problem; any other error is a file that could not be read.
 func Load(path string) (*Project, error) {
-	raw, err := readLimited(path, maxProjectFileBytes)
+	dir := filepath.Dir(path)
+	return loadFrom(source{fsys: os.DirFS(dir), dir: dir}, filepath.Base(path), path)
+}
+
+// LoadFS reads and checks a project held in fsys, with alder.yaml at its
+// root. It is Load without the operating system: nothing outside fsys is
+// read, so a project sent to the server reaches no file of the server's own.
+// Project.File is then alder.yaml and Project.Dir is empty.
+func LoadFS(fsys fs.FS) (*Project, error) {
+	return loadFrom(source{fsys: fsys}, FileName, FileName)
+}
+
+// loadFrom reads the project file name from src; display is how it is named in
+// Project.File and in errors.
+func loadFrom(src source, name, display string) (*Project, error) {
+	raw, err := readLimited(src.fsys, name, display, maxProjectFileBytes)
 	if err != nil {
 		return nil, err
 	}
-	p := &Project{File: path, Dir: filepath.Dir(path)}
+	p := &Project{File: display, Dir: src.dir}
 	var problems []Problem
 	add := func(file string, line int, format string, a ...any) {
 		problems = append(problems, Problem{File: file, Line: line, Message: fmt.Sprintf(format, a...)})
 	}
-	name := filepath.Base(path)
 
 	// Said plainly before the decoder says "field not found": a password key
 	// is far more likely to be a pasted secret than a typo.
@@ -236,7 +272,7 @@ func Load(path string) (*Project, error) {
 			add(name, 0, "%s (%s): files is empty", where, m.Base)
 		}
 		for _, pattern := range m.Files {
-			matches, patternProblems := expand(p.Dir, pattern)
+			matches, patternProblems := expand(src, pattern)
 			for _, problem := range patternProblems {
 				add(name, 0, "%s (%s): %s", where, m.Base, problem)
 			}
@@ -266,7 +302,7 @@ func Load(path string) (*Project, error) {
 	for i := range p.Managed {
 		st := &p.Managed[i]
 		for _, rel := range st.Files {
-			records, fileProblems, err := readRecords(p.Dir, rel, st.Base, seen)
+			records, fileProblems, err := readRecords(src, rel, st.Base, seen)
 			if err != nil {
 				return nil, err
 			}
@@ -397,42 +433,45 @@ func checkIdentity(name, where, prefix, bindDN, fromEnv, fromFile string) []Prob
 // ca-file, are read where they are; what keeps their content from leaving is
 // in the client, which sends a ca-file's certificates and nothing else.) A symlink that stays inside is fine. A refused file
 // is named, never read, so nothing of its content can reach a message.
-func expand(dir, pattern string) ([]string, []string) {
+func expand(src source, pattern string) ([]string, []string) {
 	clean := filepath.Clean(filepath.FromSlash(pattern))
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return nil, []string{fmt.Sprintf("%s is outside the project directory", pattern)}
 	}
 	// filepath.Glob has no "**": it would read it as "*", match one level,
 	// and quietly leave out every deeper file. Refused rather than half
-	// honoured, and no glob library is brought in to support it.
+	// honoured, and no glob library is brought in to support it. fs.Glob,
+	// which every read now goes through, is the same.
 	if strings.Contains(pattern, "**") {
 		return nil, []string{fmt.Sprintf("%s uses **, which a project pattern does not support; "+
 			"list one pattern per directory, such as people/*.ldif and people/contractors/*.ldif", pattern)}
 	}
-	matches, err := filepath.Glob(filepath.Join(dir, clean))
+	matches, err := fs.Glob(src.fsys, filepath.ToSlash(clean))
 	if err != nil {
 		return nil, []string{fmt.Sprintf("%s is not a valid pattern: %v", pattern, err)}
 	}
-	realDir, err := realPath(dir)
-	if err != nil {
-		return nil, []string{fmt.Sprintf("the project directory cannot be resolved: %v", err)}
+	// Only a project on the operating system's filesystem has links to
+	// follow. Files a request carried are the whole of their filesystem.
+	var realDir string
+	if src.dir != "" {
+		realDir, err = realPath(src.dir)
+		if err != nil {
+			return nil, []string{fmt.Sprintf("the project directory cannot be resolved: %v", err)}
+		}
 	}
 	var rel, problems []string
-	for _, m := range matches {
-		info, statErr := os.Stat(m)
+	for _, r := range matches {
+		info, statErr := fs.Stat(src.fsys, r)
 		if statErr != nil || info.IsDir() {
 			continue
 		}
-		r, relErr := filepath.Rel(dir, m)
-		if relErr != nil {
-			continue
-		}
-		r = filepath.ToSlash(r)
-		real, realErr := realPath(m)
-		if realErr != nil || !within(realDir, real) {
-			problems = append(problems, fmt.Sprintf("%s resolves to a file outside the project directory; "+
-				"a symlink in a project must point inside it", r))
-			continue
+		if src.dir != "" {
+			real, realErr := realPath(src.display(r))
+			if realErr != nil || !within(realDir, real) {
+				problems = append(problems, fmt.Sprintf("%s resolves to a file outside the project directory; "+
+					"a symlink in a project must point inside it", r))
+				continue
+			}
 		}
 		rel = append(rel, r)
 	}
@@ -468,8 +507,8 @@ type seenEntry struct {
 	line int
 }
 
-func readRecords(dir, rel string, base dn.DN, seen map[string][]seenEntry) ([]*ldif.Record, []Problem, error) {
-	raw, err := readLimited(filepath.Join(dir, filepath.FromSlash(rel)), maxLDIFFileBytes)
+func readRecords(src source, rel string, base dn.DN, seen map[string][]seenEntry) ([]*ldif.Record, []Problem, error) {
+	raw, err := readLimited(src.fsys, rel, src.display(rel), maxLDIFFileBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -565,18 +604,31 @@ func passwordKeys(raw []byte) []passwordKey {
 	return found
 }
 
-func readLimited(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path) // #nosec G304 -- a project file the operator named
+// readLimited reads name from fsys, refusing a file larger than limit. An
+// error names the file as display, which for the operating system's
+// filesystem is the path the operating system would print.
+func readLimited(fsys fs.FS, name, display string, limit int64) ([]byte, error) {
+	f, err := fsys.Open(name)
 	if err != nil {
-		return nil, err
+		return nil, renamed(err, display)
 	}
 	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
-		return nil, err
+		return nil, renamed(err, display)
 	}
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("%s is larger than %d bytes", path, limit)
+		return nil, fmt.Errorf("%s is larger than %d bytes", display, limit)
 	}
 	return data, nil
+}
+
+// renamed puts display in place of the name an fs.FS reports a file by, so a
+// file that cannot be read is named as it was before reads went through one.
+func renamed(err error, display string) error {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		pathErr.Path = display
+	}
+	return err
 }

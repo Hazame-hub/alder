@@ -3,28 +3,18 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"sort"
-	"strings"
 
 	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/project"
 )
 
-// unmanagedSubtree is what project plan reports about one managed subtree:
-// the entries the directory holds there that no project file describes.
-// They are reported and never acted on -- a project is not a deleter.
-type unmanagedSubtree struct {
-	Base string `json:"base"`
-	// Entries are the DNs, parent before child, as the capture ordered them.
-	Entries []string `json:"entries"`
-	// Error says why the subtree could not be read whole. Entries is then
-	// empty and says nothing either way.
-	Error string `json:"error,omitempty"`
-}
+// unmanagedSubtree is what project plan reports about one managed subtree.
+// The shape and the comparison are internal/project's, shared with the
+// server's POST /project/plan so the two reports cannot drift apart.
+type unmanagedSubtree = project.Unmanaged
 
 // listUnmanaged reads each managed subtree with the snapshot capture, which
 // is all or nothing -- a subtree it cannot read whole is refused, never
@@ -33,27 +23,9 @@ type unmanagedSubtree struct {
 // plan beside it stands: this is a report, and failing to make it changes
 // nothing the plan says.
 func listUnmanaged(ctx context.Context, r *remote, p *project.Project) []unmanagedSubtree {
-	out := make([]unmanagedSubtree, 0, len(p.Managed))
-	for _, st := range p.Managed {
-		u := unmanagedSubtree{Base: st.Base.String(), Entries: []string{}}
-		found, err := captureDNs(ctx, r, st.Base)
-		if err != nil {
-			u.Error = err.Error()
-			out = append(out, u)
-			continue
-		}
-		described := newDNSet()
-		for _, rec := range st.Records {
-			described.add(rec.DN)
-		}
-		for _, d := range found {
-			if !described.has(d) {
-				u.Entries = append(u.Entries, d.String())
-			}
-		}
-		out = append(out, u)
-	}
-	return out
+	return project.ListUnmanaged(p, func(base dn.DN) ([]dn.DN, error) {
+		return captureDNs(ctx, r, base)
+	})
 }
 
 // captureDNs returns the DNs of every entry at or below base. A base the
@@ -94,38 +66,6 @@ func captureDNs(ctx context.Context, r *remote, base dn.DN) ([]dn.DN, error) {
 		out = append(out, d)
 	}
 	return out, nil
-}
-
-// dnSet holds DNs and answers membership by dn.Equal, which compares as the
-// directory does. It buckets by depth and the leaf's attribute types, which
-// two equal DNs always share, so a lookup compares against a handful rather
-// than every DN in the project.
-type dnSet map[string][]dn.DN
-
-func newDNSet() dnSet { return dnSet{} }
-
-func dnBucket(d dn.DN) string {
-	types := make([]string, 0, len(d.RDN()))
-	for _, ava := range d.RDN() {
-		types = append(types, strings.ToLower(ava.Type))
-	}
-	// A multi-valued RDN may list its types in any order and be the same name.
-	sort.Strings(types)
-	return fmt.Sprintf("%d|%s", len(d), strings.Join(types, "+"))
-}
-
-func (s dnSet) add(d dn.DN) {
-	k := dnBucket(d)
-	s[k] = append(s[k], d)
-}
-
-func (s dnSet) has(d dn.DN) bool {
-	for _, x := range s[dnBucket(d)] {
-		if x.Equal(d) {
-			return true
-		}
-	}
-	return false
 }
 
 // renderUnmanaged prints the report under the plan. Subtrees that could not
