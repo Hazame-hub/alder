@@ -489,8 +489,11 @@ file is LDIF of content records, that every entry is whole (it has its
 `objectClass`), that every entry lies in its managed subtree,
 that subtrees do not overlap, that no entry appears twice, and that no file
 carries a secret -- `userPassword` and every other attribute Alder withholds
-from an export. It lists every problem, with the file and line, not only the
-first. Exit 0 valid, 3 not valid, 8 a file could not be read.
+from an export. With a `suffix`, it checks that every managed base lies below
+it and that each environment's own `suffix` is a DN, and lists each
+environment that rebases (`environment dev: suffix dc=example,dc=com ->
+dc=dev,dc=example,dc=com`). It lists every problem, with the file and line,
+not only the first. Exit 0 valid, 3 not valid, 8 a file could not be read.
 
 **`plan --env NAME`** validates, connects with that environment's settings, and
 plans the project's entries as desired state: `alder plan --mode desired` on
@@ -502,6 +505,21 @@ production reads exactly like one for development. The environment and the
 directory are printed before the plan is requested, and at the top of the plan;
 with `--json`, standard output is `{"environment": …, "host": …, "plan": <the
 plan>, "unmanaged": […]}`.
+
+An environment that names a `suffix` of its own holds the entries under it
+([PROJECT.md](PROJECT.md), "An environment with its own suffix"). After
+connecting, the client reads the directory's schema and moves every entry
+name, every managed base, and every value of an attribute type with DN (or
+Name And Optional UID) syntax from below the project's suffix to below the
+environment's; nothing else is touched. Standard error says so before
+anything is sent, the line under the environment says `Suffix FROM -> TO:`
+with how many entries and values moved, a value of another syntax that only
+looks like a DN is named on standard error as left as written, and `--json`
+adds `"rebase": {"from", "to", "entries", "values", "leftAsWritten": [{"dn",
+"attribute"}]}`. The plan, the unmanaged report and `--detailed-exitcode` use
+the rebased names. A project using an attribute type the schema does not
+define is not planned for that environment (exit 3,
+`project_not_rebasable`).
 
 Connection settings come from the environment in `alder.yaml`, never from the
 connection flags or their `ALDER_*` variables. A password comes from the
@@ -554,7 +572,8 @@ anything. `--yes`, like `--env` and `--project`, is never read from the
 environment: an inherited `ALDER_YES` must not confirm an apply nobody typed.
 Exit codes are `alder apply`'s, and 3 also when the project is not valid; with
 `--json`, standard output is `alder apply`'s document with `environment` and
-`host` beside it.
+`host` beside it, and `rebase` for an environment with its own suffix, as for
+`project plan`.
 
 **`fmt`** rewrites the project's LDIF files in the form Alder's own exports
 take, so that a diff of one shows what changed and not how it was wrapped.
@@ -930,7 +949,7 @@ everything the commands in it call.
 | `package create`, `package inspect`, `package validate`, `plan` and `apply --package` | `/packages/build`, `/packages/inspect`, `/packages/validate` | 1.11 or later |
 | `preflight` | `/preflight` | 1.12 or later; a configuration snapshot as its source needs 1.14 |
 | `snapshot --kind config`, configuration in `diff` | config kind on `/snapshots/capture` and `/diff` | 1.13 or later |
-| `project plan`, `project apply`, the unmanaged-entries report | `/plan`, `/changeset/apply`, `/snapshots/capture` | 1.7 or later |
+| `project plan`, `project apply`, the unmanaged-entries report | `/plan`, `/changeset/apply`, `/snapshots/capture`, and `/schema` for an environment with its own suffix | 1.7 or later |
 
 `project validate`, `project fmt`, `key`, `sign` and `verify` call no server.
 
