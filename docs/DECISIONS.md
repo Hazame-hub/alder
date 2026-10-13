@@ -5848,3 +5848,14 @@ startup had the same cut, and `[::]:8443` was not shown as `localhost`.
 
 Both use `net.SplitHostPort` now, and loopback is `localhost` or any address
 `net.IP.IsLoopback` says is one, so `127.0.0.2` counts as well as `127.0.0.1`.
+
+### 2026-10-13 — "Which servers the client works with" names a server per command again
+
+The section said "this release adds no endpoint, so a 1.7 server provides
+everything the client calls", written when it was true and left standing
+through recovery bundles (1.9), schema snapshots (1.10), packages (1.11),
+preflight (1.12) and configuration snapshots (1.13 and 1.14). The
+`unsupported_server` error repeated the same claim. The table has a row per
+group of commands now, and the error points at it and names the oldest
+server that has every endpoint, rather than restating versions that will go
+stale again with the next one.
