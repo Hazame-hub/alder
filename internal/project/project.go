@@ -363,8 +363,10 @@ func checkIdentity(name, where, prefix, bindDN, fromEnv, fromFile string) []Prob
 // Inside means the real path, not the spelling. A pattern with ".." or an
 // absolute path is refused as written; a symlink inside the project that
 // points elsewhere on the machine is refused once resolved, so a repository
-// cannot have validate or plan read a file it does not contain -- a CI
-// runner's secrets, say. A symlink that stays inside is fine. A refused file
+// cannot have validate or plan read, as LDIF, a file it does not contain -- a
+// CI runner's secrets, say. (The files an environment names, such as a
+// ca-file, are read where they are; what keeps their content from leaving is
+// in the client, which sends a ca-file's certificates and nothing else.) A symlink that stays inside is fine. A refused file
 // is named, never read, so nothing of its content can reach a message.
 func expand(dir, pattern string) ([]string, []string) {
 	clean := filepath.Clean(filepath.FromSlash(pattern))

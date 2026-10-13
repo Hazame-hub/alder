@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -244,12 +247,12 @@ func (c *connection) client(env *Env) (*remote, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if c.apiCAFile != "" {
-		pem, readErr := readSmallFile(c.apiCAFile, 1<<20)
+		raw, readErr := readSmallFile(c.apiCAFile, 1<<20)
 		if readErr != nil {
 			return nil, failf("input", "cannot read --api-ca-file: %v", readErr)
 		}
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
+		if !pool.AppendCertsFromPEM(raw) {
 			return nil, usagef("--api-ca-file %s holds no PEM certificate", c.apiCAFile)
 		}
 		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
@@ -280,12 +283,15 @@ func (c *connection) open(ctx context.Context, env *Env) (*remote, error) {
 	}
 	req := apiclient.ConnectRequest{Host: c.host, Port: c.effectivePort(), Tls: apiclient.ConnectRequestTls(c.tlsMode)}
 	if c.caFile != "" {
-		pem, readErr := readSmallFile(c.caFile, 1<<20)
+		raw, readErr := readSmallFile(c.caFile, 1<<20)
 		if readErr != nil {
 			return nil, failf("input", "cannot read --ca-file: %v", readErr)
 		}
-		s := string(pem)
-		req.CaCertificate = &s
+		certs, certErr := certificatesOnly(raw)
+		if certErr != nil {
+			return nil, failf("input", "--ca-file %s: %v; nothing was sent", c.caFile, certErr)
+		}
+		req.CaCertificate = &certs
 	}
 	if c.serverName != "" {
 		req.ServerName = &c.serverName
@@ -375,6 +381,65 @@ func readSmallFile(path string, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("%s is larger than %d KB", path, limit>>10)
 	}
 	return data, nil
+}
+
+// certificatesOnly is the content of a --ca-file as it is sent to Alder: the
+// certificates in it, re-encoded, and nothing else.
+//
+// The file's bytes go to the Alder server the command names, and with a
+// project both the server and the path come from alder.yaml -- a file a pull
+// request can change. Sent as read, "ca-file: ~/.docker/config.json" beside
+// a changed api-url would post a CI runner's credentials to whoever the
+// pull request chose. So the file must be PEM certificates and nothing else:
+// a block of any other type, or text outside the blocks, refuses the command
+// before anything is sent, and what is sent is only what parsed as a
+// certificate. Comment lines are what a CA bundle carries between blocks,
+// and are allowed but not sent.
+func certificatesOnly(data []byte) (string, error) {
+	var out strings.Builder
+	rest := data
+	n := 0
+	for {
+		start := bytes.Index(rest, []byte("-----BEGIN"))
+		if start < 0 {
+			break
+		}
+		if !onlyComments(string(rest[:start])) {
+			return "", errors.New("it holds text that is not a PEM certificate")
+		}
+		block, after := pem.Decode(rest[start:])
+		if block == nil {
+			return "", errors.New("it holds a PEM block that does not decode")
+		}
+		if block.Type != "CERTIFICATE" {
+			return "", fmt.Errorf("it holds a PEM %s block, and only certificates belong in it", block.Type)
+		}
+		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+			return "", fmt.Errorf("a certificate in it does not parse: %w", err)
+		}
+		_ = pem.Encode(&out, &pem.Block{Type: "CERTIFICATE", Bytes: block.Bytes})
+		n++
+		rest = after
+	}
+	if !onlyComments(string(rest)) {
+		return "", errors.New("it holds text that is not a PEM certificate")
+	}
+	if n == 0 {
+		return "", errors.New("it holds no PEM certificate")
+	}
+	return out.String(), nil
+}
+
+// onlyComments reports whether every non-blank line starts with "#", as the
+// comments in a distribution's CA bundle do.
+func onlyComments(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			return false
+		}
+	}
+	return true
 }
 
 func ptr[T any](v T) *T { return &v }
