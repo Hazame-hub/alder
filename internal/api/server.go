@@ -38,6 +38,10 @@ type Config struct {
 	// somebody who has measured their own directory and decided.
 	MaxInFlight int
 
+	// MaxSessions bounds how many directory sessions are open at once. Zero
+	// uses DefaultMaxSessions; a negative number turns the bound off.
+	MaxSessions int
+
 	// AllowedTargets restricts which directories a caller may ask Alder to
 	// connect to. Nil or empty permits any, which is the default: Alder is
 	// normally run beside the directory by the person who owns both, and a
@@ -82,10 +86,17 @@ func NewServer(logger *slog.Logger, cfg Config) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	sessions := session.NewStore(logger, cfg.IdleTimeout, cfg.MaxLifetime)
+	switch {
+	case cfg.MaxSessions == 0:
+		sessions.SetLimit(DefaultMaxSessions)
+	case cfg.MaxSessions > 0:
+		sessions.SetLimit(cfg.MaxSessions)
+	}
 	return &Server{
 		planner:  newPlanner(logger),
 		driver:   ldapdriver.New(logger, cfg.AllowPlaintextLDAP),
-		sessions: session.NewStore(logger, cfg.IdleTimeout, cfg.MaxLifetime),
+		sessions: sessions,
 		logger:   logger,
 		cfg:      cfg,
 		gate:     gateFor(cfg),

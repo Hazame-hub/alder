@@ -15,6 +15,37 @@ Alder wood hardens instead of rotting when submerged. Venice stands on alder
 piles that have held for centuries. It seemed a fitting name for the directory
 everything else authenticates against.
 
+## Install
+
+Every release on the [releases page](https://github.com/Hazame-hub/alder/releases)
+has an archive for Linux, macOS and Windows, on amd64 and arm64, with a
+`checksums.txt` and an SBOM for each. The archive holds the binary, `alder`,
+which is both the web interface (`alder serve`) and the command-line client.
+
+```sh
+version=1.37.1   # the release you want
+archive="alder_${version}_linux_amd64.tar.gz"
+curl -fsSLO "https://github.com/Hazame-hub/alder/releases/download/v${version}/${archive}"
+curl -fsSLO "https://github.com/Hazame-hub/alder/releases/download/v${version}/checksums.txt"
+grep " ${archive}\$" checksums.txt | sha256sum -c -
+tar -xzf "$archive" alder && sudo install -m 0755 alder /usr/local/bin/alder
+```
+
+The container image is `ghcr.io/hazame-hub/alder`, tagged with each version
+and `latest`, for linux/amd64 and linux/arm64. It starts `alder serve` and
+listens on 8443. It runs as the distroless `nonroot` user (uid 65532), so the
+certificate and key you mount must be readable by that user:
+
+```sh
+docker run --rm -p 8443:8443 -v "$PWD/tls:/certs:ro" \
+  ghcr.io/hazame-hub/alder:latest serve --tls-cert /certs/tls.crt --tls-key /certs/tls.key
+```
+
+Alder refuses to start without TLS. It holds a directory bind password in memory
+for the life of a browser session and will not carry it over a plaintext
+connection by default; pass `--allow-http` only if something in front of it
+terminates TLS.
+
 ## Status
 
 **Feature complete for v1.** Connect, browse, search, edit, import and export
@@ -59,6 +90,8 @@ timestamps are rendered as dates.*
 
 ## Try it
 
+From a checkout, with Docker for the two directories:
+
 ```sh
 task compose:up                        # OpenLDAP and 389 DS, seeded, with TLS
 task build                             # SPA + binary
@@ -68,19 +101,8 @@ task build                             # SPA + binary
 Then open the address it prints and connect to `localhost:10636` (OpenLDAP,
 `cn=admin,dc=alder,dc=test` / `alder-admin`) or `localhost:11636` (389 DS,
 `cn=Directory Manager` / `alder-directory-manager`), pasting
-`test/compose/certs/ca.crt` into the CA field.
-
-Or with Docker:
-
-```sh
-docker build -t alder .
-docker run --rm -p 8443:8443 alder serve --tls-cert /certs/tls.crt --tls-key /certs/tls.key
-```
-
-Alder refuses to start without TLS. It holds a directory bind password in memory
-for the life of a browser session and will not carry it over a plaintext
-connection by default; pass `--allow-http` if something in front of it is
-terminating TLS.
+`test/compose/certs/ca.crt` into the CA field. `--allow-http` is safe here
+only because the address is the loopback.
 
 ## What it does
 
@@ -481,6 +503,19 @@ safety policy on top: it asks before applying, needs `--allow-deletes` before
 snapshot files are compared without any directory credentials. See
 [`docs/CLI.md`](docs/CLI.md).
 
+**Keep a directory's intended state in Git.** An Alder project is an
+`alder.yaml` beside LDIF files in a repository: the subtrees the repository is
+responsible for, and the environments it is planned against. `alder project
+validate` checks it offline, in a pre-commit hook or on every pull request,
+and refuses a file that carries a password. `alder project plan --env prod
+--detailed-exitcode` answers "does production match the repository?" with an
+exit status, and `alder project apply` plans again against the directory as it
+is, shows that plan, asks, and applies it. There is no state file, and an entry
+the files do not mention is never deleted: the plan lists it as unmanaged.
+`alder project fmt` keeps the LDIF in one canonical form so a diff shows what
+changed. See [`docs/PROJECT.md`](docs/PROJECT.md), and
+[`examples/project/`](examples/project/) for a project with its CI.
+
 ## Two servers, one behaviour
 
 OpenLDAP and 389 Directory Server are both first-class, and that is enforced by
@@ -514,6 +549,8 @@ same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
   permitted, which is right for a laptop beside the directory and wrong for
   anything other people can reach.
 - `--max-in-flight` caps how many API requests are answered at once.
+- `--max-sessions` caps how many directory sessions are held at once (256 by
+  default). Reconnecting from a browser closes the session it replaces.
 - Every flag also reads `ALDER_<FLAG_NAME>`.
 
 ## Working on it

@@ -44,6 +44,10 @@ const (
 // ErrNotFound reports an unknown, expired, or already-closed session.
 var ErrNotFound = errors.New("session: no such session")
 
+// ErrFull reports that the store already holds as many live sessions as it
+// was told to.
+var ErrFull = errors.New("session: as many sessions are open as this server allows")
+
 // Session is one user's connection to a directory.
 type Session struct {
 	ID string
@@ -87,6 +91,12 @@ type Store struct {
 	maxLifetime time.Duration
 	logger      *slog.Logger
 
+	// limit is the most live sessions the store holds; zero or less is no
+	// limit. Every session is a directory connection, and opening one needs
+	// no prior authentication -- an anonymous bind is a bind -- so without a
+	// ceiling a loop of requests holds a connection each for the idle timeout.
+	limit int
+
 	stop chan struct{}
 	once sync.Once
 }
@@ -118,8 +128,38 @@ func NewStore(logger *slog.Logger, idleTimeout, maxLifetime time.Duration) *Stor
 	return s
 }
 
-// Add stores a connected session and returns its ID.
+// SetLimit sets the most live sessions the store holds. Zero or less is no
+// limit.
+func (st *Store) SetLimit(n int) {
+	st.mu.Lock()
+	st.limit = n
+	st.mu.Unlock()
+}
+
+// Full reports whether opening another session would be refused. It is
+// asked before dialling, so a full server does not open a directory
+// connection only to close it; Add checks again, because two requests can
+// both have been told there was room.
+func (st *Store) Full() bool {
+	st.mu.RLock()
+	full := st.limit > 0 && len(st.sessions) >= st.limit
+	st.mu.RUnlock()
+	if !full {
+		return false
+	}
+	// Sessions past their timeout still count until the sweeper reaches
+	// them. Reap now rather than refuse someone for a session nobody holds.
+	st.reap()
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return len(st.sessions) >= st.limit
+}
+
+// Add stores a connected session and returns its ID, or ErrFull.
 func (st *Store) Add(conn directory.Session, cfg directory.ConnConfig, readOnly bool) (*Session, error) {
+	if st.Full() {
+		return nil, ErrFull
+	}
 	id, err := newID()
 	if err != nil {
 		return nil, err
