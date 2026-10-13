@@ -1,7 +1,9 @@
 # Projects in the web interface
 
 **Status: accepted 2026-10-13, all five recommendations as written; the
-first slice is being built.** `docs/PROJECT.md` ends its later slices with
+first slice is built** (*Open project* on the Import screen,
+`POST /project/plan`, *Stage for review*). What the build settled is recorded
+in `docs/DECISIONS.md` under the same date. `docs/PROJECT.md` ends its later slices with
 "Opening a project in the browser is not in this specification"; this is
 that specification. The recommendation adds one endpoint to the API, which
 the 1.x compatibility promise then keeps for good; the acceptance is

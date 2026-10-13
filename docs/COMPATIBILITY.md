@@ -654,6 +654,21 @@ Recovery covers schema and configuration modifications
   refused by an older release as `recovery_invalid` -- its decoder is strict --
   which refuses rather than compensating without the expectation.
 
+A project can be opened in the web interface
+([proposals/web-projects.md](proposals/web-projects.md)). Only additions:
+
+- **`POST /project/plan`**, a new endpoint: a project sent as files,
+  validated, planned against the session's directory and reported with its
+  unmanaged entries. Its `plan` is the `Plan` schema `POST /plan` returns,
+  and its `unmanaged` is the shape `alder project plan --json` writes, so
+  both are covered as those already are.
+- **`Error.error` gains `project_invalid`**, and `Error` an optional
+  `problems` list beside it. A client that does not know the code sees a
+  400 with a message, as for any other refusal.
+- **No other response changed**, and the command line's output is as it
+  was: the comparison behind its unmanaged report moved into a package the
+  server shares, and nothing it prints moved with it.
+
 ---
 
 ## Not covered

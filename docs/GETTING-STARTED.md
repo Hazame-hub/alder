@@ -251,7 +251,9 @@ the plan:
 [CLI.md](CLI.md) is the command-line reference, [PROJECT.md](PROJECT.md) the
 project format's, and [`examples/project/`](../examples/project/) a project
 with the GitHub Actions and GitLab CI that check it. `alder project` is on
-`main` and ships in the release after 1.37.1.
+`main` and ships in the release after 1.37.1. The web interface opens the
+same folder with *Open project* on the Import screen, and plans it against
+the directory you are connected to.
 
 ## 9. Point it at your own directory
 
