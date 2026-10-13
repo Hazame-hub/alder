@@ -407,7 +407,7 @@ so the stricter meaning is asked for, never assumed.
   it: it applies what the project describes, and the report is about what it
   does not.
 - **The web interface.** Opening a project in the browser is not in this
-  specification; it is proposed in
+  specification; it is specified, and accepted, in
   [proposals/web-projects.md](proposals/web-projects.md).
 
 ---

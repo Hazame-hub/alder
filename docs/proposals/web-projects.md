@@ -1,13 +1,12 @@
 # Projects in the web interface
 
-**Status: proposed, for review. Nothing here is implemented, and nothing here
-is a decision yet.** `docs/PROJECT.md` ends its later slices with "Opening a
-project in the browser is not in this specification"; this is that
-specification. The recommendation adds one endpoint to the API, which the 1.x
-compatibility promise then keeps for good, so it is recorded in
-`docs/DECISIONS.md` when, and if, the review accepts it, and code waits until
-then. It follows the way the project format and the second server were
-proposed: a specification first.
+**Status: accepted 2026-10-13, all five recommendations as written; the
+first slice is being built.** `docs/PROJECT.md` ends its later slices with
+"Opening a project in the browser is not in this specification"; this is
+that specification. The recommendation adds one endpoint to the API, which
+the 1.x compatibility promise then keeps for good; the acceptance is
+recorded in `docs/DECISIONS.md`. It follows the way the project format and
+the second server were proposed: a specification first.
 
 ---
 
@@ -296,6 +295,8 @@ writing back to the folder; remembering a project across reloads; deleting
 unmanaged entries from the report; saved plans.
 
 ## Open questions for review
+
+*Decided 2026-10-13: each as recommended.*
 
 1. **Which files the browser sends.** `alder.yaml` and every `*.ldif` outside
    dot-directories, or the names of every file plus the contents of only
