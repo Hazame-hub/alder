@@ -1,6 +1,9 @@
 package schema
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
 // ValueKind classifies an attribute value for the UI. It is the bridge between
 // RFC 4517 syntaxes, of which there are dozens, and the handful of input
@@ -109,6 +112,10 @@ var sensitiveAttrs = map[string]bool{
 	"nsds5replicacredentials": true,
 	"pwdhistory":              true,
 	"passwordhistory":         true,
+	// RFC 3112. A digest like userPassword, written "scheme$salt$value"
+	// rather than with a {scheme} prefix, so Releasable reads it as a
+	// credential and no export writes it. That is the conservative mistake.
+	"authpassword": true,
 
 	// The configuration tree's secrets.
 	//
@@ -150,6 +157,7 @@ var sensitiveAttrs = map[string]bool{
 //     name pwdHistory is an alias of passwordHistory, whose OID is listed
 //     under passwordHistory.
 //   - olcRootPW, olcSyncrepl: OpenLDAP's published configuration schema.
+//   - authPassword: RFC 3112 section 4.4.
 //
 // Not listed, because no published OID could be found: nsslapd-rootpw,
 // nsslapd-keypassword, nsds5ReplicaBindCredentials and
@@ -167,6 +175,7 @@ var sensitiveOIDs = map[string]string{
 	"2.16.840.1.113730.3.1.582":        "nsds5replicacredentials",
 	"1.3.6.1.4.1.42.2.27.8.1.20":       "pwdhistory",
 	"2.16.840.1.113730.3.1.96":         "passwordhistory",
+	"1.3.6.1.4.1.4203.1.3.4":           "authpassword",
 	"1.3.6.1.4.1.4203.1.12.2.3.2.0.9":  "olcrootpw",
 	"1.3.6.1.4.1.4203.1.12.2.3.2.0.11": "olcsyncrepl",
 }
@@ -185,8 +194,76 @@ func sensitiveName(attrDescription string) string {
 // IsSensitive reports whether an attribute description names a secret, by
 // name or by OID. Options are ignored, so "userPassword;binary" and
 // "2.5.4.35;binary" are caught too.
+//
+// A type a loaded schema declares as a subtype of a secret is one too: see
+// inheritedSecrets.
 func IsSensitive(attrDescription string) bool {
-	return sensitiveAttrs[sensitiveName(attrDescription)]
+	name := sensitiveName(attrDescription)
+	if sensitiveAttrs[name] {
+		return true
+	}
+	_, inherited := inheritedSecrets.Load(name)
+	return inherited
+}
+
+// inheritedSecrets holds the names and OIDs of attribute types that some
+// schema this process has loaded declares below a sensitive type:
+// "( 1.3.6.1.4.1.99999.1 NAME 'appPassword' SUP userPassword )".
+//
+// The tables above are keyed on names, and a subtype has a name of its own,
+// so its values reached the browser, the log and every export -- the same
+// hash userPassword would have withheld, one SUP away. A subtype is a
+// password by the schema's own definition: a search for userPassword returns
+// it, and the server applies userPassword's matching to it.
+//
+// Process-wide rather than per schema, because the thirty places that ask
+// this question are handed an attribute name and nothing else -- a plan, an
+// export, a log line -- and a fact one of them knows and the shared path does
+// not is exactly how olcSyncrepl leaked before it was listed. The set only
+// ever grows, and growing only withholds more, which is the failure this
+// table is allowed to have: at worst a directory whose schema declares a
+// standard type below userPassword has that type withheld for every session
+// on this Alder until it restarts. Alder is single-tenant (section 2 of the
+// charter), and a directory is already partly trusted.
+//
+// What it cannot do is know a subtype before a schema declaring it has been
+// read, which is why a session reads its schema when it connects. Offline
+// paths -- validating a project with no server -- have only the tables above.
+var inheritedSecrets sync.Map
+
+// learnSecrets records the subtypes of sensitive types this schema declares.
+func (s *Schema) learnSecrets() {
+	for _, at := range s.AttributeTypes {
+		if s.inheritsSecret(at) {
+			inheritedSecrets.Store(fold(at.OID), struct{}{})
+			for _, n := range at.Names {
+				inheritedSecrets.Store(fold(n), struct{}{})
+			}
+		}
+	}
+}
+
+// inheritsSecret reports whether a type's superior chain reaches a type the
+// static tables name. The type itself is not asked: if it is listed, it is
+// already caught, and if it is not, its own name proves nothing.
+func (s *Schema) inheritsSecret(at *AttributeType) bool {
+	if at.SuperName == "" {
+		return false
+	}
+	if sensitiveAttrs[sensitiveName(at.SuperName)] {
+		return true
+	}
+	for _, sup := range s.SuperTypes(at) {
+		if sensitiveAttrs[sensitiveName(sup.OID)] {
+			return true
+		}
+		for _, n := range sup.Names {
+			if sensitiveAttrs[sensitiveName(n)] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // neverReleased are the secrets no export writes, whatever the caller asks
