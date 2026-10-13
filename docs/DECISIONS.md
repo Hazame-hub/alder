@@ -5822,6 +5822,20 @@ command ends, leaving the read to the exiting process. A platform with
 neither termios nor a console never asks; a password shown as it is typed
 is not one to accept. An empty answer is refused like an empty file.
 
+### 2026-10-13 — a partial apply is 6 even when its recovery bundle fails
+
+An apply that stopped partway, and whose recovery bundle then failed to
+verify, exited 8 with `recovery_not_written`: the status a script reads as
+"Alder or the directory refused". It had written to the directory, and
+exit 6 exists to say exactly that. A script that switched on the status --
+re-plan on 6, alert on 8, say -- was told the wrong thing about the one
+fact that matters most.
+
+**The partial apply decides the status, and the bundle's failure goes in
+the message.** A complete apply whose bundle fails still exits 8 with
+`recovery_not_written`, as documented: nothing else went wrong, and the
+missing file is the failure.
+
 ### 2026-10-13 — "Which servers the client works with" names a server per command again
 
 The section said "this release adds no endpoint, so a 1.7 server provides
