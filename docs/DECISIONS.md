@@ -5721,6 +5721,45 @@ arrive while the writer waits on its failing page -- one that arrives after
 the response is ordered behind it by the body's pipe -- so the test keeps
 several going while forty searches fail.
 
+### 2026-10-13 — saved connections, kept in the browser and without passwords
+
+The connection screen remembered one connection: the last that worked.
+Someone who moves between a primary, a replica, dev and prod retyped a host
+and re-pasted a CA certificate every time they changed directory. It now keeps
+a list of connections under names as well, to pick from, rename and delete.
+
+**In `localStorage`, not on the server.** Alder is stateless (section 2 of the
+charter), and a list held by the server would be state to own, expire, scope
+to a person and secure. The cost is that the list is per browser; a team that
+wants a shared list has its own configuration management for that.
+
+**No password, enforced on the bytes and not only on the type.** The saved
+entries hold the same fields as the last connection and nothing else. Every
+write now copies those fields one by one: a TypeScript type is satisfied by an
+object with more properties than it names, and `JSON.stringify` writes every
+one, so before this change a caller passing the form's state would have stored
+its password. Every read takes only the known fields too. Picking a saved
+connection clears both password boxes, so a password typed for one directory
+is never sent to the one picked next.
+
+**The last connection keeps its key and its format.** `alder.recent-connection.v1`
+means what it meant, so a connection remembered before this change is read as
+it was and an older build still finds it; there is nothing to migrate. The
+list is a separate key, `alder.saved-connections.v1`, so an unreadable list
+costs the list and not the remembered connection.
+
+**25 at most, and the 26th is refused rather than evicting the oldest.** It is
+a picker, not an inventory, each entry can carry a CA certificate against a
+quota the whole origin shares, and the oldest entry may be the one used
+daily. Names are bounded to 64 characters and compared without regard to case,
+since "Prod" beside "prod" is a trap. Unlike the last connection, a failure to
+save is reported: the person asked for it.
+
+**Names and connections from storage are shown through `safeText`.** Storage
+is writable by any script on the origin, so what it holds is displayed like
+any other string Alder did not write. The form fields keep the original
+string, because that is what is sent.
+
 ### 2026-10-13 — a listen address is split as an address, not at its first colon
 
 Whether the session cookie may drop `Secure` -- which a browser otherwise
