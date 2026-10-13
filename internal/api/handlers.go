@@ -86,8 +86,15 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		s.logger.Info("connection refused",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
 		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
-			"Could not connect to the directory.", err.Error())
+			"Could not connect to the directory.", s.connectFailureDetail(cfg, err))
 	}
+
+	// Read now, before any entry can be served, because the schema is how
+	// Alder learns which of this directory's own attribute types are
+	// passwords by inheritance (schema.IsSensitive). Best-effort: a directory
+	// that will not show its schema is still worth connecting to, and the
+	// named secrets are withheld either way.
+	_, _ = conn.Schema(ctx)
 
 	sess, err := s.sessions.Add(conn, cfg, s.cfg.ReadOnly)
 	if err != nil {

@@ -32,7 +32,11 @@ failures for the same reason.
 **Sensitive attributes never reach the browser.** `userPassword` and the rest of
 the deny list in `internal/schema/syntax.go` are withheld from every API
 response, with only a value count reported. They are omitted from LDIF exports
-unless explicitly requested.
+unless explicitly requested. The list is matched by name and by OID, and it
+includes RFC 3112 `authPassword` and any attribute type a directory's
+schema declares below a listed one (`SUP userPassword`): a session reads the
+schema when it connects, so a subtype is known before any entry is served. A
+command run with no server, such as `alder project validate`, has only the list.
 
 **The same holds for changes on their way in.** A plan record, a change preview
 and an apply response show a sensitive value only as its length. Before 1.5 a
@@ -284,6 +288,18 @@ Being explicit about the boundary is more useful than implying a wider one.
   whatever that name resolves to at connection time; a deployment that needs
   more than that should reach the directory through a network path that enforces
   it.
+
+  Without a list, a connection that fails says only which of three things
+  happened: nothing at that address answered as a directory, the server there
+  presented a certificate Alder does not trust, or a directory answered and
+  refused the bind. The underlying error -- "connection refused" against
+  "timeout", a DNS failure, the names in a certificate, what a service that is
+  not LDAP sent back -- goes to Alder's log and not to the caller. That narrows
+  what an unauthenticated caller can learn about the network behind Alder; it
+  does not stop them learning whether something answered, which the sentence
+  and the time it took both show. `--allowed-targets` is what closes that, and
+  with it set the full reason is returned again, since every target is one the
+  operator chose.
 - **It is single-tenant by design.** There is no RBAC, no delegation, no
   approval workflow, and no audit log. Authorisation is whatever your directory
   grants the DN you bind as, which is the right place for it but means the bind

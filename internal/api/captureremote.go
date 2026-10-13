@@ -80,7 +80,7 @@ func (s *Server) CaptureFromAnotherServer(c *fiber.Ctx) error {
 		s.logger.Info("remote capture could not connect",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
 		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
-			"Could not connect to that directory.", err.Error())
+			"Could not connect to that directory.", s.connectFailureDetail(cfg, err))
 	}
 	// Closed however this ends. The connection is this request's, and
 	// nothing outlives it -- no session, no cookie, no stored credential.
