@@ -5629,3 +5629,68 @@ own `HasSuffix`. The same comparison in the configuration warnings, and
 the one DN the driver built by concatenation (`"cn=schema," +
 ConfigContext`), go through the `dn` package too, per section 7 rule 2 of
 the charter.
+
+### 2026-10-13 — a failed connection does not describe the network to whoever asked
+
+`POST /session` needs nothing beforehand, and a connection that failed
+returned the driver's error as it was: `dial tcp 10.1.2.3:22: connection
+refused`, an `i/o timeout`, a DNS failure, `x509: certificate is valid for
+payroll.internal, not intranet`. With no `--allowed-targets` that made Alder a
+probe of whatever network it sits on, for anyone who could reach it, with the
+answers spelled out.
+
+**Without a list, three fixed sentences; with one, the error as it was.**
+Nothing at that address answered as a directory; a certificate Alder does not
+trust; or the directory's own refusal of the bind, which was already cleaned
+of its diagnostic text and reveals nothing a correct password would not. A
+certificate is named rather than folded into "unreachable" because it is the
+failure a person connecting to their own directory most needs told, and the
+fix -- a CA, or a server name -- is in the same form. The reason itself goes to
+the log, which is where the operator of a laptop instance reads it anyway.
+With a list, every target is one the operator put there, there is nothing to
+probe, and hiding the reason would only cost the person debugging it. "Capture
+from another server" dials outward the same way and answers the same way.
+
+**This narrows the oracle and does not close it.** Which sentence comes back,
+and how long it took, still say whether something answered; a connection that
+succeeds says it most plainly of all. Closing it means refusing to dial
+addresses nobody approved, which is `--allowed-targets`, and making that the
+default was considered and not done for the reason it is off by default
+(2026-09-12). `SECURITY.md` says what is and is not hidden.
+
+Validation errors and the refusal of plaintext LDAP are about the request, not
+the network, and are repeated as before; the latter is now a named error
+(`ldapdriver.ErrPlaintextRefused`) so it can be told apart without matching
+its text.
+
+### 2026-10-13 — a subtype of a secret is a secret, and authPassword is one
+
+Whether a value is withheld was decided by the attribute's name or OID
+against one table. `( 1.3.6.1.4.1.99999.1 NAME 'appPassword' SUP userPassword
+)` has a name of its own, so its values -- the same hash `userPassword` would
+have withheld, one `SUP` away -- reached the entry view, search results, LDIF
+exports and plans. RFC 3112 `authPassword` was missing from the table
+altogether.
+
+**`authPassword` is listed, by name and by OID.** Its values are written
+`scheme$salt$value`, with no `{scheme}` prefix, so `Releasable` reads one as a
+credential and no export writes it even when asked for secrets. That is the
+cautious mistake, and the viewer does not offer a scheme for it.
+
+**Subtypes are learnt from every schema the process loads, and the set only
+grows.** Per schema would be the more precise model, but the question "is this
+sensitive" is asked in about thirty places, most of which hold an attribute
+name and nothing else -- a plan, an export, a recovery bundle. Threading a
+schema to all of them is a large change for no gain in safety, and the history
+of this table (2026-09, `olcSyncrepl`) is of one path knowing a fact the
+shared one did not. A process-wide set makes every path agree. Its cost is the
+direction it fails in: a directory whose schema declared a standard type below
+`userPassword` would have that type withheld for every session until Alder
+restarts. Withholding too much is the failure this table is allowed; Alder is
+single-tenant and already treats a directory as partly trusted.
+
+**A session reads its schema when it connects**, best-effort, so a subtype is
+known before the first entry is served rather than after the first screen
+that happened to ask. The UI asked straight away anyway, and the driver keeps
+the result. A command with no server -- `project validate` -- has only the
+table, and says no more than it did.
