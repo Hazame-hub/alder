@@ -549,6 +549,8 @@ same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
   permitted, which is right for a laptop beside the directory and wrong for
   anything other people can reach.
 - `--max-in-flight` caps how many API requests are answered at once.
+- `--max-sessions` caps how many directory sessions are held at once (256 by
+  default). Reconnecting from a browser closes the session it replaces.
 - Every flag also reads `ALDER_<FLAG_NAME>`.
 
 ## Working on it

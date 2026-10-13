@@ -5589,3 +5589,29 @@ Three smaller things in the same commands, fixed together:
 
 Reading these flags from the environment was never documented, so nothing
 that followed the documentation changes.
+
+### 2026-10-12 — a ceiling on sessions, and a reconnect lets go of the old one
+
+Every session is a directory connection, held until it is closed or times
+out, and opening one needs nothing beforehand: `POST /session` is how a
+person authenticates, and an anonymous bind is a bind. A loop of requests
+against any reachable directory therefore held one connection each for the
+idle timeout -- file descriptors on Alder, connection slots on the
+directory -- and `--max-in-flight` did not help, because each request
+finishes quickly.
+
+**`--max-sessions`, 256 by default, negative for none.** A connection
+beyond it is refused with 503 before anything is dialled, so a full server
+opens no directory connection only to close it. Sessions past their timeout
+are reaped before a refusal, so nobody is turned away for a session nobody
+holds. 256 is far above a team's use -- a session per browser tab or per
+command-line run -- and is a ceiling on abuse, not a throttle, in the same
+spirit as `--max-in-flight`. A per-address limit was considered and not
+built: behind a proxy every request has the proxy's address.
+
+**Reconnecting closes the session it replaces.** Connecting again from a
+browser that already had a session overwrote the cookie and left the old
+session open, unreachable, holding its connection and its bind password
+until it timed out. It is closed at once now. Nothing is lost by it: the
+cookie is per browser, not per tab, so every tab had already moved to the
+new session.

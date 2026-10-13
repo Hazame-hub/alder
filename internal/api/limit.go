@@ -29,6 +29,14 @@ import (
 // abuse, not a throttle on use.
 const DefaultMaxInFlight = 64
 
+// DefaultMaxSessions is how many directory sessions are open at once by
+// default. Each is a connection to a directory, held until it is closed or
+// times out, and opening one needs no authentication beforehand, so the
+// bound is what stops a loop of connection requests from holding hundreds.
+// Far above what a team uses -- a session per browser tab or CLI run -- and
+// a negative --max-sessions turns it off.
+const DefaultMaxSessions = 256
+
 // inFlightWait is how long a request waits for a slot before being refused.
 //
 // A short wait rather than none, because the burst that fills the last slot is
