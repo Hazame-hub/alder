@@ -116,6 +116,9 @@ func (s *Server) Register(app *fiber.App) {
 	// the SPA's own assets included. Those are served from memory, and queueing
 	// them behind directory work would make a busy Alder look broken rather
 	// than busy.
+	// Before the gate: a request refused for where it came from should not
+	// wait for a slot to be told so.
+	app.Use("/api/v1", sameOriginWrites)
 	app.Use("/api/v1", s.gate.limit())
 	RegisterHandlersWithOptions(app, s, FiberServerOptions{BaseURL: "/api/v1"})
 }
@@ -132,8 +135,9 @@ func (s *Server) cookieName() string {
 //
 // httpOnly keeps it away from any script on the page, Secure keeps it off
 // plaintext connections, and SameSite=Strict means a request originating from
-// another site never carries it: with no CSRF token in the design, SameSite is
-// the whole defence, so it is Strict rather than Lax.
+// another site never carries it. It is Strict rather than Lax because there is
+// no CSRF token in the design. Another origin on the same site still gets the
+// cookie, and sameOriginWrites is what refuses its writes.
 func (s *Server) setSessionCookie(c *fiber.Ctx, id string) {
 	c.Cookie(&fiber.Cookie{
 		Name:     s.cookieName(),
