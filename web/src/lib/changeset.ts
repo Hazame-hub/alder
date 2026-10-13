@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { ChangeRequest } from "@/lib/api";
 import { bench } from "./snapshot-bench";
+import type { ProjectOrigin } from "./project";
 
 /**
  * The staged changeset.
@@ -29,6 +30,18 @@ export type StagedChange = {
 
 let staged: StagedChange[] = [];
 const listeners = new Set<() => void>();
+
+/**
+ * Where the whole changeset came from, when that is one thing the operator
+ * should keep in view while reviewing it: a project's plan, staged on its own,
+ * whose heading names the project and the directory it was planned against.
+ *
+ * It is true only while the changeset is exactly what was staged, so any
+ * other change to the basket -- adding, removing, reordering, clearing --
+ * drops it. Applying keeps it while anything of the project is left, since
+ * what is left is still the rest of that plan.
+ */
+let origin: ProjectOrigin | null = null;
 
 function emit() {
   // A new array on every change: useSyncExternalStore compares by identity, and
@@ -66,7 +79,16 @@ export const changeset = {
   /** How many more changes will fit. */
   capacity: () => maxStagedChanges - staged.length,
 
+  /** What the changeset as a whole is, if it is one thing. */
+  origin: () => origin,
+
+  setOrigin(next: ProjectOrigin | null) {
+    origin = next;
+    emit();
+  },
+
   add(change: ChangeRequest, label: string) {
+    origin = null;
     counter += 1;
     staged.push({ id: `c${counter}`, change, label });
     emit();
@@ -90,6 +112,7 @@ export const changeset = {
     if (items.length > capacity) {
       return { staged: 0, refused: items.length, capacity };
     }
+    origin = null;
     for (const item of items) {
       counter += 1;
       staged.push({ id: `c${counter}`, change: item.change, label: item.label });
@@ -99,6 +122,7 @@ export const changeset = {
   },
 
   remove(id: string) {
+    origin = null;
     staged = staged.filter((s) => s.id !== id);
     emit();
   },
@@ -114,6 +138,7 @@ export const changeset = {
     if (from < 0 || to < 0 || to >= staged.length) return;
     const item = staged[from];
     if (!item) return;
+    origin = null;
     staged.splice(from, 1);
     staged.splice(to, 0, item);
     emit();
@@ -135,10 +160,12 @@ export const changeset = {
     // it was staged from -- the snapshots screen sends its changes here and
     // then shows a result it has no other way of knowing is out of date.
     if (appliedIds.length > 0) bench.markStale();
+    if (staged.length === 0) origin = null;
     emit();
   },
 
   clear() {
+    origin = null;
     staged = [];
     emit();
   },
@@ -146,4 +173,8 @@ export const changeset = {
 
 export function useChangeset(): StagedChange[] {
   return useSyncExternalStore(subscribe, changeset.all, changeset.all);
+}
+
+export function useChangesetOrigin(): ProjectOrigin | null {
+  return useSyncExternalStore(subscribe, changeset.origin, changeset.origin);
 }

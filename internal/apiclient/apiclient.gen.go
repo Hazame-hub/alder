@@ -630,6 +630,7 @@ const (
 	ErrorErrorPackageUnsupportedVersion    ErrorError = "package_unsupported_version"
 	ErrorErrorPlanMismatch                 ErrorError = "plan_mismatch"
 	ErrorErrorPreflightArtifactUnsupported ErrorError = "preflight_artifact_unsupported"
+	ErrorErrorProjectInvalid               ErrorError = "project_invalid"
 	ErrorErrorRecoveryChecksumMismatch     ErrorError = "recovery_checksum_mismatch"
 	ErrorErrorRecoveryInvalid              ErrorError = "recovery_invalid"
 	ErrorErrorRecoveryTooLarge             ErrorError = "recovery_too_large"
@@ -677,6 +678,8 @@ func (e ErrorError) Valid() bool {
 	case ErrorErrorPlanMismatch:
 		return true
 	case ErrorErrorPreflightArtifactUnsupported:
+		return true
+	case ErrorErrorProjectInvalid:
 		return true
 	case ErrorErrorRecoveryChecksumMismatch:
 		return true
@@ -3727,6 +3730,12 @@ type Error struct {
 	// Message A human-readable explanation. Never contains a credential.
 	Message string `json:"message"`
 
+	// Problems With `project_invalid`, every problem the project has, not only
+	// the first, in the words `alder project validate` prints. A
+	// message quotes the files -- a key, a DN, a pattern -- and is
+	// untrusted text. Added in 1.38.
+	Problems *[]ProjectProblem `json:"problems,omitempty"`
+
 	// Remedy Where to look about a refusal (1.22). The hint says what the result
 	// code usually means; this says which screen answers it, and for which
 	// entry. It is a pointer, not a diagnosis: Alder is not claiming the
@@ -4963,6 +4972,95 @@ type PreflightTargetFact struct {
 
 	// Fact A stable identifier for what the target showed, such as absent, present, hidden or defined_differently.
 	Fact string `json:"fact"`
+}
+
+// ProjectFile defines model for ProjectFile.
+type ProjectFile struct {
+	// Content The file's text.
+	Content string `json:"content"`
+
+	// Path Relative to the project's directory and slash-separated:
+	// `alder.yaml`, `people/engineering.ldif`. Clean, with no leading
+	// slash, no `.` or `..` element, no empty element and no backslash,
+	// and unique within the request.
+	Path string `json:"path"`
+}
+
+// ProjectPlan defines model for ProjectPlan.
+type ProjectPlan struct {
+	// BindDn The session's bind DN, which read the directory. Empty for an anonymous bind.
+	BindDn string `json:"bindDn"`
+
+	// Host The directory the plan was made against, `host:port`, as this
+	// session reports it in `GET /session`. Never a value from the files.
+	Host      string             `json:"host"`
+	Plan      Plan               `json:"plan"`
+	Project   ProjectSummary     `json:"project"`
+	Unmanaged []ProjectUnmanaged `json:"unmanaged"`
+}
+
+// ProjectPlanRequest defines model for ProjectPlanRequest.
+type ProjectPlanRequest struct {
+	// Files The project: `alder.yaml` and the files its patterns match. The
+	// web interface sends `alder.yaml` from the top of the chosen
+	// folder and every `*.ldif` below it outside dot-directories, and
+	// nothing else. A file no pattern matches is not part of the
+	// project and is never parsed.
+	Files []ProjectFile `json:"files"`
+}
+
+// ProjectProblem defines model for ProjectProblem.
+type ProjectProblem struct {
+	// File The file the problem is in, as it was sent. Absent when it is about the project as a whole.
+	File *string `json:"file,omitempty"`
+
+	// Line The line, where one is known.
+	Line    *int   `json:"line,omitempty"`
+	Message string `json:"message"`
+}
+
+// ProjectSubtree defines model for ProjectSubtree.
+type ProjectSubtree struct {
+	Base string `json:"base"`
+
+	// Entries How many entries those files describe.
+	Entries int `json:"entries"`
+
+	// Files The files its patterns matched, in the order their records are planned.
+	Files []string `json:"files"`
+}
+
+// ProjectSummary defines model for ProjectSummary.
+type ProjectSummary struct {
+	// Entries How many entries the project describes.
+	Entries int `json:"entries"`
+
+	// Environments The names of the environments `alder.yaml` declares, sorted. They
+	// were validated and are not used: the plan is this session's.
+	Environments []string `json:"environments"`
+
+	// File The project file that was read, always `alder.yaml`.
+	File string `json:"file"`
+
+	// Subtrees The managed subtrees, in the order `managed` lists them.
+	Subtrees []ProjectSubtree `json:"subtrees"`
+}
+
+// ProjectUnmanaged One managed subtree's unmanaged entries, in the shape
+// `alder project plan --json` writes.
+type ProjectUnmanaged struct {
+	Base string `json:"base"`
+
+	// Entries The DNs the directory holds at or below `base` that no file
+	// describes, parent before child. Compared with DN equality as the
+	// directory compares names, not as text.
+	Entries []string `json:"entries"`
+
+	// Error Why the subtree could not be read whole: more entries than a
+	// snapshot holds, a size limit, referrals, or a refusal. `entries`
+	// is then empty and says nothing either way. A base the directory
+	// does not hold has no entries and no error.
+	Error *string `json:"error,omitempty"`
 }
 
 // RecoveryAssessment defines model for RecoveryAssessment.
@@ -6362,6 +6460,9 @@ type PlanChangesJSONRequestBody = PlanRequest
 // PreflightJSONRequestBody defines body for Preflight for application/json ContentType.
 type PreflightJSONRequestBody = PreflightRequest
 
+// PlanProjectJSONRequestBody defines body for PlanProject for application/json ContentType.
+type PlanProjectJSONRequestBody = ProjectPlanRequest
+
 // InspectRecoveryJSONRequestBody defines body for InspectRecovery for application/json ContentType.
 type InspectRecoveryJSONRequestBody = RecoveryBundle
 
@@ -7688,6 +7789,88 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /preflight (the `Preflight` operationId).
 	Preflight(ctx context.Context, body PreflightJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanProjectWithBody Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+	//
+	// The web interface's *Open project*: `alder project validate`, and
+	// `alder project plan`'s plan and unmanaged-entries report, in one
+	// request (docs/proposals/web-projects.md).
+	//
+	// **Stateless.** The files exist for this request only. They are held
+	// in memory as a filesystem of their own, read by the same package the
+	// command-line client reads a project with -- the same rules, the same
+	// globs, the same refusal of secrets, in the same words -- and dropped
+	// when the response is sent. Nothing on the server's own filesystem
+	// can be named: a pattern in `alder.yaml` matches only files that were
+	// sent.
+	//
+	// **The plan is the session's.** `alder.yaml` must be at the top
+	// (`path: alder.yaml`). Its `environments` are validated, so a project
+	// `alder project validate` refuses for a bad environment is refused
+	// here too, and are then never used: no `api-url` is followed, no host
+	// dialled, no `ca-file` read and no password variable or file looked
+	// up. The plan is made against the directory this session is bound
+	// to, as this session's bind, under the names the files are written
+	// with -- an environment's own `suffix` is not applied. `host` and
+	// `bindDn` say which directory that is; they are the session's, never
+	// values from the files.
+	//
+	// The plan is exactly `POST /plan` with the project's records as one
+	// `ldif` document in `mode: desired`: subtrees in the order `managed`
+	// lists them, files in sorted order, records as written. It is bounded
+	// the same way. `unmanaged` is, for each managed subtree in the same
+	// order, the entries the directory holds there that no file describes,
+	// read whole as a snapshot capture reads it or reported with `error`.
+	// Reported, never planned: a project is not a deleter.
+	//
+	// Nothing is written, so this is allowed on an Alder started with
+	// `--read-only`.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /project/plan (the `PlanProject` operationId).
+	PlanProjectWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanProject Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+	//
+	// The web interface's *Open project*: `alder project validate`, and
+	// `alder project plan`'s plan and unmanaged-entries report, in one
+	// request (docs/proposals/web-projects.md).
+	//
+	// **Stateless.** The files exist for this request only. They are held
+	// in memory as a filesystem of their own, read by the same package the
+	// command-line client reads a project with -- the same rules, the same
+	// globs, the same refusal of secrets, in the same words -- and dropped
+	// when the response is sent. Nothing on the server's own filesystem
+	// can be named: a pattern in `alder.yaml` matches only files that were
+	// sent.
+	//
+	// **The plan is the session's.** `alder.yaml` must be at the top
+	// (`path: alder.yaml`). Its `environments` are validated, so a project
+	// `alder project validate` refuses for a bad environment is refused
+	// here too, and are then never used: no `api-url` is followed, no host
+	// dialled, no `ca-file` read and no password variable or file looked
+	// up. The plan is made against the directory this session is bound
+	// to, as this session's bind, under the names the files are written
+	// with -- an environment's own `suffix` is not applied. `host` and
+	// `bindDn` say which directory that is; they are the session's, never
+	// values from the files.
+	//
+	// The plan is exactly `POST /plan` with the project's records as one
+	// `ldif` document in `mode: desired`: subtrees in the order `managed`
+	// lists them, files in sorted order, records as written. It is bounded
+	// the same way. `unmanaged` is, for each managed subtree in the same
+	// order, the entries the directory holds there that no file describes,
+	// read whole as a snapshot capture reads it or reported with `error`.
+	// Reported, never planned: a project is not a deleter.
+	//
+	// Nothing is written, so this is allowed on an Alder started with
+	// `--read-only`.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /project/plan (the `PlanProject` operationId).
+	PlanProject(ctx context.Context, body PlanProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// InspectRecoveryWithBody Validate a recovery bundle and turn it into changes to plan
 	//
@@ -9639,6 +9822,108 @@ func (c *Client) PreflightWithBody(ctx context.Context, contentType string, body
 // Corresponds with POST /preflight (the `Preflight` operationId).
 func (c *Client) Preflight(ctx context.Context, body PreflightJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPreflightRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PlanProjectWithBody Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+//
+// The web interface's *Open project*: `alder project validate`, and
+// `alder project plan`'s plan and unmanaged-entries report, in one
+// request (docs/proposals/web-projects.md).
+//
+// **Stateless.** The files exist for this request only. They are held
+// in memory as a filesystem of their own, read by the same package the
+// command-line client reads a project with -- the same rules, the same
+// globs, the same refusal of secrets, in the same words -- and dropped
+// when the response is sent. Nothing on the server's own filesystem
+// can be named: a pattern in `alder.yaml` matches only files that were
+// sent.
+//
+// **The plan is the session's.** `alder.yaml` must be at the top
+// (`path: alder.yaml`). Its `environments` are validated, so a project
+// `alder project validate` refuses for a bad environment is refused
+// here too, and are then never used: no `api-url` is followed, no host
+// dialled, no `ca-file` read and no password variable or file looked
+// up. The plan is made against the directory this session is bound
+// to, as this session's bind, under the names the files are written
+// with -- an environment's own `suffix` is not applied. `host` and
+// `bindDn` say which directory that is; they are the session's, never
+// values from the files.
+//
+// The plan is exactly `POST /plan` with the project's records as one
+// `ldif` document in `mode: desired`: subtrees in the order `managed`
+// lists them, files in sorted order, records as written. It is bounded
+// the same way. `unmanaged` is, for each managed subtree in the same
+// order, the entries the directory holds there that no file describes,
+// read whole as a snapshot capture reads it or reported with `error`.
+// Reported, never planned: a project is not a deleter.
+//
+// Nothing is written, so this is allowed on an Alder started with
+// `--read-only`.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /project/plan (the `PlanProject` operationId).
+func (c *Client) PlanProjectWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanProjectRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PlanProject Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+//
+// The web interface's *Open project*: `alder project validate`, and
+// `alder project plan`'s plan and unmanaged-entries report, in one
+// request (docs/proposals/web-projects.md).
+//
+// **Stateless.** The files exist for this request only. They are held
+// in memory as a filesystem of their own, read by the same package the
+// command-line client reads a project with -- the same rules, the same
+// globs, the same refusal of secrets, in the same words -- and dropped
+// when the response is sent. Nothing on the server's own filesystem
+// can be named: a pattern in `alder.yaml` matches only files that were
+// sent.
+//
+// **The plan is the session's.** `alder.yaml` must be at the top
+// (`path: alder.yaml`). Its `environments` are validated, so a project
+// `alder project validate` refuses for a bad environment is refused
+// here too, and are then never used: no `api-url` is followed, no host
+// dialled, no `ca-file` read and no password variable or file looked
+// up. The plan is made against the directory this session is bound
+// to, as this session's bind, under the names the files are written
+// with -- an environment's own `suffix` is not applied. `host` and
+// `bindDn` say which directory that is; they are the session's, never
+// values from the files.
+//
+// The plan is exactly `POST /plan` with the project's records as one
+// `ldif` document in `mode: desired`: subtrees in the order `managed`
+// lists them, files in sorted order, records as written. It is bounded
+// the same way. `unmanaged` is, for each managed subtree in the same
+// order, the entries the directory holds there that no file describes,
+// read whole as a snapshot capture reads it or reported with `error`.
+// Reported, never planned: a project is not a deleter.
+//
+// Nothing is written, so this is allowed on an Alder started with
+// `--read-only`.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /project/plan (the `PlanProject` operationId).
+func (c *Client) PlanProject(ctx context.Context, body PlanProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanProjectRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -11932,6 +12217,46 @@ func NewPreflightRequestWithBody(server string, contentType string, body io.Read
 	return req, nil
 }
 
+// NewPlanProjectRequest calls the generic PlanProject builder with application/json body
+func NewPlanProjectRequest(server string, body PlanProjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPlanProjectRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPlanProjectRequestWithBody constructs an http.Request for the PlanProject method, with any body, and a specified content type
+func NewPlanProjectRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/project/plan")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewInspectRecoveryRequest calls the generic InspectRecovery builder with application/json body
 func NewInspectRecoveryRequest(server string, body InspectRecoveryJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -13847,6 +14172,88 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /preflight (the `Preflight` operationId).
 	PreflightWithResponse(ctx context.Context, body PreflightJSONRequestBody, reqEditors ...RequestEditorFn) (*PreflightReply, error)
+
+	// PlanProjectWithBodyWithResponse Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+	//
+	// The web interface's *Open project*: `alder project validate`, and
+	// `alder project plan`'s plan and unmanaged-entries report, in one
+	// request (docs/proposals/web-projects.md).
+	//
+	// **Stateless.** The files exist for this request only. They are held
+	// in memory as a filesystem of their own, read by the same package the
+	// command-line client reads a project with -- the same rules, the same
+	// globs, the same refusal of secrets, in the same words -- and dropped
+	// when the response is sent. Nothing on the server's own filesystem
+	// can be named: a pattern in `alder.yaml` matches only files that were
+	// sent.
+	//
+	// **The plan is the session's.** `alder.yaml` must be at the top
+	// (`path: alder.yaml`). Its `environments` are validated, so a project
+	// `alder project validate` refuses for a bad environment is refused
+	// here too, and are then never used: no `api-url` is followed, no host
+	// dialled, no `ca-file` read and no password variable or file looked
+	// up. The plan is made against the directory this session is bound
+	// to, as this session's bind, under the names the files are written
+	// with -- an environment's own `suffix` is not applied. `host` and
+	// `bindDn` say which directory that is; they are the session's, never
+	// values from the files.
+	//
+	// The plan is exactly `POST /plan` with the project's records as one
+	// `ldif` document in `mode: desired`: subtrees in the order `managed`
+	// lists them, files in sorted order, records as written. It is bounded
+	// the same way. `unmanaged` is, for each managed subtree in the same
+	// order, the entries the directory holds there that no file describes,
+	// read whole as a snapshot capture reads it or reported with `error`.
+	// Reported, never planned: a project is not a deleter.
+	//
+	// Nothing is written, so this is allowed on an Alder started with
+	// `--read-only`.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /project/plan (the `PlanProject` operationId).
+	PlanProjectWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PlanProjectReply, error)
+
+	// PlanProjectWithResponse Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+	//
+	// The web interface's *Open project*: `alder project validate`, and
+	// `alder project plan`'s plan and unmanaged-entries report, in one
+	// request (docs/proposals/web-projects.md).
+	//
+	// **Stateless.** The files exist for this request only. They are held
+	// in memory as a filesystem of their own, read by the same package the
+	// command-line client reads a project with -- the same rules, the same
+	// globs, the same refusal of secrets, in the same words -- and dropped
+	// when the response is sent. Nothing on the server's own filesystem
+	// can be named: a pattern in `alder.yaml` matches only files that were
+	// sent.
+	//
+	// **The plan is the session's.** `alder.yaml` must be at the top
+	// (`path: alder.yaml`). Its `environments` are validated, so a project
+	// `alder project validate` refuses for a bad environment is refused
+	// here too, and are then never used: no `api-url` is followed, no host
+	// dialled, no `ca-file` read and no password variable or file looked
+	// up. The plan is made against the directory this session is bound
+	// to, as this session's bind, under the names the files are written
+	// with -- an environment's own `suffix` is not applied. `host` and
+	// `bindDn` say which directory that is; they are the session's, never
+	// values from the files.
+	//
+	// The plan is exactly `POST /plan` with the project's records as one
+	// `ldif` document in `mode: desired`: subtrees in the order `managed`
+	// lists them, files in sorted order, records as written. It is bounded
+	// the same way. `unmanaged` is, for each managed subtree in the same
+	// order, the entries the directory holds there that no file describes,
+	// read whole as a snapshot capture reads it or reported with `error`.
+	// Reported, never planned: a project is not a deleter.
+	//
+	// Nothing is written, so this is allowed on an Alder started with
+	// `--read-only`.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /project/plan (the `PlanProject` operationId).
+	PlanProjectWithResponse(ctx context.Context, body PlanProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PlanProjectReply, error)
 
 	// InspectRecoveryWithBodyWithResponse Validate a recovery bundle and turn it into changes to plan
 	//
@@ -16022,6 +16429,82 @@ func (r PreflightReply) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PreflightReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PlanProjectReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProjectPlan
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PlanProjectReply) GetJSON200() *ProjectPlan {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r PlanProjectReply) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r PlanProjectReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r PlanProjectReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r PlanProjectReply) GetJSON413() *Error {
+	return r.JSON413
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r PlanProjectReply) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r PlanProjectReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PlanProjectReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PlanProjectReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PlanProjectReply) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -18447,6 +18930,100 @@ func (c *ClientWithResponses) PreflightWithResponse(ctx context.Context, body Pr
 	return ParsePreflightReply(rsp)
 }
 
+// PlanProjectWithBodyWithResponse Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+//
+// The web interface's *Open project*: `alder project validate`, and
+// `alder project plan`'s plan and unmanaged-entries report, in one
+// request (docs/proposals/web-projects.md).
+//
+// **Stateless.** The files exist for this request only. They are held
+// in memory as a filesystem of their own, read by the same package the
+// command-line client reads a project with -- the same rules, the same
+// globs, the same refusal of secrets, in the same words -- and dropped
+// when the response is sent. Nothing on the server's own filesystem
+// can be named: a pattern in `alder.yaml` matches only files that were
+// sent.
+//
+// **The plan is the session's.** `alder.yaml` must be at the top
+// (`path: alder.yaml`). Its `environments` are validated, so a project
+// `alder project validate` refuses for a bad environment is refused
+// here too, and are then never used: no `api-url` is followed, no host
+// dialled, no `ca-file` read and no password variable or file looked
+// up. The plan is made against the directory this session is bound
+// to, as this session's bind, under the names the files are written
+// with -- an environment's own `suffix` is not applied. `host` and
+// `bindDn` say which directory that is; they are the session's, never
+// values from the files.
+//
+// The plan is exactly `POST /plan` with the project's records as one
+// `ldif` document in `mode: desired`: subtrees in the order `managed`
+// lists them, files in sorted order, records as written. It is bounded
+// the same way. `unmanaged` is, for each managed subtree in the same
+// order, the entries the directory holds there that no file describes,
+// read whole as a snapshot capture reads it or reported with `error`.
+// Reported, never planned: a project is not a deleter.
+//
+// Nothing is written, so this is allowed on an Alder started with
+// `--read-only`.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /project/plan (the `PlanProject` operationId).
+func (c *ClientWithResponses) PlanProjectWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PlanProjectReply, error) {
+	rsp, err := c.PlanProjectWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanProjectReply(rsp)
+}
+
+// PlanProjectWithResponse Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+//
+// The web interface's *Open project*: `alder project validate`, and
+// `alder project plan`'s plan and unmanaged-entries report, in one
+// request (docs/proposals/web-projects.md).
+//
+// **Stateless.** The files exist for this request only. They are held
+// in memory as a filesystem of their own, read by the same package the
+// command-line client reads a project with -- the same rules, the same
+// globs, the same refusal of secrets, in the same words -- and dropped
+// when the response is sent. Nothing on the server's own filesystem
+// can be named: a pattern in `alder.yaml` matches only files that were
+// sent.
+//
+// **The plan is the session's.** `alder.yaml` must be at the top
+// (`path: alder.yaml`). Its `environments` are validated, so a project
+// `alder project validate` refuses for a bad environment is refused
+// here too, and are then never used: no `api-url` is followed, no host
+// dialled, no `ca-file` read and no password variable or file looked
+// up. The plan is made against the directory this session is bound
+// to, as this session's bind, under the names the files are written
+// with -- an environment's own `suffix` is not applied. `host` and
+// `bindDn` say which directory that is; they are the session's, never
+// values from the files.
+//
+// The plan is exactly `POST /plan` with the project's records as one
+// `ldif` document in `mode: desired`: subtrees in the order `managed`
+// lists them, files in sorted order, records as written. It is bounded
+// the same way. `unmanaged` is, for each managed subtree in the same
+// order, the entries the directory holds there that no file describes,
+// read whole as a snapshot capture reads it or reported with `error`.
+// Reported, never planned: a project is not a deleter.
+//
+// Nothing is written, so this is allowed on an Alder started with
+// `--read-only`.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /project/plan (the `PlanProject` operationId).
+func (c *ClientWithResponses) PlanProjectWithResponse(ctx context.Context, body PlanProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PlanProjectReply, error) {
+	rsp, err := c.PlanProject(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanProjectReply(rsp)
+}
+
 // InspectRecoveryWithBodyWithResponse Validate a recovery bundle and turn it into changes to plan
 //
 // Validates an uploaded recovery bundle and returns its compensating
@@ -20398,6 +20975,67 @@ func ParsePreflightReply(rsp *http.Response) (*PreflightReply, error) {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePlanProjectReply parses an HTTP response from a PlanProjectWithResponse call
+func ParsePlanProjectReply(rsp *http.Response) (*PlanProjectReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PlanProjectReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProjectPlan
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
 
 	}
 

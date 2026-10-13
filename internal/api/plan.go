@@ -83,18 +83,28 @@ func (s *Server) PlanChanges(c *fiber.Ctx) error {
 
 	ctx, cancel := reqCtx(c)
 	defer cancel()
+	out, err := s.planProposals(ctx, sess, proposals)
+	if err != nil {
+		return s.fail(c, err)
+	}
+	return c.JSON(out)
+}
+
+// planProposals is the plan itself, for POST /plan and for a project's plan,
+// which is the same plan of the same document: one planner, one answer.
+func (s *Server) planProposals(ctx context.Context, sess *session.Session, proposals []plan.Proposal) (Plan, error) {
 	sch, _ := sess.Conn.Schema(ctx)
 
 	computed, err := s.planner.ForSession(sessionScope(sess)).ComputeProposals(ctx, planReader{sess.Conn}, sch, proposals,
 		plan.Options{MembershipAttributes: membershipAttrs, SchemaLocator: schemaLocator(sess.Conn.Capabilities())})
 	if err != nil {
-		return s.fail(c, err)
+		return Plan{}, err
 	}
 
 	caps := sess.Conn.Capabilities()
 	refs, refSummary, err := s.referenceImpact(ctx, sess.Conn, sch, caps, computed)
 	if err != nil {
-		return s.fail(c, err)
+		return Plan{}, err
 	}
 
 	out := Plan{
@@ -106,7 +116,7 @@ func (s *Server) PlanChanges(c *fiber.Ctx) error {
 	for _, item := range computed.Items {
 		view, viewErr := s.planItem(item, sch, caps)
 		if viewErr != nil {
-			return s.fail(c, viewErr)
+			return Plan{}, viewErr
 		}
 		if r, ok := refs[item.Index]; ok {
 			view.References = r
@@ -147,7 +157,7 @@ func (s *Server) PlanChanges(c *fiber.Ctx) error {
 	if warnings := changesetWarnings(records); len(warnings) > 0 {
 		out.Warnings = ptr(warnings)
 	}
-	return c.JSON(out)
+	return out, nil
 }
 
 // parseLdifForPlan turns a document into proposals, writing the refusal and

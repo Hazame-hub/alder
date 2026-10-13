@@ -19,6 +19,7 @@ import { LdifBlock } from "@/components/ldif-block";
 import { PlanSummary } from "@/components/plan-summary";
 import { stageChanges, type StageOutcome } from "@/lib/stage-deletes";
 import { safeText } from "@/lib/display";
+import { ProjectPanel } from "@/features/project";
 
 /**
  * ImportPanel parses an LDIF document and offers two ways to act on it: one
@@ -39,8 +40,10 @@ import { safeText } from "@/lib/display";
  */
 export function ImportPanel({
   onReviewChangeset,
+  onBrowse,
 }: {
   onReviewChangeset: () => void;
+  onBrowse: (dn: string) => void;
 }) {
   const [text, setText] = useState("");
   const [applied, setApplied] = useState<Set<number>>(new Set());
@@ -113,6 +116,8 @@ export function ImportPanel({
           individual changes; nothing is applied until you confirm each one.
         </p>
       </header>
+
+      <ProjectPanel onBrowse={onBrowse} onReviewChangeset={onReviewChangeset} />
 
       <div
         onDragOver={(e) => e.preventDefault()}

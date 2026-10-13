@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { ChangeOutcome, ChangeRequest, ChangesetResult, Plan } from "@/lib/api";
-import { changeset, useChangeset } from "@/lib/changeset";
+import { changeset, useChangeset, useChangesetOrigin } from "@/lib/changeset";
 import { changesFromPlan } from "@/lib/plan";
 import {
   appliedIds,
@@ -35,6 +35,7 @@ import { UnknownOutcome } from "@/components/unknown-outcome";
 import { DownloadButton } from "@/components/ldif-block";
 import { assessmentLine, bundleText, overallRecovery, recoveryFilename } from "@/lib/recovery";
 import { RecoveryLoader } from "@/features/recovery-loader";
+import { ProjectHeading } from "@/features/project";
 import { safeText } from "@/lib/display";
 
 /**
@@ -53,6 +54,9 @@ export function ChangesetView({
   onBrowse: (dn: string) => void;
 }) {
   const staged = useChangeset();
+  // A project's plan, staged on its own, keeps its heading over the review:
+  // which project, and which directory it was planned against.
+  const origin = useChangesetOrigin();
   const queryClient = useQueryClient();
   const [result, setResult] = useState<ChangesetResult | null>(null);
   // The changes the last run sent, as sent. Its outcomes are numbered by
@@ -221,7 +225,8 @@ export function ChangesetView({
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
             Every change dialog has an <strong>Add to changeset</strong> button
             next to Apply. A table's selection can stage its deletions, and a
-            parsed LDIF document can be staged whole from the Import tab. Read
+            parsed LDIF document or an opened project&apos;s plan can be staged
+            whole from the Import tab. Read
             them as one document, apply them in order — or export the lot as a
             single Ansible playbook and never apply them here at all.
           </p>
@@ -255,6 +260,12 @@ export function ChangesetView({
           Discard all
         </Button>
       </div>
+
+      {origin ? (
+        <div className="mb-4">
+          <ProjectHeading origin={origin} />
+        </div>
+      ) : null}
 
       {resultPanel}
 
@@ -496,6 +507,7 @@ export function ChangesetView({
           {current
             ? `Apply ${applyBody.changes.length} of ${staged.length} in order`
             : `Apply ${staged.length} change${staged.length === 1 ? "" : "s"} in order`}
+          {origin ? ` to ${safeText(origin.host)}` : ""}
         </Button>
       </div>
     </div>
