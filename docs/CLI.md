@@ -95,7 +95,7 @@ connect to. The directory flags are exactly the connection screen's fields.
 | `--host` | `ALDER_HOST` | The directory's host, as the Alder server reaches it. Required for everything but comparing two snapshot files. |
 | `--port` | `ALDER_PORT` | The directory's port. Default 636 for `ldaps`, 389 otherwise. |
 | `--tls` | `ALDER_TLS` | `ldaps` (default), `starttls` or `plaintext`. The server refuses plaintext unless it was started with `--i-know-this-is-insecure`. |
-| `--ca-file` | `ALDER_CA_FILE` | PEM certificates to verify the directory's certificate with |
+| `--ca-file` | `ALDER_CA_FILE` | PEM certificates to verify the directory's certificate with. The file goes to Alder with the connection, so it must hold certificates and nothing else (comment lines are allowed): anything else is refused before a request is sent, and only the certificates are sent. |
 | `--server-name` | `ALDER_SERVER_NAME` | The name to check the directory's certificate against, when it is not `--host` |
 | `--insecure-skip-verify` | — | Do not verify the directory's certificate. The session is marked unverified. |
 | `--bind-dn` | `ALDER_BIND_DN` | The DN to bind as. Omit it for an anonymous bind. |
