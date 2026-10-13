@@ -101,7 +101,8 @@ func (r *remote) unsupported(ctx context.Context, what string) *ExitError {
 	}
 	return failf("unsupported_server",
 		"the Alder server at %s (%s) has no endpoint for %s. This client is alder %s; "+
-			"snapshots and diff need an Alder server of 1.7 or later, and plan and apply need 1.6 or later",
+			"\"Which servers the client works with\" in docs/CLI.md names the server each command needs, "+
+			"and 1.14 or later has them all",
 		r.base, version, what, r.env.Version)
 }
 

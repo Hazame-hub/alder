@@ -223,7 +223,7 @@ func TestAServerWithoutTheEndpointIsNamedWithItsVersion(t *testing.T) {
 	s := newStub(t) // no /snapshots/capture: an older Alder
 	r := s.run(t, runOpts{}, "snapshot", "--base", "dc=example,dc=test", "--output", "-")
 	expectCode(t, r, ExitFailed)
-	if !strings.Contains(r.stderr, "version 9.9.9") || !strings.Contains(r.stderr, "1.7") {
+	if !strings.Contains(r.stderr, "version 9.9.9") || !strings.Contains(r.stderr, "1.14 or later") {
 		t.Errorf("stderr = %s", r.stderr)
 	}
 	if len(s.called("DELETE /api/v1/session")) != 1 {

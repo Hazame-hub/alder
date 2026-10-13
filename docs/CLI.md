@@ -896,7 +896,8 @@ included.
 
 ## Which servers the client works with
 
-The client uses these endpoints:
+The client uses these endpoints. Each row names the oldest server that has
+everything the commands in it call.
 
 | Commands | Endpoints | Needs a server of |
 |---|---|---|
@@ -904,11 +905,19 @@ The client uses these endpoints:
 | `plan`, `apply` | `/plan` with LDIF and `mode`, `/import/ldif`, `/changeset/apply` with plan tokens | 1.6 or later, where a plan token binds the secrets in the operation it plans |
 | `snapshot`, `diff` | `/snapshots/capture`, `/diff` | 1.7 or later |
 | `diff` of two snapshot files, with no directory flags | `/diff` without a session | 1.8 or later |
+| `apply --recovery-out`, `plan` and `apply --recovery` | `recovery` on `/changeset/apply`, `/recovery/inspect` | 1.9 or later |
+| `snapshot --kind schema`, `diff --schema-target` | schema kind on `/snapshots/capture` and `/diff` | 1.10 or later |
+| `package create`, `package inspect`, `package validate`, `plan` and `apply --package` | `/packages/build`, `/packages/inspect`, `/packages/validate` | 1.11 or later |
+| `preflight` | `/preflight` | 1.12 or later; a configuration snapshot as its source needs 1.14 |
+| `snapshot --kind config`, configuration in `diff` | config kind on `/snapshots/capture` and `/diff` | 1.13 or later |
+| `project plan`, `project apply`, the unmanaged-entries report | `/plan`, `/changeset/apply`, `/snapshots/capture` | 1.7 or later |
 
-This release adds no endpoint, so a 1.7 server provides everything the client
-calls. A server without an endpoint the client needs is reported by name and
-version (`unsupported_server`), not as a bare HTTP 404. `alder version --api-url
-…` shows both versions. The snapshot format follows the snapshot compatibility
+`project validate`, `project fmt`, `key`, `sign` and `verify` call no server.
+
+So a server of 1.14 or later provides everything this client calls. A server
+without an endpoint the client needs is reported by name and version
+(`unsupported_server`), not as a bare HTTP 404. `alder version --api-url …`
+shows both versions. The snapshot format follows the snapshot compatibility
 promise: version 1 is read by every 1.x release from 1.7 on.
 
 ---
