@@ -36,6 +36,23 @@ func safe(s string) string {
 	return b.String()
 }
 
+// safeLines is safe for a message Alder composed over several lines: each line
+// is made safe, and the line breaks Alder put there are kept.
+//
+// It is the last line of defence where every error is printed, not the first.
+// A value from a directory or a repository can hold a newline of its own, and
+// keeping it would let the value start a line of its choosing -- in a CI log,
+// a workflow command -- so what interpolates one escapes it with safe first.
+// What this catches is the escape sequence a path nobody thought of let
+// through.
+func safeLines(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = safe(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func unsafeRune(r rune) bool {
 	switch {
 	case r < 0x20, r == 0x7f:
