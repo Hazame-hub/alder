@@ -170,10 +170,13 @@ read. It is an assessment made before anything runs, from the operation alone. T
 derived from the entry as it was then, and says more -- whether a deleted entry
 held a password, for instance. See [RECOVERY.md](RECOVERY.md). Added in 1.9.
 
-Recovery is **unavailable** for a `schema` or `config` item. Compensation is
-derived from ordinary directory state, and neither a schema entry nor a
-configuration entry is that; a configuration change is put back the way it was
-made, by planning the opposite change.
+For a `schema` or `config` item, recovery depends on what the item does. A
+modification of a configuration entry is compensated setting by setting, from
+the values the server stored before; a schema modification is compensated one
+definition at a time, and is `partial` when it adds or changes a definition
+entries may now use. Creating, removing or renaming a configuration entry is
+`unavailable`. See
+[RECOVERY.md](RECOVERY.md#the-schema-and-the-configuration). Since 1.38.
 
 ### `impact`
 

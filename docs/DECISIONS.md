@@ -5887,3 +5887,94 @@ states the exception and how narrow it is: one question, the tree first
 wherever there is one. Nothing else may use the vendor name, so the
 contributing guide's rule stands with the exception named.
 
+
+### 2026-10-13 — recovery covers schema and configuration modifications
+
+Until now a recovery bundle marked every `schema` and `config` item
+`unavailable`, with `schema_or_config_not_supported`. Those are the changes
+an operator is most anxious about, and most of them can be compensated as
+precisely as data.
+
+**A configuration modification is compensated setting by setting.** Each
+attribute the change touched is read before it and again after it, through the
+same session and so through the identity the server routes that tree to
+(`config-bind-dn` when there is one). The compensation replaces it with the
+values as stored before -- with their `{n}` positions and in the server's own
+spelling, not as they were sent -- or deletes it if it was unset. The
+expectation is the values read after, so a setting changed by someone else in
+between is a conflict, not a silent overwrite. The read after is what makes
+this safe: a server rewrites what it is sent (positions, case, normalised
+durations), and an expectation built from the request would drift on every
+server.
+
+**What is not written stays out.** A sensitive setting -- `olcRootPW`,
+`nsslapd-rootpw`, the credentials in `olcSyncrepl` -- is recorded by name and
+makes the step partial with `sensitive_value_not_captured`, as for data. An
+access rule (`olcAccess`, `aci`) on a configuration or schema entry is not
+compensated, with the new `access_rule_not_written`, because the charter says
+Alder never writes one. A data-tree `aci` modification is still compensated as
+it has been since 1.9. That is inconsistent and is left alone here: changing
+it would make bundles that recover today stop doing so, and deserves its own
+decision.
+
+**Creating, removing or renaming a configuration entry is `unavailable`**,
+with `config_entry_not_compensated`. Removing a database, an overlay or a
+replication agreement has effects a recreation does not undo -- the server
+starts and stops things -- and the entry may not be readable whole by the
+identity that changed it. That is an honest limit, not a gap to close by
+replaying LDIF.
+
+**A schema modification is compensated one definition at a time, by OID.**
+Both servers hold a whole value set in one attribute, and a change touches
+one definition in it. A definition the change added is removed by its stored
+value; one it removed is added back as it was stored, with its position on a
+server that numbers them; one it changed is removed and the old one added
+back. Compensations run in reverse, so a class is removed before the type it
+uses. A replace or a delete of the whole attribute, or a value that does not
+parse, keeps `schema_or_config_not_supported` for that attribute: a set this
+large is not something to put back blind.
+
+**Adding or changing a definition is `partial`, never `exact`.** Entries
+written after the change may use what it defined; the compensation does not
+touch them, and the server may refuse it while they exist, or accept it and
+leave entries that no longer validate. The new `definition_may_be_in_use`
+says so. Putting back a removed definition is `exact`: nothing can have come
+to depend on its absence. A server that will not delete a definition is
+answered by the plan and the apply as any refusal is, not predicted from the
+vendor's name; nothing here branches on one.
+
+**The expectation names definitions, not the attribute.** A whole-attribute
+expectation was rejected: on a server with hundreds of definitions, any
+unrelated schema change anywhere would make the compensation a conflict, and
+on one that numbers values it would after any insertion. `expect.definitions`
+holds `{attribute, oid, value}`: there is exactly one definition with that
+OID, equal byte for byte with any position stripped, or with no value, none.
+
+**This replaces a 1.13 rule.** The configuration-comparison decision said
+recovery stays unavailable for configuration, and the conformance suite held
+it as invariant 7. Its reason -- compensation is derived from ordinary
+directory state, and a configuration entry is not that -- is answered above by
+reading the entry the server stored, before and after. Invariant 7 now holds
+the part that still matters: a configuration change is planned as one, and its
+recovery is assessed as one -- exact for the ordinary setting the suite
+nominates.
+
+**The format stays version 1.** The additions are new reason codes and an
+optional field. A bundle that uses neither reads in older releases as it
+did. One that does is refused by an older release's strict decoder as
+`recovery_invalid`, which is the safe failure: it does not compensate without
+the expectation. COMPATIBILITY.md already says recovery enums may grow.
+
+**The read after has a window.** Between the apply and the read after,
+another writer can change the same setting, and the bundle would then expect
+their value. The window is one round trip on the same connection, and a
+change made in it is still visible in the bundle's expectation; closing it
+would need a server-side transaction neither server offers for these trees.
+When the read after fails, the step is `unavailable` with
+`post_state_unavailable` rather than guessing.
+
+**Unverified.** The conformance cases cover a configuration modify and a
+schema add on both servers. Putting a removed definition back at its stored
+position on OpenLDAP is covered only against an emulated directory in the
+unit tests, and what 389 DS does when asked to delete a definition in use is
+not tested at all: the plan and the apply report whatever it answers.

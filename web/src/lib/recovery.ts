@@ -31,8 +31,12 @@ export const REASON: Record<RecoveryReasonCode, string> = {
   identity_regenerated: "a recreated entry gets a new identity and timestamps",
   hidden_attributes_unknown: "attributes this login cannot read are not restored",
   sensitive_values_not_restored: "passwords and other sensitive values are not restored",
-  schema_or_config_not_supported: "schema and configuration changes are not recovered",
+  schema_or_config_not_supported: "this part of a schema or configuration change is not recovered",
   pre_state_unavailable: "the entry could not be read before the change",
+  post_state_unavailable: "the entry could not be read after the change",
+  definition_may_be_in_use: "entries may now use this schema definition, and are not recovered",
+  config_entry_not_compensated: "creating, removing or renaming a configuration entry is not recovered",
+  access_rule_not_written: "Alder does not write access rules",
 };
 
 export const DRIFT: Record<RecoveryDriftState, string> = {

@@ -636,6 +636,24 @@ prints "alder: internal error" and exits 8, so a crash can never read as
 This is the only break in 1.x, and it is recorded here so it stays the only
 one. From this patch on, these numbers are covered like every other.
 
+### 1.38
+
+Recovery covers schema and configuration modifications
+([RECOVERY.md](RECOVERY.md#the-schema-and-the-configuration)). Only additions:
+
+- **`RecoveryReasonCode` gains four values**: `post_state_unavailable`,
+  `definition_may_be_in_use`, `config_entry_not_compensated` and
+  `access_rule_not_written`. `schema_or_config_not_supported` stays, now for
+  the parts of a schema or configuration change that are still not recovered.
+  A client that switches on the code should already treat an unknown one as
+  "not exact".
+- **`ChangeExpectation` and `RecoveryExpect` gain an optional `definitions`**:
+  one schema definition, by OID, expected as the original change left it.
+- **The bundle format stays version 1.** A bundle that uses neither a new
+  code nor `definitions` reads in older releases as before. One that does is
+  refused by an older release as `recovery_invalid` -- its decoder is strict --
+  which refuses rather than compensating without the expectation.
+
 ---
 
 ## Not covered

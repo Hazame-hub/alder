@@ -116,7 +116,7 @@ func TestModifyReplaceOfAMultiValuedAttribute(t *testing.T) {
 	record := directory.ChangeRecord{DN: mustDN(t, alice), Type: directory.ChangeModify,
 		Mods: []directory.Mod{mod(directory.ModReplace, "description", "b", "c")}}
 
-	step := Derive(0, record, pre, testSchema(t), KindData)
+	step := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)})
 	if step.Recoverability != Exact || len(step.Reasons) != 0 {
 		t.Fatalf("recoverability %s %v, want exact", step.Recoverability, step.Reasons)
 	}
@@ -145,7 +145,7 @@ func TestModifyAddToAnAbsentAttributeAndRemoveAWholeOne(t *testing.T) {
 		mod(directory.ModAdd, "mail", "alice@alder.test"),
 		mod(directory.ModDelete, "telephoneNumber"),
 	}}
-	step := Derive(0, record, pre, testSchema(t), KindData)
+	step := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)})
 	c := step.Compensation[0]
 	if step.Recoverability != Exact || len(c.Mods) != 2 {
 		t.Fatalf("step %+v", step)
@@ -170,7 +170,7 @@ func TestModifySeveralModificationsOfOneAttributeAreFollowedInOrder(t *testing.T
 		mod(directory.ModDelete, "description", "new"),
 		mod(directory.ModAdd, "description", "newer"),
 	}}
-	c := Derive(0, record, pre, testSchema(t), KindData).Compensation[0]
+	c := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)}).Compensation[0]
 	if len(c.Mods) != 2 || c.Mods[0].Op != "delete" || !equalStrings(texts(t, c.Mods[0].Values), []string{"newer"}) ||
 		c.Mods[1].Op != "add" || !equalStrings(texts(t, c.Mods[1].Values), []string{"drop"}) {
 		t.Errorf("compensation %+v, want delete newer, add drop", c.Mods)
@@ -186,7 +186,7 @@ func TestModifyUsesTheEqualityRule(t *testing.T) {
 	pre := entry(t, alice, []string{"description", "bob", "carol"})
 	record := directory.ChangeRecord{DN: mustDN(t, alice), Type: directory.ChangeModify,
 		Mods: []directory.Mod{mod(directory.ModDelete, "description", "BOB")}}
-	c := Derive(0, record, pre, testSchema(t), KindData).Compensation[0]
+	c := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)}).Compensation[0]
 	if len(c.Mods) != 1 || c.Mods[0].Op != "add" || !equalStrings(texts(t, c.Mods[0].Values), []string{"bob"}) {
 		t.Errorf("compensation %+v, want add bob", c.Mods)
 	}
@@ -194,14 +194,14 @@ func TestModifyUsesTheEqualityRule(t *testing.T) {
 	// Equal by the rule, stored differently: the earlier form is written back.
 	pre = entry(t, alice, []string{"description", "Alice"})
 	record.Mods = []directory.Mod{mod(directory.ModReplace, "description", "alice")}
-	c = Derive(0, record, pre, testSchema(t), KindData).Compensation[0]
+	c = Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)}).Compensation[0]
 	if len(c.Mods) != 1 || c.Mods[0].Op != "replace" || !equalStrings(texts(t, c.Mods[0].Values), []string{"Alice"}) {
 		t.Errorf("compensation %+v, want replace Alice", c.Mods)
 	}
 
 	// Truly unchanged: nothing to compensate, and still exact.
 	record.Mods = []directory.Mod{mod(directory.ModReplace, "description", "Alice")}
-	step := Derive(0, record, pre, testSchema(t), KindData)
+	step := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)})
 	if step.Recoverability != Exact || len(step.Compensation) != 0 {
 		t.Errorf("step %+v, want exact with nothing to do", step)
 	}
@@ -212,7 +212,7 @@ func TestModifyOfABinaryValueIsCarriedAsBase64(t *testing.T) {
 	pre.Set("photo", [][]byte{{0xff, 0xd8, 0x00, 0x01}})
 	record := directory.ChangeRecord{DN: mustDN(t, alice), Type: directory.ChangeModify,
 		Mods: []directory.Mod{{Op: directory.ModDelete, Name: "photo"}}}
-	c := Derive(0, record, pre, testSchema(t), KindData).Compensation[0]
+	c := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)}).Compensation[0]
 	if v := c.Mods[0].Values[0]; v.Base64 == nil || v.Text != nil {
 		t.Errorf("binary value %+v, want base64", v)
 	}
@@ -224,7 +224,7 @@ func TestModifyOfAPasswordIsNeverCaptured(t *testing.T) {
 		mod(directory.ModReplace, "userPassword", secret),
 		mod(directory.ModReplace, "description", "after"),
 	}}
-	step := Derive(0, record, pre, testSchema(t), KindData)
+	step := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)})
 	if step.Recoverability != Partial {
 		t.Errorf("recoverability %s, want partial", step.Recoverability)
 	}
@@ -242,7 +242,7 @@ func TestModifyOfAPasswordIsNeverCaptured(t *testing.T) {
 	}
 
 	record.Mods = record.Mods[:1]
-	step = Derive(0, record, pre, testSchema(t), KindData)
+	step = Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)})
 	if step.Recoverability != Unavailable || len(step.Compensation) != 0 {
 		t.Errorf("password-only step %+v, want unavailable with no compensation", step)
 	}
@@ -254,7 +254,7 @@ func TestModifyOfAServerOwnedAttributeIsNotCompensated(t *testing.T) {
 		mod(directory.ModReplace, "modifyTimestamp", "20270101000000Z"),
 		mod(directory.ModReplace, "description", "y"),
 	}}
-	step := Derive(0, record, pre, testSchema(t), KindData)
+	step := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)})
 	if step.Recoverability != Partial || step.Reasons[0].Code != ReasonServerOwnedAttribute {
 		t.Errorf("step %+v", step)
 	}
@@ -268,7 +268,7 @@ func TestAddIsCompensatedByADeleteThatExpectsWhatWasAdded(t *testing.T) {
 		{Name: "sn", Values: [][]byte{[]byte("Liddell")}},
 		{Name: "userPassword", Values: [][]byte{[]byte(secret)}},
 	}}
-	step := Derive(3, record, nil, testSchema(t), KindData)
+	step := Derive(3, record, nil, nil, Target{Kind: KindData, Schema: testSchema(t)})
 	if step.Recoverability != Exact || step.Index != 3 || len(step.Compensation) != 1 {
 		t.Fatalf("step %+v", step)
 	}
@@ -288,7 +288,7 @@ func TestAddIsCompensatedByADeleteThatExpectsWhatWasAdded(t *testing.T) {
 	}
 
 	// An add over an entry that existed was not an add Alder ran.
-	if got := Derive(0, record, entry(t, alice), testSchema(t), KindData); got.Recoverability != Unavailable {
+	if got := Derive(0, record, entry(t, alice), nil, Target{Kind: KindData, Schema: testSchema(t)}); got.Recoverability != Unavailable {
 		t.Errorf("add over an existing entry: %s", got.Recoverability)
 	}
 }
@@ -303,7 +303,7 @@ func TestDeleteRestoresOnlyWhatWasReadAndSaysSo(t *testing.T) {
 		[]string{"modifyTimestamp", "20260101000000Z"},
 	)
 	record := directory.ChangeRecord{DN: mustDN(t, alice), Type: directory.ChangeDelete}
-	step := Derive(0, record, pre, testSchema(t), KindData)
+	step := Derive(0, record, pre, nil, Target{Kind: KindData, Schema: testSchema(t)})
 	if step.Recoverability != Partial {
 		t.Errorf("recoverability %s, want partial: a recreated entry is not the same entry", step.Recoverability)
 	}
@@ -373,7 +373,7 @@ func TestRenameMoveAndBoth(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			step := Derive(0, tc.record, tc.pre, testSchema(t), KindData)
+			step := Derive(0, tc.record, tc.pre, nil, Target{Kind: KindData, Schema: testSchema(t)})
 			if step.Recoverability != Exact || len(step.Compensation) != 1 {
 				t.Fatalf("step %+v", step)
 			}
@@ -392,9 +392,9 @@ func TestRenameMoveAndBoth(t *testing.T) {
 
 // --- what cannot be recovered ------------------------------------------------
 
-func TestPasswordChangeSchemaAndConfigAreUnavailable(t *testing.T) {
+func TestPasswordChangeAndUnreadStatesAreUnavailable(t *testing.T) {
 	password := directory.ChangeRecord{DN: mustDN(t, alice), Type: directory.ChangeSetPassword, NewPassword: secret}
-	step := Derive(0, password, entry(t, alice), testSchema(t), KindData)
+	step := Derive(0, password, entry(t, alice), nil, Target{Kind: KindData, Schema: testSchema(t)})
 	if step.Recoverability != Unavailable || step.Reasons[0].Code != ReasonPasswordNotCaptured || len(step.Compensation) != 0 {
 		t.Errorf("password step %+v", step)
 	}
@@ -405,8 +405,13 @@ func TestPasswordChangeSchemaAndConfigAreUnavailable(t *testing.T) {
 	schemaChange := directory.ChangeRecord{DN: mustDN(t, "cn=schema"), Type: directory.ChangeModify,
 		Mods: []directory.Mod{mod(directory.ModAdd, "attributeTypes", "( 1.2.3 NAME 'x' )")}}
 	for _, kind := range []string{KindSchema, KindConfig} {
-		step := Derive(0, schemaChange, entry(t, "cn=schema"), testSchema(t), kind)
-		if step.Recoverability != Unavailable || step.Reasons[0].Code != ReasonSchemaOrConfig {
+		// Read before and not after: what the server stored is not guessed.
+		step := Derive(0, schemaChange, entry(t, "cn=schema"), nil, Target{Kind: kind, Definitions: definitionAttrs})
+		if step.Recoverability != Unavailable || step.Reasons[0].Code != ReasonPostStateUnavailable {
+			t.Errorf("%s step %+v", kind, step)
+		}
+		step = Derive(0, schemaChange, nil, entry(t, "cn=schema"), Target{Kind: kind, Definitions: definitionAttrs})
+		if step.Recoverability != Unavailable || step.Reasons[0].Code != ReasonPreStateUnavailable {
 			t.Errorf("%s step %+v", kind, step)
 		}
 	}
@@ -414,7 +419,7 @@ func TestPasswordChangeSchemaAndConfigAreUnavailable(t *testing.T) {
 	// A modify of an entry that could not be read has nothing to derive from.
 	modify := directory.ChangeRecord{DN: mustDN(t, alice), Type: directory.ChangeModify,
 		Mods: []directory.Mod{mod(directory.ModReplace, "description", "x")}}
-	if step := Derive(0, modify, nil, testSchema(t), KindData); step.Reasons[0].Code != ReasonPreStateUnavailable {
+	if step := Derive(0, modify, nil, nil, Target{Kind: KindData, Schema: testSchema(t)}); step.Reasons[0].Code != ReasonPreStateUnavailable {
 		t.Errorf("unread entry step %+v", step)
 	}
 }
