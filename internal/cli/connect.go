@@ -300,14 +300,14 @@ func (c *connection) open(ctx context.Context, env *Env) (*remote, error) {
 		req.InsecureSkipVerify = &c.insecureSkipVerify
 	}
 	if c.bindDN != "" {
-		secret, pwErr := c.password(env, c.bindPasswordFile, c.bindPasswordStdin, orDefault(c.bindPasswordEnvName, bindPasswordEnv), "--bind-dn")
+		secret, pwErr := c.password(ctx, env, c.bindDN, c.bindPasswordFile, c.bindPasswordStdin, orDefault(c.bindPasswordEnvName, bindPasswordEnv), "--bind-dn")
 		if pwErr != nil {
 			return nil, pwErr
 		}
 		req.BindDn, req.BindPassword = &c.bindDN, &secret
 	}
 	if c.configBindDN != "" {
-		secret, pwErr := c.password(env, c.configBindPasswordFile, false, orDefault(c.configBindPasswordEnvName, configBindPasswordEnv), "--config-bind-dn")
+		secret, pwErr := c.password(ctx, env, c.configBindDN, c.configBindPasswordFile, false, orDefault(c.configBindPasswordEnvName, configBindPasswordEnv), "--config-bind-dn")
 		if pwErr != nil {
 			return nil, pwErr
 		}
@@ -329,8 +329,28 @@ func (c *connection) open(ctx context.Context, env *Env) (*remote, error) {
 	return r, nil
 }
 
-// password finds a password in the one place it was put.
-func (c *connection) password(env *Env, file string, stdin bool, envName, forFlag string) (string, error) {
+// password finds a password in the one place it was put, and with none put
+// anywhere asks for it at the terminal, if there is one to ask at.
+//
+// Asking comes last, after the environment variable, so a shell that set the
+// variable is never interrupted by a question, and only where standard input
+// is a terminal: a job with no person in front of it fails at once, naming
+// the sources, rather than waiting for an answer that will not come. Nor is it
+// asked when standard input is the input document -- it was read already,
+// so the terminal is not there to answer on. The terminal is not claimed for
+// the password, because it is not a stream read once: apply asks its
+// confirmation on the same terminal afterwards.
+func (c *connection) password(ctx context.Context, env *Env, dn, file string, stdin bool, envName, forFlag string) (secret string, err error) {
+	asked := false
+	defer func() {
+		// The usage error below names every source but the terminal, and is
+		// reached only when none of them was given; this says why the
+		// terminal did not ask instead.
+		var exit *ExitError
+		if file == "" && !stdin && !asked && errors.As(err, &exit) && exit.Local == "usage" {
+			exit.Message += env.whyNotAsked()
+		}
+	}()
 	switch {
 	case file != "":
 		return readSecretFile(file)
@@ -339,12 +359,49 @@ func (c *connection) password(env *Env, file string, stdin bool, envName, forFla
 			return "", err
 		}
 		return readSecret(env.Stdin, "standard input")
+	case env.canAsk(envName):
+		typed, askErr := env.ReadPassword(ctx, "Password for "+safe(dn)+": ")
+		switch {
+		case errors.Is(askErr, errCannotAsk):
+			// Fall through to the usage error, as with no terminal at all.
+		case askErr != nil:
+			return "", askErr
+		case typed == "":
+			// Refused for the reason readSecret refuses an empty file.
+			asked = true
+			return "", usagef("the password typed at the terminal is empty")
+		default:
+			return typed, nil
+		}
 	}
 	if v, ok := env.Getenv(envName); ok && v != "" {
 		return v, nil
 	}
 	return "", usagef("%s needs a password: set %s, or pass %s-file or --bind-password-stdin",
 		forFlag, envName, strings.TrimSuffix(strings.TrimPrefix(forFlag, "--"), "-dn")+"-password")
+}
+
+// canAsk reports whether a password may be asked for at the terminal: none is
+// in the environment variable, standard input is a terminal, and nothing has
+// claimed it.
+func (e *Env) canAsk(envName string) bool {
+	if v, ok := e.Getenv(envName); ok && v != "" {
+		return false
+	}
+	return e.ReadPassword != nil && e.stdinOwner == "" && e.Interactive != nil && e.Interactive()
+}
+
+// whyNotAsked completes the error for a password given nowhere.
+func (e *Env) whyNotAsked() string {
+	switch {
+	case e.ReadPassword == nil:
+		return ""
+	case e.stdinOwner != "":
+		return "; it cannot be asked for at the terminal, because standard input is used for " + e.stdinOwner
+	case e.Interactive == nil || !e.Interactive():
+		return "; it is asked for at the terminal only when standard input is one"
+	}
+	return "; this terminal cannot read a password without showing it"
 }
 
 func orDefault(v, fallback string) string {
