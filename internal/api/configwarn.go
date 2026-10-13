@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/dn"
 )
 
 // Warnings for changes addressed into the server's own configuration.
@@ -103,11 +104,16 @@ func configWarnings(record directory.ChangeRecord, caps directory.Capabilities) 
 	return warnings
 }
 
-// withinConfigTree reports whether a DN is at or below the configuration root.
-// It folds case because DNs compare that way, and this only ever decides
-// whether to say something.
+// withinConfigTree reports whether a DN is at or below the configuration root,
+// compared as parsed DNs for the reason withinTree in the driver gives.
 func withinConfigTree(target, tree string) bool {
-	t := strings.ToLower(strings.TrimSpace(target))
-	b := strings.ToLower(strings.TrimSpace(tree))
-	return t == b || strings.HasSuffix(t, ","+b)
+	t, err := dn.Parse(target)
+	if err != nil {
+		return false
+	}
+	b, err := dn.Parse(tree)
+	if err != nil || b.IsEmpty() {
+		return false
+	}
+	return t.HasSuffix(b)
 }

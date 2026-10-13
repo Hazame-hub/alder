@@ -5615,3 +5615,17 @@ session open, unreachable, holding its connection and its bind password
 until it timed out. It is closed at once now. Nothing is lost by it: the
 cookie is per browser, not per tab, so every tab had already moved to the
 new session.
+
+### 2026-10-12 — which identity an operation runs as is decided on parsed DNs
+
+A session with a configuration identity routes each operation by DN: below
+the configuration root it goes over the configuration bind, elsewhere over
+the data bind. The test was a lower-cased string ending in `,cn=config`,
+which read `cn=a\,cn=config` -- one RDN at the root whose value holds a
+comma -- as an entry below `cn=config`, and sent it over the configuration
+identity. Such an entry is unlikely to exist, so the practical risk was
+small; the rule it broke is not small, and the fix is the `dn` package's
+own `HasSuffix`. The same comparison in the configuration warnings, and
+the one DN the driver built by concatenation (`"cn=schema," +
+ConfigContext`), go through the `dn` package too, per section 7 rule 2 of
+the charter.

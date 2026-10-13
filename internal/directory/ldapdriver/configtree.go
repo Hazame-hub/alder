@@ -7,6 +7,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/dn"
 )
 
 // Reaching a server's own configuration tree.
@@ -81,16 +82,24 @@ func (s *session) readsAsConfigRoot(ctx context.Context, candidate string) bool 
 
 // withinTree reports whether target is base or sits beneath it.
 //
-// DNs compare case-insensitively on their component names, and this comparison
-// only ever decides which connection to use, so folding the whole string is
-// enough — a false negative routes to the primary connection, which is what
-// would have happened anyway.
+// Compared as parsed DNs, not as text. Folding the strings and testing for
+// a ",base" suffix read cn=a\,cn=config -- one RDN at the root, whose value
+// contains a comma -- as an entry below cn=config, and routed it over the
+// configuration identity. Anything that does not parse is not within the
+// tree, which routes it to the primary connection, as before.
 func withinTree(target, base string) bool {
-	if base == "" {
+	if strings.TrimSpace(base) == "" {
 		return false
 	}
-	t, b := strings.ToLower(strings.TrimSpace(target)), strings.ToLower(strings.TrimSpace(base))
-	return t == b || strings.HasSuffix(t, ","+b)
+	t, err := dn.Parse(target)
+	if err != nil {
+		return false
+	}
+	b, err := dn.Parse(base)
+	if err != nil || b.IsEmpty() {
+		return false
+	}
+	return t.HasSuffix(b)
 }
 
 // connFor picks the connection an operation on this DN belongs on.
