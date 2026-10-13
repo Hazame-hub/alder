@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -345,25 +346,34 @@ func newLogger(level, format string) (*slog.Logger, error) {
 // isLoopback reports whether an address binds only to the loopback interface.
 // It decides whether the session cookie may drop its Secure attribute, which is
 // otherwise a browser-enforced refusal to store it over plain HTTP.
+//
+// The address is split with net.SplitHostPort, not at the first colon: an IPv6
+// address is all colons, and "[::1]:8443" cut at the first one has the host
+// "[", which is not loopback, so the cookie kept its Secure attribute and a
+// browser on plain HTTP refused to store it.
 func isLoopback(addr string) bool {
-	host, _, found := strings.Cut(addr, ":")
-	if !found {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
 		return false
 	}
-	return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // displayAddr renders a listen address as something clickable in a terminal.
 func displayAddr(addr string) string {
-	host, port, found := strings.Cut(addr, ":")
-	if !found {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
 		return addr
 	}
-	if host == "" || host == "0.0.0.0" || host == "[::]" {
+	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "localhost"
 	}
 	if _, err := strconv.Atoi(port); err != nil {
 		return addr
 	}
-	return host + ":" + port
+	return net.JoinHostPort(host, port)
 }

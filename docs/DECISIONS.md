@@ -5836,6 +5836,19 @@ the message.** A complete apply whose bundle fails still exits 8 with
 `recovery_not_written`, as documented: nothing else went wrong, and the
 missing file is the failure.
 
+### 2026-10-13 — a listen address is split as an address, not at its first colon
+
+Whether the session cookie may drop `Secure` -- which a browser otherwise
+refuses to store over plain HTTP -- depends on whether Alder listens on
+loopback only, and that was decided by cutting the listen address at its first
+colon. An IPv6 address is all colons: `[::1]:8443` gave the host `[`, which is
+not loopback, so `alder serve --allow-http --addr [::1]:8443` set a cookie the
+browser would not keep, and nobody could connect. The address printed at
+startup had the same cut, and `[::]:8443` was not shown as `localhost`.
+
+Both use `net.SplitHostPort` now, and loopback is `localhost` or any address
+`net.IP.IsLoopback` says is one, so `127.0.0.2` counts as well as `127.0.0.1`.
+
 ### 2026-10-13 — "Which servers the client works with" names a server per command again
 
 The section said "this release adds no endpoint, so a 1.7 server provides
