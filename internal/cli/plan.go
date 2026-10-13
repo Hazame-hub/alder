@@ -581,6 +581,9 @@ func applyReviewed(ctx context.Context, env *Env, r *remote, p apiclient.Plan, r
 	envelope.Result = compactJSON(res.Body)
 	result := *res.JSON200
 	renderApplyResult(out, result, len(changes))
+	// Set when the bundle could not be written. It is reported last, because
+	// which exit status it goes with depends on whether the apply stopped.
+	var bundleFailed string
 	if o.recoveryOut != "" {
 		// Written before the exit status is decided, so a run that stopped
 		// partway still leaves the bundle for what it did apply.
@@ -592,8 +595,7 @@ func applyReviewed(ctx context.Context, env *Env, r *remote, p apiclient.Plan, r
 			if errors.As(werr, &exit) {
 				message = exit.Message
 			}
-			return failf("recovery_not_written", "%s applied, but the recovery bundle was not written: %s",
-				plural(result.AppliedCount, "change was", "changes were"), message)
+			bundleFailed = message
 		} else {
 			envelope.RecoveryFile = o.recoveryOut
 			writef(env.Stderr, "alder: recovery bundle for %s written to %s\n",
@@ -601,6 +603,10 @@ func applyReviewed(ctx context.Context, env *Env, r *remote, p apiclient.Plan, r
 		}
 	}
 	if result.FailedIndex == nil {
+		if bundleFailed != "" {
+			return failf("recovery_not_written", "%s applied, but the recovery bundle was not written: %s",
+				plural(result.AppliedCount, "change was", "changes were"), bundleFailed)
+		}
 		return nil
 	}
 	failed := *result.FailedIndex
@@ -612,9 +618,17 @@ func applyReviewed(ctx context.Context, env *Env, r *remote, p apiclient.Plan, r
 		}
 	}
 	if result.AppliedCount > 0 {
-		return &ExitError{Code: ExitPartial, Local: "partially_applied",
-			Message: fmt.Sprintf("stopped at change %d (%s) after applying %d of %d:%s. The first %d are in the directory",
-				failed+1, safe(dnText), result.AppliedCount, len(changes), safe(why), result.AppliedCount)}
+		// A partial apply stays 6 when its bundle could not be written as
+		// well. It was 8, the status a script reads as "refused", for a run
+		// that had changed the directory -- and that the directory has
+		// changed is the one thing a script switching on the status must not
+		// miss. The bundle's failure is in the message.
+		message := fmt.Sprintf("stopped at change %d (%s) after applying %d of %d:%s. The first %d are in the directory",
+			failed+1, safe(dnText), result.AppliedCount, len(changes), safe(why), result.AppliedCount)
+		if bundleFailed != "" {
+			message += ", and the recovery bundle for them was not written: " + bundleFailed
+		}
+		return &ExitError{Code: ExitPartial, Local: "partially_applied", Message: message}
 	}
 	return &ExitError{Code: ExitFailed, Local: "apply_refused",
 		Message: fmt.Sprintf("change %d (%s) was refused and nothing was written:%s", failed+1, safe(dnText), safe(why))}
