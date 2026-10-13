@@ -1,0 +1,70 @@
+# Copy to .gitlab-ci.yml (or include it) in the repository that holds the
+# project. It assumes the project is in directory/; change PROJECT if not.
+#
+#   validate  every merge request and the default branch. Connects to
+#             nothing and reads no password, so it is safe on any merge
+#             request.
+#   plan      the default branch and scheduled pipelines (CI/CD > Schedules).
+#             Plans each environment with --detailed-exitcode and fails when
+#             the directory has drifted from the repository.
+#
+# Store ALDER_STAGING_BIND_PASSWORD and ALDER_PRODUCTION_BIND_PASSWORD as
+# masked, protected CI/CD variables. Protected means only pipelines on
+# protected branches see them, which is the point: alder.yaml names where a
+# password goes, and a merge request can change alder.yaml.
+#
+# The plan job must reach your Alder server and, through it, your directory.
+# Those are usually internal, which means a runner inside your network.
+
+variables:
+  # Pin the client. 1.37.1 is the first release where --detailed-exitcode
+  # reports pending changes as 2.
+  ALDER_VERSION: "1.37.1"
+  PROJECT: directory
+
+stages: [validate, plan]
+
+.alder:
+  image: alpine:3.22
+  before_script:
+    - apk add --no-cache curl
+    - archive="alder_${ALDER_VERSION}_linux_amd64.tar.gz"
+    - base="https://github.com/Hazame-hub/alder/releases/download/v${ALDER_VERSION}"
+    - curl -fsSL -o "$archive" "$base/$archive"
+    - curl -fsSL -o checksums.txt "$base/checksums.txt"
+    - grep " ${archive}\$" checksums.txt | sha256sum -c -
+    - tar -xzf "$archive" -C /usr/local/bin alder
+    - rm -f "$archive" checksums.txt
+    - alder version
+
+validate:
+  extends: .alder
+  stage: validate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: ["directory/**/*"]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - alder project validate --project "$PROJECT"
+
+plan:
+  extends: .alder
+  stage: plan
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  parallel:
+    matrix:
+      - ALDER_ENVIRONMENT: [staging, production]
+  script:
+    - status=0
+    - >
+      alder project plan --project "$PROJECT" --env "$ALDER_ENVIRONMENT"
+      --detailed-exitcode --summary || status=$?
+    - |
+      case "$status" in
+        0) echo "$ALDER_ENVIRONMENT matches the repository." ;;
+        2) echo "$ALDER_ENVIRONMENT differs from the repository; the plan above says how."; exit 1 ;;
+        3) echo "Some change for $ALDER_ENVIRONMENT cannot be applied as written."; exit 1 ;;
+        *) echo "alder exited $status for $ALDER_ENVIRONMENT; see the message above."; exit 1 ;;
+      esac
