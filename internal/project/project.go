@@ -44,6 +44,11 @@ type Project struct {
 	File string
 	Dir  string
 
+	// Suffix is the DN the project's files are written under, or empty when
+	// alder.yaml names none. An environment may name the DN that replaces it
+	// there; see ForEnvironment.
+	Suffix dn.DN
+
 	Managed      []Subtree
 	Environments map[string]Environment
 }
@@ -76,6 +81,11 @@ type Environment struct {
 	ConfigBindDN           string `yaml:"config-bind-dn"`
 	ConfigBindPasswordEnv  string `yaml:"config-bind-password-env"`
 	ConfigBindPasswordFile string `yaml:"config-bind-password-file"`
+
+	// Suffix is the DN that replaces the project's suffix in this
+	// environment. It is not a connection setting: it changes what is
+	// planned, not where.
+	Suffix string `yaml:"suffix"`
 }
 
 // Problem is one thing wrong with a project, located as precisely as it can
@@ -131,6 +141,7 @@ func Locate(path string) (string, error) {
 // every key a version-1 file may use is here.
 type file struct {
 	Version      int                    `yaml:"version"`
+	Suffix       string                 `yaml:"suffix"`
 	Managed      []managed              `yaml:"managed"`
 	Environments map[string]Environment `yaml:"environments"`
 }
@@ -190,8 +201,18 @@ func Load(path string) (*Project, error) {
 		return nil, &Invalid{Problems: problems}
 	}
 
+	if f.Suffix != "" {
+		suffix, err := dn.Parse(f.Suffix)
+		if err != nil {
+			add(name, 0, "suffix %q is not a DN", f.Suffix)
+		} else {
+			p.Suffix = suffix
+		}
+	}
+
 	p.Environments = f.Environments
 	problems = append(problems, checkEnvironments(name, f.Environments)...)
+	problems = append(problems, checkSuffixes(name, f.Suffix, f.Environments)...)
 
 	if len(f.Managed) == 0 {
 		add(name, 0, "managed names no subtree, so the project manages nothing")
@@ -203,6 +224,12 @@ func Load(path string) (*Project, error) {
 		if err != nil || base.IsEmpty() {
 			add(name, 0, "%s: base %q is not a DN", where, m.Base)
 			continue
+		}
+		// A base outside the suffix would be planned under the same name in
+		// every environment while the rest moved, which is never what a
+		// project with a suffix means.
+		if !p.Suffix.IsEmpty() && !base.HasSuffix(p.Suffix) {
+			add(name, 0, "%s: base %s is outside the project's suffix %s", where, base, p.Suffix)
 		}
 		st := Subtree{Base: base}
 		if len(m.Files) == 0 {
@@ -247,6 +274,8 @@ func Load(path string) (*Project, error) {
 			st.Records = append(st.Records, records...)
 		}
 	}
+
+	problems = append(problems, p.checkSuffixEntry(name)...)
 
 	if len(problems) > 0 {
 		return nil, &Invalid{Problems: problems}

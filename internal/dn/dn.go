@@ -232,6 +232,21 @@ func (d DN) HasSuffix(suffix DN) bool {
 	return d[len(d)-len(suffix):].Equal(suffix)
 }
 
+// Rebase moves d from below one suffix to below another: the RDNs above from
+// are kept exactly as they are, and from is replaced by to. It reports false,
+// and returns d unchanged, when d is not at or below from. The result is
+// built from RDNs, never from text, so every value in it is escaped as any
+// other DN is when it is rendered.
+func (d DN) Rebase(from, to DN) (DN, bool) {
+	if !d.HasSuffix(from) {
+		return d, false
+	}
+	keep := len(d) - len(from)
+	out := make(DN, 0, keep+len(to))
+	out = append(out, d[:keep]...)
+	return append(out, to...), true
+}
+
 // IsChildOf reports whether d is an immediate child of parent.
 func (d DN) IsChildOf(parent DN) bool {
 	return len(d) == len(parent)+1 && d.HasSuffix(parent)

@@ -5978,3 +5978,48 @@ schema add on both servers. Putting a removed definition back at its stored
 position on OpenLDAP is covered only against an emulated directory in the
 unit tests, and what 389 DS does when asked to delete a definition in use is
 not tested at all: the plan and the apply report whatever it answers.
+
+### 2026-10-13 — an environment may hold the project under its own suffix
+
+The project review (2026-10-10) left environments with different suffixes out
+of version 1 "until a real user needs it", and the project's owner has asked
+for it. It is built as two optional keys: a top-level `suffix`, the DN the
+files are written under, and an environment's `suffix`, the DN that replaces
+it there. The version stays 1. A file without the keys means what it always
+did, and because version 1 refuses unknown keys, no valid file could already
+be using them.
+
+**Names move, and nothing else.** Every entry DN and managed base below the
+project's suffix is rebased with `dn.DN.Rebase`, which swaps RDNs, not text
+(charter, rule 2): the RDNs above the suffix are kept as written, values and
+all. Attribute values move only when their type has DN or Name And Optional
+UID syntax; `uniqueMember`'s `#'...'B` is kept. Everything else is sent byte
+for byte, including a value that reads as a DN below the suffix, which is
+named as left as written rather than silently rewritten or silently ignored.
+
+**The directory's schema says which values are names.** The alternatives were
+a list of attribute names in Alder, which misses every type a directory adds
+and would rewrite a custom attribute that happens to share a name, and a
+test of what a value looks like, which rewrites a `description` that quotes
+a DN. The client already holds a session to the directory being planned, and
+`GET /schema` reports each type's effective syntax, so it asks -- only for an
+environment that rebases, so every other plan sends exactly what it sent
+before. A type the schema does not define stops the plan (exit 3) instead of
+being guessed at. `internal/project` takes the answer as a function and stays
+offline; `validate` checks the keys without it.
+
+**Two things are refused rather than half done.** The suffix entry itself,
+onto a suffix with another RDN, would be renamed while its own `dc` value
+stayed as written; `validate` refuses it, since rewriting that value would be
+a value owned by one environment, which a project does not express. An entry
+named by a DN-syntax attribute below the suffix cannot keep both its name
+and its value; refused when planned.
+
+**The rewrite is said wherever the plan is.** What is planned is no longer
+what was reviewed, which is why the review hesitated, so the environment line
+above the plan is followed by `Suffix FROM -> TO` with the counts, standard
+error says it before anything is sent, `validate` lists the environments that
+rebase, and `--json` carries `rebase` beside the plan in both `project plan`
+and `project apply`. The plan, the unmanaged-entries report and
+`--detailed-exitcode` are all made under the environment's names. The API is
+unchanged.
