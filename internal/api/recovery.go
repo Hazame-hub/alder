@@ -16,6 +16,7 @@ import (
 	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/recovery"
 	"github.com/hazame-hub/alder/internal/schema"
+	"github.com/hazame-hub/alder/internal/snapshot"
 )
 
 // Recovery bundles, on the wire.
@@ -177,6 +178,17 @@ func expectingRequest(record directory.ChangeRecord, expect *plan.Expectation) C
 		if expect.Exhaustive {
 			req.Expect.Exhaustive = ptr(true)
 		}
+		if len(expect.Definitions) > 0 {
+			defs := make([]ChangeExpectedDefinition, 0, len(expect.Definitions))
+			for _, d := range expect.Definitions {
+				def := ChangeExpectedDefinition{Attribute: d.Attribute, Oid: d.OID}
+				if d.Value != nil {
+					def.Value = &encodeRawValues([][]byte{d.Value})[0]
+				}
+				defs = append(defs, def)
+			}
+			req.Expect.Definitions = &defs
+		}
 	}
 	return req
 }
@@ -210,6 +222,36 @@ func changeExpectation(req ChangeRequest) (*plan.Expectation, error) {
 		}
 		out.Attributes = append(out.Attributes, directory.Attribute{Name: a.Name, Values: values})
 	}
+	if req.Expect.Definitions == nil {
+		return out, nil
+	}
+	if len(*req.Expect.Definitions) > maxExpectedAttributes {
+		return nil, fmt.Errorf("expect: %d definitions, and an expectation names at most %d",
+			len(*req.Expect.Definitions), maxExpectedAttributes)
+	}
+	for _, d := range *req.Expect.Definitions {
+		if err := dn.ValidateType(schema.BaseName(d.Attribute)); err != nil {
+			return nil, fmt.Errorf("expect: %q is not an attribute description", d.Attribute)
+		}
+		if schema.IsSensitive(d.Attribute) {
+			return nil, fmt.Errorf("expect: %s is a sensitive attribute, whose values are never compared", d.Attribute)
+		}
+		if !snapshot.IsNumericOID(d.Oid) {
+			return nil, fmt.Errorf("expect: %q is not a numeric OID", d.Oid)
+		}
+		def := plan.ExpectedDefinition{Attribute: d.Attribute, OID: d.Oid}
+		if d.Value != nil {
+			value, err := decodeValue(*d.Value)
+			if err != nil {
+				return nil, fmt.Errorf("expect: %s %s: %w", d.Attribute, d.Oid, err)
+			}
+			if !strings.EqualFold(directory.DefinitionOID(string(value)), d.Oid) {
+				return nil, fmt.Errorf("expect: the value given for %s is not a definition of it", d.Oid)
+			}
+			def.Value = value
+		}
+		out.Definitions = append(out.Definitions, def)
+	}
 	return out, nil
 }
 
@@ -226,8 +268,8 @@ func changeExpectations(changes []ChangeRequest) ([]*plan.Expectation, error) {
 }
 
 // recoveryAssessment is what a plan shows beside a change it would apply.
-func recoveryAssessment(record directory.ChangeRecord, sch *schema.Schema, kind PlanTargetKind) *RecoveryAssessment {
-	recoverability, reasons := recovery.Assess(record, sch, string(kind))
+func recoveryAssessment(record directory.ChangeRecord, where recovery.Target) *RecoveryAssessment {
+	recoverability, reasons := recovery.Assess(record, where)
 	out := &RecoveryAssessment{Recoverability: RecoveryRecoverability(recoverability)}
 	if len(reasons) > 0 {
 		wire := make([]RecoveryReason, 0, len(reasons))
@@ -241,6 +283,23 @@ func recoveryAssessment(record directory.ChangeRecord, sch *schema.Schema, kind 
 		out.Reasons = &wire
 	}
 	return out
+}
+
+// recoveryTarget is where a change lands, for the recovery package: the area
+// targetKind finds, and on a schema entry the attributes the server announced
+// it writes definitions to -- the same two the schema editor writes, one
+// definition at a time.
+func recoveryTarget(caps directory.Capabilities, sch *schema.Schema, target dn.DN) recovery.Target {
+	where := recovery.Target{Kind: string(targetKind(caps, target)), Schema: sch}
+	if where.Kind == recovery.KindSchema {
+		w := caps.SchemaWrite
+		where.Definitions = func(attribute string) bool {
+			base := schema.BaseName(attribute)
+			return (w.ObjectClassAttr != "" && strings.EqualFold(base, w.ObjectClassAttr)) ||
+				(w.AttributeTypeAttr != "" && strings.EqualFold(base, w.AttributeTypeAttr))
+		}
+	}
+	return where
 }
 
 // recoveryRecorder derives a recovery bundle while a request applies changes.
@@ -283,8 +342,12 @@ func (r *recoveryRecorder) readAttributes(record directory.ChangeRecord) []strin
 // the plan check made when nothing has run since and it covers enough, and a
 // fresh read otherwise. Nil when there is none, or when it cannot be read --
 // which Derive reports as pre_state_unavailable rather than guessing.
+//
+// A schema or configuration entry is read the same way, through the same
+// session, and so as the identity the driver routes that tree to: the one the
+// change itself is applied as.
 func (r *recoveryRecorder) before(ctx context.Context, record directory.ChangeRecord, verified *verifiedRead) *directory.Entry {
-	if r == nil || string(targetKind(r.caps, record.DN)) != recovery.KindData {
+	if r == nil {
 		return nil
 	}
 	switch record.Type {
@@ -292,6 +355,11 @@ func (r *recoveryRecorder) before(ctx context.Context, record directory.ChangeRe
 	default:
 		// An add that succeeds had no entry before it; a password change is
 		// never recoverable, and its entry is not read for it.
+		return nil
+	}
+	if record.Type != directory.ChangeModify && string(targetKind(r.caps, record.DN)) != recovery.KindData {
+		// Creating, removing or renaming an entry of the schema or the
+		// configuration is not compensated, so nothing is read for it.
 		return nil
 	}
 	want := recovery.ReadAttributes(record)
@@ -306,7 +374,13 @@ func (r *recoveryRecorder) before(ctx context.Context, record directory.ChangeRe
 }
 
 // after records a change that has been applied.
-func (r *recoveryRecorder) after(index int, record directory.ChangeRecord, pre *directory.Entry) {
+//
+// A modification of the schema or the configuration has its entry read once
+// more, now: the server decides how it stores what it was given, and what it
+// stored is what the compensation removes and expects. That read describes the
+// change, and is used for nothing else -- the compensation puts back what was
+// read before. One that fails leaves the step unavailable rather than guessed.
+func (r *recoveryRecorder) after(ctx context.Context, index int, record directory.ChangeRecord, pre *directory.Entry) {
 	if r == nil {
 		return
 	}
@@ -316,7 +390,14 @@ func (r *recoveryRecorder) after(index int, record directory.ChangeRecord, pre *
 	for _, d := range recovery.Touched(record) {
 		r.touched[strings.ToLower(d.String())] = true
 	}
-	r.steps = append(r.steps, recovery.Derive(index, record, pre, r.sch, string(targetKind(r.caps, record.DN))))
+	where := recoveryTarget(r.caps, r.sch, record.DN)
+	var post *directory.Entry
+	if where.Kind != recovery.KindData && record.Type == directory.ChangeModify && pre != nil {
+		if entry, err := r.conn.Read(ctx, record.DN, recovery.ReadAttributes(record)); err == nil {
+			post = entry
+		}
+	}
+	r.steps = append(r.steps, recovery.Derive(index, record, pre, post, where))
 }
 
 // disturbed reports whether a change that has run was the entry record reads,

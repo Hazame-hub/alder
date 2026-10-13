@@ -29,9 +29,9 @@ func threeSteps(t *testing.T) []Step {
 		Mods: []directory.Mod{mod(directory.ModAdd, "description", "grown")}}
 	childAfterAdd := entry(t, child, []string{"objectClass", "person"}, []string{"sn", "Tree"}, []string{"cn", "alder"})
 	return []Step{
-		Derive(0, addParent, nil, sch, KindData),
-		Derive(1, addChild, nil, sch, KindData),
-		Derive(2, modifyChild, childAfterAdd, sch, KindData),
+		Derive(0, addParent, nil, nil, Target{Kind: KindData, Schema: sch}),
+		Derive(1, addChild, nil, nil, Target{Kind: KindData, Schema: sch}),
+		Derive(2, modifyChild, childAfterAdd, nil, Target{Kind: KindData, Schema: sch}),
 	}
 }
 
@@ -222,9 +222,9 @@ func TestChangesMergeCompensationsOfOneEntry(t *testing.T) {
 	second := directory.ChangeRecord{DN: mustDN(t, alice), Type: directory.ChangeModify,
 		Mods: []directory.Mod{mod(directory.ModReplace, "description", "two")}}
 	steps := []Step{
-		Derive(0, first, pre, sch, KindData),
-		Derive(1, other, entry(t, bob), sch, KindData),
-		Derive(2, second, entry(t, alice, []string{"description", "one"}), sch, KindData),
+		Derive(0, first, pre, nil, Target{Kind: KindData, Schema: sch}),
+		Derive(1, other, entry(t, bob), nil, Target{Kind: KindData, Schema: sch}),
+		Derive(2, second, entry(t, alice, []string{"description", "one"}), nil, Target{Kind: KindData, Schema: sch}),
 	}
 	b, err := New(Origin{NamingContexts: []string{}}, steps, fixedTime)
 	if err != nil {
@@ -258,8 +258,8 @@ func TestChangesFoldAnEditIntoTheDeleteOfAnAddedEntry(t *testing.T) {
 	}}
 	afterAdd := entry(t, alice, []string{"objectClass", "person"}, []string{"sn", "Liddell"}, []string{"cn", "alice"})
 	b, _ := New(Origin{NamingContexts: []string{}}, []Step{
-		Derive(0, add, nil, sch, KindData),
-		Derive(1, edit, afterAdd, sch, KindData),
+		Derive(0, add, nil, nil, Target{Kind: KindData, Schema: sch}),
+		Derive(1, edit, afterAdd, nil, Target{Kind: KindData, Schema: sch}),
 	}, fixedTime)
 	changes := b.Changes()
 	if len(changes) != 1 || changes[0].Type != "delete" || !changes[0].Expect.Exhaustive {

@@ -15,6 +15,7 @@ import (
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/schema"
+	"github.com/hazame-hub/alder/internal/snapshot"
 )
 
 // The format a recovery bundle is written in.
@@ -152,6 +153,23 @@ func mergeExpect(first, second *Expect) *Expect {
 		if !named[strings.ToLower(schema.BaseName(a.Name))] {
 			out.Attributes = append(out.Attributes, a)
 		}
+	}
+	// Definitions the same way, each named by its attribute and OID.
+	defined := map[string]bool{}
+	key := func(d Definition) string {
+		return strings.ToLower(schema.BaseName(d.Attribute)) + "\x00" + strings.ToLower(d.OID)
+	}
+	for _, d := range first.Definitions {
+		defined[key(d)] = true
+		out.Definitions = append(out.Definitions, d)
+	}
+	for _, d := range second.Definitions {
+		if !defined[key(d)] {
+			out.Definitions = append(out.Definitions, d)
+		}
+	}
+	if out.Attributes == nil {
+		out.Attributes = []Attribute{}
 	}
 	return out
 }
@@ -385,8 +403,39 @@ func (c Change) Record() (directory.ChangeRecord, *plan.Expectation, error) {
 			}
 			expect.Attributes = append(expect.Attributes, directory.Attribute{Name: a.Name, Values: values})
 		}
+		for _, d := range c.Expect.Definitions {
+			def, err := expectedDefinition(d)
+			if err != nil {
+				return rec, nil, fmt.Errorf("expect: %w", err)
+			}
+			expect.Definitions = append(expect.Definitions, def)
+		}
 	}
 	return rec, expect, nil
+}
+
+// expectedDefinition checks one expected definition as strictly as a value: a
+// real attribute description, never a sensitive one, a numeric OID, and a value
+// that is a definition of that OID.
+func expectedDefinition(d Definition) (plan.ExpectedDefinition, error) {
+	if _, err := decodeValues(d.Attribute, nil); err != nil {
+		return plan.ExpectedDefinition{}, err
+	}
+	if !snapshot.IsNumericOID(d.OID) {
+		return plan.ExpectedDefinition{}, fmt.Errorf("definition of %s: %q is not a numeric OID", d.Attribute, d.OID)
+	}
+	out := plan.ExpectedDefinition{Attribute: d.Attribute, OID: d.OID}
+	if d.Value != nil {
+		values, err := decodeValues(d.Attribute, []Value{*d.Value})
+		if err != nil {
+			return plan.ExpectedDefinition{}, err
+		}
+		if !strings.EqualFold(directory.DefinitionOID(string(values[0])), d.OID) {
+			return plan.ExpectedDefinition{}, fmt.Errorf("definition of %s: the value is not a definition of %s", d.Attribute, d.OID)
+		}
+		out.Value = values[0]
+	}
+	return out, nil
 }
 
 // decodeValues refuses a sensitive attribute with values outright: Alder never

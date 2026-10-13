@@ -4174,6 +4174,28 @@ export interface components {
              *     not counted.
              */
             exhaustive?: boolean;
+            /**
+             * @description Schema definitions the entry must hold as given, each named by its
+             *     OID within the attribute that carries it. A schema entry keeps every
+             *     definition of a kind in one attribute, so this is how a change says
+             *     what it expects of one definition without stating all of them.
+             *     Added for compensating changes to the schema; absent means none.
+             */
+            definitions?: components["schemas"]["ChangeExpectedDefinition"][];
+        };
+        ChangeExpectedDefinition: {
+            /** @description The attribute that carries the definition, such as `attributeTypes` or `olcAttributeTypes`. */
+            attribute: string;
+            /** @description The definition's numeric OID. */
+            oid: string;
+            /**
+             * @description The definition as the server stores it. The attribute must hold
+             *     exactly one definition with this OID, and it must be this one,
+             *     compared byte for byte less the `{n}` ordering prefix a server keeps
+             *     in front of a definition. Absent means the attribute must hold no
+             *     definition with this OID.
+             */
+            value?: components["schemas"]["AttributeValue"];
         };
         /**
          * @description Exactly one of `changes` and `ldif`. `changes` was required in 1.4; it
@@ -4640,8 +4662,9 @@ export interface components {
          * @description How far a change can be compensated. `exact`: Alder can derive
          *     compensating changes that restore the ordinary directory state it
          *     captured before the change -- the user attributes the change touched,
-         *     an entry's absence, or its former name -- subject to the plan's drift
-         *     checks. It does not cover operational attributes such as
+         *     an entry's absence, or its former name; a configuration setting as the
+         *     server stored it; a removed schema definition back -- subject to the
+         *     plan's drift checks. It does not cover operational attributes such as
          *     `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
          *     replication metadata, or attributes the bind could not read.
          *     `partial`: some of it; `reasons` say what is not. `unavailable`: none of
@@ -4654,7 +4677,7 @@ export interface components {
          * @description Why a change is not exactly recoverable. Stable identifiers; see `docs/RECOVERY.md`.
          * @enum {string}
          */
-        RecoveryReasonCode: "password_not_captured" | "sensitive_value_not_captured" | "server_owned_attribute" | "identity_regenerated" | "hidden_attributes_unknown" | "sensitive_values_not_restored" | "schema_or_config_not_supported" | "pre_state_unavailable";
+        RecoveryReasonCode: "password_not_captured" | "sensitive_value_not_captured" | "server_owned_attribute" | "identity_regenerated" | "hidden_attributes_unknown" | "sensitive_values_not_restored" | "schema_or_config_not_supported" | "pre_state_unavailable" | "post_state_unavailable" | "definition_may_be_in_use" | "config_entry_not_compensated" | "access_rule_not_written";
         RecoveryReason: {
             code: components["schemas"]["RecoveryReasonCode"];
             attribute?: string;
@@ -4676,6 +4699,19 @@ export interface components {
         RecoveryExpect: {
             attributes: components["schemas"]["RecoveryAttribute"][];
             exhaustive?: boolean;
+            /**
+             * @description Schema definitions the entry must hold as the original change left
+             *     them, each named by its OID. Written only for a compensating change
+             *     to the schema; a reader that predates it refuses the bundle as
+             *     carrying an unknown field.
+             */
+            definitions?: components["schemas"]["RecoveryDefinition"][];
+        };
+        RecoveryDefinition: {
+            attribute: string;
+            oid: string;
+            /** @description The definition as the server stored it. Absent means it must not be held. */
+            value?: components["schemas"]["SnapshotValue"];
         };
         /** @description One compensating change. Never a password change. */
         RecoveryChange: {

@@ -5549,6 +5549,34 @@ components:
             Absent means false. The entry must hold no other user attribute. `objectClass`,
             operational and identity attributes, and sensitive attributes are
             not counted.
+        definitions:
+          type: array
+          items: { $ref: "#/components/schemas/ChangeExpectedDefinition" }
+          description: |
+            Schema definitions the entry must hold as given, each named by its
+            OID within the attribute that carries it. A schema entry keeps every
+            definition of a kind in one attribute, so this is how a change says
+            what it expects of one definition without stating all of them.
+            Added for compensating changes to the schema; absent means none.
+
+    ChangeExpectedDefinition:
+      type: object
+      required: [attribute, oid]
+      properties:
+        attribute:
+          type: string
+          description: The attribute that carries the definition, such as `attributeTypes` or `olcAttributeTypes`.
+        oid:
+          type: string
+          description: The definition's numeric OID.
+        value:
+          $ref: "#/components/schemas/AttributeValue"
+          description: |
+            The definition as the server stores it. The attribute must hold
+            exactly one definition with this OID, and it must be this one,
+            compared byte for byte less the `{n}` ordering prefix a server keeps
+            in front of a definition. Absent means the attribute must hold no
+            definition with this OID.
 
     PlanRequest:
       type: object
@@ -6188,8 +6216,9 @@ components:
         How far a change can be compensated. `exact`: Alder can derive
         compensating changes that restore the ordinary directory state it
         captured before the change -- the user attributes the change touched,
-        an entry's absence, or its former name -- subject to the plan's drift
-        checks. It does not cover operational attributes such as
+        an entry's absence, or its former name; a configuration setting as the
+        server stored it; a removed schema definition back -- subject to the
+        plan's drift checks. It does not cover operational attributes such as
         `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
         replication metadata, or attributes the bind could not read.
         `partial`: some of it; `reasons` say what is not. `unavailable`: none of
@@ -6210,6 +6239,10 @@ components:
         - sensitive_values_not_restored
         - schema_or_config_not_supported
         - pre_state_unavailable
+        - post_state_unavailable
+        - definition_may_be_in_use
+        - config_entry_not_compensated
+        - access_rule_not_written
       x-enum-varnames:
         - RecoveryReasonPasswordNotCaptured
         - RecoveryReasonSensitiveValueNotCaptured
@@ -6219,6 +6252,10 @@ components:
         - RecoveryReasonSensitiveValuesNotRestored
         - RecoveryReasonSchemaOrConfigNotSupported
         - RecoveryReasonPreStateUnavailable
+        - RecoveryReasonPostStateUnavailable
+        - RecoveryReasonDefinitionMayBeInUse
+        - RecoveryReasonConfigEntryNotCompensated
+        - RecoveryReasonAccessRuleNotWritten
 
     RecoveryReason:
       type: object
@@ -6266,6 +6303,24 @@ components:
           type: array
           items: { $ref: "#/components/schemas/RecoveryAttribute" }
         exhaustive: { type: boolean }
+        definitions:
+          type: array
+          items: { $ref: "#/components/schemas/RecoveryDefinition" }
+          description: |
+            Schema definitions the entry must hold as the original change left
+            them, each named by its OID. Written only for a compensating change
+            to the schema; a reader that predates it refuses the bundle as
+            carrying an unknown field.
+
+    RecoveryDefinition:
+      type: object
+      required: [attribute, oid]
+      properties:
+        attribute: { type: string }
+        oid: { type: string }
+        value:
+          $ref: "#/components/schemas/SnapshotValue"
+          description: The definition as the server stored it. Absent means it must not be held.
 
     RecoveryChange:
       type: object

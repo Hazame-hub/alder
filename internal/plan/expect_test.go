@@ -105,3 +105,43 @@ func TestAnExpectationBindsTheBaseline(t *testing.T) {
 		t.Errorf("Verify after the expected description changed: %v, want stale", err)
 	}
 }
+
+func TestADefinitionIsExpectedByItsOIDAndNotItsPosition(t *testing.T) {
+	const (
+		probe = "( 1.3.6.1.4.1.99997.1.7 NAME 'alderProbe' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )"
+		other = "( 1.3.6.1.4.1.99997.1.8 NAME 'alderOther' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )"
+	)
+	live := directory.NewEntry(mustParse(t, alice))
+	// Stored where the server keeps positions: the probe is third, and a
+	// definition whose OID starts with the probe's is beside it.
+	live.Set("olcAttributeTypes", [][]byte{[]byte("{0}" + other),
+		[]byte("{1}( 1.3.6.1.4.1.99997.1.70 NAME 'x' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )"), []byte("{2}" + probe)})
+
+	held := func(value []byte) *Expectation {
+		return &Expectation{Definitions: []ExpectedDefinition{
+			{Attribute: "olcAttributeTypes", OID: "1.3.6.1.4.1.99997.1.7", Value: value}}}
+	}
+	cases := []struct {
+		name   string
+		expect *Expectation
+		holds  bool
+	}{
+		{"as stored", held([]byte("{2}" + probe)), true},
+		{"at another position", held([]byte("{5}" + probe)), true},
+		{"without a position", held([]byte(probe)), true},
+		{"rendered differently", held([]byte(
+			"{2}( 1.3.6.1.4.1.99997.1.7 NAME 'alderProbe' DESC 'x' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )")), false},
+		{"expected absent", held(nil), false},
+		{"another OID expected absent", &Expectation{Definitions: []ExpectedDefinition{
+			{Attribute: "olcAttributeTypes", OID: "1.3.6.1.4.1.99997.1.9"}}}, true},
+	}
+	for _, tc := range cases {
+		attr, differs := tc.expect.Differs(nil, live)
+		if differs == tc.holds {
+			t.Errorf("%s: differs %v (%s), want %v", tc.name, differs, attr, !tc.holds)
+		}
+	}
+	if got := held(nil).ReadAttributes(); len(got) != 1 || got[0] != "olcAttributeTypes" {
+		t.Errorf("ReadAttributes %v, want the attribute holding the definition", got)
+	}
+}

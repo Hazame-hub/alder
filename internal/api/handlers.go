@@ -1206,7 +1206,7 @@ func (s *Server) ApplyChange(c *fiber.Ctx, params ApplyChangeParams) error {
 	if err := sess.Conn.Apply(ctx, record); err != nil {
 		return s.failChange(c, err, record, caps)
 	}
-	recorder.after(0, record, pre)
+	recorder.after(ctx, 0, record, pre)
 	target, err := record.Target()
 	if err != nil {
 		return s.fail(c, err)
