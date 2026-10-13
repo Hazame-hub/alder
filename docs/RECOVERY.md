@@ -89,7 +89,7 @@ under its former name holding the same user data, still with its own identity
 | Change | Compensation | Recoverability |
 |---|---|---|
 | Modify an attribute (add, delete or replace values, or remove the attribute) | Removes the values the change added and adds back the values it removed, value by value. The values come from the entry as it was read before the change, compared by the attribute's equality rule. A value stored in a different but equal form (`Alice` replaced by `alice`) is written back as it was. | `exact` |
-| Modify a sensitive attribute (`userPassword` and the configured deny list) | None for that attribute: its earlier value is never captured. | `partial`, or `unavailable` if nothing else was touched. Reason `sensitive_value_not_captured`. |
+| Modify a sensitive attribute (`userPassword` and the rest of the deny list in `internal/schema`) | None for that attribute: its earlier value is never captured. | `partial`, or `unavailable` if nothing else was touched. Reason `sensitive_value_not_captured`. |
 | Modify an operational or NO-USER-MODIFICATION attribute | None for that attribute. | `partial`. Reason `server_owned_attribute`. |
 | Add an entry | Deletes the entry, and only while it holds exactly what the add created and nothing else. A plan never deletes its children: an entry that has gained children is a `has_children` conflict. | `exact` |
 | Delete an entry | Adds it back with the user attributes that were read before the delete. | `partial`, always. Reasons `identity_regenerated` (a new `entryUUID` or `nsUniqueId`, new timestamps) and `hidden_attributes_unknown` (anything the bind could not read). Also `sensitive_values_not_restored` when it held a password or other sensitive value, which is not put back. |
