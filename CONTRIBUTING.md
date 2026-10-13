@@ -55,6 +55,25 @@ are section 7 of [`CHARTER.md`](CHARTER.md), in short:
 6. **Sensitive attribute values are never logged or sent to the browser.**
 7. **TLS is on by default** in both directions.
 
+## Where things live
+
+| Package | |
+|---|---|
+| `internal/dn` | RFC 4514 distinguished names. DNs are never strings; there is no exported way to build one by concatenating text. |
+| `internal/filter` | RFC 4515 search filters, built and parsed. Values are escaped and a raw filter typed by a user is parsed rather than passed through. |
+| `internal/schema` | RFC 4512 schema: parser, index, and the presentation opinion that drives the editor. |
+| `internal/ldif` | RFC 2849 reader and writer. Values are `[]byte` throughout. |
+| `internal/directory` | The `Driver` and `Session` interfaces, `Capabilities`, and `ChangeRecord`. |
+| `internal/directory/ldapdriver` | The only driver in v1. |
+| `internal/preflight` | Migration preflight: an artifact read against one live target, reported finding by finding. Read-only; its target type has no write method. |
+| `internal/ansible` | `ChangeRecord` to a `community.general` task. |
+| `internal/api` | The generated server interface and the handlers behind it. |
+| `internal/session` | In-memory session store. |
+| `internal/web` | The embedded SPA. |
+| `web/` | The React application. |
+| `test/compose` | OpenLDAP and 389 DS, TLS from one CA, 320 identical entries each. |
+| `test/conformance` | One suite, both servers, identical assertions. |
+
 ## The API is spec-first
 
 `api/openapi.yaml` is the source of truth. The Go server interface and the

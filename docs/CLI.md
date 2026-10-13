@@ -9,7 +9,10 @@ commands. The main ones:
 | `alder diff` | Compare two snapshots, or a snapshot and the live directory |
 | `alder plan` | Show what an LDIF document or a set of change requests would do |
 | `alder apply` | Plan, show the plan, and apply exactly that plan |
-| `alder project` | Check an Alder project, and plan it against one of its environments |
+| `alder project` | Check, format, plan and apply an Alder project against one of its environments |
+| `alder package` | Create, read and validate change packages |
+| `alder preflight` | Report what of a package or snapshot would carry across to a directory |
+| `alder key`, `alder sign`, `alder verify` | Make keys, sign documents, and check signatures, all offline |
 | `alder version` | Print this binary's version, and a server's |
 
 They exist so that the workflow the web interface offers, from snapshot through
