@@ -1,0 +1,33 @@
+# Whole entries, with their object classes: the plan may have to create any
+# of them. No userPassword or other secret: validate refuses one.
+
+dn: ou=people,dc=example,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: people
+
+dn: uid=ada,ou=people,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: ada
+cn: Ada Lovelace
+sn: Lovelace
+givenName: Ada
+mail: ada@example.com
+title: Staff Engineer
+departmentNumber: engineering
+
+dn: uid=grace,ou=people,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: grace
+cn: Grace Hopper
+sn: Hopper
+givenName: Grace
+mail: grace@example.com
+title: Principal Engineer
+departmentNumber: engineering

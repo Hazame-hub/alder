@@ -1,0 +1,12 @@
+dn: uid=margaret,ou=people,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: margaret
+cn: Margaret Hamilton
+sn: Hamilton
+givenName: Margaret
+mail: margaret@example.com
+title: Site Reliability Engineer
+departmentNumber: operations
