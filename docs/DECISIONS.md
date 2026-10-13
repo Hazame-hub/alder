@@ -5515,6 +5515,37 @@ configuration names a server and its credentials. `docs/PROJECT.md` now says
 so plainly: `validate` connects to nothing and is safe on any pull request;
 `plan` and `apply` with credentials belong to changes you trust.
 
+### 2026-10-12 — SameSite is not the whole defence, and now does not have to be
+
+The session cookie's comment said that with no CSRF token, SameSite=Strict
+"is the whole defence". It is a defence against other *sites*. A sibling
+subdomain -- `wiki.example.com` beside `alder.example.com` -- is the same
+site, and so is every `http://localhost:<port>` beside an Alder on another
+port, so a page there gets the cookie attached. It cannot send JSON across
+origins without a preflight Alder never answers, but it can submit a form,
+and Fiber's `BodyParser` decoded a form body into a `ChangeRequest` as
+readily as JSON. A baseline is optional on `/changes/apply`, so an
+auto-submitting form deleted an entry, or set a password, as whoever was
+signed in. Shown with a test before the fix: the form's delete was applied.
+
+**Two checks in front of every handler, neither of which a client Alder has
+ever had trips over:**
+
+- A body that is not `application/json` is refused with 415. The contract
+  never offered anything else; both of Alder's clients send JSON; and the
+  only types a cross-origin page can send without a preflight are form
+  encoding, multipart and `text/plain`.
+- A write a browser labels `Sec-Fetch-Site: same-site` or `cross-site` is
+  refused with 403, whatever its body. Every current browser sends the
+  header. The command line sends none, and "none" (a request the user made
+  directly) is allowed.
+
+**Not an Origin-against-Host comparison.** Behind a reverse proxy the Host
+Alder sees is often not the one the browser used, so that check would
+refuse the proxy's own users. Sec-Fetch-Site is computed by the browser and
+survives any proxy. **Not a CSRF token** either: it would need a change to
+both clients and the contract for a hole these two checks close.
+
 ### 2026-10-12 — the signing commands keep the client's rules, and a test keeps every command to them
 
 CLI.md says only the connection flags read `ALDER_*`, and that `--force`
