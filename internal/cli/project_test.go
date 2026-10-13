@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -590,5 +591,36 @@ func TestProjectPlanSaysWhichSubtreeCouldNotBeRead(t *testing.T) {
 	sub := doc["unmanaged"].([]any)[0].(map[string]any)
 	if msg, _ := sub["error"].(string); msg == "" {
 		t.Errorf("unmanaged[0] carries no error: %v", sub)
+	}
+}
+
+// A project's problems quote the repository, and in CI the repository is the
+// pull request under review. A file name or an LDIF line holding an escape
+// sequence is printed with the escape visible, not acted on by the terminal.
+func TestAProjectsProblemsCannotDriveTheTerminal(t *testing.T) {
+	for name, files := range map[string]map[string]string{
+		"a file name":       {"people/x\x1b[2J\x1b]0;owned\x07.ldif": projectBob + "userPassword: {SSHA}x\n"},
+		"an attribute name": {"people/bob.ldif": projectBob + "x\x1b[2Jy: z\n"},
+		"an LDIF line":      {"people/bob.ldif": "dn uid=bob\x1b[2J\n"},
+		// A line break of its own would let a file name start a line in a
+		// CI log, where "::error::" or "::add-mask::" is a command.
+		"a line break": {"people/x\n::warning::forged.ldif": projectBob + "userPassword: {SSHA}x\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && (name == "a file name" || name == "a line break") {
+				t.Skip("Windows cannot name a file with control characters, so no repository there can carry one")
+			}
+			s := newStub(t)
+			dir := writeProject(t, s, files)
+			r := s.run(t, projectRun, "project", "validate", "--project", dir)
+			if r.code == ExitOK {
+				t.Fatalf("the project was valid; the test proves nothing")
+			}
+			for _, bad := range []string{"\x1b", "\x07", "\n::warning::"} {
+				if strings.Contains(r.stderr, bad) {
+					t.Errorf("stderr carries %q from the repository:\n%q", bad, r.stderr)
+				}
+			}
+		})
 	}
 }

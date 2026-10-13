@@ -5760,6 +5760,29 @@ is writable by any script on the origin, so what it holds is displayed like
 any other string Alder did not write. The form fields keep the original
 string, because that is what is sent.
 
+### 2026-10-13 — what a project's files say is printed through safe, as a directory's is
+
+The command line has escaped directory data since `safe` was written: a DN,
+a value or a server's message can hold escape sequences, and printed as they
+are, the terminal acts on them. A project's files had not been given the same
+treatment, and in CI they are the least trusted text Alder prints: whatever
+the pull request under review wrote. A file named
+`people/x<ESC>]0;...<BEL>.ldif`, or one with a line break and `::warning::` in
+its name, went to the job log as it was -- where the escape is interpreted by
+whoever views the log, and a line of its own is a workflow command.
+
+DNs, attribute names and quoted YAML were already safe, because the LDIF and
+DN parsers escape or quote what they report and the YAML parser refuses raw
+control characters. File names were not, and a YAML double-quoted string can
+spell an escape (`"\e"`), so an environment name or a host could hold one too.
+
+**Every problem line goes through `safe`, line breaks included**, and so do the
+file names `project fmt` lists and the environment, host and API URL a plan or
+an apply announces. **Where every error is printed, each line is made safe and
+Alder's own line breaks are kept** (`safeLines`): the last line of defence
+rather than the first, since a value's own line break must already have been
+escaped where it was interpolated.
+
 ### 2026-10-13 — the client asks for a password at a terminal
 
 A person running `alder plan` by hand had three places to put the bind

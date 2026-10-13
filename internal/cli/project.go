@@ -69,9 +69,9 @@ func projectValidateCmd(env *Env) *cobra.Command {
 			return err
 		}
 		writef(env.Stdout, "%s: valid. %s in %s; environments: %s\n",
-			p.File, plural(p.Entries(), "entry", "entries"),
+			safe(p.File), plural(p.Entries(), "entry", "entries"),
 			plural(len(p.Managed), "managed subtree", "managed subtrees"),
-			strings.Join(p.EnvironmentNames(), ", "))
+			safe(strings.Join(p.EnvironmentNames(), ", ")))
 		return nil
 	})
 	o.registerPath(cmd)
@@ -183,7 +183,7 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 	}
 	e, ok := p.Environments[o.envName]
 	if !ok {
-		return usagef("%s has no environment %q; it has %s", p.File, o.envName, strings.Join(p.EnvironmentNames(), ", "))
+		return usagef("%s has no environment %q; it has %s", safe(p.File), o.envName, safe(strings.Join(p.EnvironmentNames(), ", ")))
 	}
 	conn := connectionFor(p, e, o.timeout)
 	if err := conn.check(false); err != nil {
@@ -207,7 +207,7 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 	}
 
 	writef(env.Stderr, "alder: applying %s to environment %s: %s through %s\n",
-		p.File, o.envName, conn.label(), conn.apiURL)
+		safe(p.File), safe(o.envName), safe(conn.label()), safe(conn.apiURL))
 
 	ctx, cancel := conn.bound(ctx)
 	defer cancel()
@@ -226,11 +226,11 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 	if o.json {
 		out = env.Stderr
 	}
-	writef(out, "Environment %s (%s)\n\n", o.envName, conn.label())
+	writef(out, "Environment %s (%s)\n\n", safe(o.envName), safe(conn.label()))
 	// Desired state only: every item is the plan's own record, so there is
 	// no client copy of an exact change to send instead.
 	return applyReviewed(ctx, env, r, plan, raw, nil, applySettings{
-		target:      fmt.Sprintf("environment %s (%s)", o.envName, conn.label()),
+		target:      fmt.Sprintf("environment %s (%s)", safe(o.envName), safe(conn.label())),
 		summary:     o.summary,
 		yes:         o.yes,
 		recoveryOut: o.recoveryOut,
@@ -261,7 +261,7 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	}
 	e, ok := p.Environments[o.envName]
 	if !ok {
-		return usagef("%s has no environment %q; it has %s", p.File, o.envName, strings.Join(p.EnvironmentNames(), ", "))
+		return usagef("%s has no environment %q; it has %s", safe(p.File), o.envName, safe(strings.Join(p.EnvironmentNames(), ", ")))
 	}
 	conn := connectionFor(p, e, o.timeout)
 	if err := conn.check(false); err != nil {
@@ -279,7 +279,7 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	// Said before anything is sent, so a person sees which directory this is
 	// about before reading a word of the plan.
 	writef(env.Stderr, "alder: planning %s for environment %s: %s through %s\n",
-		p.File, o.envName, conn.label(), conn.apiURL)
+		safe(p.File), safe(o.envName), safe(conn.label()), safe(conn.apiURL))
 
 	ctx, cancel := conn.bound(ctx)
 	defer cancel()
@@ -305,7 +305,7 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 			return failf("output", "cannot write to standard output: %v", err)
 		}
 	} else {
-		writef(env.Stdout, "Environment %s (%s)\n\n", o.envName, conn.label())
+		writef(env.Stdout, "Environment %s (%s)\n\n", safe(o.envName), safe(conn.label()))
 		renderPlan(env.Stdout, plan, !o.summary)
 		renderUnmanaged(env.Stdout, env.Stderr, unmanaged, !o.summary)
 	}
@@ -347,22 +347,28 @@ func connectionFor(p *project.Project, e project.Environment, timeout time.Durat
 func loadProject(env *Env, path string) (*project.Project, error) {
 	file, err := project.Locate(path)
 	if err != nil {
-		return nil, failf("input", "cannot find the project: %v", err)
+		return nil, failf("input", "cannot find the project: %s", safe(err.Error()))
 	}
 	p, err := project.Load(file)
 	var invalid *project.Invalid
 	switch {
 	case errors.As(err, &invalid):
+		// Every problem quotes the repository: a file name, a key, a DN, a
+		// value. In CI that is whatever the pull request under review wrote,
+		// and printed as it was, an escape sequence in it is acted on by the
+		// terminal -- or by the CI log, where a line of its own can be a
+		// workflow command. So the whole line goes through safe, newlines
+		// included.
 		for _, problem := range invalid.Problems {
-			writef(env.Stderr, "%s\n", problem)
+			writef(env.Stderr, "%s\n", safe(problem.String()))
 		}
 		return nil, &ExitError{
 			Code:    ExitNotApplicable,
 			Local:   "project_invalid",
-			Message: invalid.Error(),
+			Message: safe(invalid.Error()),
 		}
 	case err != nil:
-		return nil, failf("input", "cannot read the project: %v", err)
+		return nil, failf("input", "cannot read the project: %s", safe(err.Error()))
 	}
 	return p, nil
 }
