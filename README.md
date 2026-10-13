@@ -233,6 +233,12 @@ administrator and the configuration as the configuration administrator, and
 neither borrows the other's rights. Without it, reaching the configuration would
 mean connecting as the configuration administrator and giving up the data.
 
+**Switch between directories by name.** The connection screen remembers the
+last connection that worked and keeps a list of connections saved under names
+-- primary, replica, dev, prod -- to fill the form with one pick, rename or
+delete. Both live in this browser's `localStorage`, up to 25 saved, and hold
+everything except the passwords, which are typed every time.
+
 **See what this server says about its own replication.** Whether it supplies,
 consumes or both; which links it has and to whom; and, the part that actually
 answers "is it working", how far along it is -- the most recent change it
@@ -534,7 +540,9 @@ same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
 
 - Bind credentials live in server memory keyed by an httpOnly, Secure,
   SameSite=Strict cookie. Not on disk, not in a JWT, not in `localStorage`.
-  Restarting the server logs everyone out.
+  Restarting the server logs everyone out. What the browser keeps -- the last
+  connection and the saved ones -- is hosts, DNs and CA certificates, never a
+  password.
 - Sensitive attributes (`userPassword` and friends) are never sent to the
   browser and never logged. The UI reports them as set, with a count.
 - LDIF exports omit them too, unless explicitly asked for.
