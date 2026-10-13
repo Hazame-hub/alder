@@ -1,0 +1,105 @@
+# Copy to .github/workflows/directory.yml in the repository that holds the
+# project. It assumes the project is in directory/; change PROJECT if not.
+#
+# Two jobs, split by what they need:
+#
+#   validate  every pull request. Connects to nothing and reads no password,
+#             so it is safe on any pull request, a fork's included.
+#   plan      main and a daily schedule. Plans each environment with
+#             --detailed-exitcode and fails when the directory has drifted
+#             from the repository. It holds a password, so it never runs on
+#             a pull request: alder.yaml names where that password goes, and
+#             a pull request can change alder.yaml.
+#
+# The plan job must reach your Alder server and, through it, your directory.
+# Those are usually internal, which means a self-hosted runner.
+name: directory
+
+on:
+  pull_request:
+    paths: ["directory/**"]
+  push:
+    branches: [main]
+    paths: ["directory/**"]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pin the client. 1.37.1 is the first release where --detailed-exitcode
+  # reports pending changes as 2.
+  ALDER_VERSION: "1.37.1"
+  PROJECT: directory
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install alder
+        run: |
+          set -eu
+          archive="alder_${ALDER_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/Hazame-hub/alder/releases/download/v${ALDER_VERSION}"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o checksums.txt "$base/checksums.txt"
+          grep " ${archive}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$archive" alder
+          sudo install -m 0755 alder /usr/local/bin/alder
+          rm -f alder "$archive" checksums.txt
+          alder version
+      - name: Validate the project
+        run: alder project validate --project "$PROJECT"
+
+  plan:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    # A runner that can reach the Alder server named in alder.yaml.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: staging
+            password: ALDER_STAGING_BIND_PASSWORD
+          - environment: production
+            password: ALDER_PRODUCTION_BIND_PASSWORD
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install alder
+        run: |
+          set -eu
+          archive="alder_${ALDER_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/Hazame-hub/alder/releases/download/v${ALDER_VERSION}"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o checksums.txt "$base/checksums.txt"
+          grep " ${archive}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$archive" alder
+          sudo install -m 0755 alder /usr/local/bin/alder
+          rm -f alder "$archive" checksums.txt
+          alder version
+      - name: Plan ${{ matrix.environment }}
+        env:
+          # Only this environment's password reaches this job's step.
+          BIND_PASSWORD: ${{ secrets[matrix.password] }}
+          ENVIRONMENT: ${{ matrix.environment }}
+          PASSWORD_VARIABLE: ${{ matrix.password }}
+        run: |
+          set -u
+          export "$PASSWORD_VARIABLE=$BIND_PASSWORD"
+          unset BIND_PASSWORD
+          status=0
+          alder project plan --project "$PROJECT" --env "$ENVIRONMENT" \
+            --detailed-exitcode --summary || status=$?
+          case "$status" in
+            0) echo "$ENVIRONMENT matches the repository." ;;
+            2) echo "::error title=Directory drift::$ENVIRONMENT differs from the repository; the plan above says how."
+               exit 1 ;;
+            3) echo "::error title=Cannot be applied::some change for $ENVIRONMENT cannot be applied as written."
+               exit 1 ;;
+            *) echo "::error title=Plan failed::alder exited $status for $ENVIRONMENT; see the message above."
+               exit 1 ;;
+          esac
