@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/hazame-hub/alder/internal/directory"
@@ -118,26 +117,6 @@ func scopeFlag(s directory.Scope) string {
 	}
 }
 
-// safeUnquoted is the set a POSIX shell passes through untouched. Anything
-// outside it is quoted rather than escaped character by character, which is
-// both easier to get right and easier to read.
-var safeUnquoted = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
-
-// shellQuote makes one argument safe for a POSIX shell.
-//
-// A DN holds commas, equals signs and often spaces; a filter holds parentheses,
-// asterisks and ampersands. Pasting either unquoted produces a command that is
-// either wrong or, with the right value, does something other than it appears
-// to — which is the same injection this codebase escapes against everywhere
-// else, aimed at a shell instead of a directory.
-func shellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	if safeUnquoted.MatchString(s) {
-		return s
-	}
-	// Inside single quotes a shell honours nothing at all, so the only case to
-	// handle is a single quote itself: close, emit an escaped one, reopen.
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+// shellQuote makes one argument safe for a POSIX shell. It is the directory
+// package's, so every command line Alder shows quotes the same way.
+func shellQuote(s string) string { return directory.ShellQuote(s) }
