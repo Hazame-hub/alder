@@ -551,8 +551,20 @@ func (s *Server) Search(c *fiber.Ctx) error {
 		CustomCA:   sess.HasCustomCA(),
 	}, req))
 
+	// Everything the writer needs from c is taken now. Fiber puts c back in its
+	// pool when this function returns and hands it to the next request, while
+	// the writer is still running -- so a writer that read the path from c to
+	// log a failure read another request's, and the race detector said so.
+	path := c.Path()
+	// The pages after the first are asked for by the writer, so it holds the
+	// --max-in-flight slot until it is done rather than leaving it to the gate,
+	// which would let go when this function returns.
+	release := keepSlot(c)
+
 	c.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
 	c.Context().SetBodyStreamWriter(func(conn *bufio.Writer) {
+		// Deferred first, so it runs last: after the final flush.
+		defer release()
 		// The searches that feed this run here, so the context lives until the
 		// last entry is written.
 		defer cancel()
@@ -602,7 +614,7 @@ func (s *Server) Search(c *fiber.Ctx) error {
 			// a handler that assigned here, and most of them would be lost.
 			referrals = append(referrals, res.Referrals...)
 			if err := emit(res.Entries); err != nil {
-				s.abandon(c, bw, written, err)
+				s.abandon(path, bw, written, err)
 				return
 			}
 			if len(cookie) == 0 || written >= req.Limit {
@@ -610,7 +622,7 @@ func (s *Server) Search(c *fiber.Ctx) error {
 			}
 			next, pErr := page(cookie, req.Limit-written)
 			if pErr != nil {
-				s.abandon(c, bw, written, pErr)
+				s.abandon(path, bw, written, pErr)
 				return
 			}
 			res, cookie, truncated = next, next.Cookie, next.Truncated
@@ -638,7 +650,7 @@ func (s *Server) Search(c *fiber.Ctx) error {
 		}
 		rest, err := json.Marshal(tail)
 		if err != nil {
-			s.abandon(c, bw, written, err)
+			s.abandon(path, bw, written, err)
 			return
 		}
 		if _, err := bw.WriteString("],"); err != nil {
@@ -660,9 +672,9 @@ func (s *Server) Search(c *fiber.Ctx) error {
 // answer no client could tell from a complete one, or to make the document fail
 // to parse. A parse error is the loud one, and the comment says why to whoever
 // reads the body to find out.
-func (s *Server) abandon(c *fiber.Ctx, bw *bufio.Writer, written int, err error) {
+func (s *Server) abandon(path string, bw *bufio.Writer, written int, err error) {
 	s.logger.Error("the search failed partway through streaming its response",
-		"written", written, "error", err, "path", c.Path())
+		"written", written, "error", err, "path", path)
 
 	// Folded onto one line and stripped of anything that would end the comment,
 	// so the trailer cannot be closed early by whatever the directory said.
@@ -1334,7 +1346,13 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 	c.Set(fiber.HeaderContentDisposition,
 		fmt.Sprintf("attachment; filename=%q", exportFilename(base, scope)))
 
+	// The writer pages the directory, so it holds the --max-in-flight slot
+	// until it is done, for the search's reason. It reads nothing from c.
+	release := keepSlot(c)
+
 	c.Context().SetBodyStreamWriter(func(bw *bufio.Writer) {
+		// Deferred first, so it runs last.
+		defer release()
 		// The search that feeds this runs here, so the context lives until the
 		// last record is written.
 		defer cancel()
