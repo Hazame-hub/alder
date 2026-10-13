@@ -30,9 +30,10 @@ both. If you find yourself wanting a per-vendor test file, the change is
 probably wrong.
 
 **Never branch on the vendor.** Read the RootDSE, put what you learn in
-`Capabilities`, and branch on that. `VendorName` exists to display, and that is
-all. This is what lets the same code find the schema at `cn=Subschema` on
-OpenLDAP and `cn=schema` on 389 DS without knowing which it is talking to.
+`Capabilities`, and branch on that. `VendorName` exists to display, apart from
+the one tie-break section 3 of the charter allows. This is what lets the same
+code find the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on 389 DS
+without knowing which it is talking to.
 
 **Ask before adding a dependency.** Any dependency, however small. The stack is
 Go with Fiber, `go-ldap/ldap/v3` and oapi-codegen on the server; React 19,

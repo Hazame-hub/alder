@@ -5859,3 +5859,31 @@ preflight (1.12) and configuration snapshots (1.13 and 1.14). The
 group of commands now, and the error points at it and names the oldest
 server that has every endpoint, rather than restating versions that will go
 stale again with the next one.
+
+### 2026-10-13 — the charter says what the code does about secrets and vendor names
+
+Two of the charter's hard rules described something the code does not do.
+
+**Rule 6 named a "configurable deny list".** There is no such setting. The
+list of sensitive attributes is a table in `internal/schema`, plus every
+subtype a loaded schema declares below one of its entries (2026-10-13, above).
+Nothing adds to it from a flag or a file. The rule now names the table and
+says it is not configurable, and `docs/RECOVERY.md` stops calling it
+"configured". Making it configurable was not done: a list an operator can
+shorten is a way to leak a secret by mistake, and the subtype rule already
+covers the case a configurable list would have served, a directory's own
+password attribute.
+
+**Section 3 and rule 8 said never to branch on a vendor name.**
+`config.ProviderFor` and the replication reader do, as a last resort: a
+configuration tree written in neither `olc*` nor `nsslapd-*` attributes says
+nothing about which model it follows, and the RootDSE's vendor name is the
+only remaining evidence. The replication conflict report reads no tree and
+uses the name alone, but only to choose the sentence explaining an empty
+result; it sends the same query to both servers. Removing the tie-break
+would leave a near-empty configuration tree with no model, so `config
+capture` would fail with `ErrNoModel` where it now works. The charter now
+states the exception and how narrow it is: one question, the tree first
+wherever there is one. Nothing else may use the vendor name, so the
+contributing guide's rule stands with the exception named.
+
