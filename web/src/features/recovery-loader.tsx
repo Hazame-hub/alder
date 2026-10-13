@@ -199,7 +199,13 @@ export function RecoveryLoader({
                         {c.type} {safeText(c.dn)}
                         {c.expect ? (
                           <span className="block text-muted-foreground">
-                            expects {c.expect.attributes.map((a) => safeText(a.name)).join(", ") || "the entry"}
+                            expects{" "}
+                            {[
+                              ...c.expect.attributes.map((a) => safeText(a.name)),
+                              ...(c.expect.definitions ?? []).map(
+                                (d) => `the definition ${safeText(d.oid)} in ${safeText(d.attribute)}`,
+                              ),
+                            ].join(", ") || "the entry"}
                             {c.expect.exhaustive ? " and nothing else" : ""} as the original change left it
                           </span>
                         ) : null}

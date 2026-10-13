@@ -33,8 +33,12 @@ var reasonText = map[apiclient.RecoveryReasonCode]string{
 	apiclient.RecoveryReasonIdentityRegenerated:        "a recreated entry gets a new identity and timestamps",
 	apiclient.RecoveryReasonHiddenAttributesUnknown:    "attributes this login cannot read are not restored",
 	apiclient.RecoveryReasonSensitiveValuesNotRestored: "passwords and other sensitive values are not restored",
-	apiclient.RecoveryReasonSchemaOrConfigNotSupported: "schema and configuration changes are not recovered",
+	apiclient.RecoveryReasonSchemaOrConfigNotSupported: "this part of a schema or configuration change is not recovered",
 	apiclient.RecoveryReasonPreStateUnavailable:        "the entry could not be read before the change",
+	apiclient.RecoveryReasonPostStateUnavailable:       "the entry could not be read after the change",
+	apiclient.RecoveryReasonDefinitionMayBeInUse:       "entries may now use this schema definition, and are not recovered",
+	apiclient.RecoveryReasonConfigEntryNotCompensated:  "creating, removing or renaming a configuration entry is not recovered",
+	apiclient.RecoveryReasonAccessRuleNotWritten:       "Alder does not write access rules",
 }
 
 func assessmentText(level apiclient.RecoveryRecoverability, reasons *[]apiclient.RecoveryReason) string {

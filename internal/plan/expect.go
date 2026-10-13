@@ -31,6 +31,28 @@ type Expectation struct {
 	// and identity attributes, which the server maintains, and sensitive ones,
 	// which cannot be compared, are not counted.
 	Exhaustive bool
+	// Definitions are schema definitions the entry must hold as given, each
+	// named by its OID within the attribute that carries it.
+	Definitions []ExpectedDefinition
+}
+
+// ExpectedDefinition is one schema definition an expectation is about.
+//
+// A schema entry holds every definition of its kind in one attribute -- a
+// thousand of them on some servers -- so an expectation of the whole attribute
+// would make a compensation for one definition conflict with any later change
+// to any other, and carry all of them. This names the one it is about instead.
+type ExpectedDefinition struct {
+	Attribute string
+	OID       string
+	// Value is the definition as the server stores it. Nil means the attribute
+	// must hold no definition with this OID.
+	//
+	// It is compared byte for byte, less the ordering prefix a server keeps in
+	// front of each definition: the text is the server's own rendering, read
+	// back from the server, and the prefix is a position that moves when an
+	// unrelated definition before it goes.
+	Value []byte
 }
 
 // ProblemExpectedStateDiffers: the entry no longer holds the state the change
@@ -42,9 +64,12 @@ var identityAttributes = map[string]bool{"entryuuid": true, "nsuniqueid": true}
 
 // ReadAttributes is what checking the expectation needs read.
 func (e *Expectation) ReadAttributes() []string {
-	out := make([]string, 0, len(e.Attributes)+1)
+	out := make([]string, 0, len(e.Attributes)+len(e.Definitions)+1)
 	for _, a := range e.Attributes {
 		out = append(out, a.Name)
+	}
+	for _, d := range e.Definitions {
+		out = append(out, d.Attribute)
 	}
 	if e.Exhaustive {
 		out = append(out, "*")
@@ -55,9 +80,12 @@ func (e *Expectation) ReadAttributes() []string {
 // dependencies are the attribute names the expectation makes the plan depend
 // on, so an apply notices when any of them changes after planning.
 func (e *Expectation) dependencies(sch *schema.Schema, live *directory.Entry) []string {
-	names := make([]string, 0, len(e.Attributes))
+	names := make([]string, 0, len(e.Attributes)+len(e.Definitions))
 	for _, a := range e.Attributes {
 		names = append(names, a.Name)
+	}
+	for _, d := range e.Definitions {
+		names = append(names, d.Attribute)
 	}
 	if e.Exhaustive && live != nil {
 		for _, name := range live.Order {
@@ -80,6 +108,11 @@ func (e *Expectation) Differs(sch *schema.Schema, live *directory.Entry) (string
 			return a.Name, true
 		}
 	}
+	for _, d := range e.Definitions {
+		if !d.heldBy(live) {
+			return d.Attribute, true
+		}
+	}
 	if e.Exhaustive {
 		names := append([]string(nil), live.Order...)
 		sort.Strings(names)
@@ -95,6 +128,23 @@ func (e *Expectation) Differs(sch *schema.Schema, live *directory.Entry) (string
 		}
 	}
 	return "", false
+}
+
+// heldBy reports whether live holds the definition as expected: exactly one
+// definition with the OID, and that one as given -- or, when no value is
+// given, none at all.
+func (d ExpectedDefinition) heldBy(live *directory.Entry) bool {
+	var found [][]byte
+	for _, v := range live.Get(d.Attribute) {
+		if strings.EqualFold(directory.DefinitionOID(string(v)), d.OID) {
+			found = append(found, v)
+		}
+	}
+	if d.Value == nil {
+		return len(found) == 0
+	}
+	return len(found) == 1 &&
+		directory.StripOrderingPrefix(string(found[0])) == directory.StripOrderingPrefix(string(d.Value))
 }
 
 // userAttribute is an attribute an expectation can speak about: not maintained

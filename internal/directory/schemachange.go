@@ -234,6 +234,33 @@ func findStored(stored []string, oid string) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrDefinitionNotFound, oid)
 }
 
+// DefinitionOID reads the OID out of a definition as a server stores it,
+// ordering prefix and all, or "" when the value is not a definition. It is
+// what a recovery compensation and the expectation that guards it identify a
+// definition by: the text around the OID is the server's rendering, and the
+// prefix is its bookkeeping.
+func DefinitionOID(stored string) string { return storedOID(stored) }
+
+// StripOrderingPrefix removes the "{n}" a server keeps in front of a value
+// whose order it maintains, and returns anything else unchanged.
+func StripOrderingPrefix(v string) string {
+	if strings.HasPrefix(v, "{") {
+		if end := strings.IndexByte(v, '}'); end > 0 && allDigits(v[1:end]) {
+			return v[end+1:]
+		}
+	}
+	return v
+}
+
+func allDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
 // storedOID reads the OID out of a stored definition.
 //
 // It tolerates the ordering prefix a configuration entry carries, because the

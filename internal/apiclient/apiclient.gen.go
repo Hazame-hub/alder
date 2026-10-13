@@ -1483,9 +1483,13 @@ func (e RecoveryModOp) Valid() bool {
 
 // Defines values for RecoveryReasonCode.
 const (
+	RecoveryReasonAccessRuleNotWritten       RecoveryReasonCode = "access_rule_not_written"
+	RecoveryReasonConfigEntryNotCompensated  RecoveryReasonCode = "config_entry_not_compensated"
+	RecoveryReasonDefinitionMayBeInUse       RecoveryReasonCode = "definition_may_be_in_use"
 	RecoveryReasonHiddenAttributesUnknown    RecoveryReasonCode = "hidden_attributes_unknown"
 	RecoveryReasonIdentityRegenerated        RecoveryReasonCode = "identity_regenerated"
 	RecoveryReasonPasswordNotCaptured        RecoveryReasonCode = "password_not_captured"
+	RecoveryReasonPostStateUnavailable       RecoveryReasonCode = "post_state_unavailable"
 	RecoveryReasonPreStateUnavailable        RecoveryReasonCode = "pre_state_unavailable"
 	RecoveryReasonSchemaOrConfigNotSupported RecoveryReasonCode = "schema_or_config_not_supported"
 	RecoveryReasonSensitiveValueNotCaptured  RecoveryReasonCode = "sensitive_value_not_captured"
@@ -1496,11 +1500,19 @@ const (
 // Valid indicates whether the value is a known member of the RecoveryReasonCode enum.
 func (e RecoveryReasonCode) Valid() bool {
 	switch e {
+	case RecoveryReasonAccessRuleNotWritten:
+		return true
+	case RecoveryReasonConfigEntryNotCompensated:
+		return true
+	case RecoveryReasonDefinitionMayBeInUse:
+		return true
 	case RecoveryReasonHiddenAttributesUnknown:
 		return true
 	case RecoveryReasonIdentityRegenerated:
 		return true
 	case RecoveryReasonPasswordNotCaptured:
+		return true
+	case RecoveryReasonPostStateUnavailable:
 		return true
 	case RecoveryReasonPreStateUnavailable:
 		return true
@@ -2547,10 +2559,31 @@ type ChangeExpectation struct {
 	// are refused.
 	Attributes []ChangeAttribute `json:"attributes"`
 
+	// Definitions Schema definitions the entry must hold as given, each named by its
+	// OID within the attribute that carries it. A schema entry keeps every
+	// definition of a kind in one attribute, so this is how a change says
+	// what it expects of one definition without stating all of them.
+	// Added for compensating changes to the schema; absent means none.
+	Definitions *[]ChangeExpectedDefinition `json:"definitions,omitempty"`
+
 	// Exhaustive Absent means false. The entry must hold no other user attribute. `objectClass`,
 	// operational and identity attributes, and sensitive attributes are
 	// not counted.
 	Exhaustive *bool `json:"exhaustive,omitempty"`
+}
+
+// ChangeExpectedDefinition defines model for ChangeExpectedDefinition.
+type ChangeExpectedDefinition struct {
+	// Attribute The attribute that carries the definition, such as `attributeTypes` or `olcAttributeTypes`.
+	Attribute string `json:"attribute"`
+
+	// Oid The definition's numeric OID.
+	Oid string `json:"oid"`
+
+	// Value Exactly one of `text` or `base64` is present. `text` carries a value
+	// that is valid UTF-8 and belongs to a textual syntax; everything else,
+	// including anything with a `;binary` option, arrives as `base64`.
+	Value *AttributeValue `json:"value,omitempty"`
 }
 
 // ChangeMod defines model for ChangeMod.
@@ -4939,8 +4972,9 @@ type RecoveryAssessment struct {
 	// Recoverability How far a change can be compensated. `exact`: Alder can derive
 	// compensating changes that restore the ordinary directory state it
 	// captured before the change -- the user attributes the change touched,
-	// an entry's absence, or its former name -- subject to the plan's drift
-	// checks. It does not cover operational attributes such as
+	// an entry's absence, or its former name; a configuration setting as the
+	// server stored it; a removed schema definition back -- subject to the
+	// plan's drift checks. It does not cover operational attributes such as
 	// `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
 	// replication metadata, or attributes the bind could not read.
 	// `partial`: some of it; `reasons` say what is not. `unavailable`: none of
@@ -4973,8 +5007,9 @@ type RecoveryBundle struct {
 	// Recoverability How far a change can be compensated. `exact`: Alder can derive
 	// compensating changes that restore the ordinary directory state it
 	// captured before the change -- the user attributes the change touched,
-	// an entry's absence, or its former name -- subject to the plan's drift
-	// checks. It does not cover operational attributes such as
+	// an entry's absence, or its former name; a configuration setting as the
+	// server stored it; a removed schema definition back -- subject to the
+	// plan's drift checks. It does not cover operational attributes such as
 	// `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
 	// replication metadata, or attributes the bind could not read.
 	// `partial`: some of it; `reasons` say what is not. `unavailable`: none of
@@ -5007,6 +5042,15 @@ type RecoveryChange struct {
 // RecoveryChangeType defines model for RecoveryChange.Type.
 type RecoveryChangeType string
 
+// RecoveryDefinition defines model for RecoveryDefinition.
+type RecoveryDefinition struct {
+	Attribute string `json:"attribute"`
+	Oid       string `json:"oid"`
+
+	// Value Exactly one of `text` or `base64`.
+	Value *SnapshotValue `json:"value,omitempty"`
+}
+
 // RecoveryDrift defines model for RecoveryDrift.
 type RecoveryDrift struct {
 	Dn string `json:"dn"`
@@ -5031,7 +5075,13 @@ type RecoveryDriftState string
 // RecoveryExpect defines model for RecoveryExpect.
 type RecoveryExpect struct {
 	Attributes []RecoveryAttribute `json:"attributes"`
-	Exhaustive *bool               `json:"exhaustive,omitempty"`
+
+	// Definitions Schema definitions the entry must hold as the original change left
+	// them, each named by its OID. Written only for a compensating change
+	// to the schema; a reader that predates it refuses the bundle as
+	// carrying an unknown field.
+	Definitions *[]RecoveryDefinition `json:"definitions,omitempty"`
+	Exhaustive  *bool                 `json:"exhaustive,omitempty"`
 }
 
 // RecoveryInspection defines model for RecoveryInspection.
@@ -5054,8 +5104,9 @@ type RecoveryInspection struct {
 	// Recoverability How far a change can be compensated. `exact`: Alder can derive
 	// compensating changes that restore the ordinary directory state it
 	// captured before the change -- the user attributes the change touched,
-	// an entry's absence, or its former name -- subject to the plan's drift
-	// checks. It does not cover operational attributes such as
+	// an entry's absence, or its former name; a configuration setting as the
+	// server stored it; a removed schema definition back -- subject to the
+	// plan's drift checks. It does not cover operational attributes such as
 	// `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
 	// replication metadata, or attributes the bind could not read.
 	// `partial`: some of it; `reasons` say what is not. `unavailable`: none of
@@ -5110,8 +5161,9 @@ type RecoveryReasonCode string
 // RecoveryRecoverability How far a change can be compensated. `exact`: Alder can derive
 // compensating changes that restore the ordinary directory state it
 // captured before the change -- the user attributes the change touched,
-// an entry's absence, or its former name -- subject to the plan's drift
-// checks. It does not cover operational attributes such as
+// an entry's absence, or its former name; a configuration setting as the
+// server stored it; a removed schema definition back -- subject to the
+// plan's drift checks. It does not cover operational attributes such as
 // `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
 // replication metadata, or attributes the bind could not read.
 // `partial`: some of it; `reasons` say what is not. `unavailable`: none of
@@ -5140,8 +5192,9 @@ type RecoveryStep struct {
 	// Recoverability How far a change can be compensated. `exact`: Alder can derive
 	// compensating changes that restore the ordinary directory state it
 	// captured before the change -- the user attributes the change touched,
-	// an entry's absence, or its former name -- subject to the plan's drift
-	// checks. It does not cover operational attributes such as
+	// an entry's absence, or its former name; a configuration setting as the
+	// server stored it; a removed schema definition back -- subject to the
+	// plan's drift checks. It does not cover operational attributes such as
 	// `modifyTimestamp`, server-generated identifiers such as `entryUUID`,
 	// replication metadata, or attributes the bind could not read.
 	// `partial`: some of it; `reasons` say what is not. `unavailable`: none of

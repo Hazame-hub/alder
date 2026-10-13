@@ -155,7 +155,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 			})
 			continue
 		}
-		recorder.after(i, record, pre)
+		recorder.after(ctx, i, record, pre)
 		result.Outcomes = append(result.Outcomes, ChangesetOutcome{
 			Index:   i,
 			Dn:      record.DN.String(),

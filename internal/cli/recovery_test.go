@@ -26,7 +26,7 @@ func testBundle(t *testing.T) string {
 	record := directory.ChangeRecord{DN: target, Type: directory.ChangeModify,
 		Mods: []directory.Mod{{Op: directory.ModReplace, Name: "title", Values: [][]byte{[]byte("After")}}}}
 	b, err := recovery.New(recovery.Origin{Vendor: "Stub", NamingContexts: []string{"dc=example,dc=test"}},
-		[]recovery.Step{recovery.Derive(0, record, pre, nil, recovery.KindData)}, time.Now())
+		[]recovery.Step{recovery.Derive(0, record, pre, nil, recovery.Target{Kind: recovery.KindData})}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
