@@ -146,11 +146,24 @@ A bind password comes from exactly one of these, in this order:
    before anything is read.
 3. `ALDER_BIND_PASSWORD`: the usual choice for CI, from the CI system's secret
    store.
+4. The terminal. With none of the above, and standard input a terminal, the
+   client asks on standard error -- `Password for cn=admin,dc=example,dc=com: `
+   -- and reads the answer without echoing it. Ctrl+C at the question ends the
+   command and gives the terminal its echo back; `--timeout` counts the time
+   spent answering.
 
-An empty password is refused: many servers treat a simple bind with an empty
-password as an anonymous bind that succeeds. There is no hidden interactive
-prompt in this release. The configuration identity reads
-`--config-bind-password-file` or `ALDER_CONFIG_BIND_PASSWORD`.
+The client asks only at a terminal. When standard input is a pipe, a file or
+`/dev/null`, as in CI, a password given nowhere fails at once with exit 7, and
+the message names the sources above. Nor does it ask when standard input is the
+input document (`plan -`): that input was read already, so the error says so.
+`apply` asks its confirmation on the same terminal after the password.
+
+An empty password is refused, typed or read: many servers treat a simple bind
+with an empty password as an anonymous bind that succeeds. The configuration
+identity reads `--config-bind-password-file` or `ALDER_CONFIG_BIND_PASSWORD`,
+and is asked for at a terminal the same way, with its own DN. A project's
+environment reads the variable or file it names (see
+[`alder project`](#alder-project)), and at a terminal asks in their absence too.
 
 The password goes to the Alder server in the session request, as it does from
 the connection screen. It is never printed, never written to a file and never
@@ -489,7 +502,8 @@ plan>, "unmanaged": […]}`.
 
 Connection settings come from the environment in `alder.yaml`, never from the
 connection flags or their `ALDER_*` variables. A password comes from the
-variable or file that environment names. `--env` and `--project` are command-
+variable or file that environment names, or with neither set is asked for at a
+terminal ([Passwords](#passwords)). `--env` and `--project` are command-
 line only: `ALDER_ENV` is not read, because which directory a command acts on
 is not something an inherited environment decides.
 
@@ -924,8 +938,6 @@ promise: version 1 is read by every 1.x release from 1.7 on.
 
 ## Limitations
 
-- **No interactive password prompt.** Use a file, standard input or the
-  environment.
 - **A desired-state LDIF record that sets a sensitive attribute can be planned
   but not applied.** The plan's record withholds the value, and the server
   refuses a withheld value rather than writing an empty one. The web interface

@@ -113,6 +113,8 @@ type runOpts struct {
 	ctx         context.Context
 	// noConnection leaves out the connection flags run otherwise adds.
 	noConnection bool
+	// ask stands in for the terminal's password prompt; nil never asks.
+	ask func(ctx context.Context, prompt string) (string, error)
 }
 
 type result struct {
@@ -137,8 +139,9 @@ func (s *stub) run(t testing.TB, o runOpts, args ...string) result {
 			v, ok := env[k]
 			return v, ok
 		},
-		Interactive: func() bool { return o.interactive },
-		Version:     "1.8.0-test",
+		Interactive:  func() bool { return o.interactive },
+		ReadPassword: o.ask,
+		Version:      "1.8.0-test",
 	}
 	root := &cobra.Command{Use: "alder"}
 	root.AddCommand(Commands(e)...)
