@@ -256,8 +256,9 @@ The result is one ordinary `ChangeRecord`: a `modify` with a `replace` on the
 live side's own entry — never the other side's DN, because two servers may keep
 the same setting in differently named entries. From there it is the ordinary
 pipeline: changeset, plan, review, apply. The plan reports it as a
-`config` target, and **recovery is unavailable for configuration changes**, as
-it is for schema.
+`config` target, and a recovery bundle compensates it by putting the setting
+back as the server stored it: see
+[RECOVERY.md](RECOVERY.md#the-schema-and-the-configuration).
 
 Everything else is reported and left alone, with a reason on the item:
 `sensitive_withheld`, `not_comparable`, `no_write_path`, `not_read`.
@@ -533,7 +534,9 @@ evaluated, exactly as every other report does. See
   [Configuration objects](#configuration-objects-116) for what is.
 - **Applying a configuration wholesale.** There is no "restore this
   configuration" button, as there is no "restore this subtree" one.
-- **Recovery for configuration changes**, which stays unavailable.
+- **Recovery for creating or removing a configuration entry.** A setting
+  changed in place has been recoverable since; see
+  [RECOVERY.md](RECOVERY.md#the-schema-and-the-configuration).
 - **Preflight across providers.** Configuration compatibility between two
   products is not evaluated, and the report says so. See
   [PREFLIGHT.md](PREFLIGHT.md).

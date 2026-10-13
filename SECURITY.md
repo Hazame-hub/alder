@@ -145,8 +145,9 @@ you.** Since 1.16 Alder creates and removes exactly one kind of configuration
 entry: an OpenLDAP overlay whose module the server has already loaded. The
 precondition is checked before a write is sent. A removal is derived only when
 it is named as a removal -- selecting every difference on a page removes
-nothing -- and recovery stays unavailable for configuration changes, so an
-overlay taken away is put back by planning the opposite change. On 389
+nothing -- and a recovery bundle does not compensate creating or removing a
+configuration entry, so an overlay taken away is put back by planning the
+opposite change. On 389
 Directory Server, a plugin the server needs to start is never offered for
 switching off: which those are is read from the server's own plugin types and
 dependencies, because the server accepts the write and fails at the next start.

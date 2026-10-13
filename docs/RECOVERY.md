@@ -66,7 +66,7 @@ something carries the same assessment:
 
 | Recoverability | Meaning |
 |---|---|
-| `exact` | Alder can derive compensating changes that restore the ordinary directory state it captured before the change: every user attribute the change touched back to its earlier values, the entry the change created gone, or the entry back under its former name and parent. They are still planned, and refused if the directory has drifted. |
+| `exact` | Alder can derive compensating changes that restore the ordinary directory state it captured before the change: every user attribute the change touched back to its earlier values, the entry the change created gone, or the entry back under its former name and parent. In the configuration, every setting the change touched back as the server stored it; in the schema, a removed definition back. They are still planned, and refused if the directory has drifted. |
 | `partial` | Some of the change's effect can be compensated and some cannot. `reasons` say which. |
 | `unavailable` | Nothing about the change can be compensated. |
 
@@ -78,7 +78,12 @@ compensation does not restore, and no recoverability claims to:
   operational attributes, which change again when the compensation is applied;
 - server-generated identifiers such as `entryUUID` and `nsUniqueId`;
 - replication metadata such as `entryCSN`;
-- attributes the bind could not read, which were never captured.
+- attributes the bind could not read, which were never captured;
+- the running server: a setting is restored as the server stores it, and one
+  the server reads only when it starts takes effect when it next starts, as
+  the original change did;
+- anything the server changed by itself in answer to a change, beside what
+  the change wrote.
 
 This is why an add and a rename are exact -- the entry is removed, or is back
 under its former name holding the same user data, still with its own identity
@@ -95,10 +100,60 @@ under its former name holding the same user data, still with its own identity
 | Delete an entry | Adds it back with the user attributes that were read before the delete. | `partial`, always. Reasons `identity_regenerated` (a new `entryUUID` or `nsUniqueId`, new timestamps) and `hidden_attributes_unknown` (anything the bind could not read). Also `sensitive_values_not_restored` when it held a password or other sensitive value, which is not put back. |
 | Rename or move an entry | Renames or moves it back. The new naming value is removed on the way back only if the entry did not already hold it. | `exact` |
 | Set a password | None. The previous password is never captured. | `unavailable`. Reason `password_not_captured`. |
-| Any change to the schema or the server's configuration | None, in this version. | `unavailable`. Reason `schema_or_config_not_supported`. |
+| Modify a setting in the configuration tree (`olc*`, `nsslapd-*`, any attribute of an entry there) | Replaces each attribute the change touched with the values the server stored before, in the order and the spelling it stored them, positions (`{n}`) included; removes one that had no value. The expectation is the attribute as the server stored it after the change. | `exact` |
+| Modify a sensitive setting (`olcRootPW`, `nsslapd-rootpw`, `olcSyncrepl`, which carries a credential, and the rest of the deny list) | None for that attribute: its name is recorded, never its value. | `partial`, or `unavailable` if nothing else was touched. Reason `sensitive_value_not_captured`. |
+| Modify an access rule (`olcAccess`, `aci`) in the configuration tree | None for that attribute. Alder reads access rules and never writes them, and a compensation is a write. | `partial`, or `unavailable` if nothing else was touched. Reason `access_rule_not_written`. |
+| Create, remove or rename an entry in the configuration tree (an overlay, a 389 DS index) | None. The server acts on it as it happens, renumbers what is beside it, and does not always allow the opposite. | `unavailable`. Reason `config_entry_not_compensated`. |
+| Add a schema definition (an attribute type or object class) | Removes it, naming the value as the server stored it. | `partial`, always. Reason `definition_may_be_in_use`: entries may have come to use it, Alder does not search for them, and they are not recovered. |
+| Change a schema definition | Puts the earlier definition back, the same way the change was written: by removing the new one and adding the old one, or, where the change replaced it in place by adding alone, by adding the old one alone. | `partial`, always. Reason `definition_may_be_in_use`. |
+| Remove a schema definition | Adds it back as the server stored it, ordering prefix included, so it returns to its place. | `exact` |
+| Any other change to a schema entry: an attribute that carries no definitions (`olcObjectIdentifier`), a whole collection replaced or removed, a value that is not one definition | None for that attribute. | `partial`, or `unavailable` if nothing else was touched. Reason `schema_or_config_not_supported`. |
 
 A change whose entry could not be read before it ran is `unavailable`, with the
-reason `pre_state_unavailable`. Alder never guesses the missing state.
+reason `pre_state_unavailable`. Alder never guesses the missing state. A change
+to the schema or the configuration whose entry could not be read again after it
+applied is `unavailable` too, with `post_state_unavailable`: see below.
+
+### The schema and the configuration
+
+A change there is an ordinary modification of an ordinary entry, and so is its
+compensation. What is different is that the server, not the change, decides
+what is stored:
+
+- **Positions.** OpenLDAP keeps a `{n}` in front of each value of an ordered
+  attribute (`olcAttributeTypes`, `olcLimits`, `olcModuleLoad`) and renumbers them
+  when one goes. A setting is put back by writing the whole attribute with
+  the values it held, positions and all, which the server takes as a true
+  round trip. A definition is removed by naming the value as it is stored, and
+  a definition put back keeps its position, which inserts it where it was.
+- **Rendering.** A server stores a definition its own way -- 389 DS adds
+  `X-ORIGIN 'user defined'`, OpenLDAP re-renders it -- and spells a setting as
+  it prefers. So the entry is read again once the change has applied, and
+  what is removed and what is expected is what the server stored. That read
+  describes the change; the compensation puts back what was read before it.
+- **Definitions, one at a time.** A schema entry keeps every definition of a
+  kind in one attribute, a thousand of them on 389 DS. A compensation's
+  expectation names the definitions the change touched, by OID, as the change
+  left them, and nothing else -- so a later change to another definition is not
+  drift, and a later edit of this one is. Positions are not compared: they
+  move when an unrelated definition before it goes.
+- **In order.** In one change, definitions are compensated in reverse: an
+  object class added after the attribute type it names is removed before it.
+- **One identity.** The entry is read before and after the change through the
+  same session as the change itself, so on a server whose configuration tree
+  is reached with a configuration identity, that is the identity that reads
+  it, and the identity a compensation is planned and applied as.
+- **In use.** Removing a definition, or putting back the one a change
+  replaced, is never `exact`. Entries may have come to use the definition as
+  it is now. Alder does not search for them -- a bind sees only the entries it
+  may read, so finding none would prove nothing -- and the plan does not
+  either. 389 DS refuses to remove a definition in use, and the compensation
+  then fails at apply like any refused change. A server that accepts it
+  leaves those entries holding values the schema no longer describes.
+
+Nothing here asks which server it is talking to. Which entries hold schema is
+what the server announced when the session connected, and the values say
+whether they carry a position.
 
 A bundle's overall recoverability follows from its steps:
 - `exact` when every step is exact;
@@ -112,6 +167,13 @@ A bundle's overall recoverability follows from its steps:
   that read is reused and widened to cover what recovery needs. Otherwise it is
   read again. Nothing is derived by reading the entry after the change and
   calling that the state before.
+- **Read again after, for the schema and the configuration.** Only there, and
+  only for the attributes the change touched: the server decides how it
+  stores them, and the compensation removes and expects what it stored. If
+  that read fails the step is `unavailable` (`post_state_unavailable`) rather
+  than guessed. An entry changed by somebody else in the moment between the
+  change and this read makes the expectation describe their change as well,
+  the same window the read before has.
 - **Only what was applied.** A step is recorded only once its change has
   succeeded. A run that stops at a failure covers the changes before the
   failure. The failed change and the changes after it are not in the bundle,
@@ -154,7 +216,9 @@ stays staged, and checking again shows the next round.
 Every compensating change carries an **expectation**: the state the original
 change left the entry in. For a modification, that is the attributes it
 touched, with the values they held afterwards. For the delete that compensates
-an add, it is every user attribute the add created, and nothing else.
+an add, it is every user attribute the add created, and nothing else. For a
+change to a schema entry, it is each definition the change touched, as the
+server stored it afterwards or absent, and no other definition.
 
 A plan checks the expectation against the directory as it is now:
 
@@ -179,9 +243,14 @@ you. If the directory has moved on, deciding what the entry should be is yours.
   - A deleted entry's sensitive attributes are left out of its compensation,
     and the step says so.
   - A password change records that it happened.
+  - A sensitive setting in the configuration -- `olcRootPW`, `nsslapd-rootpw`,
+    an `olcSyncrepl` value with its credential -- records its name only.
 
   No hash is kept either: a reusable hash of a secret would be an offline
   guessing oracle.
+- **No access rule is written.** A change to `olcAccess` or `aci` in the
+  configuration tree is recorded by name and not compensated, and its rules
+  are not carried.
 - **Untrusted input.** A bundle is read as if anyone could have edited the file.
   - `POST /recovery/inspect` refuses:
     - an unknown field;
@@ -210,7 +279,9 @@ you. If the directory has moved on, deciding what the entry should be is yours.
   in the browser and in the terminal.
 - **What you keep.** A bundle holds the directory data it compensates: the
   earlier values of the attributes a change touched, and a deleted entry's
-  ordinary attributes. Store it as you would that data. `alder apply
+  ordinary attributes -- and for the schema and the configuration, the
+  settings and definitions a change touched, before and after. Store it as you
+  would that data. `alder apply
   --recovery-out` creates the file with mode 0600 on Unix. The server logs a
   bundle's step count and recoverability, never its values.
 
@@ -218,6 +289,17 @@ you. If the directory has moved on, deciding what the entry should be is yours.
 
 Recovery format version 1 was introduced in Alder 1.9. Later Alder 1.x releases
 will continue to read it.
+
+Recovering schema and configuration changes added to version 1 without
+changing what any existing field means: four reason codes
+(`post_state_unavailable`, `definition_may_be_in_use`,
+`config_entry_not_compensated`, `access_rule_not_written`) and
+`expect.definitions`. Every bundle an earlier release wrote reads exactly as it
+did. A bundle that uses one of the additions is refused by a release that
+predates them -- as `recovery_invalid`, naming the unknown reason or field --
+because a reader refuses what it does not know rather than half-reading it. A
+bundle that uses none of them -- data changes, or a setting compensated
+exactly -- is read by an earlier release too, and planned the same way.
 
 ```json
 {
@@ -265,6 +347,21 @@ will continue to read it.
   No values means the attribute must be absent. With `exhaustive: true`, the
   entry must hold no other user attribute. `objectClass`, operational, identity
   and sensitive attributes are not counted.
+- `expect.definitions` lists schema definitions, each
+  `{ "attribute", "oid", "value" }`: the attribute must hold exactly one
+  definition with that numeric OID, and it must be `value`, compared byte for
+  byte less a `{n}` ordering prefix. No `value` means it must hold none. It
+  appears only on a compensation of a change to the schema, and a definition
+  whose value is not a definition of its OID, or whose attribute is sensitive,
+  is refused.
+
+  ```json
+  "expect": {
+    "attributes": [],
+    "definitions": [{ "attribute": "olcAttributeTypes", "oid": "1.3.6.1.4.1.99997.1.7",
+                      "value": { "text": "{3}( 1.3.6.1.4.1.99997.1.7 NAME 'alderTeam' … )" } }]
+  }
+  ```
 - `checksum` is `sha256:<hex>` over every field except `createdAt` and
   `checksum`. It is optional, and a bundle without one is described as
   `integrity: unverified`. It detects corruption. It is not a signature, and it
