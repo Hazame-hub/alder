@@ -32,7 +32,11 @@ failures for the same reason.
 **Sensitive attributes never reach the browser.** `userPassword` and the rest of
 the deny list in `internal/schema/syntax.go` are withheld from every API
 response, with only a value count reported. They are omitted from LDIF exports
-unless explicitly requested.
+unless explicitly requested. The list is matched by name and by OID, and it
+includes RFC 3112 `authPassword` and any attribute type a directory's
+schema declares below a listed one (`SUP userPassword`): a session reads the
+schema when it connects, so a subtype is known before any entry is served. A
+command run with no server, such as `alder project validate`, has only the list.
 
 **The same holds for changes on their way in.** A plan record, a change preview
 and an apply response show a sensitive value only as its length. Before 1.5 a
