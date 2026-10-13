@@ -5662,3 +5662,35 @@ Validation errors and the refusal of plaintext LDAP are about the request, not
 the network, and are repeated as before; the latter is now a named error
 (`ldapdriver.ErrPlaintextRefused`) so it can be told apart without matching
 its text.
+
+### 2026-10-13 — a subtype of a secret is a secret, and authPassword is one
+
+Whether a value is withheld was decided by the attribute's name or OID
+against one table. `( 1.3.6.1.4.1.99999.1 NAME 'appPassword' SUP userPassword
+)` has a name of its own, so its values -- the same hash `userPassword` would
+have withheld, one `SUP` away -- reached the entry view, search results, LDIF
+exports and plans. RFC 3112 `authPassword` was missing from the table
+altogether.
+
+**`authPassword` is listed, by name and by OID.** Its values are written
+`scheme$salt$value`, with no `{scheme}` prefix, so `Releasable` reads one as a
+credential and no export writes it even when asked for secrets. That is the
+cautious mistake, and the viewer does not offer a scheme for it.
+
+**Subtypes are learnt from every schema the process loads, and the set only
+grows.** Per schema would be the more precise model, but the question "is this
+sensitive" is asked in about thirty places, most of which hold an attribute
+name and nothing else -- a plan, an export, a recovery bundle. Threading a
+schema to all of them is a large change for no gain in safety, and the history
+of this table (2026-09, `olcSyncrepl`) is of one path knowing a fact the
+shared one did not. A process-wide set makes every path agree. Its cost is the
+direction it fails in: a directory whose schema declared a standard type below
+`userPassword` would have that type withheld for every session until Alder
+restarts. Withholding too much is the failure this table is allowed; Alder is
+single-tenant and already treats a directory as partly trusted.
+
+**A session reads its schema when it connects**, best-effort, so a subtype is
+known before the first entry is served rather than after the first screen
+that happened to ask. The UI asked straight away anyway, and the driver keeps
+the result. A command with no server -- `project validate` -- has only the
+table, and says no more than it did.
