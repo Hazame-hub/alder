@@ -5561,3 +5561,31 @@ always used, moved to `directory.ShellQuote` so there is one, and
 `$LDAP_URI` is double-quoted beside `$BIND_DN` for the same reason. The
 Ansible export was checked and is not affected: its one shell task takes
 the LDIF on standard input.
+
+### 2026-10-12 — the signing commands keep the client's rules, and a test keeps every command to them
+
+CLI.md says only the connection flags read `ALDER_*`, and that `--force`
+and `--output` never do. `alder key generate`, `alder sign` and `alder
+verify` (1.15) never called `envflags.Exclude`, so every one of their flags
+read the environment: an inherited `ALDER_FORCE=true` made `key generate`
+silently replace an existing private key. They are excluded now, and
+**a test walks every client command and fails on any flag outside the
+Connecting table that reads the environment**, so the next command added
+cannot forget the way these did. The exclusion was opt-out per command;
+the test makes forgetting a red build.
+
+Three smaller things in the same commands, fixed together:
+
+- `verify --json` wrote its result and then, for an untrusted or invalid
+  signature, an error document after it: two JSON documents where CLI.md
+  promises one. The result is the answer; the exit status carries the rest,
+  as `plan` already does.
+- `sign --json --output -` sent the signed document and the report to the
+  same stream. Refused as a usage error.
+- `key generate` wrote the private key, then refused because the public
+  key's path existed, leaving half a pair; and `--public-output` equal to
+  `--output` with `--force` replaced the private key with the public one.
+  Both paths are checked first, and one path for both is refused.
+
+Reading these flags from the environment was never documented, so nothing
+that followed the documentation changes.
