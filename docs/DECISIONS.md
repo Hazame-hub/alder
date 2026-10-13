@@ -5629,3 +5629,16 @@ own `HasSuffix`. The same comparison in the configuration warnings, and
 the one DN the driver built by concatenation (`"cn=schema," +
 ConfigContext`), go through the `dn` package too, per section 7 rule 2 of
 the charter.
+
+### 2026-10-13 — a listen address is split as an address, not at its first colon
+
+Whether the session cookie may drop `Secure` -- which a browser otherwise
+refuses to store over plain HTTP -- depends on whether Alder listens on
+loopback only, and that was decided by cutting the listen address at its first
+colon. An IPv6 address is all colons: `[::1]:8443` gave the host `[`, which is
+not loopback, so `alder serve --allow-http --addr [::1]:8443` set a cookie the
+browser would not keep, and nobody could connect. The address printed at
+startup had the same cut, and `[::]:8443` was not shown as `localhost`.
+
+Both use `net.SplitHostPort` now, and loopback is `localhost` or any address
+`net.IP.IsLoopback` says is one, so `127.0.0.2` counts as well as `127.0.0.1`.
