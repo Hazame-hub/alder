@@ -346,9 +346,14 @@ func settingIDFor(t *testing.T, document, key string) string {
 	return ""
 }
 
-// Invariant 7: recovery is not available for configuration, and a
-// configuration change is not a data change wearing another hat.
-func TestInvariantRecoveryIsNotOfferedForConfiguration(t *testing.T) {
+// Invariant 7: a configuration change is not a data change wearing another
+// hat, and its recovery is assessed as one.
+//
+// Until 1.38 this said recovery was not available for configuration at all.
+// A modification of a setting is now compensated from what the server stored
+// before it (see the 2026-10-13 decision); the nominated setting is neither a
+// secret nor an access rule, so it is exact, and with no reason given.
+func TestInvariantRecoveryOfConfigurationIsAssessedAsConfiguration(t *testing.T) {
 	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
 		if !sess.Capabilities().Config.Readable || s.configWriteDN == "" {
 			t.Skip("no readable configuration, or no setting nominated for this server")
@@ -372,9 +377,10 @@ func TestInvariantRecoveryIsNotOfferedForConfiguration(t *testing.T) {
 		if planned.Recovery == nil {
 			t.Fatal("the plan says nothing about recovery")
 		}
-		if planned.Recovery.Recoverability != api.RecoverabilityUnavailable {
-			t.Fatalf("recovery is %q for a configuration change; it is not available for configuration",
-				planned.Recovery.Recoverability)
+		if planned.Recovery.Recoverability != api.RecoverabilityExact ||
+			(planned.Recovery.Reasons != nil && len(*planned.Recovery.Reasons) > 0) {
+			t.Fatalf("recovery is %q (%+v) for a change to %s, an ordinary setting; want exact",
+				planned.Recovery.Recoverability, planned.Recovery.Reasons, s.configWriteAttr)
 		}
 	})
 }

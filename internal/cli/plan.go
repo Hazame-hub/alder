@@ -406,6 +406,7 @@ type applyEnvelope struct {
 	// reason project plan prints them: two environments' plans read alike.
 	Environment string          `json:"environment,omitempty"`
 	Host        string          `json:"host,omitempty"`
+	Rebase      *rebaseReport   `json:"rebase,omitempty"`
 	Plan        json.RawMessage `json:"plan,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`
 	Error       json.RawMessage `json:"error,omitempty"`

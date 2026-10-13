@@ -153,6 +153,37 @@ func TestEqual(t *testing.T) {
 	}
 }
 
+func TestRebase(t *testing.T) {
+	from := dn.MustParse("dc=example,dc=com")
+	to := dn.MustParse("dc=dev,dc=example,dc=com")
+	for _, tc := range []struct {
+		in, want string
+		moved    bool
+	}{
+		{"uid=alice,ou=people,dc=example,dc=com", "uid=alice,ou=people,dc=dev,dc=example,dc=com", true},
+		// Compared as the directory compares, not as text.
+		{"uid=alice, ou=people, DC=Example, dc=COM", "uid=alice,ou=people,dc=dev,dc=example,dc=com", true},
+		{"dc=example,dc=com", "dc=dev,dc=example,dc=com", true},
+		// A value that needs escaping keeps it once moved.
+		{`cn=Smith\, J+uid=js,dc=example,dc=com`, `cn=Smith\, J+uid=js,dc=dev,dc=example,dc=com`, true},
+		// Outside the suffix, and a suffix that only matches as text.
+		{"cn=config", "cn=config", false},
+		{"dc=example,dc=org", "dc=example,dc=org", false},
+		{"dc=notexample,dc=com", "dc=notexample,dc=com", false},
+	} {
+		got, moved := dn.MustParse(tc.in).Rebase(from, to)
+		if moved != tc.moved || got.String() != tc.want {
+			t.Errorf("Rebase(%q) = %q, %v; want %q, %v", tc.in, got, moved, tc.want, tc.moved)
+		}
+	}
+	// The receiver is not changed.
+	d := dn.MustParse("uid=a,dc=example,dc=com")
+	_, _ = d.Rebase(from, to)
+	if d.String() != "uid=a,dc=example,dc=com" {
+		t.Errorf("Rebase changed its receiver: %q", d)
+	}
+}
+
 func TestHierarchy(t *testing.T) {
 	base := dn.MustParse("dc=alder,dc=test")
 	people := dn.MustParse("ou=people,dc=alder,dc=test")

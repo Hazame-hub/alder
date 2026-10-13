@@ -5887,3 +5887,139 @@ states the exception and how narrow it is: one question, the tree first
 wherever there is one. Nothing else may use the vendor name, so the
 contributing guide's rule stands with the exception named.
 
+
+### 2026-10-13 — recovery covers schema and configuration modifications
+
+Until now a recovery bundle marked every `schema` and `config` item
+`unavailable`, with `schema_or_config_not_supported`. Those are the changes
+an operator is most anxious about, and most of them can be compensated as
+precisely as data.
+
+**A configuration modification is compensated setting by setting.** Each
+attribute the change touched is read before it and again after it, through the
+same session and so through the identity the server routes that tree to
+(`config-bind-dn` when there is one). The compensation replaces it with the
+values as stored before -- with their `{n}` positions and in the server's own
+spelling, not as they were sent -- or deletes it if it was unset. The
+expectation is the values read after, so a setting changed by someone else in
+between is a conflict, not a silent overwrite. The read after is what makes
+this safe: a server rewrites what it is sent (positions, case, normalised
+durations), and an expectation built from the request would drift on every
+server.
+
+**What is not written stays out.** A sensitive setting -- `olcRootPW`,
+`nsslapd-rootpw`, the credentials in `olcSyncrepl` -- is recorded by name and
+makes the step partial with `sensitive_value_not_captured`, as for data. An
+access rule (`olcAccess`, `aci`) on a configuration or schema entry is not
+compensated, with the new `access_rule_not_written`, because the charter says
+Alder never writes one. A data-tree `aci` modification is still compensated as
+it has been since 1.9. That is inconsistent and is left alone here: changing
+it would make bundles that recover today stop doing so, and deserves its own
+decision.
+
+**Creating, removing or renaming a configuration entry is `unavailable`**,
+with `config_entry_not_compensated`. Removing a database, an overlay or a
+replication agreement has effects a recreation does not undo -- the server
+starts and stops things -- and the entry may not be readable whole by the
+identity that changed it. That is an honest limit, not a gap to close by
+replaying LDIF.
+
+**A schema modification is compensated one definition at a time, by OID.**
+Both servers hold a whole value set in one attribute, and a change touches
+one definition in it. A definition the change added is removed by its stored
+value; one it removed is added back as it was stored, with its position on a
+server that numbers them; one it changed is removed and the old one added
+back. Compensations run in reverse, so a class is removed before the type it
+uses. A replace or a delete of the whole attribute, or a value that does not
+parse, keeps `schema_or_config_not_supported` for that attribute: a set this
+large is not something to put back blind.
+
+**Adding or changing a definition is `partial`, never `exact`.** Entries
+written after the change may use what it defined; the compensation does not
+touch them, and the server may refuse it while they exist, or accept it and
+leave entries that no longer validate. The new `definition_may_be_in_use`
+says so. Putting back a removed definition is `exact`: nothing can have come
+to depend on its absence. A server that will not delete a definition is
+answered by the plan and the apply as any refusal is, not predicted from the
+vendor's name; nothing here branches on one.
+
+**The expectation names definitions, not the attribute.** A whole-attribute
+expectation was rejected: on a server with hundreds of definitions, any
+unrelated schema change anywhere would make the compensation a conflict, and
+on one that numbers values it would after any insertion. `expect.definitions`
+holds `{attribute, oid, value}`: there is exactly one definition with that
+OID, equal byte for byte with any position stripped, or with no value, none.
+
+**This replaces a 1.13 rule.** The configuration-comparison decision said
+recovery stays unavailable for configuration, and the conformance suite held
+it as invariant 7. Its reason -- compensation is derived from ordinary
+directory state, and a configuration entry is not that -- is answered above by
+reading the entry the server stored, before and after. Invariant 7 now holds
+the part that still matters: a configuration change is planned as one, and its
+recovery is assessed as one -- exact for the ordinary setting the suite
+nominates.
+
+**The format stays version 1.** The additions are new reason codes and an
+optional field. A bundle that uses neither reads in older releases as it
+did. One that does is refused by an older release's strict decoder as
+`recovery_invalid`, which is the safe failure: it does not compensate without
+the expectation. COMPATIBILITY.md already says recovery enums may grow.
+
+**The read after has a window.** Between the apply and the read after,
+another writer can change the same setting, and the bundle would then expect
+their value. The window is one round trip on the same connection, and a
+change made in it is still visible in the bundle's expectation; closing it
+would need a server-side transaction neither server offers for these trees.
+When the read after fails, the step is `unavailable` with
+`post_state_unavailable` rather than guessing.
+
+**Unverified.** The conformance cases cover a configuration modify and a
+schema add on both servers. Putting a removed definition back at its stored
+position on OpenLDAP is covered only against an emulated directory in the
+unit tests, and what 389 DS does when asked to delete a definition in use is
+not tested at all: the plan and the apply report whatever it answers.
+
+### 2026-10-13 — an environment may hold the project under its own suffix
+
+The project review (2026-10-10) left environments with different suffixes out
+of version 1 "until a real user needs it", and the project's owner has asked
+for it. It is built as two optional keys: a top-level `suffix`, the DN the
+files are written under, and an environment's `suffix`, the DN that replaces
+it there. The version stays 1. A file without the keys means what it always
+did, and because version 1 refuses unknown keys, no valid file could already
+be using them.
+
+**Names move, and nothing else.** Every entry DN and managed base below the
+project's suffix is rebased with `dn.DN.Rebase`, which swaps RDNs, not text
+(charter, rule 2): the RDNs above the suffix are kept as written, values and
+all. Attribute values move only when their type has DN or Name And Optional
+UID syntax; `uniqueMember`'s `#'...'B` is kept. Everything else is sent byte
+for byte, including a value that reads as a DN below the suffix, which is
+named as left as written rather than silently rewritten or silently ignored.
+
+**The directory's schema says which values are names.** The alternatives were
+a list of attribute names in Alder, which misses every type a directory adds
+and would rewrite a custom attribute that happens to share a name, and a
+test of what a value looks like, which rewrites a `description` that quotes
+a DN. The client already holds a session to the directory being planned, and
+`GET /schema` reports each type's effective syntax, so it asks -- only for an
+environment that rebases, so every other plan sends exactly what it sent
+before. A type the schema does not define stops the plan (exit 3) instead of
+being guessed at. `internal/project` takes the answer as a function and stays
+offline; `validate` checks the keys without it.
+
+**Two things are refused rather than half done.** The suffix entry itself,
+onto a suffix with another RDN, would be renamed while its own `dc` value
+stayed as written; `validate` refuses it, since rewriting that value would be
+a value owned by one environment, which a project does not express. An entry
+named by a DN-syntax attribute below the suffix cannot keep both its name
+and its value; refused when planned.
+
+**The rewrite is said wherever the plan is.** What is planned is no longer
+what was reviewed, which is why the review hesitated, so the environment line
+above the plan is followed by `Suffix FROM -> TO` with the counts, standard
+error says it before anything is sent, `validate` lists the environments that
+rebase, and `--json` carries `rebase` beside the plan in both `project plan`
+and `project apply`. The plan, the unmanaged-entries report and
+`--detailed-exitcode` are all made under the environment's names. The API is
+unchanged.

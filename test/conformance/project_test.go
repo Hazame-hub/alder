@@ -120,6 +120,102 @@ func TestAProjectAppliesAndThenMatchesOnBothServers(t *testing.T) {
 	})
 }
 
+// A project written under another suffix, applied to an environment that
+// names the harness's: every name, and the one DN-valued value, lands under
+// the harness suffix; the value that only looks like a DN lands as written;
+// and planning again says the environment matches. The schema that decides
+// which value is a name is each server's own, read through Alder.
+func TestAProjectRebasedOntoAnEnvironmentSuffixOnBothServers(t *testing.T) {
+	const written = "dc=example,dc=com"
+	writtenDN := func(rdn string) string { return rdn + ",ou=alder-cli," + written }
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		base := startAlder(t)
+		seedCLIOU(t, sess) // uid=cli-probe, with title Before
+		dir := writeHarnessProject(t, s, base)
+		yaml, err := os.ReadFile(filepath.Join(dir, "alder.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Replace(string(yaml), "version: 1\n", "version: 1\nsuffix: "+written+"\n", 1)
+		text = strings.Replace(text, "  - base: "+cliOU+"\n", "  - base: ou=alder-cli,"+written+"\n", 1)
+		text += "    suffix: " + suffix + "\n"
+		writeFile(t, dir, "alder.yaml", text)
+		// The same two entries, written under the other suffix: the new one
+		// first, so the probe's seeAlso names an entry that exists by the
+		// time it is written.
+		for _, name := range []string{"a-probe.ldif", "b-new.ldif"} {
+			if err := os.Remove(filepath.Join(dir, "entries", name)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writeFile(t, dir, "entries/1-new.ldif", "dn: "+writtenDN("uid=cli-new")+`
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: cli-new
+cn: CLI New
+sn: New
+`)
+		writeFile(t, dir, "entries/2-probe.ldif", "dn: "+writtenDN("uid=cli-probe")+`
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+uid: cli-probe
+cn: Snapshot cli-probe
+sn: Snapshot
+title: After
+seeAlso: `+writtenDN("uid=cli-new")+`
+description: `+writtenDN("uid=cli-new")+`
+`)
+
+		r := runProject(t, s, "project", "validate", "--project", dir)
+		wantExit(t, r, cli.ExitOK, "validate")
+
+		r = runProject(t, s, "project", "apply", "--project", dir, "--env", "harness", "--yes", "--json")
+		wantExit(t, r, cli.ExitOK, "apply")
+		doc := decodeMap(t, r.stdout)
+		rebase, _ := doc["rebase"].(map[string]any)
+		left, _ := rebase["leftAsWritten"].([]any)
+		if rebase["from"] != written || rebase["to"] != suffix || rebase["entries"] != float64(2) ||
+			rebase["values"] != float64(1) || len(left) != 1 {
+			t.Errorf("rebase = %v", doc["rebase"])
+		}
+
+		// The directory, not Alder, says where it landed and what it holds.
+		if !exists(t, sess, cliDN("uid=cli-new")) {
+			t.Fatal("the new entry is not under the harness suffix")
+		}
+		e, err := sess.Read(ctx(t), mustDN(t, cliDN("uid=cli-probe")), []string{"title", "seeAlso", "description"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := e.GetOne("title"); got != "After" {
+			t.Errorf("title = %q, want After", got)
+		}
+		if got := e.GetOne("seeAlso"); !mustDN(t, got).Equal(mustDN(t, cliDN("uid=cli-new"))) {
+			t.Errorf("seeAlso = %q, want it rebased onto %s", got, suffix)
+		}
+		if got := e.GetOne("description"); got != writtenDN("uid=cli-new") {
+			t.Errorf("description = %q, want it as written", got)
+		}
+
+		// The environment now matches the project, rebased.
+		r = runProject(t, s, "project", "plan", "--project", dir, "--env", "harness", "--detailed-exitcode", "--json")
+		wantExit(t, r, cli.ExitOK, "plan after apply")
+		doc = decodeMap(t, r.stdout)
+		unmanaged, _ := doc["unmanaged"].([]any)
+		if len(unmanaged) != 1 {
+			t.Fatalf("unmanaged = %v", doc["unmanaged"])
+		}
+		sub := unmanaged[0].(map[string]any)
+		if b, _ := sub["base"].(string); !strings.EqualFold(b, cliOU) || sub["error"] != nil {
+			t.Errorf("unmanaged[0] = %v, want the subtree under %s", sub, suffix)
+		}
+	})
+}
+
 // writeHarnessProject lays out a project against the harness server s,
 // through the Alder at base: the probe as seeded but for its title, and an
 // entry the directory does not have.

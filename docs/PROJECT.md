@@ -2,7 +2,8 @@
 
 **Status: implemented** -- `alder project validate`, `alder project plan --env`
 with its unmanaged-entries report, `alder project apply --env` and
-`alder project fmt` (see [CLI.md](CLI.md)). Confirmed as a scope change on
+`alder project fmt` (see [CLI.md](CLI.md)), and environments with a suffix of
+their own (decision 2, amended). Confirmed as a scope change on
 2026-10-10 as a specification and reviewed the same day; the decisions that
 review made are at the end, and the sections above reflect them.
 
@@ -43,7 +44,9 @@ Alder already produces, made against the directory as it is now.
   What a managed subtree adds is a *report* of such entries, never an action
   (see "Unmanaged entries").
 - **Not a templating language.** No variables, loops or conditionals in the
-  first version. The LDIF a person reviews is the LDIF that is planned.
+  first version. The LDIF a person reviews is the LDIF that is planned, with
+  one stated exception: an environment with its own suffix, where names, and
+  only names, are moved onto it, and the plan says so.
 - **Not a place for secrets.** `alder.yaml` names where a password comes from,
   never the password, and the project's LDIF files may not carry one at all
   (see "No secrets in project files").
@@ -54,6 +57,8 @@ Alder already produces, made against the directory as it is now.
 
 ```yaml
 version: 1
+
+suffix: dc=example,dc=com
 
 managed:
   - base: ou=people,dc=example,dc=com
@@ -76,11 +81,24 @@ environments:
     server-name: ldap.example.com
     bind-dn: cn=alder,ou=services,dc=example,dc=com
     bind-password-file: /run/secrets/alder-prod
+  staging:
+    api-url: https://alder.staging.example.com
+    host: ldap.staging.example.com
+    bind-dn: cn=alder,ou=services,dc=staging,dc=example,dc=com
+    bind-password-env: ALDER_STAGING_BIND_PASSWORD
+    suffix: dc=staging,dc=example,dc=com
 ```
 
 ### `version`
 
 Required, and `1`. A file with any other version is refused, not guessed at.
+
+### `suffix`
+
+Optional. The DN the project's files are written under. It is parsed as a DN,
+never compared as text, and every managed `base` must lie at or below it. It
+means nothing on its own: it is what an environment's own `suffix` replaces
+(see "An environment with its own suffix").
 
 ### `managed`
 
@@ -155,6 +173,10 @@ A password is named, never written:
 | `bind-password-env` | The name of an environment variable holding it |
 | `bind-password-file` | A file whose first line is it |
 
+One more key is not a connection setting: `suffix`, the DN that replaces the
+project's suffix in that environment (see "An environment with its own
+suffix"). An environment `suffix` without a top-level one is refused.
+
 A key called `bind-password`, or any key the format does not define, is
 refused. An unknown key is far more likely to be a typo or a pasted secret than
 an extension. It also keeps later additions backward compatible: a key added
@@ -196,11 +218,80 @@ client flag reads `ALDER_<FLAG>` by default, and `--env` is listed in
 `envflags.Exclude`, so an inherited `ALDER_ENV=prod` cannot choose production
 for a command nobody pointed at it.
 
-Every environment manages the same subtrees, with the same files, under the
-same DNs. An environment differs in *where* it connects, not in *what* it
-holds. Because of that, a plan for production reads exactly like a plan for
-development, which is why the environment and host are printed above every
-plan (see `alder project plan`).
+Every environment manages the same subtrees, with the same files. An
+environment differs in *where* it connects, and at most in the suffix those
+subtrees sit under, not in *what* it holds. Without a suffix of its own, a
+plan for production reads exactly like a plan for development, which is why
+the environment and host are printed above every plan (see `alder project
+plan`).
+
+### An environment with its own suffix
+
+When development is `dc=dev,dc=example,dc=com` and production
+`dc=example,dc=com`, the files are written once, under the project's
+`suffix`, and the development environment names its own:
+
+```yaml
+suffix: dc=example,dc=com
+environments:
+  dev:
+    suffix: dc=dev,dc=example,dc=com
+    # ...
+```
+
+Planning or applying for that environment moves names, and only names, from
+below the project's suffix to below the environment's, with the `dn` package
+(charter, rule 2), before anything is sent:
+
+- **Every entry's DN and every managed base.** Only the suffix is replaced:
+  the RDNs above it keep their types and values as written, so
+  `uid=alice,ou=people,dc=example,dc=com` becomes
+  `uid=alice,ou=people,dc=dev,dc=example,dc=com`. An RDN value is never
+  rewritten, even one that spells a DN.
+- **Every value of an attribute type whose syntax is DN or Name And Optional
+  UID** (`member`, `uniqueMember`, `manager`, `owner`, `seeAlso` and every
+  other type declared with those syntaxes), when the value is at or below the
+  project's suffix. A Name And Optional UID value keeps its `#'...'B` part. A
+  moved value is written as Alder writes DNs. A value of those syntaxes
+  outside the suffix, or one that does not parse as a DN, is sent as written,
+  for the directory to judge.
+- **Nothing else.** A value of any other syntax is sent byte for byte as
+  written, however much it looks like a DN. One that reads as a DN below the
+  suffix -- a `description` that quotes one, say -- is named on standard
+  error and in the JSON (`leftAsWritten`), because it may be a name the
+  schema does not know is one.
+
+**Which types hold DNs is the directory's answer.** The client reads the
+schema of the directory it is planning against (`GET /schema`, which reports
+each type's effective syntax, inherited from its superior where it names
+none) and goes by syntax, never by attribute name: a type a directory adds
+with DN syntax is rebased like `member`, and nothing is rebased because of
+what it is called. The schema is read only for an environment that rebases.
+A project that uses an attribute type the schema does not define is not
+planned for that environment (exit 3): whether its values are names cannot
+be told, and a guess either way would be a silent wrong answer.
+
+Two more refusals, because rebasing would contradict an entry's own name:
+
+- **The suffix entry itself, onto a suffix with another RDN.** Moving
+  `dc=example,dc=com` to `dc=dev,dc=example,dc=com` would rename it to
+  `dc=dev` while its `dc: example` stayed as the file wrote it. `validate`
+  refuses it. Onto a suffix with the same RDN (`dc=example,dc=org`) it is
+  moved like any other entry. Manage the entries below the suffix instead.
+- **An entry named by a DN-syntax attribute** whose value is below the
+  suffix: its name and its value cannot both be kept. Refused when planned.
+
+What is planned is then not byte for byte what was reviewed, so it is said
+everywhere: on standard error before anything is sent, on the line under the
+environment above the plan -- `Suffix dc=example,dc=com ->
+dc=dev,dc=example,dc=com: 12 entries and 30 DN values rebased from the
+files` -- in `validate`'s output, and as `rebase` (`from`, `to`, `entries`,
+`values`, `leftAsWritten`) beside the plan with `--json`. The plan itself, the
+unmanaged-entries report and `--detailed-exitcode` are made against the
+rebased names, so they speak the environment's language.
+
+Connection settings are not rebased: an environment's `bind-dn` is written in
+its own names already.
 
 **A value that genuinely differs between environments** -- a subtree that
 only exists in one, or entries whose content differs -- is a separate project:
@@ -220,7 +311,10 @@ Checks the project without connecting to anything:
 - every glob matches at least one file, and every file is readable;
 - every file is LDIF of content records only;
 - every entry lies in its subtree, subtrees do not overlap, and no DN repeats;
-- every environment names a password source and no password.
+- every environment names a password source and no password;
+- `suffix` and every environment's `suffix` are DNs, an environment has one
+  only when the project does, every managed base lies below the project's,
+  and no environment would rename the suffix entry the project describes.
 
 It does not check the schema, because the schema belongs to a directory. That is
 what `plan` is for.
@@ -240,7 +334,9 @@ read.
    plan was made against -- on standard error with the rest of the
    commentary, and as `environment` and `host` beside the plan with `--json`.
    Identical DNs make two environments' plans look identical; this is what
-   tells them apart.
+   tells them apart. For an environment with its own suffix, the project is
+   rebased onto it after connecting, and the line under the environment says
+   so (see "An environment with its own suffix").
 5. Prints the plan exactly as `alder plan` does, with the same `--json` output
    and the same exit codes.
 
@@ -366,6 +462,19 @@ hold no secrets, and every plan names its environment and host.
    by the environment and host printed above every plan; revisit with a real
    user who needs it. Adding it later is backward compatible, because version
    1 refuses unknown keys.
+
+   *Amended when it was built (2026-10-13):* the project's owner asked for
+   it, and it is in version 1 as two optional keys, a top-level `suffix` and
+   an environment's `suffix`; a file without them means what it always did,
+   and no valid file could already be using them. The rewrite is the `dn`
+   package's, never text, and it is said wherever the plan is shown, so a
+   reviewer is never left to infer it. The question the review left open --
+   which values are DNs -- is answered by the schema of the directory being
+   planned, by syntax, not by a list of attribute names in Alder: a list
+   would miss every type a directory adds, and a value that merely looks like
+   a DN would be rewritten by any rule that reads the value. Where the
+   schema has no answer, nothing is planned. See "An environment with its
+   own suffix".
 
 3. **Attributes owned by one environment**, such as a value that differs
    between dev and prod. **Decided: not in version 1.** The common real case

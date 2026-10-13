@@ -247,7 +247,7 @@ func (s *Server) planItem(item plan.Item, sch *schema.Schema, caps directory.Cap
 	view.Record = &request
 	view.Preview = &preview
 	view.Baseline = ptr(string(item.Baseline))
-	view.Recovery = recoveryAssessment(item.Record, sch, *view.Kind)
+	view.Recovery = recoveryAssessment(item.Record, recoveryTarget(caps, sch, item.DN))
 	return view, nil
 }
 

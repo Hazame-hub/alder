@@ -71,18 +71,45 @@ const (
 	// ReasonSensitiveNotRestored: a deleted entry held a sensitive attribute,
 	// which is not restored.
 	ReasonSensitiveNotRestored ReasonCode = "sensitive_values_not_restored"
-	// ReasonSchemaOrConfig: a write to the schema or the server's
-	// configuration, which this version does not compensate.
+	// ReasonSchemaOrConfig: a part of a write to the schema or the server's
+	// configuration that is not compensated -- on a schema entry, an attribute
+	// that carries no definitions, a whole collection replaced or removed, or
+	// a value that is not one definition the server holds once. Until schema
+	// and configuration changes were compensated, every such change carried
+	// it; a bundle from then still reads that way.
 	ReasonSchemaOrConfig ReasonCode = "schema_or_config_not_supported"
 	// ReasonPreStateUnavailable: the entry could not be read before the
 	// change, so there is nothing to derive a compensation from.
 	ReasonPreStateUnavailable ReasonCode = "pre_state_unavailable"
+	// ReasonPostStateUnavailable: a schema or configuration entry could not be
+	// read once the change had applied. The server decides how it stores what
+	// it was given, and the compensation and its expectation are built from
+	// what it stored, so without that read there is nothing to build them
+	// from.
+	ReasonPostStateUnavailable ReasonCode = "post_state_unavailable"
+	// ReasonDefinitionMayBeInUse: the compensation removes a schema definition
+	// the change added, or puts back the one a change replaced, and entries
+	// may have come to depend on the definition as it is now. Alder does not
+	// search for them -- it could not see every entry if it did -- and does
+	// not recover them: the server refuses the compensation, or accepts it and
+	// leaves them not matching the schema.
+	ReasonDefinitionMayBeInUse ReasonCode = "definition_may_be_in_use"
+	// ReasonConfigEntryNotCompensated: an entry of the configuration tree was
+	// created, removed or renamed. The server acts on that as it happens -- it
+	// loads an overlay, builds an index, renumbers its siblings -- and does not
+	// always allow the opposite, so Alder does not derive one.
+	ReasonConfigEntryNotCompensated ReasonCode = "config_entry_not_compensated"
+	// ReasonAccessRuleNotWritten: an access rule was changed. Alder reads
+	// access rules and never writes them (section 2 of the charter), and a
+	// compensation is a write like any other.
+	ReasonAccessRuleNotWritten ReasonCode = "access_rule_not_written"
 )
 
 var knownReasons = map[ReasonCode]bool{
 	ReasonPasswordNotCaptured: true, ReasonSensitiveNotCaptured: true, ReasonServerOwnedAttribute: true,
 	ReasonIdentityRegenerated: true, ReasonHiddenAttributesUnknown: true, ReasonSensitiveNotRestored: true,
-	ReasonSchemaOrConfig: true, ReasonPreStateUnavailable: true,
+	ReasonSchemaOrConfig: true, ReasonPreStateUnavailable: true, ReasonPostStateUnavailable: true,
+	ReasonDefinitionMayBeInUse: true, ReasonConfigEntryNotCompensated: true, ReasonAccessRuleNotWritten: true,
 }
 
 // Reason is one limitation of a step.
@@ -119,6 +146,20 @@ type Mod struct {
 type Expect struct {
 	Attributes []Attribute `json:"attributes"`
 	Exhaustive bool        `json:"exhaustive,omitempty"`
+	// Definitions are schema definitions the entry must hold as the original
+	// change left them, each named by its OID. A schema entry keeps every
+	// definition of a kind in one attribute, so an expectation of the whole
+	// attribute would be about every other definition too.
+	Definitions []Definition `json:"definitions,omitempty"`
+}
+
+// Definition is one schema definition an expectation is about.
+type Definition struct {
+	Attribute string `json:"attribute"`
+	OID       string `json:"oid"`
+	// Value is the definition as the server stored it. Absent means the
+	// attribute must hold no definition with this OID.
+	Value *Value `json:"value,omitempty"`
 }
 
 // Change is one compensating change. Its types are the canonical operations a
@@ -155,50 +196,113 @@ type Step struct {
 	Compensation []Change `json:"compensation"`
 }
 
+// Target is where a change lands, as Alder classified it before it ran.
+type Target struct {
+	// Kind is KindData, KindSchema or KindConfig: the area of the server the
+	// entry is in, from the locations the server itself announces.
+	Kind string
+	// Schema is the session's schema, for equality rules and for which
+	// attributes the server maintains. It may be nil.
+	Schema *schema.Schema
+	// Definitions reports whether an attribute of a schema entry carries
+	// definitions: the attributes Alder's schema editor writes one definition
+	// at a time, as the server announced them. Nil means none does.
+	Definitions func(attribute string) bool
+}
+
 // Derive works out the compensation of one change from the entry as it was
 // immediately before the change ran.
 //
 // pre is that entry, or nil when it did not exist. For a modification it must
 // hold at least the attributes the change touches; for a delete or a rename,
-// every user attribute the bind can read. kind is the target kind the plan
-// classified the change as.
-func Derive(index int, record directory.ChangeRecord, pre *directory.Entry, sch *schema.Schema, kind string) Step {
-	step := Step{Index: index, Original: original(record), Kind: kind, Compensation: []Change{}}
-	unavailable := func(code ReasonCode, attribute string) Step {
-		step.Recoverability = Unavailable
-		step.Reasons = append(step.Reasons, Reason{Code: code, Attribute: attribute})
-		step.Compensation = []Change{}
-		return step
+// every user attribute the bind can read.
+//
+// post is the entry read once the change had applied, for the attributes it
+// touched, and is consulted only for the schema and the configuration. There
+// the server decides how it stores what it is given -- it renumbers ordered
+// values, renders a definition its own way, spells a setting as it prefers --
+// so what the change left is read rather than worked out. It is never taken
+// for the state before: the compensation puts back what pre held.
+func Derive(index int, record directory.ChangeRecord, pre, post *directory.Entry, where Target) Step {
+	step := Step{Index: index, Original: original(record), Kind: where.Kind, Compensation: []Change{}}
+	if record.Type == directory.ChangeSetPassword {
+		return step.unavailable(ReasonPasswordNotCaptured, "")
 	}
-
-	if kind == KindSchema || kind == KindConfig {
-		return unavailable(ReasonSchemaOrConfig, "")
+	switch where.Kind {
+	case KindSchema:
+		return deriveSchema(step, record, pre, post, where.Definitions)
+	case KindConfig:
+		return deriveConfig(step, record, pre, post, where.Schema)
 	}
+	sch := where.Schema
 	switch record.Type {
-	case directory.ChangeSetPassword:
-		return unavailable(ReasonPasswordNotCaptured, "")
 	case directory.ChangeAdd:
 		if pre != nil {
-			return unavailable(ReasonPreStateUnavailable, "")
+			return step.unavailable(ReasonPreStateUnavailable, "")
 		}
 		return deriveAdd(step, record, sch)
 	case directory.ChangeModify:
 		if pre == nil {
-			return unavailable(ReasonPreStateUnavailable, "")
+			return step.unavailable(ReasonPreStateUnavailable, "")
 		}
 		return deriveModify(step, record, pre, sch)
 	case directory.ChangeDelete:
 		if pre == nil {
-			return unavailable(ReasonPreStateUnavailable, "")
+			return step.unavailable(ReasonPreStateUnavailable, "")
 		}
 		return deriveDelete(step, record, pre, sch)
 	case directory.ChangeModRDN:
 		if pre == nil {
-			return unavailable(ReasonPreStateUnavailable, "")
+			return step.unavailable(ReasonPreStateUnavailable, "")
 		}
 		return deriveRename(step, record, pre)
 	}
-	return unavailable(ReasonPreStateUnavailable, "")
+	return step.unavailable(ReasonPreStateUnavailable, "")
+}
+
+// unavailable is the step with nothing to compensate, and why.
+func (s Step) unavailable(code ReasonCode, attribute string) Step {
+	s.Recoverability = Unavailable
+	s.Reasons = append(s.Reasons, Reason{Code: code, Attribute: attribute})
+	s.Compensation = []Change{}
+	return s
+}
+
+// level is the recoverability of a modification that compensates all but
+// skipped of the attributes it touched.
+func level(skipped, touched int) Recoverability {
+	switch {
+	case skipped == touched:
+		return Unavailable
+	case skipped > 0:
+		return Partial
+	}
+	return Exact
+}
+
+// touchedAttribute is one attribute a modification touches, with its
+// modifications in order.
+type touchedAttribute struct {
+	name string
+	mods []directory.Mod
+}
+
+// touchedAttributes groups a modification's mods by attribute, in the order
+// each attribute first appears, under the spelling it first appears with.
+func touchedAttributes(record directory.ChangeRecord) []*touchedAttribute {
+	var order []*touchedAttribute
+	byName := map[string]*touchedAttribute{}
+	for _, m := range record.Mods {
+		base := strings.ToLower(schema.BaseName(m.Name))
+		t, ok := byName[base]
+		if !ok {
+			t = &touchedAttribute{name: m.Name}
+			byName[base] = t
+			order = append(order, t)
+		}
+		t.mods = append(t.mods, m)
+	}
+	return order
 }
 
 func original(record directory.ChangeRecord) Original {
@@ -244,27 +348,10 @@ func deriveAdd(step Step, record directory.ChangeRecord, sch *schema.Schema) Ste
 // restores what was removed -- value by value, so the entry must still hold
 // what the change left for it to apply.
 func deriveModify(step Step, record directory.ChangeRecord, pre *directory.Entry, sch *schema.Schema) Step {
-	type touched struct {
-		name string
-		mods []directory.Mod
-	}
-	var order []string
-	byName := map[string]*touched{}
-	for _, m := range record.Mods {
-		base := strings.ToLower(schema.BaseName(m.Name))
-		t, ok := byName[base]
-		if !ok {
-			t = &touched{name: m.Name}
-			byName[base] = t
-			order = append(order, base)
-		}
-		t.mods = append(t.mods, m)
-	}
-
+	order := touchedAttributes(record)
 	change := Change{DN: record.DN.String(), Type: string(directory.ChangeModify), Expect: &Expect{}}
 	skipped := 0
-	for _, base := range order {
-		t := byName[base]
+	for _, t := range order {
 		if schema.IsSensitive(t.name) {
 			step.Reasons = append(step.Reasons, Reason{Code: ReasonSensitiveNotCaptured, Attribute: t.name})
 			skipped++
@@ -304,14 +391,7 @@ func deriveModify(step Step, record directory.ChangeRecord, pre *directory.Entry
 		change.Expect.Attributes = append(change.Expect.Attributes, Attribute{Name: t.name, Values: encode(after)})
 	}
 
-	switch {
-	case skipped == len(order):
-		step.Recoverability = Unavailable
-	case skipped > 0:
-		step.Recoverability = Partial
-	default:
-		step.Recoverability = Exact
-	}
+	step.Recoverability = level(skipped, len(order))
 	if len(change.Mods) > 0 {
 		step.Compensation = []Change{change}
 	}
@@ -581,11 +661,14 @@ func sortedReasons(reasons []Reason) []Reason {
 // Assess is how recoverable a change would be, before it runs: what a plan
 // shows beside the change. It needs no values, and for a delete it cannot yet
 // say whether the entry holds a secret -- the bundle made at apply does.
-func Assess(record directory.ChangeRecord, sch *schema.Schema, kind string) (Recoverability, []Reason) {
-	pre := directory.NewEntry(record.DN)
-	if record.Type == directory.ChangeAdd {
-		pre = nil
+func Assess(record directory.ChangeRecord, where Target) (Recoverability, []Reason) {
+	var pre, post *directory.Entry
+	switch {
+	case where.Kind == KindSchema || where.Kind == KindConfig:
+		pre, post = assessState(record, where.Kind)
+	case record.Type != directory.ChangeAdd:
+		pre = directory.NewEntry(record.DN)
 	}
-	step := Derive(0, record, pre, sch, kind)
+	step := Derive(0, record, pre, post, where)
 	return step.Recoverability, sortedReasons(step.Reasons)
 }
