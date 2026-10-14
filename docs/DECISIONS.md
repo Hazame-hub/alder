@@ -6049,3 +6049,65 @@ unmanaged entries). Its open questions are settled as recommended:
 
 The endpoint is an addition to the API and is covered by the 1.x promise
 from the release that ships it. Nothing here changes the charter.
+
+### 2026-10-13 — projects in the web interface: what the first slice settled
+
+The first slice of `docs/proposals/web-projects.md` is built: *Open project*
+on the Import screen, `POST /project/plan`, the problems or the heading, plan
+and unmanaged list, and *Stage for review*. What the specification left to
+the build:
+
+- **One reader, two filesystems.** `internal/project` reads every file
+  through an `fs.FS`. `Load` is `os.DirFS` on the project's directory and
+  keeps the symlink check, which only a filesystem with links needs; its
+  messages name files by the same paths as before. `LoadFS` reads a set of
+  files from memory, built by `project.NewFS`, the package's own small
+  filesystem rather than `testing/fstest` in production code. `NewFS`
+  accepts only clean relative slash-separated paths (`fs.ValidPath`, no
+  backslash, no name that is both a file and a directory) and at most 1,000
+  files. The rule cases run against both and must produce the same problems
+  word for word.
+- **The unmanaged comparison is shared, not copied.** `project.ListUnmanaged`
+  and the `project.Unmanaged` shape moved out of `internal/cli`; the client
+  keeps its JSON by aliasing the type, and still links no LDAP code. The
+  server lists each subtree with the capture `POST /snapshots/capture` uses
+  -- whole or refused at the 50,000-entry ceiling, a missing base has none
+  -- so the entries agree with the client's. The `error` text of an
+  unreadable subtree is each side's own sentence; that one exists, and the
+  entries, are what agree.
+- **The plan is POST /plan's, of the same document.** The handler renders
+  `Project.Document()` and reads it as `POST /plan` reads `ldif` with
+  `mode: desired`; the body of `PlanChanges` became `planProposals`, which
+  both call. The limits are `/plan`'s: an 8 MiB document and 2,000 records,
+  under a 16 MiB request. An environment's `suffix` is not applied: the
+  plan is under the names the files are written with, as no environment is
+  chosen.
+- **The response names the directory as the client does.** `host` is
+  `host:port`, the client's form, beside `bindDn`, both from the session;
+  `project` carries the subtrees with their matched files and counts, and
+  the environment names only.
+- **Refusals.** A project that is read and not valid is `400` with the new
+  `project_invalid` and every problem in a new optional `Error.problems`
+  (file, line, message), rather than a second error schema. A request with
+  no `alder.yaml` at the top is `bad_request`: nothing was read as a
+  project. The server does not refuse other file names; the browser sends
+  only `alder.yaml` and names ending in `.ldif`, compared without case, so
+  a pattern for `*.LDIF` still finds its files.
+- **Staging.** Each item the plan would apply is staged as the plan's own
+  record without its baseline; the changeset plans it again before applying.
+  A record carrying a value the plan withheld as sensitive refuses the whole
+  staging and points at `alder project apply`, as does a plan larger than
+  the changeset. The heading travels with the changeset as its origin and
+  is dropped the moment anything else changes the basket (an add, a
+  removal, a reorder, a clear); applying keeps it while part of the plan is
+  left, and the Apply button then names the host.
+- **Read-only.** Opening, planning and staging work on an Alder started
+  with `--read-only`; applying is refused there as every apply is.
+
+The conformance case runs `examples/project/` against both servers, its
+suffix moved under `ou=alder-webproject` by rewriting the text, and asserts
+that `POST /project/plan`'s plan (without the session's baselines), host and
+unmanaged report equal `alder project plan --json`'s. **Unverified here:**
+it compiles and vets, and has not been run against the two servers; the
+risk is in the unmanaged half, where a server answering a search below an
+absent base differently from `noSuchObject` would show up first.

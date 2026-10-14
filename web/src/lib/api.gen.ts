@@ -714,6 +714,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/project/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate a project sent as files, plan it against this session's directory, and report unmanaged entries
+         * @description The web interface's *Open project*: `alder project validate`, and
+         *     `alder project plan`'s plan and unmanaged-entries report, in one
+         *     request (docs/proposals/web-projects.md).
+         *
+         *     **Stateless.** The files exist for this request only. They are held
+         *     in memory as a filesystem of their own, read by the same package the
+         *     command-line client reads a project with -- the same rules, the same
+         *     globs, the same refusal of secrets, in the same words -- and dropped
+         *     when the response is sent. Nothing on the server's own filesystem
+         *     can be named: a pattern in `alder.yaml` matches only files that were
+         *     sent.
+         *
+         *     **The plan is the session's.** `alder.yaml` must be at the top
+         *     (`path: alder.yaml`). Its `environments` are validated, so a project
+         *     `alder project validate` refuses for a bad environment is refused
+         *     here too, and are then never used: no `api-url` is followed, no host
+         *     dialled, no `ca-file` read and no password variable or file looked
+         *     up. The plan is made against the directory this session is bound
+         *     to, as this session's bind, under the names the files are written
+         *     with -- an environment's own `suffix` is not applied. `host` and
+         *     `bindDn` say which directory that is; they are the session's, never
+         *     values from the files.
+         *
+         *     The plan is exactly `POST /plan` with the project's records as one
+         *     `ldif` document in `mode: desired`: subtrees in the order `managed`
+         *     lists them, files in sorted order, records as written. It is bounded
+         *     the same way. `unmanaged` is, for each managed subtree in the same
+         *     order, the entries the directory holds there that no file describes,
+         *     read whole as a snapshot capture reads it or reported with `error`.
+         *     Reported, never planned: a project is not a deleter.
+         *
+         *     Nothing is written, so this is allowed on an Alder started with
+         *     `--read-only`.
+         */
+        post: operations["planProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/access": {
         parameters: {
             query?: never;
@@ -1553,7 +1605,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "write_outcome_unknown" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "project_invalid" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "write_outcome_unknown" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -1597,6 +1649,13 @@ export interface components {
              */
             hint?: string;
             remedy?: components["schemas"]["Remedy"];
+            /**
+             * @description With `project_invalid`, every problem the project has, not only
+             *     the first, in the words `alder project validate` prints. A
+             *     message quotes the files -- a key, a DN, a pattern -- and is
+             *     untrusted text. Added in 1.38.
+             */
+            problems?: components["schemas"]["ProjectProblem"][];
         };
         ErrorAffected: {
             index: number;
@@ -4439,6 +4498,86 @@ export interface components {
             impact?: components["schemas"]["PlanImpact"];
             subtrees?: components["schemas"]["PlanSubtree"][];
         };
+        ProjectFile: {
+            /**
+             * @description Relative to the project's directory and slash-separated:
+             *     `alder.yaml`, `people/engineering.ldif`. Clean, with no leading
+             *     slash, no `.` or `..` element, no empty element and no backslash,
+             *     and unique within the request.
+             */
+            path: string;
+            /** @description The file's text. */
+            content: string;
+        };
+        ProjectPlanRequest: {
+            /**
+             * @description The project: `alder.yaml` and the files its patterns match. The
+             *     web interface sends `alder.yaml` from the top of the chosen
+             *     folder and every `*.ldif` below it outside dot-directories, and
+             *     nothing else. A file no pattern matches is not part of the
+             *     project and is never parsed.
+             */
+            files: components["schemas"]["ProjectFile"][];
+        };
+        ProjectProblem: {
+            /** @description The file the problem is in, as it was sent. Absent when it is about the project as a whole. */
+            file?: string;
+            /** @description The line, where one is known. */
+            line?: number;
+            message: string;
+        };
+        ProjectSubtree: {
+            base: string;
+            /** @description The files its patterns matched, in the order their records are planned. */
+            files: string[];
+            /** @description How many entries those files describe. */
+            entries: number;
+        };
+        ProjectSummary: {
+            /** @description The project file that was read, always `alder.yaml`. */
+            file: string;
+            /** @description How many entries the project describes. */
+            entries: number;
+            /** @description The managed subtrees, in the order `managed` lists them. */
+            subtrees: components["schemas"]["ProjectSubtree"][];
+            /**
+             * @description The names of the environments `alder.yaml` declares, sorted. They
+             *     were validated and are not used: the plan is this session's.
+             */
+            environments: string[];
+        };
+        /**
+         * @description One managed subtree's unmanaged entries, in the shape
+         *     `alder project plan --json` writes.
+         */
+        ProjectUnmanaged: {
+            base: string;
+            /**
+             * @description The DNs the directory holds at or below `base` that no file
+             *     describes, parent before child. Compared with DN equality as the
+             *     directory compares names, not as text.
+             */
+            entries: string[];
+            /**
+             * @description Why the subtree could not be read whole: more entries than a
+             *     snapshot holds, a size limit, referrals, or a refusal. `entries`
+             *     is then empty and says nothing either way. A base the directory
+             *     does not hold has no entries and no error.
+             */
+            error?: string;
+        };
+        ProjectPlan: {
+            project: components["schemas"]["ProjectSummary"];
+            /**
+             * @description The directory the plan was made against, `host:port`, as this
+             *     session reports it in `GET /session`. Never a value from the files.
+             */
+            host: string;
+            /** @description The session's bind DN, which read the directory. Empty for an anonymous bind. */
+            bindDn: string;
+            plan: components["schemas"]["Plan"];
+            unmanaged: components["schemas"]["ProjectUnmanaged"][];
+        };
         ChangePreview: {
             /**
              * @description Unfolded, because the point of the preview is that a person reads
@@ -5660,6 +5799,73 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description The directory could not be read, so no plan could be made. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    planProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectPlanRequest"];
+            };
+        };
+        responses: {
+            /**
+             * @description The project is valid, and this is its plan against the session's
+             *     directory with the unmanaged entries beside it. Nothing has been
+             *     applied.
+             */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectPlan"];
+                };
+            };
+            /**
+             * @description `project_invalid`: the files are not a valid project, with every
+             *     problem in `problems`, located by file and line where it can be,
+             *     and nothing planned. `bad_request`: a path that is not a clean
+             *     relative name, the same path twice, more than 1,000 files, no
+             *     `alder.yaml` at the top, a file too large to read, or a project
+             *     larger than one plan carries.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description The request is larger than the server's body limit (16 MiB). A
+             *     project that large is planned with `alder project plan`.
+             */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description The directory could not be read, so no plan could be made. */
             502: {
                 headers: {

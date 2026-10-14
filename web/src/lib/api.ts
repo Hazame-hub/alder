@@ -94,6 +94,8 @@ export class ApiFailure extends Error {
   readonly affected?: ApiError["affected"];
   /** Where to look about the refusal: which screen answers it, for which entry. */
   readonly remedy?: ApiError["remedy"];
+  /** With `project_invalid`: every problem the project has. Untrusted text. */
+  readonly problems?: ApiError["problems"];
 
   constructor(status: number, body?: ApiError) {
     super(body?.message ?? `Request failed with status ${status}`);
@@ -106,6 +108,7 @@ export class ApiFailure extends Error {
     this.cause = body?.cause;
     this.affected = body?.affected;
     this.remedy = body?.remedy;
+    this.problems = body?.problems;
   }
 
   /**
