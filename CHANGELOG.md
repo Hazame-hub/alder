@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.38.0](https://github.com/Hazame-hub/alder/compare/v1.37.1...v1.38.0) (2026-10-14)
+
+
+### Features
+
+* **cli:** alder project apply --env, which plans, shows, confirms and applies an Alder project in one run ([328bcc9](https://github.com/Hazame-hub/alder/commit/328bcc918567e4b050f287cd88cb796ebdc7d790))
+* **cli:** alder project fmt, and unmanaged entries beside the project plan ([#210](https://github.com/Hazame-hub/alder/issues/210)) ([bd94266](https://github.com/Hazame-hub/alder/commit/bd94266fd5c3c2683cc9b8f23cd413f1903c3044))
+* **cli:** ask for the bind password at a terminal, without echo ([#225](https://github.com/Hazame-hub/alder/issues/225)) ([a88efda](https://github.com/Hazame-hub/alder/commit/a88efda5d0b88233304b5f3e0b6798c99caab52c))
+* **cli:** plan and apply a project under an environment's own suffix ([#233](https://github.com/Hazame-hub/alder/issues/233)) ([3d93f86](https://github.com/Hazame-hub/alder/commit/3d93f86ee03a692cc69c006a4a45a6245f27a2f9))
+* **recovery:** compensate schema and configuration changes ([#234](https://github.com/Hazame-hub/alder/issues/234)) ([dc577a7](https://github.com/Hazame-hub/alder/commit/dc577a7f97147c96f7f52a25403d1439d365b71a))
+* **web:** open an Alder project in the browser and plan it against the session's directory ([#235](https://github.com/Hazame-hub/alder/issues/235)) ([79122eb](https://github.com/Hazame-hub/alder/commit/79122ebc2d323735abae2694638dc654c0dcc54c))
+* **web:** saved connections on the connect screen, without passwords ([#222](https://github.com/Hazame-hub/alder/issues/222)) ([565f9b1](https://github.com/Hazame-hub/alder/commit/565f9b12256ace2e71bc5260046b0a508c16a5c0))
+
+
+### Fixes
+
+* **api:** a failed connection no longer describes the network to whoever asked ([#219](https://github.com/Hazame-hub/alder/issues/219)) ([76573f8](https://github.com/Hazame-hub/alder/commit/76573f8b8ce091aa0ed073f71a8758e182e0b6f0))
+* **api:** bound the sessions a server holds, and close the one a reconnect replaces ([#217](https://github.com/Hazame-hub/alder/issues/217)) ([d013bc7](https://github.com/Hazame-hub/alder/commit/d013bc74a72c6db0026f620993f2eb569c510a9a))
+* **api:** hold the in-flight slot for a streamed search, keep its writer off the Fiber ctx ([#221](https://github.com/Hazame-hub/alder/issues/221)) ([5c3cf94](https://github.com/Hazame-hub/alder/commit/5c3cf943c43255dc5e4187ff2323324d32da4009))
+* **api:** refuse writes another origin on the same site could forge ([#212](https://github.com/Hazame-hub/alder/issues/212)) ([44222c0](https://github.com/Hazame-hub/alder/commit/44222c0514da6afbf972ae417b123098cd1a8dd3))
+* **cli:** a partial apply exits 6 even when its recovery bundle fails ([#226](https://github.com/Hazame-hub/alder/issues/226)) ([40d0bf3](https://github.com/Hazame-hub/alder/commit/40d0bf388aeaa8f4a5af11b292c10078841c0f38))
+* **cli:** key, sign and verify stop reading their flags from ALDER_* ([#214](https://github.com/Hazame-hub/alder/issues/214)) ([b1dbbdb](https://github.com/Hazame-hub/alder/commit/b1dbbdbf4229f3bec98cff97a8969d14fb4f9caf))
+* **cli:** name the right places a missing password can come from ([#228](https://github.com/Hazame-hub/alder/issues/228)) ([0c09f50](https://github.com/Hazame-hub/alder/commit/0c09f5080606643fa44e56a1c9cb98d015a624ab))
+* **cli:** print what a project's files say through safe ([#224](https://github.com/Hazame-hub/alder/issues/224)) ([75f52d6](https://github.com/Hazame-hub/alder/commit/75f52d697b29d18012fb7ef4bbfb42fef3f5b304))
+* **cli:** send a ca-file's certificates and nothing else ([#211](https://github.com/Hazame-hub/alder/issues/211)) ([3f472f8](https://github.com/Hazame-hub/alder/commit/3f472f8e5d37a73807ffe9f1cf4ffa530c15d279))
+* **directory:** quote the DN in the ldappasswd line a password preview shows ([#213](https://github.com/Hazame-hub/alder/issues/213)) ([b472f98](https://github.com/Hazame-hub/alder/commit/b472f985e3a9220a27dde61f30bfa26cae85cba0))
+* **ldapdriver:** route operations by parsed DN, not by a string suffix ([#218](https://github.com/Hazame-hub/alder/issues/218)) ([9298c22](https://github.com/Hazame-hub/alder/commit/9298c2247196bd5b01a2389418ab85852373ba5e))
+* **schema:** withhold subtypes of a secret, and authPassword ([#220](https://github.com/Hazame-hub/alder/issues/220)) ([4e7dbea](https://github.com/Hazame-hub/alder/commit/4e7dbeaaab2e11120733fc9ac91eb08aa3cb4050))
+* **serve:** treat [::1] as loopback when deciding the cookie's Secure flag ([#227](https://github.com/Hazame-hub/alder/issues/227)) ([823b66d](https://github.com/Hazame-hub/alder/commit/823b66d6cd207a88793093a36c03c096f4484878))
+
+
+### Refactoring
+
+* **cli:** one apply path for a reviewed plan, shared by alder apply and alder project apply ([328bcc9](https://github.com/Hazame-hub/alder/commit/328bcc918567e4b050f287cd88cb796ebdc7d790))
+
+
+### Documentation
+
+* a README that shows Alder working, and docs a newcomer can start from ([#230](https://github.com/Hazame-hub/alder/issues/230)) ([83a0223](https://github.com/Hazame-hub/alder/commit/83a02235b73d6e3e7c2cb7a41e6e286dac3e8ede))
+* **charter:** say what the code does about the deny list and vendor names ([#231](https://github.com/Hazame-hub/alder/issues/231)) ([c96d0a6](https://github.com/Hazame-hub/alder/commit/c96d0a629f6da74ae5ef191f6592087234cf68a3))
+* **cli:** say which server each client command needs ([#229](https://github.com/Hazame-hub/alder/issues/229)) ([344771d](https://github.com/Hazame-hub/alder/commit/344771d352dfdcac3d94fda177088efc493fbd44))
+* examples/project, with GitHub Actions and GitLab CI that check it ([#215](https://github.com/Hazame-hub/alder/issues/215)) ([c9c55e5](https://github.com/Hazame-hub/alder/commit/c9c55e51db76f0d051937ccba7885646088b44d1))
+* propose a second, read-only server inside one session, for review ([#223](https://github.com/Hazame-hub/alder/issues/223)) ([7b4a07a](https://github.com/Hazame-hub/alder/commit/7b4a07a062480129311b4f2db0ded9593d6cf74a))
+* **readme:** say how to install, and fix the Docker command that could not run ([#216](https://github.com/Hazame-hub/alder/issues/216)) ([826c44c](https://github.com/Hazame-hub/alder/commit/826c44c86fe6e38a987bed00d927d5514882cd3b))
+* specify opening an Alder project in the web interface, accepted ([#232](https://github.com/Hazame-hub/alder/issues/232)) ([5435724](https://github.com/Hazame-hub/alder/commit/5435724c25aecafb32029ab75752e233844e0428))
+
 ## [1.37.1](https://github.com/Hazame-hub/alder/compare/v1.37.0...v1.37.1) (2026-10-11)
 
 
