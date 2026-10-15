@@ -1,12 +1,18 @@
 # Saved plans
 
-**Status: proposed, for review.** Nothing here is built. `docs/PROJECT.md`
-says "a saved-plan workflow waits until baselines can outlive a process";
-this proposal argues that the wait is unnecessary: a saved plan does not
-need baselines that outlive a process, and making them do so would break
-the charter. It follows the way the project format, the second server and
-the web projects were proposed: a specification first, accepted or amended
-before any code.
+**Status: accepted 2026-10-15** -- expectations rather than a persistent
+key (question 1), and an apply refuses project files that changed since
+the plan (question 3); the other questions as recommended. **The first
+slice is built**: `project plan --out` and `project apply --plan`. What the
+build settled is recorded in `docs/DECISIONS.md` under the same date, and
+marked *Settled when built* below where it differs from what was proposed.
+
+`docs/PROJECT.md` said "a saved-plan workflow waits until baselines can
+outlive a process"; this proposal argued that the wait was unnecessary: a
+saved plan does not need baselines that outlive a process, and making them
+do so would break the charter. It followed the way the project format, the
+second server and the web projects were proposed: a specification first,
+accepted or amended before any code.
 
 ---
 
@@ -83,8 +89,18 @@ A saved plan is the same idea pointed forwards:
   absent. An `add` needs none: planning an `add` of an entry that now
   exists is already a conflict (`entry_exists`). The expectation is
   compared by each attribute's equality rule, as recovery bundles' are.
-- **Applying a saved plan** sends those changes to `POST /plan` with
-  `mode: changes`, refuses if any comes back as a conflict (an expectation
+
+  *Settled when built:* the expectation names the attributes the
+  modification replaces, read from the entry once the plan is made. Those
+  are what make the reviewed change "these values become those"; an
+  attribute the project names and the plan leaves alone is drift for the
+  next plan to show, not a reason to refuse the reviewed change. The saved
+  changes are then planned once more, exactly as an apply will plan them,
+  and the file is written only if every one applies, which closes the gap
+  between the plan and the reads behind the expectations (exit 4 when it
+  does not).
+- **Applying a saved plan** sends those changes to `POST /plan` as
+  `changes`, refuses if any comes back as a conflict (an expectation
   that no longer holds, an entry that now exists) or `invalid`, shows it,
   and applies with the **fresh** baselines. The window between that plan
   and the apply is covered as it is today.
@@ -158,7 +174,7 @@ the reader does not know is refused rather than half-read.
   "version": 1,
   "createdAt": "2026-10-15T08:00:00Z",
   "alderVersion": "1.39.0",
-  "project": { "name": "directory", "digest": "sha256:…" },
+  "project": { "digest": "sha256:…" },
   "environment": {
     "name": "prod",
     "host": "ldap.example.org:636",
@@ -176,6 +192,12 @@ the reader does not know is refused rather than half-read.
   "unchanged": 41
 }
 ```
+
+*Settled when built:* `project` carries the digest alone. A name would be
+the path the plan job happened to run in, which the apply job does not
+share. The digest is the SHA-256 of the project's entries rendered as one
+LDIF document, as the files write them, before any environment's suffix;
+the suffix is compared on its own, in `environment.rebase`.
 
 `changes` are `ChangeRequest`s, the object `POST /plan` and
 `/changeset/apply` already take. `unchanged` is a count, for the summary
@@ -213,6 +235,8 @@ saved plan that partly holds (it is all or nothing, as every apply's
 up-front check is).
 
 ## Open questions for review
+
+*Decided 2026-10-15: 1 expectations, 3 refuse; 2, 4 and 5 as recommended.*
 
 1. **Persistent key or expectations.** Recommendation: expectations, for
    the reasons above. Choosing the key instead means amending the charter

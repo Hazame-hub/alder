@@ -365,10 +365,18 @@ so the stricter meaning is asked for, never assumed.
   so such a file would stop applying at the first server restart. `apply`
   therefore plans and applies in one run against one environment, where a
   plan for another environment cannot reach it by construction, and its
-  question names the environment and the directory. A saved-plan workflow
-  waits until baselines can outlive a process.
-  [proposals/saved-plans.md](proposals/saved-plans.md) proposes one that
-  does not need them, for review.
+  question names the environment and the directory.
+- **Saved plans** (built). `alder project plan --env NAME --out FILE` saves
+  the plan, and `alder project apply --env NAME --plan FILE` applies exactly
+  it later, through any Alder, or refuses. The file holds no baseline: each
+  change is the plan's own record, a modification with the values it
+  replaces as an `expect`, the precondition recovery bundles use, so any
+  Alder can check it and a restart between review and apply changes
+  nothing. The file names the environment, its `host:port`, the bind and
+  any suffix, and a digest of the project's entries; an apply for anything
+  else is refused before connecting (3), and one whose changes no longer
+  hold is refused whole (4). Specified, and accepted, in
+  [proposals/saved-plans.md](proposals/saved-plans.md).
 - **`alder project fmt`** (built): rewrite the project's LDIF in a canonical
   form, so a Git diff shows what changed and not how it was wrapped. A tidier
   file, not a second format.
