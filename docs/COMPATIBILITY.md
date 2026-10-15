@@ -669,6 +669,22 @@ A project can be opened in the web interface
   was: the comparison behind its unmanaged report moved into a package the
   server shares, and nothing it prints moved with it.
 
+### 1.39
+
+A plan can be saved and applied later
+([proposals/saved-plans.md](proposals/saved-plans.md)). Only additions:
+
+- **`alder project plan --out FILE` and `--force`**, and **`alder project
+  apply --plan FILE`**. None of them reads the environment. With `--json`,
+  `project plan`'s document gains `saved`.
+- **The saved-plan format, `alder-plan` version 1.** Later 1.x releases will
+  continue to read it, as they do recovery bundles. Its `changes` are the
+  API's `ChangeRequest`, so they follow the API's rules above. Its reader is
+  strict, so a file that uses a later addition is refused rather than
+  half-read.
+- **No API change.** A saved plan is planned and applied through
+  `POST /plan` and `POST /changeset/apply` as they are.
+
 ---
 
 ## Not covered

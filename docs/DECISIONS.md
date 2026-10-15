@@ -6111,3 +6111,58 @@ unmanaged report equal `alder project plan --json`'s. **Unverified here:**
 it compiles and vets, and has not been run against the two servers; the
 risk is in the unmanaged half, where a server answering a search below an
 absent base differently from `noSuchObject` would show up first.
+
+### 2026-10-15 — saved plans: exact changes with expectations, not a persistent key
+
+`alder project plan --env NAME --out FILE` saves a plan, and `alder project
+apply --env NAME --plan FILE` applies exactly it later or refuses. Specified
+in [proposals/saved-plans.md](proposals/saved-plans.md) and accepted the same
+day: expectations rather than a persistent key, and an apply refuses project
+files that changed since the plan.
+
+- **No baseline outlives its process, still.** A persistent baseline key
+  would be the first secret Alder holds on disk (charter, section 2), would
+  have to be shared by every replica, and would make every token that binds
+  a secret an offline guessing target for whoever can read it. A saved plan
+  holds instead what a recovery bundle holds: exact changes, each with an
+  `expect` any Alder can check. The 2026-10-11 entry's "a saved-plan
+  workflow waits for baselines that can outlive a process" is answered by
+  not needing them.
+- **The expectation is the attributes the modification replaces**, with the
+  values the entry holds once the plan is made, and none for an add, which
+  is a conflict where its entry exists. Those make the reviewed change
+  "these values become those". An attribute the project names and the plan
+  leaves alone is drift for the next plan to show; refusing the reviewed
+  change for it would teach people to plan again unread.
+- **The file is written only once it is known to apply.** The expectations
+  are read after the plan, so the saved changes are planned once more,
+  exactly as an apply will plan them, and every one must apply. Otherwise
+  nothing is written and the exit is 4, the status of a directory that moved
+  after its plan. A plan with a change that cannot be applied is shown and
+  not saved, since no apply could use it.
+- **What the file binds, and how.** The environment's name, `host:port`, bind
+  DN and suffix rebase, compared with `alder.yaml` before connecting; and a
+  SHA-256 of the project's entries as the files write them, before any
+  suffix, so the apply runs from the files that were planned. Any mismatch
+  is 3 with `saved_plan_mismatch`, and nothing is sent. The API URL is not
+  bound: it is how a directory is reached, not which one, and moving to
+  another Alder between review and apply is the case this exists for.
+- **Applying is the existing path.** The saved changes are planned as
+  `changes`, so the server checks each expectation and binds it into the
+  fresh baseline. A plan in which any change does not apply is shown and
+  refused whole (4, `saved_plan_stale`), and is never re-made from the
+  project. Otherwise it goes through `applyReviewed`, as every other apply
+  does, sending each saved change with its expectation and its new baseline.
+- **Read strictly.** `alder-plan` version 1 refuses an unknown field, a
+  baseline, a change other than an add or a modification, a modification
+  without an expectation, and a value withheld as sensitive, as `alder-
+  recovery`'s reader does (3, `saved_plan_invalid`). The writer reads its
+  own file back through the same reader before naming it.
+- **Out of this slice:** the CI example's apply job, `alder plan --out` for
+  change sets other than projects, saved plans in the web interface, and
+  signing one. Each is in the specification's "later".
+
+The conformance case runs on both servers: a plan saved through one Alder
+and applied through a second, as after a restart, applies; a plan saved and
+then overtaken by an edit to the attribute it replaces is refused with 4 and
+writes nothing.

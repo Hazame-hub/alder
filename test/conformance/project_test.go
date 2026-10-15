@@ -301,3 +301,66 @@ func writeFile(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+// A saved plan, against both real directories: made through one Alder and
+// applied through another, as after a restart between review and merge, it
+// applies exactly what was saved; saved and then overtaken by another
+// administrator, it is refused whole and writes nothing.
+func TestASavedPlanOutlivesTheAlderThatMadeItOnBothServers(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		t.Run("applied through another Alder", func(t *testing.T) {
+			seedCLIOU(t, sess) // uid=cli-probe, with title Before
+			first := startAlder(t)
+			dir := writeHarnessProject(t, s, first)
+			saved := filepath.Join(t.TempDir(), "harness.plan.json")
+
+			r := runProject(t, s, "project", "plan", "--project", dir, "--env", "harness", "--out", saved)
+			wantExit(t, r, cli.ExitOK, "plan --out")
+			if got := titleOf(t, sess); got != "Before" {
+				t.Fatalf("the probe's title is %q after saving a plan; a plan must not write", got)
+			}
+
+			// Another process, with another baseline key: nothing the first
+			// one issued would verify here.
+			second := startAlder(t)
+			yaml := filepath.Join(dir, "alder.yaml")
+			text, err := os.ReadFile(yaml)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, dir, "alder.yaml", strings.Replace(string(text), first, second, 1))
+
+			r = runProject(t, s, "project", "apply", "--project", dir, "--env", "harness", "--plan", saved, "--yes")
+			wantExit(t, r, cli.ExitOK, "apply --plan")
+			if got := titleOf(t, sess); got != "After" {
+				t.Errorf("the probe's title is %q after applying the saved plan, want After", got)
+			}
+			if !exists(t, sess, cliDN("uid=cli-new")) {
+				t.Error("the new entry does not exist after applying the saved plan")
+			}
+		})
+
+		t.Run("overtaken before it was applied", func(t *testing.T) {
+			seedCLIOU(t, sess)
+			base := startAlder(t)
+			dir := writeHarnessProject(t, s, base)
+			saved := filepath.Join(t.TempDir(), "harness.plan.json")
+
+			r := runProject(t, s, "project", "plan", "--project", dir, "--env", "harness", "--out", saved)
+			wantExit(t, r, cli.ExitOK, "plan --out")
+
+			// Another administrator edits the attribute the saved change
+			// replaces. The saved plan was reviewed as Before -> After.
+			setTitle(t, sess, "Elsewhere")
+
+			r = runProject(t, s, "project", "apply", "--project", dir, "--env", "harness", "--plan", saved, "--yes")
+			wantExit(t, r, cli.ExitStale, "apply --plan after the directory moved")
+			if got := titleOf(t, sess); got != "Elsewhere" {
+				t.Errorf("the probe's title is %q; a saved plan that no longer holds must write nothing", got)
+			}
+			if exists(t, sess, cliDN("uid=cli-new")) {
+				t.Error("the new entry was added; a saved plan that no longer holds is refused whole")
+			}
+		})
+	})
+}

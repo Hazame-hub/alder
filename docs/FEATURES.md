@@ -478,8 +478,11 @@ validate` checks it offline, in a pre-commit hook or on every pull request,
 and refuses a file that carries a password. `alder project plan --env prod
 --detailed-exitcode` answers "does production match the repository?" with an
 exit status, and `alder project apply` plans again against the directory as it
-is, shows that plan, asks, and applies it. There is no state file, and an entry
-the files do not mention is never deleted: the plan lists it as unmanaged.
+is, shows that plan, asks, and applies it. Where an approval sits between
+plan and apply, `project plan --out` saves the plan and `project apply --plan`
+applies exactly that file, through any Alder, or refuses it whole if the
+directory has moved. There is no state file, and an entry the files do not
+mention is never deleted: the plan lists it as unmanaged.
 `alder project fmt` keeps the LDIF in one canonical form so a diff shows what
 changed. See [`PROJECT.md`](PROJECT.md), and
 [`examples/project/`](../examples/project/) for a project with its CI.

@@ -560,12 +560,38 @@ plan is refused whole (exit 4) and never planned again and applied unseen;
 `--recovery-out FILE` writes a recovery bundle for what was applied. A plan
 with nothing to change applies nothing and exits 0.
 
-The plan is made and applied in one run, against one environment. There is no
-saved plan to carry to another environment: a baseline is a MAC under a key
-that exists only in the Alder process that issued it, so a plan written to a
-file would stop applying the moment that server restarted. Review with
+The plan is made and applied in one run, against one environment. Review with
 `project plan` in a pull request; apply after merge, where the plan is made
 again against the directory as it is then and shown before it is applied.
+
+**Saved plans.** When what is reviewed must be what is applied -- a plan job,
+then an approval, then an apply job -- save the plan and apply that file:
+
+```sh
+alder project plan  --env prod --out prod.plan.json
+alder project apply --env prod --plan prod.plan.json --yes
+```
+
+`--out FILE` saves the plan after showing it. The file holds no baseline,
+which would stop applying the moment the Alder that issued it restarted: each
+change is the plan's own record, and a modification carries the values of the
+attributes it replaces as an `expect`, the precondition a recovery bundle's
+changes carry. Before the file is written, its changes are planned once more
+exactly as an apply will plan them, and it is written only if every one
+applies; exit 4 when the directory moved meanwhile. A plan with a change that
+cannot be applied is shown and not saved. The exit status is otherwise the
+plan's, `--detailed-exitcode` included; an existing file is replaced only with
+`--force`; with `--json` the document says `saved`.
+
+`--plan FILE` applies that file instead of planning the project: its changes,
+planned as they are written, shown, confirmed and applied with the baselines
+of that plan. It is refused before connecting (exit 3) when the file was made
+for another environment, against another `host:port`, binding as someone
+else, with another suffix, or from project files that have changed since --
+plan that version and review it. It is refused whole (exit 4) when any of its
+changes no longer holds: an attribute it replaces has changed, or an entry it
+adds now exists. Nothing is written; plan again and review. The format is in
+[proposals/saved-plans.md](proposals/saved-plans.md#the-file).
 
 Without a terminal and without `--yes`, `apply` refuses before connecting to
 anything. `--yes`, like `--env` and `--project`, is never read from the
