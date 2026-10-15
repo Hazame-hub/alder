@@ -1,11 +1,10 @@
 # A second server inside one session
 
-**Status: proposed, for review. Nothing here is implemented, and nothing here
-is a decision yet.** Backlog item B6. The recommendation below needs a scope
-line in section 2 of the charter and a decision that revises one made in 1.33;
-both are recorded in `docs/DECISIONS.md` when, and if, the review accepts them,
-and code waits until then. This follows the way the project format was
-proposed (`docs/PROJECT.md`): a specification first.
+**Status: accepted (2026-10-15), Option A, with every recommendation below.
+Built in 1.39.** Backlog item B6. The scope line is in section 2 of the
+charter, and the decision revising 1.33 is in `docs/DECISIONS.md`
+("2026-10-15 — a second server inside one session"). This followed the way
+the project format was proposed (`docs/PROJECT.md`): a specification first.
 
 ---
 

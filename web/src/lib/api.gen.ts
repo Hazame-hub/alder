@@ -33,6 +33,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/session/reference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe the reference server, if one is attached
+         * @description A session may hold one second, read-only connection, the reference,
+         *     for comparison (1.39). See `docs/proposals/second-server.md`.
+         */
+        get: operations["getReference"];
+        put?: never;
+        /**
+         * Connect to a second, read-only server for comparison
+         * @description Opens a second connection under this session, through the same
+         *     settings, TLS rules and target allowlist as `POST /session`, and holds
+         *     it read-only: nothing in the API can write to it. Its bind password is
+         *     held in this process's memory beside the session's, never returned and
+         *     never logged, and is cleared when the reference closes.
+         *
+         *     The reference never outlives the session. Disconnecting, connecting
+         *     again, the idle timeout and the maximum lifetime close both; activity
+         *     on the session keeps both alive. It counts against `--max-sessions`,
+         *     which bounds directory connections.
+         *
+         *     Reads that take a side name it with `on: reference` (a capture),
+         *     `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+         *     `/schema`) or a `reference` side (`/diff`). Changes always go to the
+         *     session's own server.
+         */
+        post: operations["attachReference"];
+        /**
+         * Close the reference server
+         * @description Closes the reference connection and discards its credentials. The session is untouched.
+         */
+        delete: operations["detachReference"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tree": {
         parameters: {
             query?: never;
@@ -1809,8 +1852,16 @@ export interface components {
             objectClasses: number;
             attributeTypes: number;
         };
+        /**
+         * @description Which of a session's servers a read is of (1.39): its own, or the
+         *     read-only reference attached for comparison. Only reads take one.
+         * @enum {string}
+         */
+        ServerSide: "session" | "reference";
         SessionInfo: {
             connected: boolean;
+            /** @description Present when connected. `reference` for the reference server (1.39). */
+            role?: components["schemas"]["ServerSide"];
             host?: string;
             port?: number;
             tls?: string;
@@ -1900,6 +1951,8 @@ export interface components {
             filter?: string;
             /** @description Capture operational attributes too. Off by default. */
             operationalAttributes?: boolean;
+            /** @description Which server to capture (1.39). Defaults to the session's. */
+            on?: components["schemas"]["ServerSide"];
         };
         /** @description One attribute value: exactly one of text or base64. */
         PackageValue: {
@@ -3287,10 +3340,17 @@ export interface components {
              */
             schemaTarget?: string;
         };
-        /** @description Exactly one of `snapshot` or `live`. */
+        /**
+         * @description Exactly one of `snapshot`, `live` or `reference`. `reference` (1.39)
+         *     reads the session's reference server the way `live` reads the
+         *     session's own, and is never changed: a comparison proposes changes
+         *     only when its source is `live`. A `live` and a `reference` side may be
+         *     compared; two `reference` sides may not.
+         */
         DiffSide: {
             snapshot?: components["schemas"]["Snapshot"] | components["schemas"]["SchemaSnapshot"] | components["schemas"]["ConfigSnapshot"];
             live?: components["schemas"]["DiffLiveSide"];
+            reference?: components["schemas"]["DiffLiveSide"];
         };
         DiffRequest: {
             source: components["schemas"]["DiffSide"];
@@ -3299,9 +3359,11 @@ export interface components {
             includeUnchanged?: boolean;
         };
         /** @enum {string} */
-        DiffSideKind: "snapshot" | "live";
+        DiffSideKind: "snapshot" | "live" | "reference";
         DiffSideSummary: {
             kind: components["schemas"]["DiffSideKind"];
+            /** @description For a `live` or `reference` side, the host and port it was read from (1.39). */
+            server?: string;
             vendor?: string;
             base: string;
             scope: components["schemas"]["SnapshotScope"];
@@ -3780,6 +3842,11 @@ export interface components {
              *     rows below it and should be read first.
              */
             structural?: string;
+            /**
+             * @description The host and port this entry was read from, when the two entries were
+             *     read from different servers (`rightOn=reference`, 1.39).
+             */
+            server?: string;
         };
         /**
          * @description One bucket per status, and every attribute lands in exactly one, so the
@@ -5148,6 +5215,108 @@ export interface operations {
             };
         };
     };
+    getReference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reference server. `readOnly` is always true and `role` is `reference`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInfo"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    attachReference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectRequest"];
+            };
+        };
+        responses: {
+            /** @description Attached. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInfo"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description The target is not on this Alder's allowlist (`target_not_allowed`). Checked before anything is dialled. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A reference is already attached (`conflict`). Detach it first. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The directory refused the connection or the bind. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description This Alder holds as many directory connections as `--max-sessions` allows. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    detachReference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Closed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listChildren: {
         parameters: {
             query?: {
@@ -5218,6 +5387,12 @@ export interface operations {
                 includeOperational?: boolean;
                 /** @description Values reported per attribute. */
                 limit?: number;
+                /**
+                 * @description Which server the right entry is read from (1.39). `reference` reads it from
+                 *     the session's reference server, so one entry can be compared across two
+                 *     servers; the left entry is always the session's own.
+                 */
+                rightOn?: components["schemas"]["ServerSide"];
             };
             header?: never;
             path?: never;
@@ -5417,7 +5592,10 @@ export interface operations {
     };
     getSchema: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which server's schema (1.39). Defaults to the session's. */
+                on?: components["schemas"]["ServerSide"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5955,7 +6133,10 @@ export interface operations {
     };
     getReplication: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which server's record (1.39). Defaults to the session's. */
+                on?: components["schemas"]["ServerSide"];
+            };
             header?: never;
             path?: never;
             cookie?: never;

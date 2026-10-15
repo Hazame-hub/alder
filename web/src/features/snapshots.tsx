@@ -20,6 +20,7 @@ import { ErrorNote } from "@/components/change-dialog";
 import { DownloadButton } from "@/components/ldif-block";
 import { ReviewActions } from "@/components/review-actions";
 import { CaptureFromAnotherServer } from "@/features/capture-from";
+import { serverLabel, useReference } from "@/lib/reference";
 import { bench, useBench, type AnySnapshot, type SideChoice, type Slot } from "@/lib/snapshot-bench";
 import {
   filterItems,
@@ -137,6 +138,13 @@ export function SnapshotsPanel({
     queryFn: async () => unwrap(await api.GET("/session")),
   });
   const defaultBase = session.data?.capabilities?.namingContexts?.[0] ?? "";
+  // The session's reference server, when one is attached: a capture can be
+  // of it, and it can be either side of a comparison. Never the side a
+  // change is proposed for -- the server proposes changes to the session's
+  // own directory only.
+  const reference = useReference();
+  const [captureOn, setCaptureOn] = useState<"session" | "reference">("session");
+  const capturingReference = captureOn === "reference" && reference !== null;
 
   // The documents, the two sides and the last comparison live in a store with
   // the lifetime of the tab, so that following "Review the changeset" and
@@ -167,9 +175,7 @@ export function SnapshotsPanel({
   // and kept with the document, because the bench outlives the session and
   // the next one may be a different server.
   const capturedFrom =
-    session.data?.host && session.data.port
-      ? `${session.data.host}:${session.data.port}`
-      : undefined;
+    (capturingReference ? serverLabel(reference) : serverLabel(session.data)) || undefined;
 
   const inspect = async (
     raw: string,
@@ -206,12 +212,13 @@ export function SnapshotsPanel({
         await api.POST("/snapshots/capture", {
           body:
             captureKind === "schema" || captureKind === "config"
-              ? { kind: captureKind }
+              ? { kind: captureKind, on: capturingReference ? "reference" : undefined }
               : {
                   base: (base ?? defaultBase).trim(),
                   scope,
                   filter: filter.trim() || undefined,
                   operationalAttributes: operational,
+                  on: capturingReference ? "reference" : undefined,
                 },
           parseAs: "text",
         }),
@@ -251,44 +258,72 @@ export function SnapshotsPanel({
     reader.readAsText(file);
   };
 
-  const kindOf = (choice: SideChoice) => (choice === "live" ? null : (slots[choice]?.doc.kind ?? null));
-  const schemaComparison = kindOf(source) === "schema" || kindOf(target) === "schema";
-  const configComparison = kindOf(source) === "config" || kindOf(target) === "config";
+  const isRead = (choice: SideChoice): choice is "live" | "reference" =>
+    choice === "live" || choice === "reference";
+  const kindOf = (choice: SideChoice) => (isRead(choice) ? null : (slots[choice]?.doc.kind ?? null));
+  // With no document on either side -- this server against the reference --
+  // what is compared is what the capture form is set to.
+  const bothRead = isRead(source) && isRead(target);
+  const schemaComparison =
+    kindOf(source) === "schema" || kindOf(target) === "schema" || (bothRead && captureKind === "schema");
+  const configComparison =
+    kindOf(source) === "config" || kindOf(target) === "config" || (bothRead && captureKind === "config");
   // A live side reads whatever the other side is a snapshot of. Where the
   // server keeps schema in several entries, a live source also says which one
-  // added definitions go to.
+  // added definitions go to. Two read sides name the kind, and for data the
+  // subtree the capture form names.
+  const readBody = (choice: "live" | "reference") =>
+    configComparison
+      ? { kind: "config" as const }
+      : schemaComparison
+        ? choice === "live" && choice === source && schemaTarget
+          ? { schemaTarget, ...(bothRead ? { kind: "schema" as const } : {}) }
+          : bothRead
+            ? { kind: "schema" as const }
+            : {}
+        : bothRead && choice === source
+          ? {
+              base: (base ?? defaultBase).trim(),
+              scope,
+              filter: filter.trim() || undefined,
+              operationalAttributes: operational,
+            }
+          : {};
   const sideBody = (choice: SideChoice) =>
     choice === "live"
-      ? {
-          live: configComparison
-            ? { kind: "config" as const }
-            : schemaComparison && choice === source && schemaTarget
-              ? { schemaTarget }
-              : {},
-        }
-      : { snapshot: slots[choice]?.doc as AnySnapshot };
+      ? { live: readBody("live") }
+      : choice === "reference"
+        ? { reference: readBody("reference") }
+        : { snapshot: slots[choice]?.doc as AnySnapshot };
   const requestBytes = (["A", "B"] as const)
     .filter((n) => n === source || n === target)
     .reduce((sum, n) => sum + (slots[n]?.bytes ?? 0), 0);
   const compareProblem =
     source === target
       ? "Choose two different states."
-      : source !== "live" && !slots[source]
+      : (source === "reference" || target === "reference") && !reference
+        ? "No reference server is attached. Add one from the header."
+      : !isRead(source) && !slots[source]
         ? `Snapshot ${source} is empty.`
-        : target !== "live" && !slots[target]
+        : !isRead(target) && !slots[target]
           ? `Snapshot ${target} is empty.`
-          : source !== "live" && target !== "live" && kindOf(source) !== kindOf(target)
+          : !isRead(source) && !isRead(target) && kindOf(source) !== kindOf(target)
             ? "These snapshots are of different kinds; data, schema and configuration are each compared only with their own."
             : requestBytes > MAX_BODY
             ? `Together that is ${mb(requestBytes)} MB to send, and the server reads at most ${mb(MAX_BODY)} MB in one request.`
             : null;
 
-  const sideLabel = (choice: SideChoice) => (choice === "live" ? "The directory now" : `Snapshot ${choice}`);
+  const sideLabel = (choice: SideChoice) =>
+    choice === "live"
+      ? "The directory now"
+      : choice === "reference"
+        ? `The reference now (${serverLabel(reference)})`
+        : `Snapshot ${choice}`;
   // With one document loaded there is one pair worth comparing -- it against
   // the directory -- so the two selects stay out of the way until a second
   // document, or the operator, gives them something to decide.
   const loaded = (["A", "B"] as const).filter((n) => slots[n]).length;
-  const pickSides = chooseSides || loaded > 1;
+  const pickSides = chooseSides || loaded > 1 || reference !== null;
 
   const compare = useMutation<Diff, ApiFailure>({
     mutationFn: async () =>
@@ -335,6 +370,26 @@ export function SnapshotsPanel({
               {k === "data" ? "Directory data" : k === "schema" ? "Schema" : "Configuration"}
             </Button>
           ))}
+          {reference ? (
+            <>
+              <span className="ml-3 font-medium">From</span>
+              <Button
+                size="sm"
+                variant={capturingReference ? "outline" : "default"}
+                onClick={() => setCaptureOn("session")}
+              >
+                This server
+              </Button>
+              <Button
+                size="sm"
+                variant={capturingReference ? "default" : "outline"}
+                onClick={() => setCaptureOn("reference")}
+                title={serverLabel(reference)}
+              >
+                The reference
+              </Button>
+            </>
+          ) : null}
         </div>
         {!showCapture ? null : captureKind === "data" ? (
         <>
@@ -391,8 +446,8 @@ export function SnapshotsPanel({
             disabled={capture.isPending || (captureKind === "data" && !(base ?? defaultBase).trim())}
           >
             {capture.isPending ? <Loader2 className="animate-spin" /> : <Camera />}
-            Capture {captureKind === "schema" ? "the schema " : captureKind === "config" ? "the configuration " : ""}into snapshot{" "}
-            {into}
+            Capture {captureKind === "schema" ? "the schema " : captureKind === "config" ? "the configuration " : ""}
+            {capturingReference ? "of the reference " : ""}into snapshot {into}
           </Button>
           <Button variant="outline" onClick={() => fileInput.current?.click()}>
             <Upload />
@@ -456,9 +511,9 @@ export function SnapshotsPanel({
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {pickSides ? (
             <>
-              <SideSelect label="Source" value={source} onChange={setSource} slots={slots} />
+              <SideSelect label="Source" value={source} onChange={setSource} slots={slots} reference={reference !== null} />
               <ArrowRight className="size-4 text-muted-foreground" />
-              <SideSelect label="Target" value={target} onChange={setTarget} slots={slots} />
+              <SideSelect label="Target" value={target} onChange={setTarget} slots={slots} reference={reference !== null} />
             </>
           ) : (
             <>
@@ -700,11 +755,14 @@ function SideSelect({
   value,
   onChange,
   slots,
+  reference,
 }: {
   label: string;
   value: SideChoice;
   onChange: (v: SideChoice) => void;
   slots: Partial<Record<"A" | "B", Slot>>;
+  /** Whether a reference server is attached, and so can be a side. */
+  reference: boolean;
 }) {
   return (
     <label className="flex items-center gap-1.5">
@@ -715,6 +773,9 @@ function SideSelect({
         className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
       >
         <option value="live">The directory now</option>
+        {reference || value === "reference" ? (
+          <option value="reference">The reference now{reference ? "" : " (detached)"}</option>
+        ) : null}
         <option value="A">Snapshot A{slots.A ? "" : " (empty)"}</option>
         <option value="B">Snapshot B{slots.B ? "" : " (empty)"}</option>
       </select>

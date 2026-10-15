@@ -58,6 +58,9 @@ Added since, each on the record in `docs/DECISIONS.md`:
   shows `aci` and `olcAccess` read-only.
 - The Alder project format (2026-10-10): a specification first, no code
   until it has been reviewed.
+- A second, read-only connection within a session, for comparison
+  (2026-10-15). It is read and never written, by type, and closes with the
+  session.
 
 ### Out of scope
 

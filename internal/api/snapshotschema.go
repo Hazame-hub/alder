@@ -13,7 +13,6 @@ import (
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/filter"
-	"github.com/hazame-hub/alder/internal/session"
 	"github.com/hazame-hub/alder/internal/snapshot"
 )
 
@@ -42,15 +41,15 @@ const (
 // could not be changed again until the session reconnected. Nil when the server
 // keeps no collections or they cannot all be read -- a map covering some of
 // them would make a definition in an unread one look server-defined.
-func schemaCollections(ctx context.Context, sess *session.Session) map[string]string {
-	w := sess.Conn.Capabilities().SchemaWrite
+func schemaCollections(ctx context.Context, r directory.Reader) map[string]string {
+	w := r.Capabilities().SchemaWrite
 	if w.Style != directory.SchemaStyleConfig || len(w.Targets) == 0 {
 		return nil
 	}
 	out := map[string]string{}
 	for _, t := range w.Targets {
 		for _, kind := range []directory.SchemaDefKind{directory.SchemaDefAttributeType, directory.SchemaDefObjectClass} {
-			stored, err := sess.Conn.SchemaDefinitions(ctx, t.DN, kind)
+			stored, err := r.SchemaDefinitions(ctx, t.DN, kind)
 			if err != nil {
 				return nil
 			}
@@ -76,12 +75,12 @@ func storedDefinitionOID(def string) string {
 }
 
 // captureSchema reads the published schema as a schema snapshot.
-func captureSchema(ctx context.Context, sess *session.Session, collections map[string]string) (*snapshot.SchemaSnapshot, error) {
-	sch, err := sess.Conn.RefreshSchema(ctx)
+func captureSchema(ctx context.Context, r directory.Reader, collections map[string]string) (*snapshot.SchemaSnapshot, error) {
+	sch, err := r.RefreshSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
-	caps := sess.Conn.Capabilities()
+	caps := r.Capabilities()
 	return snapshot.BuildSchema(snapshot.SchemaCapture{
 		Vendor: caps.VendorName, VendorVersion: caps.VendorVersion, SubschemaEntry: caps.SubschemaSubentry,
 		Collections: collections, CreatedAt: time.Now(),
@@ -89,10 +88,10 @@ func captureSchema(ctx context.Context, sess *session.Session, collections map[s
 }
 
 // captureSchemaSnapshot answers a capture request for kind schema.
-func (s *Server) captureSchemaSnapshot(c *fiber.Ctx, sess *session.Session) error {
+func (s *Server) captureSchemaSnapshot(c *fiber.Ctx, r directory.Reader) error {
 	ctx, cancel := reqCtx(c)
 	defer cancel()
-	snap, err := captureSchema(ctx, sess, schemaCollections(ctx, sess))
+	snap, err := captureSchema(ctx, r, schemaCollections(ctx, r))
 	if err != nil {
 		return s.snapshotFail(c, err)
 	}
@@ -154,9 +153,9 @@ func diffKind(c *fiber.Ctx, body diffBody) (string, bool) {
 		if name == "target" {
 			side = body.Target
 		}
-		if side.Live != nil {
-			if side.Live.Kind != nil {
-				k := string(*side.Live.Kind)
+		if read := side.read(); read != nil {
+			if read.Kind != nil {
+				k := string(*read.Kind)
 				if k != snapshot.KindData && k != snapshot.KindSchema && k != snapshot.KindConfig {
 					return "", fail(refuseSnapshotKind(c, k))
 				}
@@ -196,19 +195,20 @@ func diffKind(c *fiber.Ctx, body diffBody) (string, bool) {
 type resolvedSchemaSide struct {
 	side      diff.SchemaSide
 	integrity snapshot.Integrity
+	read      readSide
 }
 
 // diffSchema compares two schema states.
-func (s *Server) diffSchema(c *fiber.Ctx, sess *session.Session, body diffBody) error {
+func (s *Server) diffSchema(c *fiber.Ctx, reads map[string]readSide, body diffBody) error {
 	sides := map[string]*resolvedSchemaSide{}
-	for name, side := range map[string]diffSideBody{"source": body.Source, "target": body.Target} {
-		if side.Live != nil {
-			l := side.Live
+	for _, name := range sideNames {
+		side := body.side(name)
+		if l := side.read(); l != nil {
 			if l.Base != nil || l.Scope != nil || l.Filter != nil || l.OperationalAttributes != nil {
 				return badRequest(c, "The live schema is read whole.",
 					"base, scope, filter and operationalAttributes do not apply to a schema side.")
 			}
-			if l.SchemaTarget != nil && name != "source" {
+			if l.SchemaTarget != nil && (name != "source" || side.Live == nil) {
 				return badRequest(c, "schemaTarget applies to a live source only.",
 					"It names where an added definition would be written, and only a live source is changed.")
 			}
@@ -224,22 +224,26 @@ func (s *Server) diffSchema(c *fiber.Ctx, sess *session.Session, body diffBody) 
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 	var target *diff.SchemaTarget
-	for name, side := range map[string]diffSideBody{"source": body.Source, "target": body.Target} {
-		if side.Live == nil {
+	for _, name := range sideNames {
+		side := body.side(name)
+		rs, ok := reads[name]
+		if !ok {
 			continue
 		}
-		collections := schemaCollections(ctx, sess)
-		snap, err := captureSchema(ctx, sess, collections)
+		collections := schemaCollections(ctx, rs.reader)
+		snap, err := captureSchema(ctx, rs.reader, collections)
 		if err != nil {
 			return s.snapshotFail(c, err)
 		}
-		sides[name] = &resolvedSchemaSide{side: diff.SchemaSide{Snapshot: snap, Live: true}}
-		if name != "source" {
+		// The reference is read, never written: it is not Live, so nothing
+		// proposes a change to it.
+		sides[name] = &resolvedSchemaSide{side: diff.SchemaSide{Snapshot: snap, Live: !rs.reference}, read: rs}
+		if name != "source" || rs.reference {
 			continue
 		}
-		write := sess.Conn.Capabilities().SchemaWrite
+		write := rs.reader.Capabilities().SchemaWrite
 		write.Origin = collections
-		t := &diff.SchemaTarget{Write: write, Stored: storedReader(ctx, sess), Usage: usageProbe(ctx, sess)}
+		t := &diff.SchemaTarget{Write: write, Stored: storedReader(ctx, rs.reader), Usage: usageProbe(ctx, rs.reader)}
 		if side.Live.SchemaTarget != nil {
 			wanted, err := dn.Parse(strings.TrimSpace(*side.Live.SchemaTarget))
 			if err != nil {
@@ -263,7 +267,7 @@ func (s *Server) diffSchema(c *fiber.Ctx, sess *session.Session, body diffBody) 
 
 // storedReader reads a schema entry's stored definitions once per entry and
 // kind, however many differences need them.
-func storedReader(ctx context.Context, sess *session.Session) func(string, directory.SchemaDefKind) ([]string, error) {
+func storedReader(ctx context.Context, r directory.Reader) func(string, directory.SchemaDefKind) ([]string, error) {
 	type key struct {
 		dn   string
 		kind directory.SchemaDefKind
@@ -278,7 +282,7 @@ func storedReader(ctx context.Context, sess *session.Session) func(string, direc
 		if r, ok := cache[k]; ok {
 			return r.values, r.err
 		}
-		values, err := sess.Conn.SchemaDefinitions(ctx, target, kind)
+		values, err := r.SchemaDefinitions(ctx, target, kind)
 		cache[k] = read{values, err}
 		return values, err
 	}
@@ -289,7 +293,7 @@ func storedReader(ctx context.Context, sess *session.Session) func(string, direc
 // unused -- finding nothing, being refused, and running out of budget all read
 // as not known, because an identity that sees no entry using an attribute has
 // not shown that none does.
-func usageProbe(ctx context.Context, sess *session.Session) func(string, string, []string) (bool, bool) {
+func usageProbe(ctx context.Context, r directory.Reader) func(string, string, []string) (bool, bool) {
 	asked := 0
 	return func(element, oid string, names []string) (bool, bool) {
 		if asked >= schemaUsageBudget {
@@ -316,12 +320,12 @@ func usageProbe(ctx context.Context, sess *session.Session) func(string, string,
 		if f.Err() != nil {
 			return false, false
 		}
-		for _, root := range sess.Conn.Capabilities().NamingContexts {
+		for _, root := range r.Capabilities().NamingContexts {
 			base, err := dn.Parse(root)
 			if err != nil || base.IsEmpty() {
 				continue
 			}
-			res, err := sess.Conn.Search(ctx, directory.SearchRequest{
+			res, err := r.Search(ctx, directory.SearchRequest{
 				BaseDN: base, Scope: directory.ScopeSubtree, Filter: f, Attributes: []string{"1.1"}, Limit: 1, PageSize: 1,
 			})
 			if err != nil {
@@ -447,8 +451,9 @@ func schemaSideSummary(side *resolvedSchemaSide) DiffSideSummary {
 		Filter: schemaSideFilter, OperationalAttributes: true, EntryCount: 1, DefinitionCount: ptr(snap.ElementCount()),
 		Vendor: ptrIfSet(snap.Source.Vendor),
 	}
-	if side.side.Live {
-		out.Kind = DiffSideKindLive
+	if kind, ok := readKind(side.read); ok {
+		out.Kind = kind
+		out.Server = ptr(side.read.server)
 		return out
 	}
 	out.CreatedAt = ptr(snap.CreatedAt)

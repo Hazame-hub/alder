@@ -417,6 +417,17 @@ also be preflighted against another server of the same software, to see what
 would have to change for it to match. Details in
 [`CONFIG-SNAPSHOTS.md`](CONFIG-SNAPSHOTS.md).
 
+**Compare two servers without leaving either.** A session can hold a second
+server, the *reference* -- a replica beside its primary, staging beside
+production -- attached from the header and held read-only: nothing in Alder can
+write to it. Capture it, compare it with the server you are connected to (data,
+schema or configuration, with changes proposed only for your own server),
+compare one entry on both, and read its replication beside yours. Its password
+is held in memory for the life of the session, like yours, and is discarded when
+it is detached or the session ends. Every write dialog says which server it
+applies to. Details in
+[`proposals/second-server.md`](proposals/second-server.md).
+
 **Carry a change between directories.** A change package is a portable
 description of what you intend to change -- entries and schema together, with
 the dependencies between them written down. It holds no password, no plan token

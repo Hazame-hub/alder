@@ -171,7 +171,7 @@ func (s *Server) subtreeDNs(ctx context.Context, sess *session.Session, base dn.
 	if err != nil {
 		return nil, err
 	}
-	snap, truncated, err := s.captureLive(ctx, sess, liveRequest{base: base, scope: "sub", rawFilter: everything, parsed: parsed})
+	snap, truncated, err := s.captureLive(ctx, sess.Conn, liveRequest{base: base, scope: "sub", rawFilter: everything, parsed: parsed})
 	if err != nil {
 		if noSuchObject(err) {
 			return nil, nil

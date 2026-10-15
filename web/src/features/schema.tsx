@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { serverLabel, useReference } from "@/lib/reference";
+import { bench } from "@/lib/snapshot-bench";
+import { navigate } from "@/lib/navigate";
 import {
   AlertTriangle,
   List as ListIcon,
@@ -401,7 +404,36 @@ function SchemaHeader({
           {asTable ? "Show as a list" : "Show as a table"}
         </Button>
       ) : null}
+      <CompareWithReference />
     </div>
+  );
+}
+
+/**
+ * The schema beside the reference server's (B6).
+ *
+ * Two schemas are compared definition by definition by the schema comparison
+ * on the snapshots page, which already says what differs, what is only on
+ * one side, and what would make this server match. So the way to the other
+ * server's schema from here is that comparison, set up: this server now
+ * against the reference now. It proposes changes only to this server.
+ */
+function CompareWithReference() {
+  const reference = useReference();
+  if (!reference) return null;
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      title={`Compare this schema with ${serverLabel(reference)}`}
+      onClick={() => {
+        bench.setSide("source", "live");
+        bench.setSide("target", "reference");
+        navigate({ view: "snapshots", capture: "schema" });
+      }}
+    >
+      Compare with the reference
+    </Button>
   );
 }
 

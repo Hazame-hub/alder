@@ -400,7 +400,7 @@ func TestAOneSidedRowTheBindCannotSeeBecomesUndetermined(t *testing.T) {
 		strings.ToLower(rightDN + "|description"): directory.VisibilityDenied,
 	}
 
-	resolved, truncated := resolveOneSided(context.Background(), probeFor(answers, nil),
+	resolved, truncated := resolveOneSided(context.Background(), probeFor(answers, nil), probeFor(answers, nil),
 		mustParse(t, leftDN), mustParse(t, rightDN), rows)
 
 	if resolved != 1 || truncated {
@@ -426,7 +426,7 @@ func TestAOneSidedRowTheEntryTrulyLacksStaysOneSided(t *testing.T) {
 		strings.ToLower(rightDN + "|telephoneNumber"): directory.VisibilityAbsent,
 	}
 
-	resolveOneSided(context.Background(), probeFor(answers, nil),
+	resolveOneSided(context.Background(), probeFor(answers, nil), probeFor(answers, nil),
 		mustParse(t, leftDN), mustParse(t, rightDN), rows)
 
 	row := rowFor(comparison{Attributes: rows}, "telephoneNumber")
@@ -444,7 +444,7 @@ func TestAOneSidedRowTheEntryTrulyLacksStaysOneSided(t *testing.T) {
 func TestOnlyOneSidedRowsAreProbed(t *testing.T) {
 	rows := oneSidedRows(t)
 	var asked []string
-	resolveOneSided(context.Background(), probeFor(nil, &asked),
+	resolveOneSided(context.Background(), probeFor(nil, &asked), probeFor(nil, &asked),
 		mustParse(t, leftDN), mustParse(t, rightDN), rows)
 
 	for _, key := range asked {
@@ -465,7 +465,7 @@ func TestAFailedProbeLeavesTheRowAlone(t *testing.T) {
 		return directory.VisibilityUnknown, errors.New("the server hung up")
 	}
 
-	resolved, _ := resolveOneSided(context.Background(), failing,
+	resolved, _ := resolveOneSided(context.Background(), failing, failing,
 		mustParse(t, leftDN), mustParse(t, rightDN), rows)
 
 	if resolved != 0 {
@@ -482,7 +482,7 @@ func TestRecountFollowsTheReclassification(t *testing.T) {
 	answers := map[string]directory.AttributeVisibility{
 		strings.ToLower(rightDN + "|description"): directory.VisibilityDenied,
 	}
-	resolveOneSided(context.Background(), probeFor(answers, nil),
+	resolveOneSided(context.Background(), probeFor(answers, nil), probeFor(answers, nil),
 		mustParse(t, leftDN), mustParse(t, rightDN), rows)
 
 	c := recount(rows)
@@ -492,5 +492,30 @@ func TestRecountFollowsTheReclassification(t *testing.T) {
 	}
 	if c.Undetermined != 1 {
 		t.Errorf("undetermined is %d, want 1", c.Undetermined)
+	}
+}
+
+// With the right entry read from the reference server (B6), a row is asked
+// about on the server that lacked it: the reference's access rules are its
+// own, and asking the session's server about them would answer for the wrong
+// directory.
+func TestEachSideIsProbedOnItsOwnServer(t *testing.T) {
+	rows := oneSidedRows(t)
+	var leftAsked, rightAsked []string
+	resolveOneSided(context.Background(), probeFor(nil, &leftAsked), probeFor(nil, &rightAsked),
+		mustParse(t, leftDN), mustParse(t, rightDN), rows)
+
+	for _, key := range leftAsked {
+		if !strings.HasPrefix(key, strings.ToLower(leftDN)+"|") {
+			t.Errorf("the left server was asked about %s", key)
+		}
+	}
+	for _, key := range rightAsked {
+		if !strings.HasPrefix(key, strings.ToLower(rightDN)+"|") {
+			t.Errorf("the right server was asked about %s", key)
+		}
+	}
+	if len(rightAsked) == 0 {
+		t.Error("a row only on the left was never asked about on the right's server")
 	}
 }

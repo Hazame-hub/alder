@@ -6166,3 +6166,65 @@ The conformance case runs on both servers: a plan saved through one Alder
 and applied through a second, as after a restart, applies; a plan saved and
 then overtaken by an edit to the attribute it replaces is refused with 4 and
 writes nothing.
+
+### 2026-10-15 — a second server inside one session (B6, 1.39)
+
+Specified in [proposals/second-server.md](proposals/second-server.md) and
+accepted with Option A and every recommendation in it. A session can hold one
+more connection, the reference, attached with `POST /session/reference`. The
+charter's section 2 gains its scope line.
+
+- **This revises 1.33 for one path.** 1.33 said the credentials of a second
+  server "live for one request". That stays true of `capture/from`, which is
+  kept as it is for a one-off look at a server nobody wants held open. A
+  reference's bind password is now held for the life of a session, which is
+  where section 7 rule 5 already says credentials live: in this process's
+  memory, under the httpOnly cookie, cleared when the reference closes,
+  never returned, never logged. The alternative, a stateless compare taking
+  two connection specs (Option C), would have the browser resend the
+  password on every refresh, which is a credential held in page JavaScript.
+- **Read-only by type, not by convention.** The session holds the reference
+  as a `directory.Reader` -- `directory.Session` without `Apply` and `Close`
+  -- so no handler can write to it without the compiler refusing. Nothing in
+  a `/plan`, `/changes` or `/changeset` body can name it. A comparison
+  proposes changes only when its source is the session's own server (`live`);
+  a `reference` side is read as freshly but is never `Live`, so a diff with
+  the reference as source proposes nothing, the way two snapshots do.
+- **`--max-sessions` counts connections, not cookies** (open question 1).
+  A reference takes a place and is refused with the same 503, checked before
+  dialling. Otherwise attaching one to every session doubles the ceiling.
+- **One lifetime** (question 2). The session's activity keeps both alive;
+  disconnecting, reconnecting, the idle timeout and the maximum lifetime
+  close both. A reference with a timer of its own would be one more state
+  the header has to explain. It is logged as its own `session opened` and
+  `session closed` with `role=reference`.
+- **Captures of the reference take the same bounds** as the session's own
+  (question 3), and attaching **accepts a configuration identity**
+  (question 4), since a configuration comparison is the main use.
+- **Reads name their server**: `on` for a capture, `/schema` and
+  `/replication`; `rightOn` for `/compare`, whose left entry is always the
+  session's; a `reference` side for `/diff`. Each side is probed for
+  access on its own server, because the reference's access rules are its
+  own. Where both sides of a data comparison are read from directories, an
+  omitted base comes from the other side's request.
+- **"Applies to host:port" in every write dialog** (question 5): the change
+  dialog and the changeset say where a write goes, always, because with two
+  servers on screen a dialog that does not is a write to the wrong server
+  waiting to happen. Everything read from the reference carries its host.
+- **The schema browser is not doubled.** Its "Compare with the reference"
+  opens the schema comparison set to this server against the reference,
+  which already says definition by definition what differs and proposes
+  changes for this server only. A two-column browser would show two lists
+  and leave the comparing to the reader. Replication is shown in two columns,
+  each headed by its host; the reference's column has no conflicts search,
+  which reads the session's server.
+- **Out, as specified:** writing to the reference by any path, promoting it
+  to the session, more than one, browsing or searching its tree, and any
+  change to the command line.
+
+The conformance cases attach each server's consumer to a session on its
+supplier, on both servers: the reference's schema, replication record and
+configuration capture equal what a session of its own on the consumer reads;
+a comparison against it proposes nothing for it; the allowlist and the
+connection limit hold before dialling; and its password appears in no
+response and nowhere in the log.

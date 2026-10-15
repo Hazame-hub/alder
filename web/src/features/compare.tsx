@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { displayText, rdnOf } from "@/lib/values";
 import { safeText } from "@/lib/display";
+import { serverLabel, useReference } from "@/lib/reference";
 
 /**
  * Why does this account work and that one not.
@@ -55,14 +56,27 @@ function CompareDialog({ left, onClose }: { left: string; onClose: () => void })
   const [right, setRight] = useState("");
   const [operational, setOperational] = useState(true);
   const [onlyDifferences, setOnlyDifferences] = useState(true);
+  // With a reference server attached (B6), the right entry can be read from
+  // it: the same entry on two servers, which is the question a replica
+  // raises. The left is always this session's own.
+  const reference = useReference();
+  const [onReference, setOnReference] = useState(false);
+  const rightOn = onReference && reference ? "reference" : "session";
 
   const query = useQuery<EntryComparison, ApiFailure>({
-    queryKey: ["compare", left, right, operational],
+    queryKey: ["compare", left, right, operational, rightOn],
     enabled: right !== "",
     queryFn: async () =>
       unwrap(
         await api.GET("/compare", {
-          params: { query: { left, right, includeOperational: operational } },
+          params: {
+            query: {
+              left,
+              right,
+              includeOperational: operational,
+              rightOn: rightOn === "reference" ? "reference" : undefined,
+            },
+          },
         }),
       ),
   });
@@ -103,6 +117,26 @@ function CompareDialog({ left, onClose }: { left: string; onClose: () => void })
               The DN of the entry to compare against — usually already on your
               clipboard from the one you were just looking at.
             </p>
+            {reference ? (
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox checked={onReference} onCheckedChange={(v) => setOnReference(v === true)} />
+                  Read it from the reference,{" "}
+                  <span className="font-dn">{safeText(serverLabel(reference))}</span>
+                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setOnReference(true);
+                    setTyped(left);
+                    setRight(left);
+                  }}
+                >
+                  Compare with this entry on the reference
+                </Button>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
@@ -149,6 +183,13 @@ function CompareDialog({ left, onClose }: { left: string; onClose: () => void })
                     <div className="truncate font-dn text-sm" title={safeText(side.dn)}>
                       {safeText(side.rdn ?? rdnOf(side.dn))}
                     </div>
+                    {/* Two servers: each side says which it was read from. */}
+                    {side.server ? (
+                      <div className="truncate text-xs text-muted-foreground">
+                        on <span className="font-dn">{safeText(side.server)}</span>
+                        {i === 1 ? " (reference, read-only)" : ""}
+                      </div>
+                    ) : null}
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {side.structural ? (
                         <span className="font-dn">{safeText(side.structural)}</span>

@@ -95,7 +95,7 @@ func (s *Server) preflightCapture(ctx context.Context, sess *session.Session, ba
 	if scope == "" {
 		scope = "sub"
 	}
-	return s.captureLive(ctx, sess, liveRequest{base: base, scope: scope, rawFilter: rawFilter, parsed: parsed})
+	return s.captureLive(ctx, sess.Conn, liveRequest{base: base, scope: scope, rawFilter: rawFilter, parsed: parsed})
 }
 
 // preflightRefusal answers an artifact that could not be preflighted, with the

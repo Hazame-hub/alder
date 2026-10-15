@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { ErrorNote } from "@/components/change-dialog";
 import { safeText } from "@/lib/display";
+import { serverLabel, useReference } from "@/lib/reference";
 
 type ReplicationReport = components["schemas"]["ReplicationReport"];
 type ReplicatedSuffix = components["schemas"]["ReplicatedSuffix"];
@@ -37,9 +38,22 @@ type EntryReplication = components["schemas"]["EntryReplication"];
  * you whether replication is actually working — so it is not buried.
  */
 export function ReplicationCard() {
+  const session = useQuery({
+    queryKey: ["session"],
+    queryFn: async () => unwrap(await api.GET("/session")),
+  });
   const report = useMutation<ReplicationReport, ApiFailure>({
     mutationFn: async () => unwrap(await api.GET("/replication", {})),
   });
+  // The other half of "compare the numbers between two servers": with a
+  // reference server attached (B6), its own record read beside this one, so
+  // the comparison no longer needs a disconnect.
+  const reference = useReference();
+  const referenceReport = useMutation<ReplicationReport, ApiFailure>({
+    mutationFn: async () =>
+      unwrap(await api.GET("/replication", { params: { query: { on: "reference" } } })),
+  });
+  const beside = reference !== null && (referenceReport.data || referenceReport.isError);
 
   return (
     <section className="screen-shell rounded-lg border border-border shadow-sm">
@@ -47,7 +61,19 @@ export function ReplicationCard() {
         <span className="screen-kicker mr-1">Operations</span>
         <Radio className="size-4 text-muted-foreground" />
         Replication
-        {report.data ? <RoleBadge role={report.data.role} /> : null}
+        {report.data && !beside ? <RoleBadge role={report.data.role} /> : null}
+        {reference && report.data && !beside ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={() => referenceReport.mutate()}
+            disabled={referenceReport.isPending}
+          >
+            {referenceReport.isPending ? <Loader2 className="animate-spin" /> : null}
+            Show the reference beside it
+          </Button>
+        ) : null}
       </header>
 
       {!report.data && !report.isError ? (
@@ -74,31 +100,83 @@ export function ReplicationCard() {
         </div>
       ) : null}
 
-      {report.data ? (
+      {report.data && beside ? (
+        // Two columns, each headed by the server it was read from: two
+        // reports that do not say which is which are worse than one.
+        <div className="grid gap-3 px-4 py-3 lg:grid-cols-2">
+          <div className="min-w-0 space-y-2">
+            <ColumnHead label="This server" server={serverLabel(session.data)} role={report.data.role} />
+            <ReportBody report={report.data} conflicts />
+          </div>
+          <div className="min-w-0 space-y-2">
+            <ColumnHead
+              label="The reference, read-only"
+              server={serverLabel(reference)}
+              role={referenceReport.data?.role}
+            />
+            {referenceReport.isError ? (
+              <ErrorNote title="The reference's replication could not be read" error={referenceReport.error} />
+            ) : referenceReport.data ? (
+              <ReportBody report={referenceReport.data} conflicts={false} />
+            ) : null}
+          </div>
+        </div>
+      ) : report.data ? (
         <div className="space-y-3 px-4 py-3">
-          <p className="text-sm">{safeText(report.data.why)}</p>
-
-          {report.data.suffixes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nothing in this server's configuration sets up a link to another server.
-            </p>
-          ) : (
-            report.data.suffixes.map((suffix) => <SuffixBlock key={suffix.dn} suffix={suffix} />)
-          )}
-
-          {(report.data.unread ?? []).map((unread) => (
-            <p key={unread.where} className="rounded-md border p-3 text-xs">
-              <span className="font-dn">{safeText(unread.where)}</span> could not be read, so this
-              is not the whole answer — {safeText(unread.reason)}.
-            </p>
-          ))}
-
-          <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning-tint-foreground">
-            {safeText(report.data.disclaimer)}
-          </p>
+          <ReportBody report={report.data} conflicts />
         </div>
       ) : null}
     </section>
+  );
+}
+
+function ColumnHead({
+  label,
+  server,
+  role,
+}: {
+  label: string;
+  server: string;
+  role?: ReplicationReport["role"];
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-border pb-1.5 text-sm">
+      <span className="font-medium">{label}</span>
+      <span className="font-dn text-xs text-muted-foreground">{safeText(server)}</span>
+      {role ? <RoleBadge role={role} /> : null}
+    </div>
+  );
+}
+
+/**
+ * One server's report. The reference's is shown without the conflicts
+ * search, which reads the session's own server and would answer for the
+ * wrong one.
+ */
+function ReportBody({ report, conflicts }: { report: ReplicationReport; conflicts: boolean }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm">{safeText(report.why)}</p>
+
+      {report.suffixes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Nothing in this server's configuration sets up a link to another server.
+        </p>
+      ) : (
+        report.suffixes.map((suffix) => <SuffixBlock key={suffix.dn} suffix={suffix} conflicts={conflicts} />)
+      )}
+
+      {(report.unread ?? []).map((unread) => (
+        <p key={unread.where} className="rounded-md border p-3 text-xs">
+          <span className="font-dn">{safeText(unread.where)}</span> could not be read, so this
+          is not the whole answer — {safeText(unread.reason)}.
+        </p>
+      ))}
+
+      <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning-tint-foreground">
+        {safeText(report.disclaimer)}
+      </p>
+    </div>
   );
 }
 
@@ -113,7 +191,7 @@ function RoleBadge({ role }: { role: ReplicationReport["role"] }) {
   return <Badge variant={it.variant}>{it.label}</Badge>;
 }
 
-function SuffixBlock({ suffix }: { suffix: ReplicatedSuffix }) {
+function SuffixBlock({ suffix, conflicts }: { suffix: ReplicatedSuffix; conflicts: boolean }) {
   return (
     <div className="rounded-md border p-3">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -139,8 +217,8 @@ function SuffixBlock({ suffix }: { suffix: ReplicatedSuffix }) {
               them between two servers is the whole method, and nobody guesses
               that from a timestamp on its own. */}
           <p className="mt-1 text-xs text-muted-foreground">
-            Open this page against the other server and compare: the same numbers mean the two are
-            in step.
+            Compare them with the other server&apos;s — add it as a reference from the header to read
+            it beside this one. The same numbers mean the two are in step.
           </p>
         </div>
       ) : null}
@@ -161,7 +239,7 @@ function SuffixBlock({ suffix }: { suffix: ReplicatedSuffix }) {
         </p>
       ))}
 
-      <ConflictsBlock base={suffix.dn} />
+      {conflicts ? <ConflictsBlock base={suffix.dn} /> : null}
     </div>
   );
 }

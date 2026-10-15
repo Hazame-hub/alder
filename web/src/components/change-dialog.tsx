@@ -25,6 +25,7 @@ import { PolicyDialog } from "@/features/policy";
 import { safeText } from "@/lib/display";
 import { UnknownOutcome } from "@/components/unknown-outcome";
 import { bench } from "@/lib/snapshot-bench";
+import { AppliesTo } from "@/components/applies-to";
 
 /**
  * ChangeDialog is the confirmation step every single change goes through.
@@ -200,6 +201,7 @@ export function ChangeDialog({
           </div>
         ) : (
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+            <AppliesTo />
             {replanning ? (
               <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
