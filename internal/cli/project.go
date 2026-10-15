@@ -38,10 +38,16 @@ type projectOptions struct {
 	detailedExitcode bool
 	timeout          time.Duration
 
+	// plan only
+	out string
+
 	// apply only
 	yes         bool
 	recoveryOut string
-	force       bool
+	plan        string
+
+	// force replaces an existing --out (plan) or --recovery-out (apply).
+	force bool
 }
 
 func (o *projectOptions) registerPath(cmd *cobra.Command) {
@@ -111,8 +117,14 @@ func projectPlanCmd(env *Env) *cobra.Command {
 			"--detailed-exitcode answers \"does this environment match the project?\" in\n" +
 			"the exit status: 0 nothing to change, 2 changes pending, 3 some change\n" +
 			"cannot be applied as written (it wins over 2). Without it, 0 means planned.\n\n" +
+			"--out FILE saves the plan, so that alder project apply --plan FILE applies\n" +
+			"exactly it later, or refuses. Each change is saved with the state it expects\n" +
+			"to find, and the file is written only once the saved changes have been\n" +
+			"planned again and every one applies. A plan with a change that cannot be\n" +
+			"applied as written is not saved. The exit status is the plan's.\n\n" +
 			"Exit status: 0 planned, 3 the project is not valid or some change cannot be\n" +
-			"applied as written, 7 usage, 8 failure.",
+			"applied as written, 4 the directory changed while the plan was being saved,\n" +
+			"7 usage, 8 failure.",
 		Args: argsBetween(0, 0, "no arguments; name the project with --project and the environment with --env"),
 	}, func(ctx context.Context, _ []string) error {
 		return runProjectPlan(ctx, env, o)
@@ -122,8 +134,10 @@ func projectPlanCmd(env *Env) *cobra.Command {
 	f.StringVar(&o.envName, "env", "", "the environment, as alder.yaml names it (required)")
 	f.BoolVar(&o.json, "json", false, "write JSON to standard output")
 	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
+	f.StringVar(&o.out, "out", "", "save the plan to this file, for alder project apply --plan")
+	f.BoolVar(&o.force, "force", false, "replace --out if it already exists")
 	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "give up on the whole command after this long; 0 waits indefinitely")
-	envflags.Exclude(f, "project", "env", "json", "summary")
+	envflags.Exclude(f, "project", "env", "json", "summary", "out", "force")
 	registerDetailedExitcode(cmd, &o.detailedExitcode)
 	return cmd
 }
@@ -144,8 +158,14 @@ func projectApplyCmd(env *Env) *cobra.Command {
 			"environment and the directory. Anywhere a terminal cannot be asked, nothing is\n" +
 			"applied without --yes. A project never deletes an entry it does not mention.\n\n" +
 			"--recovery-out FILE asks Alder for a recovery bundle for what was applied.\n\n" +
-			"--env, --project and --yes are read from the command line only, never from\n" +
-			"ALDER_*.\n\n" +
+			"--plan FILE applies a plan alder project plan --out saved, instead of\n" +
+			"planning the project: exactly the changes in it, each only if the directory\n" +
+			"still holds what it held when the plan was made. The file must have been\n" +
+			"made for this environment, its directory and bind, and from the project\n" +
+			"files as they are now; anything else is refused before connecting (3). A\n" +
+			"saved plan that no longer holds is refused whole (4): plan again and review.\n\n" +
+			"--env, --project, --plan and --yes are read from the command line only,\n" +
+			"never from ALDER_*.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 the project is not valid or\n" +
 			"some change cannot be applied as written, 4 the plan went stale, 5 not\n" +
 			"confirmed, 6 stopped partway, 7 usage, 8 failure.",
@@ -159,10 +179,11 @@ func projectApplyCmd(env *Env) *cobra.Command {
 	f.BoolVar(&o.yes, "yes", false, "apply without asking; required when no terminal can be asked")
 	f.StringVar(&o.recoveryOut, "recovery-out", "", "write a recovery bundle for the changes that were applied to this file")
 	f.BoolVar(&o.force, "force", false, "replace --recovery-out if it already exists")
+	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder project plan --out) instead of planning the project")
 	f.BoolVar(&o.json, "json", false, "write JSON to standard output")
 	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
 	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "give up on the whole command after this long; 0 waits indefinitely")
-	envflags.Exclude(f, "project", "env", "yes", "recovery-out", "force", "json", "summary")
+	envflags.Exclude(f, "project", "env", "yes", "recovery-out", "force", "plan", "json", "summary")
 	return cmd
 }
 
@@ -187,6 +208,8 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 		return usagef("--recovery-out needs a file: standard output carries the plan and the result")
 	case o.force && o.recoveryOut == "":
 		return usagef("--force replaces the --recovery-out file, and none was given")
+	case o.plan == "-":
+		return usagef("--plan needs a file: standard input may be needed to confirm")
 	}
 	if err := refuseExisting(o.recoveryOut, o.force); err != nil {
 		return err
@@ -210,6 +233,9 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 		return &ExitError{Code: ExitNotConfirmed, Local: "confirmation_required",
 			Message: "not applied: there is no terminal to ask for confirmation, and --yes was not given. " +
 				"Review with alder project plan, then run apply with --yes"}
+	}
+	if o.plan != "" {
+		return applySaved(ctx, env, p, o, conn, &envelope)
 	}
 	// Rendered before connecting, so a project too large to plan is said
 	// without a session; an environment that rebases it renders it again.
@@ -273,12 +299,22 @@ type projectPlanDocument struct {
 	// Unmanaged is, for each managed subtree, what the directory holds there
 	// that no project file describes. Reported, never planned.
 	Unmanaged []unmanagedSubtree `json:"unmanaged"`
+	// Saved is the file the plan was saved to, with --out.
+	Saved string `json:"saved,omitempty"`
 }
 
 func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error) {
 	defer func() { err = asJSON(env, o.json, err) }()
-	if o.envName == "" {
+	switch {
+	case o.envName == "":
 		return usagef("--env is required: the environment to plan against, as alder.yaml names it")
+	case o.out == "-":
+		return usagef("--out needs a file: standard output carries the plan")
+	case o.force && o.out == "":
+		return usagef("--force replaces the --out file, and none was given")
+	}
+	if err := refuseExisting(o.out, o.force); err != nil {
+		return err
 	}
 	p, err := loadProject(env, o.path)
 	if err != nil {
@@ -313,7 +349,10 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	defer r.close()
 
 	// From here on the project is the one this environment holds: the plan,
-	// and the unmanaged entries beside it, are under its names.
+	// and the unmanaged entries beside it, are under its names. A saved plan
+	// binds the files as they are written, which is what an apply recomputes
+	// before connecting.
+	files := p
 	p, rebase, err := forEnvironment(ctx, r, p, o.envName)
 	if err != nil {
 		return err
@@ -329,13 +368,26 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 		return err
 	}
 	unmanaged := listUnmanaged(ctx, r, p)
+	// A plan with a change that cannot be applied as written is shown and
+	// not saved: there is nothing an apply could do with it. Otherwise, with
+	// --json, the plan is saved before the document is written, so that
+	// standard output holds exactly one document: the plan, saying where it
+	// was saved, or why it was not.
+	saving := o.out != "" && blocked(plan) == 0
+	saved := ""
+	if saving && o.json {
+		if err := savePlan(ctx, env, r, files, o.envName, conn, plan, o.out, o.force); err != nil {
+			return err
+		}
+		saved = o.out
+	}
 	if o.json {
 		if rebase != nil {
 			reportLeftAsWritten(env.Stderr, rebase)
 		}
 		reportUnreadable(env.Stderr, unmanaged)
 		doc, marshalErr := json.Marshal(projectPlanDocument{Environment: o.envName, Host: conn.label(), Rebase: rebase,
-			Plan: raw, Unmanaged: unmanaged})
+			Plan: raw, Unmanaged: unmanaged, Saved: saved})
 		if marshalErr != nil {
 			return failf("output", "cannot encode the plan: %v", marshalErr)
 		}
@@ -346,6 +398,15 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 		renderEnvironment(env.Stdout, env.Stderr, o.envName, conn.label(), rebase)
 		renderPlan(env.Stdout, plan, !o.summary)
 		renderUnmanaged(env.Stdout, env.Stderr, unmanaged, !o.summary)
+	}
+	switch {
+	case saving && !o.json:
+		if err := savePlan(ctx, env, r, files, o.envName, conn, plan, o.out, o.force); err != nil {
+			return err
+		}
+	case o.out != "" && !saving:
+		writef(env.Stderr, "alder: the plan was not saved to %s: a change that cannot be applied as written is never saved\n",
+			safe(o.out))
 	}
 	return planExit(env, plan, o.detailedExitcode)
 }
@@ -409,4 +470,59 @@ func loadProject(env *Env, path string) (*project.Project, error) {
 		return nil, failf("input", "cannot read the project: %s", safe(err.Error()))
 	}
 	return p, nil
+}
+
+// applySaved is project apply --plan: the saved plan's changes, planned as
+// they are written, shown, confirmed and applied with that plan's baselines.
+func applySaved(ctx context.Context, env *Env, p *project.Project, o projectOptions, conn *connection,
+	envelope *applyEnvelope) error {
+	saved, err := readSavedPlan(env, o.plan)
+	if err != nil {
+		return err
+	}
+	if err := matchSaved(o.plan, saved, p, o.envName, conn); err != nil {
+		return err
+	}
+
+	writef(env.Stderr, "alder: applying the plan saved in %s at %s to environment %s: %s through %s\n",
+		safe(o.plan), saved.CreatedAt.Format(time.RFC3339), safe(o.envName), safe(conn.label()), safe(conn.apiURL))
+	out := env.Stdout
+	if o.json {
+		out = env.Stderr
+	}
+	if len(saved.Changes) == 0 {
+		renderEnvironment(out, env.Stderr, o.envName, conn.label(), nil)
+		writeln(out, "Nothing to apply: the saved plan holds no change.")
+		return nil
+	}
+
+	ctx, cancel := conn.bound(ctx)
+	defer cancel()
+	r, err := conn.open(ctx, env)
+	if err != nil {
+		return err
+	}
+	defer r.close()
+
+	plan, raw, err := planSaved(ctx, r, saved.Changes)
+	if err != nil {
+		return err
+	}
+	renderEnvironment(out, env.Stderr, o.envName, conn.label(), nil)
+	if why := holds(plan, len(saved.Changes)); why != nil {
+		// Shown, so the changes that moved are named, and never applied:
+		// what was reviewed is not what would happen.
+		envelope.Plan = compactJSON(raw)
+		renderPlan(out, plan, !o.summary)
+		return &ExitError{Code: ExitStale, Local: "saved_plan_stale",
+			Message: fmt.Sprintf("not applied: the plan saved in %s no longer holds: %s. Nothing was written; plan again and review",
+				safe(o.plan), why)}
+	}
+	return applyReviewed(ctx, env, r, plan, raw, saved.Changes, applySettings{
+		target:      fmt.Sprintf("environment %s (%s)", safe(o.envName), safe(conn.label())),
+		summary:     o.summary,
+		yes:         o.yes,
+		recoveryOut: o.recoveryOut,
+		force:       o.force,
+	}, out, envelope)
 }
