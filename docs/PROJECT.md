@@ -367,6 +367,8 @@ so the stricter meaning is asked for, never assumed.
   plan for another environment cannot reach it by construction, and its
   question names the environment and the directory. A saved-plan workflow
   waits until baselines can outlive a process.
+  [proposals/saved-plans.md](proposals/saved-plans.md) proposes one that
+  does not need them, for review.
 - **`alder project fmt`** (built): rewrite the project's LDIF in a canonical
   form, so a Git diff shows what changed and not how it was wrapped. A tidier
   file, not a second format.
