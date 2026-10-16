@@ -494,9 +494,10 @@ it and that each environment's own `suffix` is a DN, and lists each
 environment that rebases (`environment dev: suffix dc=example,dc=com ->
 dc=dev,dc=example,dc=com`). It lists every problem, with the file and line,
 not only the first -- up to 100, then how many more there are. A project of
-more than 2,000 entries, more than one plan covers, is refused before it is
-checked. Exit 0 valid, 3 not valid, 8 a file could not be read or the project
-is too large to plan.
+more than 2,000 entries, more than one plan covers, is refused before its
+entries are compared (with any other problem already found, exit 3; alone,
+exit 8). `project fmt` formats a project of any size. Exit 0 valid, 3 not
+valid, 8 a file could not be read or the project is too large to plan.
 
 **`plan --env NAME`** validates, connects with that environment's settings, and
 plans the project's entries as desired state: `alder plan --mode desired` on

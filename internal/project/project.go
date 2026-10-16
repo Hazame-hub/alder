@@ -58,6 +58,9 @@ const maxProblems = 100
 // that bounds the work, and a real project lists a handful.
 const maxPatterns = 1000
 
+// maxPatternBytes is how long a pattern with a wildcard may be.
+const maxPatternBytes = 256
+
 // Project is a loaded alder.yaml.
 type Project struct {
 	// File is the alder.yaml that was read, and Dir the directory paths in it
@@ -204,6 +207,8 @@ type managed struct {
 type source struct {
 	fsys fs.FS
 	dir  string
+	// anySize skips MaxRecords, for a command that makes no plan.
+	anySize bool
 }
 
 // display is how a file is named in an error that is not a Problem: the path
@@ -223,6 +228,14 @@ func (s source) display(rel string) string {
 func Load(path string) (*Project, error) {
 	dir := filepath.Dir(path)
 	return loadFrom(source{fsys: os.DirFS(dir), dir: dir}, filepath.Base(path), path)
+}
+
+// LoadAnySize is Load without MaxRecords, for a command that never plans
+// the project, such as fmt: a project too large for one plan is still one
+// whose files can be formatted.
+func LoadAnySize(path string) (*Project, error) {
+	dir := filepath.Dir(path)
+	return loadFrom(source{fsys: os.DirFS(dir), dir: dir, anySize: true}, filepath.Base(path), path)
 }
 
 // LoadFS reads and checks a project held in fsys, with alder.yaml at its
@@ -378,16 +391,22 @@ func loadFrom(src source, name, display string) (*Project, error) {
 				return nil, err
 			}
 			total += len(rf.records)
+			problems = append(problems, rf.problems...)
 			read = append(read, rf)
 		}
 	}
-	if total > MaxRecords {
+	if total > MaxRecords && !src.anySize {
+		// Problems already found are listed with it rather than hidden
+		// behind it, so the size is not the only thing fixed per round.
+		if len(problems) > 0 {
+			add(name, 0, "%s", (&TooLarge{Records: total}).Error())
+			return nil, invalid(problems)
+		}
 		return nil, &TooLarge{Records: total}
 	}
 	seen := map[string]seenEntry{}
 	for _, rf := range read {
 		st := &p.Managed[rf.subtree]
-		problems = append(problems, rf.problems...)
 		problems = append(problems, checkRecords(rf, st.Base, seen)...)
 		st.Records = append(st.Records, rf.records...)
 	}
@@ -523,6 +542,13 @@ func expand(src source, pattern string) ([]string, []string) {
 	// and quietly leave out every deeper file. Refused rather than half
 	// honoured, and no glob library is brought in to support it. fs.Glob,
 	// which every read now goes through, is the same.
+	// path.Match costs the pattern's length times the name's, so a long
+	// wildcard pattern against long names is quadratic. No real pattern
+	// comes near this.
+	if len(pattern) > maxPatternBytes && strings.ContainsAny(pattern, `*?[\`) {
+		return nil, []string{fmt.Sprintf("%.64s... is a pattern of %d bytes, and a pattern with a wildcard holds at most %d",
+			pattern, len(pattern), maxPatternBytes)}
+	}
 	if strings.Contains(pattern, "**") {
 		return nil, []string{fmt.Sprintf("%s uses **, which a project pattern does not support; "+
 			"list one pattern per directory, such as people/*.ldif and people/contractors/*.ldif", pattern)}

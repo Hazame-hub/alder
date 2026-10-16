@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +16,14 @@ import (
 // project is a handful; this exists so a request cannot make the server
 // build an arbitrarily large filesystem before anything is checked.
 const MaxFiles = 1000
+
+// maxPathBytes and maxNameBytes bound a path a request carries as common
+// filesystems do (PATH_MAX, NAME_MAX), so matching a pattern against a name
+// stays small: path.Match costs the one's length times the other's.
+const (
+	maxPathBytes = 4096
+	maxNameBytes = 255
+)
 
 // NewFS holds a project's files in memory, keyed by their path relative to
 // the project's directory, for LoadFS. It is how the server reads a project
@@ -32,6 +39,7 @@ func NewFS(files map[string][]byte) (fs.FS, error) {
 		return nil, fmt.Errorf("%d files, and a project sent as files holds at most %d", len(files), MaxFiles)
 	}
 	m := &memFS{files: map[string][]byte{}, dirs: map[string][]string{".": nil}}
+	listed := map[string]bool{}
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
@@ -43,10 +51,23 @@ func NewFS(files map[string][]byte) (fs.FS, error) {
 		}
 		m.files[name] = files[name]
 		// Every directory above the file exists, and lists its child once.
-		for child := name; child != "."; child = path.Dir(child) {
-			parent := path.Dir(child)
-			if !slices.Contains(m.dirs[parent], path.Base(child)) {
-				m.dirs[parent] = append(m.dirs[parent], path.Base(child))
+		// Walked by slicing the name, and stopped at the first ancestor
+		// already listed (its own ancestors are then listed too), so the
+		// work is linear in the paths, however deep.
+		for end := len(name); end > 0; {
+			child := name[:end]
+			if listed[child] {
+				break
+			}
+			listed[child] = true
+			parent, base := ".", child
+			if i := strings.LastIndexByte(child, '/'); i >= 0 {
+				parent, base = child[:i], child[i+1:]
+			}
+			m.dirs[parent] = append(m.dirs[parent], base)
+			end = len(parent)
+			if parent == "." {
+				end = 0
 			}
 		}
 	}
@@ -68,6 +89,13 @@ func CheckPath(name string) error {
 		return fmt.Errorf("%q is not a slash-separated relative path", name)
 	case !fs.ValidPath(name):
 		return fmt.Errorf("%q is not a clean relative path: no leading slash, no . or .. and no empty part", name)
+	case len(name) > maxPathBytes:
+		return fmt.Errorf("%.64q... is a path of %d bytes, and one holds at most %d", name, len(name), maxPathBytes)
+	}
+	for _, part := range strings.Split(name, "/") {
+		if len(part) > maxNameBytes {
+			return fmt.Errorf("%.64q... has a name of %d bytes, and one holds at most %d", name, len(part), maxNameBytes)
+		}
 	}
 	return nil
 }

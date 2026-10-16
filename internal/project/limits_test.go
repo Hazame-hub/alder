@@ -3,6 +3,7 @@ package project
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -224,5 +225,69 @@ func TestAProjectListsABoundedNumberOfPatterns(t *testing.T) {
 		"a pattern such as people/*.ldif matches every file in its directory", maxPatterns+1, maxPatterns)
 	if got := problemsOf(inv); got != want {
 		t.Errorf("problems:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A project over the size with other problems lists them all, the size among
+// them, rather than hiding the rest behind it.
+func TestAProjectTooLargeStillListsItsOtherProblems(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i <= MaxRecords; i++ {
+		b.WriteString(person(fmt.Sprintf("u%d", i)))
+	}
+	files := valid()
+	files["people/c.ldif"] = b.String()
+	files["people/d.ldif"] = "this is not LDIF\n"
+	inv := invalidOf(t, func() error { _, err := LoadFS(memFiles(t, files)); return err }())
+	got := problemsOf(inv)
+	if !strings.Contains(got, "people/d.ldif") || !strings.Contains(got, "one plan covers at most 2000") {
+		t.Errorf("problems:\n%s", got)
+	}
+}
+
+// path.Match costs a pattern's length times a name's: both are bounded, so
+// one long pattern against one long name is not seconds of work.
+func TestPatternsAndPathsAreBoundedInLength(t *testing.T) {
+	files := valid()
+	files["alder.yaml"] = strings.Replace(validYAML, "files: [people/*.ldif]",
+		"files: ['people/*"+strings.Repeat("a", maxPatternBytes)+"b']", 1)
+	inv := invalidOf(t, func() error { _, err := LoadFS(memFiles(t, files)); return err }())
+	if got := problemsOf(inv); !strings.Contains(got, "a pattern with a wildcard holds at most 256") {
+		t.Errorf("problems:\n%s", got)
+	}
+	for _, name := range []string{strings.Repeat("a", 256), strings.Repeat("a/", 2049) + "f"} {
+		if err := CheckPath(name); err == nil {
+			t.Errorf("CheckPath accepted a path of %d bytes", len(name))
+		}
+	}
+	if err := CheckPath(strings.Repeat("a/", 1900) + strings.Repeat("b", 255)); err != nil {
+		t.Errorf("CheckPath refused a deep path within the bounds: %v", err)
+	}
+}
+
+// NewFS lists every directory above every file, once, however the paths
+// share their ancestors.
+func TestNewFSListsEachDirectoryOnce(t *testing.T) {
+	deep := strings.Repeat("d/", 1500)
+	fsys, err := NewFS(map[string][]byte{
+		deep + "a.ldif": nil, deep + "b.ldif": nil, "d/x.ldif": nil, "top.ldif": nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for dir, want := range map[string]string{
+		".": "d top.ldif", "d": "d x.ldif", strings.TrimSuffix(deep, "/"): "a.ldif b.ldif",
+	} {
+		entries, err := fs.ReadDir(fsys, dir)
+		if err != nil {
+			t.Fatalf("ReadDir(%.20s): %v", dir, err)
+		}
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		if got := strings.Join(names, " "); got != want {
+			t.Errorf("ReadDir(%.20s) = %q, want %q", dir, got, want)
+		}
 	}
 }

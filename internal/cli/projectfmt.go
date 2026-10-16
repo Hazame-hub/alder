@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/hazame-hub/alder/internal/project"
 	"os"
 	"path/filepath"
 
@@ -56,7 +57,8 @@ type fmtFile struct {
 }
 
 func runProjectFmt(env *Env, path string, check bool) error {
-	p, err := loadProject(env, path)
+	// Formatting makes no plan, so a project over MaxRecords is still read.
+	p, err := loadProjectWith(env, path, project.LoadAnySize)
 	if err != nil {
 		return err
 	}

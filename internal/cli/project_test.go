@@ -2,12 +2,15 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/hazame-hub/alder/internal/project"
 )
 
 const projectAlice = `dn: uid=alice,ou=people,dc=alder,dc=test
@@ -639,5 +642,23 @@ func TestAProjectsProblemsCannotDriveTheTerminal(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// fmt makes no plan, so a project over the plan's record limit still formats.
+func TestProjectFmtReadsAProjectTooLargeToPlan(t *testing.T) {
+	s := newStub(t)
+	var b strings.Builder
+	for i := 0; i <= project.MaxRecords; i++ {
+		fmt.Fprintf(&b, "dn: uid=u%d,ou=people,dc=alder,dc=test\nobjectClass: inetOrgPerson\nuid: u%d\ncn: u%d\nsn: u%d\n\n", i, i, i, i)
+	}
+	dir := writeProject(t, s, map[string]string{"people/many.ldif": b.String()})
+	r := s.run(t, projectRun, "project", "fmt", "--project", dir, "--check")
+	if r.code != ExitOK && r.code != ExitDifferences {
+		t.Fatalf("fmt --check exit %d:\n%s", r.code, r.stderr)
+	}
+	r = s.run(t, projectRun, "project", "validate", "--project", dir)
+	if !strings.Contains(r.stderr, "one plan covers at most") {
+		t.Errorf("validate did not refuse the size:\n%s", r.stderr)
 	}
 }

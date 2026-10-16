@@ -6418,3 +6418,10 @@ were compared pairwise, an hour of CPU in 16 MiB.
   record is compared: one plan covers no more, so it could never be planned.
   The server answers it in POST /plan's words for the same document; the
   client says so and exits 8, where it used to validate and then be refused.
+  Problems the files and alder.yaml already showed are listed with it, not
+  hidden behind it. `project fmt` makes no plan and reads any size.
+- **A wildcard pattern holds at most 256 bytes, and a path a request carries
+  4,096, with no name in it over 255** (PATH_MAX and NAME_MAX). `path.Match`
+  costs a pattern's length times a name's: one 120 KB pattern and name took
+  8 s. NewFS lists a file's directories by slicing its path and stops at the
+  first already listed, so a deep path is linear too.
