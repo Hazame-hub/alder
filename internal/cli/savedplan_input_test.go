@@ -18,13 +18,21 @@ const bobDN = "uid=bob,ou=people,dc=example,dc=test"
 // with holds false, with alice's expectation no longer met.
 func inputPlanStub(t *testing.T, holds bool) *stub {
 	t.Helper()
+	return inputPlanStubNamed(t, holds, "title")
+}
+
+// inputPlanStubNamed is inputPlanStub with alice's modification naming the
+// title attribute as title does: by a name, or by its OID.
+func inputPlanStubNamed(t *testing.T, holds bool, titleName string) *stub {
+	t.Helper()
 	s := newStub(t)
+	stubAttributeNames(s)
 	exact := func(index int, dn, action string, record map[string]any, baseline string) map[string]any {
 		return map[string]any{"index": index, "dn": dn, "action": action, "exists": true, "intent": "exact",
 			"kind": "data", "record": record, "baseline": baseline}
 	}
 	alice := map[string]any{"dn": aliceDN, "type": "modify", "mods": []any{
-		map[string]any{"op": "replace", "name": "title", "values": []any{map[string]any{"text": "After"}}},
+		map[string]any{"op": "replace", "name": titleName, "values": []any{map[string]any{"text": "After"}}},
 	}}
 	bob := map[string]any{"dn": bobDN, "type": "delete"}
 	planned := planJSON(t, counts{modify: 1, delete: 1},
@@ -64,6 +72,18 @@ func inputPlanStub(t *testing.T, holds bool) *stub {
 		`{"appliedCount":2,"outcomes":[{"index":0,"dn":"`+aliceDN+`","applied":true,"summary":"modified"},`+
 			`{"index":1,"dn":"`+bobDN+`","applied":true,"summary":"deleted"}]}`)
 	return s
+}
+
+// stubAttributeNames is GET /schema, reduced to the names of the attribute
+// types these tests use.
+func stubAttributeNames(s *stub) {
+	types := []map[string]any{
+		{"name": "cn", "names": []string{"cn", "commonName"}, "oid": "2.5.4.3"},
+		{"name": "title", "oid": "2.5.4.12"},
+		{"name": "userPassword", "oid": "2.5.4.35"},
+	}
+	body, _ := json.Marshal(map[string]any{"subschemaDn": "cn=Subschema", "counts": map[string]any{}, "attributeTypes": types})
+	s.reply("GET /api/v1/schema", http.StatusOK, string(body))
 }
 
 const inputLDIF = "dn: " + aliceDN + "\nchangetype: modify\nreplace: title\ntitle: After\n-\n\n" +
@@ -182,6 +202,7 @@ func TestPlanOutRefusals(t *testing.T) {
 	out := filepath.Join(dir, "a.plan.json")
 
 	s := newStub(t)
+	stubAttributeNames(s)
 	// A change carrying a value the server withheld is not saved: the file
 	// would hold nothing to apply, and a secret must never be in it.
 	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
@@ -271,4 +292,76 @@ func TestPlanOutWithJSONWritesOneDocument(t *testing.T) {
 	r = moved.run(t, runOpts{}, "plan", writeTemp(t, dir, "b.ldif", inputLDIF), "--out", filepath.Join(dir, "b.plan.json"), "--json")
 	expectCode(t, r, ExitStale)
 	oneJSONDocument(t, r.stdout)
+}
+
+// An expectation is checked by the name the entry returns its attribute
+// under. One written under an OID or another name would find nothing there,
+// expect the attribute absent, and always hold.
+func TestASavedModificationExpectsItsAttributeByTheNameTheEntryReturns(t *testing.T) {
+	s := inputPlanStubNamed(t, true, "2.5.4.12")
+	doc := readSaved(t, saveInput(t, s))
+	changes, _ := doc["changes"].([]any)
+	expect, _ := changes[0].(map[string]any)["expect"].(map[string]any)
+	attrs, _ := expect["attributes"].([]any)
+	if len(attrs) != 1 {
+		t.Fatalf("expect = %v", expect)
+	}
+	got, _ := json.Marshal(attrs[0])
+	if want := `{"name":"title","values":[{"text":"Before"}]}`; string(got) != want {
+		t.Errorf("the modification of 2.5.4.12 expects %s, want %s", got, want)
+	}
+}
+
+// The saved change is the plan's record, which has no room for an expect the
+// input wrote itself; saving it would drop the guard the plan showed.
+func TestPlanOutRefusesChangesThatCarryTheirOwnExpectation(t *testing.T) {
+	s := inputPlanStub(t, true)
+	dir := t.TempDir()
+	changes := writeTemp(t, dir, "changes.json", `[{"dn":"`+aliceDN+`","type":"modify",`+
+		`"mods":[{"op":"replace","name":"title","values":[{"text":"After"}]}],`+
+		`"expect":{"attributes":[{"name":"employeeType","values":[{"text":"contractor"}]}]}}]`)
+	out := filepath.Join(dir, "p.json")
+	r := s.run(t, runOpts{}, "plan", "--changes", changes, "--out", out)
+	expectCode(t, r, ExitFailed)
+	if !strings.Contains(r.stderr, "carries its own expect") {
+		t.Errorf("stderr = %s", r.stderr)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("the plan was saved without the expectation the input gave")
+	}
+}
+
+// A file for another directory is refused as such (exit 3) before anything
+// asks for a confirmation there is no terminal for.
+func TestApplyPlanRefusesAnotherDirectoryBeforeAskingToConfirm(t *testing.T) {
+	s := inputPlanStub(t, true)
+	saved := saveInput(t, s)
+	r := s.run(t, runOpts{}, "apply", "--plan", saved, "--host", "ldap.other.test")
+	expectCode(t, r, ExitNotApplicable)
+}
+
+// Only a plan that no longer holds is stale. Failing to ask is reported as
+// itself, so a script retrying on exit 4 does not retry a network failure.
+func TestPlanOutReportsAFailedCheckAsItselfNotAsStale(t *testing.T) {
+	s := inputPlanStub(t, true)
+	s.on("POST /api/v1/plan", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(string(body), `"expect"`) {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"code":"internal","message":"boom"}`)
+			return
+		}
+		_, _ = io.WriteString(w, planJSON(t, counts{modify: 1},
+			map[string]any{"index": 0, "dn": aliceDN, "action": "modify", "exists": true, "intent": "exact", "kind": "data",
+				"record": map[string]any{"dn": aliceDN, "type": "modify", "mods": []any{
+					map[string]any{"op": "replace", "name": "title", "values": []any{map[string]any{"text": "After"}}},
+				}}, "baseline": "b"}))
+	})
+	dir := t.TempDir()
+	r := s.run(t, runOpts{}, "plan", writeTemp(t, dir, "c.ldif", "dn: "+aliceDN+"\nchangetype: modify\nreplace: title\ntitle: After\n-\n"),
+		"--out", filepath.Join(dir, "p.json"))
+	if r.code == ExitStale || r.code == ExitOK {
+		t.Errorf("exit %d for a failed check, want neither 0 nor 4\nstderr: %s", r.code, r.stderr)
+	}
 }

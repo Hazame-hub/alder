@@ -133,6 +133,14 @@ func savePlan(ctx context.Context, env *Env, r *remote, p *project.Project, envN
 // --changes, saved for alder apply --plan.
 func saveInputPlan(ctx context.Context, env *Env, r *remote, in *planInput, conn *connection,
 	plan apiclient.Plan, path string, force bool) error {
+	// The saved change is the plan's record, which carries no expectation of
+	// the input's own; saving it would drop the guard the plan showed.
+	for i, c := range in.staged {
+		if c.Expect != nil {
+			return failf("plan_not_saved", "the plan was not saved to %s: change %d carries its own expect, which a saved plan does not keep; apply it with alder apply",
+				safe(path), i+1)
+		}
+	}
 	saved := newSavedPlan(env, plan)
 	saved.Input = in.saved()
 	saved.Environment = savedPlanEnvironment{Host: conn.label(), BindDN: conn.bindDN}
@@ -180,6 +188,7 @@ func countSaved(plan apiclient.Plan) int {
 // instead.
 func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan apiclient.Plan,
 	path string, force bool, applyWith string) error {
+	var names attributeNames
 	for _, item := range plan.Items {
 		if item.Record == nil || item.Baseline == nil {
 			continue
@@ -191,7 +200,13 @@ func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan 
 			// An add expects nothing: planning it where the entry now exists
 			// is already a conflict.
 		case apiclient.PlanActionModify:
-			expect, err := expectationFor(ctx, r, change)
+			if names == nil {
+				var err error
+				if names, err = readAttributeNames(ctx, r); err != nil {
+					return err
+				}
+			}
+			expect, err := expectationFor(ctx, r, change, names)
 			if err != nil {
 				return err
 			}
@@ -214,9 +229,18 @@ func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan 
 		}
 		saved.Changes = append(saved.Changes, change)
 	}
-	if err := checkSaved(ctx, r, saved.Changes); err != nil {
-		return &ExitError{Code: ExitStale, Local: "plan_not_saved",
-			Message: fmt.Sprintf("the plan was not saved to %s: %s. Plan again", safe(path), err)}
+	if len(saved.Changes) > 0 {
+		// Only a plan that no longer holds is stale (exit 4): a failure to
+		// ask is reported as itself, so a script retrying on 4 does not
+		// retry a network failure.
+		p, _, err := planSaved(ctx, r, saved.Changes)
+		if err != nil {
+			return err
+		}
+		if err := holds(p, len(saved.Changes)); err != nil {
+			return &ExitError{Code: ExitStale, Local: "plan_not_saved",
+				Message: fmt.Sprintf("the plan was not saved to %s: %s. Plan again", safe(path), err)}
+		}
 	}
 
 	doc, err := json.MarshalIndent(saved, "", "  ")
@@ -241,10 +265,54 @@ func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan 
 	})
 }
 
+// attributeNames maps every name and OID of an attribute type, lowercased, to
+// the name the directory returns it under.
+type attributeNames map[string]string
+
+// canonical is the name an attribute is returned under, for any of its names
+// or its OID. A name the schema does not know is returned as it is.
+func (n attributeNames) canonical(name string) string {
+	if c, ok := n[strings.ToLower(name)]; ok {
+		return c
+	}
+	return name
+}
+
+// readAttributeNames reads the directory's schema for the names of its
+// attribute types. An expectation is checked by the name the entry returns
+// (cn, never commonName or 2.5.4.3), so one written under another name would
+// find nothing and expect the attribute absent, which always holds.
+func readAttributeNames(ctx context.Context, r *remote) (attributeNames, error) {
+	const what = "reading the directory's schema"
+	res, err := r.api.GetSchemaWithResponse(ctx, nil)
+	if err != nil {
+		return nil, transportFailure(ctx, what, err)
+	}
+	if res.StatusCode() != http.StatusOK {
+		return nil, r.refusal(ctx, what, res.HTTPResponse, res.Body)
+	}
+	if res.JSON200 == nil || res.JSON200.AttributeTypes == nil {
+		return nil, failf("unexpected_response", "Alder answered the schema request with no attribute types")
+	}
+	names := attributeNames{}
+	for _, at := range *res.JSON200.AttributeTypes {
+		all := []string{at.Name, at.Oid}
+		if at.Names != nil {
+			all = append(all, *at.Names...)
+		}
+		for _, n := range all {
+			if n != "" {
+				names[strings.ToLower(n)] = at.Name
+			}
+		}
+	}
+	return names, nil
+}
+
 // expectationFor reads the entry a modification is about and returns what it
-// holds for every attribute the modification touches. An attribute it does
-// not hold is expected absent.
-func expectationFor(ctx context.Context, r *remote, change apiclient.ChangeRequest) (*apiclient.ChangeExpectation, error) {
+// holds for every attribute the modification touches, under the name the
+// entry returns it by. An attribute it does not hold is expected absent.
+func expectationFor(ctx context.Context, r *remote, change apiclient.ChangeRequest, names attributeNames) (*apiclient.ChangeExpectation, error) {
 	res, err := r.api.GetEntryWithResponse(ctx, &apiclient.GetEntryParams{Dn: change.Dn, IncludeOperational: ptr(false)})
 	if err != nil {
 		return nil, transportFailure(ctx, "reading "+safe(change.Dn), err)
@@ -260,14 +328,15 @@ func expectationFor(ctx context.Context, r *remote, change apiclient.ChangeReque
 	seen := map[string]bool{}
 	if change.Mods != nil {
 		for _, m := range *change.Mods {
-			key := strings.ToLower(m.Name)
+			name := names.canonical(m.Name)
+			key := strings.ToLower(name)
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			held := apiclient.ChangeAttribute{Name: m.Name, Values: []apiclient.AttributeValue{}}
+			held := apiclient.ChangeAttribute{Name: name, Values: []apiclient.AttributeValue{}}
 			for _, a := range res.JSON200.Attributes {
-				if !strings.EqualFold(a.Name, m.Name) {
+				if !strings.EqualFold(names.canonical(a.Name), name) {
 					continue
 				}
 				if a.Withheld != nil && *a.Withheld {
@@ -358,19 +427,6 @@ func withheldValue(change apiclient.ChangeRequest, applyWith string) error {
 func planSaved(ctx context.Context, r *remote, changes []apiclient.ChangeRequest) (apiclient.Plan, []byte, error) {
 	sent := append([]apiclient.ChangeRequest{}, changes...)
 	return requestPlan(ctx, r, apiclient.PlanRequest{Changes: &sent, Reconcile: ptr(false)})
-}
-
-// checkSaved says why a plan of the saved changes is not the plan they were
-// saved from, or nil when every one of them applies.
-func checkSaved(ctx context.Context, r *remote, changes []apiclient.ChangeRequest) error {
-	if len(changes) == 0 {
-		return nil
-	}
-	p, _, err := planSaved(ctx, r, changes)
-	if err != nil {
-		return err
-	}
-	return holds(p, len(changes))
 }
 
 // holds reports whether a plan of n saved changes applies each of them.
@@ -534,17 +590,20 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 	if err := conn.check(false); err != nil {
 		return err
 	}
-	if !o.yes && (conn.bindPasswordStdin || !env.Interactive()) {
-		return &ExitError{Code: ExitNotConfirmed, Local: "confirmation_required",
-			Message: "not applied: there is no terminal to ask for confirmation, and --yes was not given. " +
-				"Review the saved plan, then run apply with --yes"}
-	}
+	// The file is read and matched first, so a file that is not this
+	// directory's plan is refused as such (exit 3) whether or not there is
+	// anyone to confirm it.
 	saved, err := readSavedPlan(env, o.plan)
 	if err != nil {
 		return err
 	}
 	if err := matchSavedInput(o.plan, saved, conn); err != nil {
 		return err
+	}
+	if !o.yes && (conn.bindPasswordStdin || !env.Interactive()) {
+		return &ExitError{Code: ExitNotConfirmed, Local: "confirmation_required",
+			Message: "not applied: there is no terminal to ask for confirmation, and --yes was not given. " +
+				"Review the saved plan, then run apply with --yes"}
 	}
 
 	writef(env.Stderr, "alder: applying the plan saved in %s at %s to %s through %s\n",

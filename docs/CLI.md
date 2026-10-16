@@ -803,10 +803,12 @@ It is the saved plan `alder project plan --out` writes
 input it came from (`ldif` or `changes`, the mode, a SHA-256 of what was
 read) in place of a project, and the host and bind in place of an
 environment. Each change is the plan's own record. A modification expects the
-values of the attributes it replaces; **a deletion expects the entry exactly
+values of the attributes it replaces, under the names the entry returns them
+by (`cn` for `commonName` or `2.5.4.3`); **a deletion expects the entry exactly
 as it was read**, so it is applied only while the entry still holds what the
 reviewer saw deleted. A rename or a password change is not saved, nor is a
-plan with a value the server withheld: apply those with `alder apply`. Before
+plan with a value the server withheld, nor a `--changes` change that carries
+its own `expect`: apply those with `alder apply`. Before
 the file is written, its changes are planned once more, exactly as an apply
 will plan them, and it is written only if every one applies (exit 4 when the
 directory moved meanwhile). A plan with a change that cannot be applied is
