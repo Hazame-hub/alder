@@ -17,10 +17,12 @@ These come up on every page. Each links to its reference.
 | **Change record** | One LDIF operation (add, modify, rename, delete) on one entry. Every write Alder makes is one, shown to you before it is sent. |
 | **Plan** | What a set of change records would actually do to the directory as it is now, worked out without writing anything. Applying sends exactly the plan you saw, and is refused if the directory has moved since. [PLAN.md](PLAN.md) |
 | **Changeset** | Several changes staged in the browser, reviewed as one LDIF document or Ansible playbook, and applied in order. [Feature tour](FEATURES.md#change-it-safely) |
+| **Saved plan** | A plan written to a file with `alder plan --out` or `alder project plan --out`, applied later with `--plan`: those changes and no others, refused whole if the directory has moved. [CLI.md](CLI.md#a-saved-plan) |
 | **Recovery bundle** | A file of compensating changes for what a change applied, derived from each entry as it was just before. Not a backup and not a rollback: loading it is a new change, planned and reviewed. [RECOVERY.md](RECOVERY.md) |
 | **Snapshot** | A checksummed JSON capture of a subtree, the schema or the server's configuration, kept by you and compared later. [SNAPSHOTS.md](SNAPSHOTS.md) |
 | **Change package** | A portable description of what you intend to change, carried to another directory and checked against it there. [CHANGE-PACKAGES.md](CHANGE-PACKAGES.md) |
 | **Preflight** | A read-only report of what a package or snapshot would carry across to the directory you are connected to. [PREFLIGHT.md](PREFLIGHT.md) |
+| **Reference server** | A second directory a session holds read-only beside the one it is connected to, so data, schema, configuration and single entries can be compared without reconnecting. [Feature tour](FEATURES.md#drift-snapshots-and-migrations) |
 | **Project** | An `alder.yaml` beside LDIF files in a repository: a directory's intended state, planned against named environments. [PROJECT.md](PROJECT.md) |
 
 ## Using Alder

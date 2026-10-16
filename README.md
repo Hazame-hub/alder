@@ -73,8 +73,7 @@ request, and let a plan's exit code say whether a directory has drifted:
 
 An entry the files do not mention is reported as unmanaged and never deleted.
 See [`docs/PROJECT.md`](docs/PROJECT.md) and the working example in
-[`examples/project/`](examples/project/). `alder project` is on `main` and
-ships in the release after 1.37.1.
+[`examples/project/`](examples/project/).
 
 ## Quick start
 
@@ -105,11 +104,11 @@ seeded OpenLDAP and 389 DS in Docker and walks through a first change.
 |---|---|
 | **Browse and search** | A lazy tree, entries annotated from the schema, a filter builder or raw RFC 4515 filters, ready-made people and group views, Ctrl+K to jump to any DN. |
 | **Understand** | Who is in a group through nesting, what refers to an entry before you delete it, two entries compared attribute by attribute, what values an attribute actually holds across a subtree. |
-| **Change safely** | A schema-driven editor; every write planned and shown as LDIF and Ansible; changesets applied in order; a recovery bundle for undoing what applied. |
+| **Change safely** | A schema-driven editor; every write planned and shown as LDIF and Ansible; changesets applied in order; a plan saved for review and applied exactly, later; a recovery bundle for undoing what applied. |
 | **Import and export** | LDIF in and out, an Ansible playbook that enforces state, filtered exports of what a search shows. |
 | **Schema and configuration** | Browse and edit the schema, read and carefully edit the server's own configuration, read replication status and access rules. |
-| **Drift and migration** | Snapshots of data, schema or configuration, compared with each other or with the live directory; portable change packages; a preflight before a migration; signed documents. |
-| **Automate** | `alder snapshot`, `diff`, `plan`, `apply` and `project` run the same workflow from a shell or a CI job. |
+| **Drift and migration** | Snapshots of data, schema or configuration, compared with each other, with the live directory, or with a second, read-only server held beside it; portable change packages; a preflight before a migration; signed documents. |
+| **Automate** | `alder snapshot`, `diff`, `plan`, `apply` and `project` run the same workflow from a shell or a CI job; a project in Git also opens in the browser. |
 
 The [feature tour](docs/FEATURES.md) describes each of these, with
 screenshots, and links to the reference for each.

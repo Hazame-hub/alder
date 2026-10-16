@@ -192,6 +192,13 @@ the snapshot with the live directory: Alder lists what changed, and you can
 select differences and stage the changes that put them back, through the same
 review as everything else.
 
+To compare with another server rather than a file, **Add a reference** in
+the header attaches a second directory, read-only, beside the one you are
+connected to. Try the harness's OpenLDAP replica: `localhost:20636`, with the
+same bind DN, password and CA certificate. The snapshot comparisons, the
+replication card and an entry's **Compare** can then read it without
+reconnecting.
+
 The reference pages are [SNAPSHOTS.md](SNAPSHOTS.md),
 [SCHEMA-SNAPSHOTS.md](SCHEMA-SNAPSHOTS.md) and
 [CONFIG-SNAPSHOTS.md](CONFIG-SNAPSHOTS.md).
@@ -240,6 +247,31 @@ modified  uid=user0004,ou=people,dc=alder,dc=test
 job wants. `alder plan` and `alder apply` take an LDIF document and do what the
 review dialog does: show the plan, ask, and apply exactly that plan.
 
+When the review and the apply happen at different times -- a plan in one CI
+job, someone's approval, the apply in another -- save the plan and apply that
+file. Put `uid=user0004` back:
+
+```sh
+cat > shell.ldif <<'EOF'
+dn: uid=user0004,ou=people,dc=alder,dc=test
+changetype: modify
+replace: loginShell
+loginShell: /bin/bash
+-
+EOF
+
+alder plan shell.ldif --out shell.plan.json
+alder apply --plan shell.plan.json
+```
+
+`plan --out` shows the plan and writes it to the file. `apply --plan` shows
+that plan again, asks, and applies those changes and no others. Each change in
+the file carries what the entry held when it was planned, so if the entry
+changes in between, the whole file is refused (exit 4) and nothing is written:
+plan again. Run the same `apply --plan` a second time and you will see that
+refusal, because the first apply changed the entry. In the browser, **Load
+saved plan** on the empty **Changeset** reads the same file.
+
 To keep a directory's intended state in Git, an **Alder project** is an
 `alder.yaml` beside LDIF files. `alder project validate` checks it offline,
 `alder project plan --env staging --detailed-exitcode` says whether a
@@ -250,8 +282,8 @@ the plan:
 
 [CLI.md](CLI.md) is the command-line reference, [PROJECT.md](PROJECT.md) the
 project format's, and [`examples/project/`](../examples/project/) a project
-with the GitHub Actions and GitLab CI that check it. `alder project` is on
-`main` and ships in the release after 1.37.1. The web interface opens the
+with the GitHub Actions and GitLab CI that check it, and an optional job that
+applies a saved plan once someone approves it. The web interface opens the
 same folder with *Open project* on the Import screen, and plans it against
 the directory you are connected to.
 
