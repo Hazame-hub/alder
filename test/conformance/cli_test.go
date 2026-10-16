@@ -37,7 +37,7 @@ func cliDN(rdn string) string { return rdn + "," + cliOU }
 
 func clearCLIOU(t *testing.T, sess directory.Session) {
 	t.Helper()
-	for _, rdn := range []string{"uid=cli-probe", "uid=cli-extra", "uid=cli-new"} {
+	for _, rdn := range []string{"uid=cli-probe", "uid=cli-extra", "uid=cli-new", "uid=cli-gone"} {
 		_ = sess.Apply(ctx(t), directory.ChangeRecord{DN: mustDN(t, cliDN(rdn)), Type: directory.ChangeDelete})
 	}
 	_ = sess.Apply(ctx(t), directory.ChangeRecord{DN: mustDN(t, cliOU), Type: directory.ChangeDelete})
