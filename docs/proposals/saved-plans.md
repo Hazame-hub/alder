@@ -226,7 +226,9 @@ an entry behind the plan's back, apply and see it refused; plan, save,
 restart the Alder server, apply and see it applied.
 
 **Later, if asked for:** `alder plan --out` / `alder apply --plan` for any
-change set, not only projects; loading a saved plan in the web interface
+change set, not only projects (*built 2026-10-16*: an LDIF document or
+`--changes`; a deletion carries an exhaustive expectation; renames, password
+changes, `--recovery` and `--package` are not saved); loading a saved plan in the web interface
 next to *Load recovery bundle*; a signed plan, wrapped with `alder sign`
 as SIGNING.md wraps any document.
 

@@ -6228,3 +6228,39 @@ configuration capture equal what a session of its own on the consumer reads;
 a comparison against it proposes nothing for it; the allowlist and the
 connection limit hold before dialling; and its password appears in no
 response and nowhere in the log.
+
+### 2026-10-16 — saved plans for any change set: `alder plan --out`, `alder apply --plan`
+
+The saved-plans specification's first "later" item. `alder plan --out`
+saves the plan of an LDIF document or of `--changes`; `alder apply --plan`
+applies it, or refuses it, through any Alder. Same format, same checks, and
+what the build settled:
+
+- **The input is recorded, not bound.** A project's saved plan is refused
+  when the project's files changed, because the project is the source of
+  truth and the apply re-reads it. A change set has no such source: the
+  saved file is what was reviewed, and `alder apply --plan` takes nothing
+  else. The input's kind, mode and SHA-256 are in the file so a reviewer can
+  tell which document it came from, and nothing checks them.
+- **The directory is bound** by `host:port` and bind DN, compared before
+  connecting (3), as an environment's are.
+- **Each saved plan stays with its command.** A project's plan applied by
+  `alder apply` would skip the project's digest check; a change set's applied
+  by `alder project apply` would be checked against a project it never came
+  from. Both are refused with the other command's name. The file says which
+  it is by carrying `project` or `input`, exactly one.
+- **Deletions are saved, with an exhaustive expectation.** A project never
+  deletes, so its saved plans never held one. A change set can, and a
+  reviewed deletion is right only while the entry is what the reviewer saw:
+  the expectation is every readable user attribute, exhaustive, which
+  recovery bundles have used since 1.9 to delete only what an add created.
+  A sensitive attribute cannot be expected and is not counted. `--yes` still
+  needs `--allow-deletes`.
+- **Not saved:** a rename (an expectation can bind the entry, not the place
+  it moves to), a password change and a value the server withheld (no secret
+  is ever written to the file), and `--recovery` and `--package`, which are
+  already files of exact changes and are applied as they are.
+
+A conformance case saves through one Alder and applies through another, and
+checks that a plan overtaken on the modified entry or on the deleted one
+writes nothing.
