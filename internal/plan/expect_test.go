@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/schema"
 )
 
 func planOne(t *testing.T, d *fakeDirectory, proposal Proposal) (*Planner, Item) {
@@ -143,5 +144,37 @@ func TestADefinitionIsExpectedByItsOIDAndNotItsPosition(t *testing.T) {
 	}
 	if got := held(nil).ReadAttributes(); len(got) != 1 || got[0] != "olcAttributeTypes" {
 		t.Errorf("ReadAttributes %v, want the attribute holding the definition", got)
+	}
+}
+
+func TestAnAccessRuleIsExpectedByteForByte(t *testing.T) {
+	// olcAccess is declared with caseIgnoreMatch, but a rule that differs in
+	// case alone is a different rule to whoever changed it: a compensation
+	// must not take it as the one it expects and write over it.
+	sch := schema.Load("cn=subschema", map[string][]string{
+		schema.AttrAttributeTypes: {
+			"( 1.3.6.1.4.1.4203.1.12.2.3.0.1 NAME 'olcAccess' EQUALITY caseIgnoreMatch " +
+				"SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORDERED 'VALUES' )",
+			"( 2.5.4.13 NAME 'description' EQUALITY caseIgnoreMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
+		},
+	})
+	if len(sch.Errors) != 0 {
+		t.Fatalf("the schema does not parse: %v", sch.Errors)
+	}
+	live := directory.NewEntry(mustParse(t, "olcDatabase={1}mdb,cn=config"))
+	live.Set("olcAccess", [][]byte{[]byte(`{0}to dn.exact="cn=A" by * none`)})
+	live.Set("description", [][]byte{[]byte("Primary")})
+	expect := &Expectation{Attributes: []directory.Attribute{
+		{Name: "olcAccess", Values: [][]byte{[]byte(`{0}to dn.exact="cn=a" by * none`)}},
+	}}
+	if _, differs := expect.Differs(sch, live); !differs {
+		t.Error("a rule that differs in case alone was taken as the one expected")
+	}
+	// Other attributes keep their equality rule.
+	expect = &Expectation{Attributes: []directory.Attribute{
+		{Name: "description", Values: [][]byte{[]byte("primary")}},
+	}}
+	if attr, differs := expect.Differs(sch, live); differs {
+		t.Errorf("description differs (%s), and caseIgnoreMatch says it does not", attr)
 	}
 }

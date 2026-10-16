@@ -99,9 +99,11 @@ const (
 	// loads an overlay, builds an index, renumbers its siblings -- and does not
 	// always allow the opposite, so Alder does not derive one.
 	ReasonConfigEntryNotCompensated ReasonCode = "config_entry_not_compensated"
-	// ReasonAccessRuleNotWritten: an access rule was changed. Alder reads
-	// access rules and never writes them (section 2 of the charter), and a
-	// compensation is a write like any other.
+	// ReasonAccessRuleNotWritten: an access rule was changed, and the bundle
+	// carries no compensation for it. Written by 1.38 only: since 1.39 a
+	// configuration-tree access rule is compensated like any other setting.
+	// It stays known so that a bundle 1.38 wrote still decodes, and it is
+	// never produced.
 	ReasonAccessRuleNotWritten ReasonCode = "access_rule_not_written"
 )
 

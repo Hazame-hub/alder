@@ -64,6 +64,41 @@ function wanted(name: string): boolean {
   return isProjectFileName(base);
 }
 
+const crcTable = Uint32Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c;
+});
+
+/** CRC-32 as zip records it (IEEE 802.3, reflected, polynomial 0xedb88320). */
+export function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (const b of bytes) c = crcTable[(c ^ b) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * The CRC-32 of the first count entries of a zip's central directory, in the
+ * order unzipSync lists them, found the way unzipSync finds them. Called once
+ * unzipSync has read the same entries, so a zip it refused never gets here.
+ */
+function centralCRCs(data: Uint8Array, count: number): number[] {
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let e = data.length - 22;
+  while (v.getUint32(e, true) !== 0x06054b50) e -= 1;
+  let o = v.getUint32(e + 16, true);
+  if (e >= 20 && v.getUint32(e - 20, true) === 0x07064b50) {
+    const z = v.getUint32(e - 12, true);
+    if (z + 56 <= data.length && v.getUint32(z, true) === 0x06064b50) o = v.getUint32(z + 48, true);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(v.getUint32(o + 16, true));
+    o += 46 + v.getUint16(o + 28, true) + v.getUint16(o + 30, true) + v.getUint16(o + 32, true);
+  }
+  return out;
+}
+
 /**
  * The project files in a .zip, as the folder picker would list them.
  *
@@ -80,7 +115,9 @@ export function readZip(zipName: string, data: Uint8Array): SourceResult {
   let tooLarge = false;
   let listed = 0;
   const sizes = new Map<string, number>();
+  const order: string[] = [];
   let members: Record<string, Uint8Array>;
+  let crcs: number[];
   try {
     members = unzipSync(data, {
       filter: (file) => {
@@ -88,6 +125,7 @@ export function readZip(zipName: string, data: Uint8Array): SourceResult {
         if (listed > maxZipMembers) {
           throw new Error(`it lists more than ${maxZipMembers} members`);
         }
+        order.push(file.name);
         if (!wanted(file.name)) return false;
         sizes.set(file.name, file.originalSize);
         declared += file.originalSize;
@@ -95,6 +133,7 @@ export function readZip(zipName: string, data: Uint8Array): SourceResult {
         return !tooLarge;
       },
     });
+    crcs = centralCRCs(data, order.length);
   } catch (e) {
     return { ok: false, message: `This file could not be read as a .zip: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -107,13 +146,18 @@ export function readZip(zipName: string, data: Uint8Array): SourceResult {
 
   // fflate inflates a member into a buffer of its declared size and neither
   // grows it nor checks the CRC, so a damaged or misdeclared member comes
-  // back cut short. One that is not the size the zip says is refused, rather
-  // than planned as if it were whole.
-  const short = Object.entries(members).find(([name, bytes]) => bytes.byteLength !== sizes.get(name));
-  if (short) {
+  // back cut short -- to exactly the size declared, when it is deflated. One
+  // that is not the size the zip says, or whose CRC-32 is not the one its
+  // directory records, is refused rather than planned as if it were whole.
+  // A name listed twice is the last one listed, as it is in members.
+  const crcOf = new Map(order.map((name, i) => [name, crcs[i]]));
+  const damaged = Object.entries(members).find(
+    ([name, bytes]) => bytes.byteLength !== sizes.get(name) || crc32(bytes) !== crcOf.get(name),
+  );
+  if (damaged) {
     return {
       ok: false,
-      message: `This .zip is damaged: ${safeText(short[0])} does not inflate to the size the zip declares. Unzip it with another tool and open the folder.`,
+      message: `This .zip is damaged: ${safeText(damaged[0])} does not inflate to the size and checksum the zip declares. Unzip it with another tool and open the folder.`,
     };
   }
 

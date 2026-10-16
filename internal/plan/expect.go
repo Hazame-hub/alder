@@ -164,10 +164,11 @@ func userAttribute(sch *schema.Schema, name string) bool {
 }
 
 // sameByRule compares two value sets as the attribute's equality rule does,
-// and byte for byte where Alder does not model the rule.
+// and byte for byte where Alder does not model the rule, or the attribute
+// holds access rules.
 func sameByRule(sch *schema.Schema, name string, a, b [][]byte) bool {
 	keyer := snapshot.ExactKey
-	if sch != nil {
+	if sch != nil && !accessRule(name) {
 		if at := sch.AttributeType(schema.BaseName(name)); at != nil {
 			if k, known := snapshot.KeyerForRule(sch.EffectiveEquality(at)); known {
 				keyer = k
@@ -208,4 +209,18 @@ func mergeDependencies(a, b []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// accessRule reports whether an attribute carries access rules, which an
+// expectation compares byte for byte whatever its equality rule says.
+// OpenLDAP declares olcAccess caseIgnoreMatch, yet a rule changed in case
+// alone was changed by somebody, and a compensation that took it for the
+// rule it expects would write over that change. The recovery package names
+// the same two attributes, for the reason it gives.
+func accessRule(name string) bool {
+	switch strings.ToLower(schema.BaseName(name)) {
+	case "aci", "olcaccess":
+		return true
+	}
+	return false
 }

@@ -713,6 +713,20 @@ A session can hold a read-only reference server
 - **`--max-sessions` counts directory connections**, so a reference takes a
   place. A deployment that attaches no reference sees no difference.
 
+A recovery bundle compensates a configuration-tree access rule
+([proposals/access-rules-in-recovery.md](proposals/access-rules-in-recovery.md)):
+
+- **`access_rule_not_written` is no longer produced.** It stays in
+  `RecoveryReasonCode`, and a bundle 1.38 wrote with it reads and plans as
+  it did. Where 1.38 said `partial` or `unavailable` for a change to
+  `olcAccess`, or to an `aci` in the configuration tree, 1.39 says `exact`,
+  in a plan's assessment and in the bundle.
+- **A configuration step may say `hidden_attributes_unknown`**, an existing
+  code, when the rules could not be read before or after the change.
+- **No API or format change.** The compensation is a replace with an
+  expectation, as for any other setting, so a 1.38 release reads a bundle
+  1.39 wrote.
+
 ---
 
 ## Not covered
