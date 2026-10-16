@@ -36,6 +36,7 @@ import { UnknownOutcome } from "@/components/unknown-outcome";
 import { DownloadButton } from "@/components/ldif-block";
 import { assessmentLine, bundleText, overallRecovery, recoveryFilename } from "@/lib/recovery";
 import { RecoveryLoader } from "@/features/recovery-loader";
+import { SavedPlanLoader } from "@/features/saved-plan-loader";
 import { ProjectHeading } from "@/features/project";
 import { safeText } from "@/lib/display";
 
@@ -77,8 +78,8 @@ export function ChangesetView({
     outcome?: ChangeOutcome;
   } | null>(null);
   const [prepareRecovery, setPrepareRecovery] = useState(false);
-  // Set when a recovery bundle has just been staged, so the plan is made as
-  // soon as the staged changes have rendered.
+  // Set when a recovery bundle or a saved plan has just been staged, so the
+  // plan is made as soon as the staged changes have rendered.
   const [pendingCheck, setPendingCheck] = useState(false);
 
   const body = { changes: staged.map((s) => s.change) };
@@ -139,8 +140,9 @@ export function ChangesetView({
     ...(current ? { changes: changesFromPlan(current, body.changes) } : body),
     ...(prepareRecovery && canRecover ? { recovery: true } : {}),
   };
-  // A change with an expectation -- one from a recovery bundle -- is only ever
-  // applied through a checked plan; the server refuses it otherwise.
+  // A change with an expectation -- one from a recovery bundle or a saved
+  // plan -- is only ever applied through a checked plan; the server refuses
+  // it otherwise.
   const needsPlan = staged.some((s) => s.change.expect !== undefined);
 
   const apply = useMutation({
@@ -220,6 +222,7 @@ export function ChangesetView({
       <div className="mx-auto max-w-2xl px-6 py-16">
         {resultPanel}
         <RecoveryLoader canStage onStaged={() => setPendingCheck(true)} />
+        <SavedPlanLoader onStaged={() => setPendingCheck(true)} />
         <div className="rounded-lg border border-dashed p-10 text-center">
           <ListChecks className="mx-auto mb-3 size-8 text-muted-foreground" />
           <h2 className="text-base font-medium">The changeset is empty</h2>
@@ -378,8 +381,8 @@ export function ChangesetView({
       {current ? <PlanSummary plan={current} /> : null}
       {needsPlan && !current ? (
         <p className="mb-4 text-xs text-warning-tint-foreground">
-          These include changes from a recovery bundle, which are applied only
-          through a checked plan.
+          These include changes that expect an entry as it was, from a recovery
+          bundle or a saved plan, which are applied only through a checked plan.
         </p>
       ) : null}
 
