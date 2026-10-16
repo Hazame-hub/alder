@@ -106,7 +106,7 @@ under its former name holding the same user data, still with its own identity
 | Set a password | None. The previous password is never captured. | `unavailable`. Reason `password_not_captured`. |
 | Modify a setting in the configuration tree (`olc*`, `nsslapd-*`, any attribute of an entry there) | Replaces each attribute the change touched with the values the server stored before, in the order and the spelling it stored them, positions (`{n}`) included; removes one that had no value. The expectation is the attribute as the server stored it after the change. | `exact` |
 | Modify a sensitive setting (`olcRootPW`, `nsslapd-rootpw`, `olcSyncrepl`, which carries a credential, and the rest of the deny list) | None for that attribute: its name is recorded, never its value. | `partial`, or `unavailable` if nothing else was touched. Reason `sensitive_value_not_captured`. |
-| Modify an access rule (`olcAccess`, `aci`) in the configuration tree | None for that attribute. Alder reads access rules and never writes them, and a compensation is a write. | `partial`, or `unavailable` if nothing else was touched. Reason `access_rule_not_written`. |
+| Modify an access rule (`olcAccess`, `aci`) in the configuration tree | The same as any other setting: replaces the attribute with the rules the server stored before, in its spelling, positions (`{n}`) included, under an expectation of the rules as the change left them. Planned with the same lockout warning the change carried. A rule that no longer grants the bind write access makes the compensation fail like any other write; the fix is then on the server. When the bind read no rules before the change, or none after a change that left some, the attribute is not compensated: an empty read may be rules it cannot see. Since 1.39; a bundle 1.38 wrote says `access_rule_not_written` for this step, carries no rules for it, and stays `partial`. | `exact`. `partial`, or `unavailable` if nothing else was touched, with reason `hidden_attributes_unknown` when the rules were not read. |
 | Create, remove or rename an entry in the configuration tree (an overlay, a 389 DS index) | None. The server acts on it as it happens, renumbers what is beside it, and does not always allow the opposite. | `unavailable`. Reason `config_entry_not_compensated`. |
 | Add a schema definition (an attribute type or object class) | Removes it, naming the value as the server stored it. | `partial`, always. Reason `definition_may_be_in_use`: entries may have come to use it, Alder does not search for them, and they are not recovered. |
 | Change a schema definition | Puts the earlier definition back, the same way the change was written: by removing the new one and adding the old one, or, where the change replaced it in place by adding alone, by adding the old one alone. | `partial`, always. Reason `definition_may_be_in_use`. |
@@ -154,6 +154,25 @@ what is stored:
   either. 389 DS refuses to remove a definition in use, and the compensation
   then fails at apply like any refused change. A server that accepts it
   leaves those entries holding values the schema no longer describes.
+- **Access rules.** `olcAccess`, and an `aci` in the configuration tree, are
+  put back like any other setting: the whole list as the server held it,
+  first-match order and positions included. The compensation is planned like
+  the change was, so it carries the same lockout warning, and the
+  expectation refuses it if anything has touched the rules since. If the
+  change left the bind unable to write them, the compensation fails like any
+  refused write, and the fix is on the server. `aci` is exempt from the
+  server-owned test here: 389 DS declares it directoryOperation, and the
+  change being undone wrote it.
+
+  What is put back is what the configuration identity could read. A server
+  can hide one rule and show the next -- value-level access control on the
+  rules themselves -- and Alder cannot tell a list read in part from a
+  whole one, so such a compensation would drop what it did not see. When it
+  read none at all, before the change or after one that left rules, it does
+  not guess: the attribute is not compensated, with reason
+  `hidden_attributes_unknown`. A compensation that restores access rules is
+  never merged with another modification of the same entry and runs where
+  its step falls, and its expectation compares the rules byte for byte.
 
 Nothing here asks which server it is talking to. Which entries hold schema is
 what the server announced when the session connected, and the values say
@@ -252,9 +271,10 @@ you. If the directory has moved on, deciding what the entry should be is yours.
 
   No hash is kept either: a reusable hash of a secret would be an offline
   guessing oracle.
-- **No access rule is written.** A change to `olcAccess` or `aci` in the
-  configuration tree is recorded by name and not compensated, and its rules
-  are not carried.
+- **No access rule is authored.** A change to `olcAccess` or `aci` in the
+  configuration tree is compensated with the rules the server held before
+  it, and the bundle carries those rules and the ones the change left. Alder
+  writes no rule of its own: what goes back is what was read.
 - **Untrusted input.** A bundle is read as if anyone could have edited the file.
   - `POST /recovery/inspect` refuses:
     - an unknown field;
@@ -304,6 +324,12 @@ predates them -- as `recovery_invalid`, naming the unknown reason or field --
 because a reader refuses what it does not know rather than half-reading it. A
 bundle that uses none of them -- data changes, or a setting compensated
 exactly -- is read by an earlier release too, and planned the same way.
+
+Since 1.39 a configuration-tree access rule is compensated like any other
+setting, and `access_rule_not_written` is no longer produced. It stays a
+known code, so a bundle 1.38 wrote still reads, `partial` as it was: nothing
+is migrated, and only bundles written from 1.39 on carry the rules. The
+compensation uses no new field.
 
 ```json
 {

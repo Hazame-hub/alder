@@ -701,8 +701,9 @@ A plan can be saved and applied later
 - **A saved plan can be signed.** `alder apply --plan` and `alder project
   apply --plan` read an `alder-signed` envelope whose payload is an
   `alder-plan`, and gain `--trusted-keys` (never read from the environment).
-  Without that flag an unsigned plan applies exactly as before; a signature
-  that does not match is refused (exit 8). With `--json`, the apply document
+  Without that flag an unsigned plan applies exactly as before, and a signed
+  one with its signature unchecked; with it, a signature by a named key that
+  does not match is refused (exit 8). With `--json`, the apply document
   gains an optional `signature`. A release before this one refuses a signed
   plan as a file it does not read; keep the unsigned file for it. The web
   interface refuses a signed plan and names the command that checks it.
@@ -720,6 +721,20 @@ A session can hold a read-only reference server
   `DiffSideSummary.server`, `ComparedEntry.server`.
 - **`--max-sessions` counts directory connections**, so a reference takes a
   place. A deployment that attaches no reference sees no difference.
+
+A recovery bundle compensates a configuration-tree access rule
+([proposals/access-rules-in-recovery.md](proposals/access-rules-in-recovery.md)):
+
+- **`access_rule_not_written` is no longer produced.** It stays in
+  `RecoveryReasonCode`, and a bundle 1.38 wrote with it reads and plans as
+  it did. Where 1.38 said `partial` or `unavailable` for a change to
+  `olcAccess`, or to an `aci` in the configuration tree, 1.39 says `exact`,
+  in a plan's assessment and in the bundle.
+- **A configuration step may say `hidden_attributes_unknown`**, an existing
+  code, when the rules could not be read before or after the change.
+- **No API or format change.** The compensation is a replace with an
+  expectation, as for any other setting, so a 1.38 release reads a bundle
+  1.39 wrote.
 
 ---
 

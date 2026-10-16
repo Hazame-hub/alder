@@ -154,6 +154,18 @@ if ! ldapmodify -x -H "$DS389_URI" -D "$DM_DN" -w "$DM_PW" -f "$SCHEMA_DIR/acces
 	fi
 fi
 
+# One inert access rule on 389 DS's cn=config, so the configuration tree holds
+# a rule for the recovery case to change and put back, as OpenLDAP's does.
+log "applying the 389 DS configuration-tree access rule"
+if ! ldapmodify -x -H "$DS389_URI" -D "$DM_DN" -w "$DM_PW" -f "$SCHEMA_DIR/config-access.ldif" >/tmp/configaccess.log 2>&1; then
+	if grep -qi 'Type or value exists' /tmp/configaccess.log; then
+		log "  (already applied)"
+	else
+		cat /tmp/configaccess.log >&2
+		exit 1
+	fi
+fi
+
 # Password policy, each server in its own mechanism. OpenLDAP reads a policy
 # from an entry in the data tree and names a default in slapd.conf; 389 DS
 # keeps the global policy in cn=config and a per-entry one in a subentry.

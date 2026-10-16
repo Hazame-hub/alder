@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -47,6 +49,7 @@ func stubSchema(s *stub) {
 		{"name": "sn", "oid": "2.5.4.4", "syntax": dirString},
 		{"name": "description", "oid": "2.5.4.13", "syntax": dirString},
 		{"name": "manager", "oid": "0.9.2342.19200300.100.1.10", "syntax": dnSyntax},
+		{"name": "labeledURI", "oid": "1.3.6.1.4.1.250.1.57", "syntax": dirString},
 	}
 	body, _ := json.Marshal(map[string]any{"subschemaDn": "cn=Subschema", "counts": map[string]any{}, "attributeTypes": types})
 	s.reply("GET /api/v1/schema", http.StatusOK, string(body))
@@ -109,6 +112,47 @@ func TestAProjectPlanForAnEnvironmentWithItsOwnSuffix(t *testing.T) {
 	}
 	if sub := doc["unmanaged"].([]any)[0].(map[string]any); sub["base"] != "ou=people,dc=dev,dc=alder,dc=test" {
 		t.Errorf("unmanaged[0].base = %v", sub["base"])
+	}
+}
+
+// A DN inside a value of another syntax, and a DN-syntax value that is no
+// DN, are left as written and said, with why.
+func TestAProjectPlanSaysWhatTheRebaseLeftInsideValues(t *testing.T) {
+	s := newStub(t)
+	stubSchema(s)
+	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
+	s.reply("POST /api/v1/snapshots/capture", http.StatusOK, snapshotOf("uid=alice,ou=people,dc=dev,dc=alder,dc=test"))
+	dir := writeSuffixProject(t, s)
+	if err := os.WriteFile(filepath.Join(dir, "people", "alice.ldif"), []byte(projectAlice+
+		"manager: not a DN\n"+
+		"labeledURI: ldap:///ou=people,dc=alder,dc=test??sub?(uid=*)\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev")
+	expectCode(t, r, ExitOK)
+	for _, want := range []string{
+		"alder: labeledURI of uid=alice,ou=people,dc=dev,dc=alder,dc=test holds a DN below dc=alder,dc=test " +
+			"inside its text and was left as written",
+		"alder: manager of uid=alice,ou=people,dc=dev,dc=alder,dc=test has DN syntax but does not parse as a DN " +
+			"and was left as written",
+	} {
+		if !strings.Contains(r.stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, r.stderr)
+		}
+	}
+
+	r = s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--json")
+	expectCode(t, r, ExitOK)
+	rebase, _ := oneJSONDocument(t, r.stdout)["rebase"].(map[string]any)
+	left, _ := rebase["leftAsWritten"].([]any)
+	reasons := map[any]any{}
+	for _, l := range left {
+		m, _ := l.(map[string]any)
+		reasons[m["attribute"]] = m["reason"]
+	}
+	if len(left) != 2 || reasons["manager"] != "not_a_dn" || reasons["labeledURI"] != "contains_dn" {
+		t.Errorf("leftAsWritten = %v", left)
 	}
 }
 

@@ -54,8 +54,9 @@ Added since, each on the record in `docs/DECISIONS.md`:
   has proved, creating OpenLDAP overlays whose module is already loaded,
   and switching 389 DS plugins on or off. Nothing else.
 - Access rules are **read** and shown against an entry, each server's in
-  its own words. They are not evaluated, translated or written: the editor
-  shows `aci` and `olcAccess` read-only.
+  its own words. Alder does not evaluate, translate or author them: the
+  editor shows `aci` and `olcAccess` read-only. A change or recovery bundle
+  that carries one is applied like any other change, with a warning.
 - The Alder project format (2026-10-10): a specification first, no code
   until it has been reviewed.
 - A second, read-only connection within a session, for comparison
@@ -66,7 +67,7 @@ Added since, each on the record in `docs/DECISIONS.md`:
 
 Not built, not scaffolded, no configuration keys for them:
 
-- Writing access rules, and configuration-tree editing beyond the list
+- Authoring access rules, and configuration-tree editing beyond the list
   above.
 - Any multi-user concept: roles, delegation, approval workflows.
 - OIDC, SAML, single sign-on.

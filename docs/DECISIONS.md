@@ -6275,6 +6275,68 @@ together:
   changes.** A mutation's result outlived the detach, and was shown under
   the next reference's host.
 
+### 2026-10-16 — access rules in recovery: write what a reviewed change says, never author one
+
+Decided on `docs/proposals/access-rules-in-recovery.md`, which took up the
+inconsistency the 2026-10-13 schema and configuration recovery entry left
+for its own decision: the change path applies an access rule a reviewed
+change carries, and the bundle for that change then declined to undo it
+with `access_rule_not_written`. Option B, with the proposal's answers to its
+open questions.
+
+- **A configuration-tree access rule is compensated like any other
+  setting.** `olcAccess`, and `aci` in the configuration tree, are replaced
+  with the values the server stored before, positions (`{n}`) and spelling
+  included, under an expectation of what the change left
+  (`internal/recovery/schemaconfig.go`). On 389 DS `aci` is declared USAGE
+  directoryOperation, which recovery otherwise takes as server-owned; an
+  access rule is exempt from that test, since the change being undone wrote
+  it.
+- **The same warning.** The compensation is planned through `POST /plan`
+  like the change was, so it carries the lockout warning from
+  `internal/api/configwarn.go` without a mechanism of its own.
+- **`access_rule_not_written` stays in the enum and is no longer
+  produced.** Bundles 1.38 wrote keep it and stay `partial`; nothing is
+  migrated. No API shape or format change.
+- **The charter's sentence is corrected, not widened**: Alder does not
+  evaluate, translate or author access rules, and a change or recovery
+  bundle that carries one is applied like any other change, with a
+  warning. The out-of-scope line says "authoring" for the same reason.
+- **An empty read is not taken for no rules.** A bind may be allowed to
+  write rules it cannot read. When none were read before the change, or none
+  after a change that left some, the attribute is not compensated and the
+  step says `hidden_attributes_unknown`, rather than deleting the whole list
+  or applying with no expectation. A list the bind can read only in part
+  cannot be detected, and the compensation puts back what was read.
+- **Put back where its step falls.** A compensation that restores access
+  rules is never merged with another modification of the same entry, so a
+  rule that grants what a compensation in between needs is not revoked
+  first. An expectation compares access rules byte for byte, whatever the
+  attribute's equality rule, so a rule changed in case alone is drift, not
+  something to write over.
+- **A conformance case on both servers**, whose first run is CI's: it puts
+  one inert rule first, applies the bundle, and reads the rules back
+  identical, positions included -- `olcAccess` on OpenLDAP's database entry,
+  `aci` on 389 DS's `cn=config`, named in the suite's server table. 389 DS
+  holds no `aci` on `cn=config` by default, so the harness seeds one inert
+  rule there (`test/compose/ds389/config-access.ldif`), and the case fails
+  rather than skips when it reads none.
+- **The configuration warning no longer says "there is no undo"**: a change
+  there is not a transaction, and a bundle puts it back only through another
+  write the server must accept.
+
+Why: Alder already wrote a reviewed rule on every path but this one, and the
+change a bundle exists for is the one that went wrong. An access rule is the
+change most likely to go wrong in a way that matters, so it should get an
+undo that is checked like every other: refused by its expectation if the
+rules have moved since, and shown in full before anything is written.
+
+Left alone: a data-tree `aci`. The proposal's table says it is compensated
+value by value; read from the code, that holds where the schema declares
+`aci` a user attribute, and 389 DS declares it directoryOperation, so there
+a data-tree `aci` change is reported `server_owned_attribute`. Not changed
+here, and worth its own look.
+
 ### 2026-10-16 — projects in the web interface: a dropped folder, a zip, a project further down
 
 Three of the later slices of the web-projects specification. The fourth, the
@@ -6393,6 +6455,39 @@ The saved-plans proposal listed this as a later item: loading a plan
   regard to case as the command line compares it. The decision to keep the
   basket unlocked was confirmed on 2026-10-16.
 
+### 2026-10-16 — a rebase says the DNs it leaves inside values
+
+An environment's suffix moved every entry name and every DN-syntax value,
+and named a value of another syntax only when the whole of it read as a DN
+below the project's suffix. A DN inside a value -- `memberURL:
+ldap:///ou=people,…??sub?(uid=*)`, a `labeledURI`, an `aci` with
+`groupdn="ldap:///cn=admins,…"` -- was left as written and not said, so the
+plan reported nothing while, on a directory shared by both environments, the
+development group and ACI went on naming production's entries. What was
+settled:
+
+- **Said, not rewritten.** Such a value is listed in `leftAsWritten` with
+  the reason `contains_dn`, on standard error and in the JSON. Rewriting
+  text inside a URL or an ACI means parsing formats the schema does not
+  describe, and a wrong guess would change what a reviewed ACI grants; the
+  rebase rewrites only what the schema says is a name.
+- **Found by the suffix where a DN ends.** The suffix is looked for after a
+  comma, a slash (`ldap:///`, `ldaps://`, `ldap://host:389/`), a quote,
+  `=`, `(`, a line break or at the start of the value, not followed by more
+  of a value or another RDN (`dc=testing`, `dc=test.example`, `…,dc=com` do
+  not match), ignoring ASCII case and spaces around commas and `=`. A value
+  that is not UTF-8 is read too, since folding is ASCII. Percent-encoded
+  URLs, escaped commas and types written as OIDs are not recognised. One pass
+  to fold the value and one comparison for each place the suffix appears:
+  linear in the value for a suffix of usual length, value times suffix at
+  worst. The rebase runs on the command line only, on the user's own files.
+- **A DN-syntax value that is no DN is said too** (`not_a_dn`). It was sent
+  as written, for the directory to judge, and that stays; it was silent.
+- **`reason` is added to each `leftAsWritten` object**: `reads_as_dn`,
+  `contains_dn` or `not_a_dn`. One per entry, attribute and reason. A saved
+  plan records only the rebase's `from` and `to`, so its format does not
+  change, and neither does the plan or the exit status.
+
 ### 2026-10-16 — saved plans: bound to the project, read before shown, keys exact
 
 An audit of saved plans (#236, #243) found four gaps, fixed together:
@@ -6439,6 +6534,7 @@ result depends on their order; and references are compared as none where an
 item has none and both searches ran to the end. Binding guarantees nothing
 is written that the files do not say. It does not stop a file from leaving
 changes out; signing is what proves a file is the one reviewed.
+
 
 ### 2026-10-16 — a saved plan can be signed, and an apply can require it
 
