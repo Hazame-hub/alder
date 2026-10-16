@@ -165,6 +165,33 @@ func TestAReferenceCountsAgainstTheSessionLimit(t *testing.T) {
 	}
 }
 
+// Connecting again replaces the browser's session and closes its reference,
+// so at the limit those two connections are about to be freed: the new
+// session takes their place instead of being refused.
+func TestReconnectingAtTheLimitReplacesTheSessionAndItsReference(t *testing.T) {
+	rig, driver := referenceRig(t, Config{MaxSessions: 2})
+	if res := rig.attach(t); res.Status != http.StatusCreated {
+		t.Fatalf("attaching: %d\n%s", res.Status, res.Body)
+	}
+	res := rig.withCookie(t, http.MethodPost, "/api/v1/session", sessionBody, rig.cookie)
+	if res.Status != http.StatusCreated {
+		t.Fatalf("reconnecting from the same browser answered %d, want 201\n%s", res.Status, res.Body)
+	}
+	if got := rig.server.sessions.Connections(); got != 1 {
+		t.Errorf("connections = %d after reconnecting, want 1", got)
+	}
+	if n := driver.closed.Load(); n != 1 {
+		t.Errorf("the replaced session's reference was closed %d times, want 1", n)
+	}
+	// A browser with no session still finds the store as full as it is.
+	if res := rig.anonymousJSON(t, http.MethodPost, "/api/v1/session", sessionBody); res.Status != http.StatusCreated {
+		t.Fatalf("a second session with one place left: %d\n%s", res.Status, res.Body)
+	}
+	if res := rig.anonymousJSON(t, http.MethodPost, "/api/v1/session", sessionBody); res.Status != http.StatusServiceUnavailable {
+		t.Errorf("a third session against a limit of two answered %d, want 503", res.Status)
+	}
+}
+
 // The reference never outlives its session.
 func TestDisconnectingClosesTheReference(t *testing.T) {
 	rig, driver := referenceRig(t, Config{})
