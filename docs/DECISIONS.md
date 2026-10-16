@@ -6392,3 +6392,37 @@ The saved-plans proposal listed this as a later item: loading a plan
   one is refused in a session without it, and the reverse, compared without
   regard to case as the command line compares it. The decision to keep the
   basket unlocked was confirmed on 2026-10-16.
+
+### 2026-10-16 — recovery: credentials found by value, and definitions are not settings
+
+Two ways a configuration step was marked `exact` when it should not have been.
+
+- **Four secrets were missing from the sensitive table**: `olcDbIDAssertBind`
+  and `olcDbACLBind` (back-ldap, back-meta, asyncmeta; both carry
+  `credentials=`), `olcDbACLPasswd`, and 389 DS's
+  `nsDS5ReplicaBootstrapCredentials`. A recovery bundle copied the old
+  password into the compensation and the new one into the expectation. They
+  are added to `sensitiveAttrs` and to `neverReleased` -- each is the
+  password in the clear, never a digest -- and to the per-server sets in
+  `internal/config`, so the entry view, exports, snapshots and recovery
+  agree. No OID was added: none was checked against a published source.
+- **A table alone is the shape of this bug**, which is the third time it has
+  happened (`olcSyncrepl`, then these). So the configuration branch of
+  recovery also refuses any attribute whose value -- as written, or as the
+  server held it before or after -- matches `(?i)\bcredentials=`, with the
+  same `sensitive_value_not_captured`. The next back end's bind setting is
+  caught by what its value says, not by someone remembering to list it. Kept
+  to recovery: the entry view and exports still go by name, because
+  withholding by value there would hide a value the operator reads to know
+  what is set, and the table is where that is decided.
+- **A definition is not a setting.** Schema targets are found once, at
+  connect, by a one-level search, so `cn=schema,cn=config` itself and a
+  collection created later are classed as configuration, and a definition
+  written there was compensated by putting the whole attribute back -- a
+  `delete olcAttributeTypes` that removes every definition the entry holds.
+  The configuration branch now refuses the definition attributes by name, as
+  it refuses access rules, with `schema_or_config_not_supported`. Routing
+  them to the schema branch instead was rejected for now: it would mean
+  classing targets by DN shape (`cn=schema,<configContext>`), which
+  `targetKind` deliberately does not do, or re-reading the targets per plan.
+  Refusing is the smaller change, and it is never wrong.

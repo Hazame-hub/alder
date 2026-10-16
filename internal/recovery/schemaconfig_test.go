@@ -405,3 +405,66 @@ func TestDecodeRefusesABadExpectedDefinition(t *testing.T) {
 		}
 	}
 }
+
+// --- what a configuration step must never carry --------------------------------
+
+const proxyDB = "olcDatabase={2}ldap,cn=config"
+
+func TestConfigProxyAndReplicationCredentialsAreNotCaptured(t *testing.T) {
+	// back-ldap, back-meta and asyncmeta carry the bind they make to the
+	// remote server inside an ordinary configuration value; 389 DS keeps the
+	// bootstrap bind of an agreement in an attribute of its own.
+	for _, tc := range []struct{ dn, name, before, after string }{
+		{proxyDB, "olcDbIDAssertBind",
+			"bindmethod=simple binddn=cn=proxy,dc=alder,dc=test credentials=" + secret,
+			"bindmethod=simple binddn=cn=proxy,dc=alder,dc=test credentials=new-" + secret},
+		{proxyDB, "olcDbACLBind",
+			"bindmethod=simple binddn=cn=acl,dc=alder,dc=test credentials=" + secret,
+			"bindmethod=simple binddn=cn=acl,dc=alder,dc=test credentials=new-" + secret},
+		{proxyDB, "olcDbACLPasswd", secret, "new-" + secret},
+		{"cn=to-b,cn=replica,cn=dc\\3Dalder\\2Cdc\\3Dtest,cn=mapping tree,cn=config",
+			"nsDS5ReplicaBootstrapCredentials", secret, "new-" + secret},
+		// Not listed anywhere: caught by its value.
+		{proxyDB, "olcDbFutureBind",
+			"bindmethod=simple binddn=cn=x credentials=" + secret,
+			"bindmethod=simple binddn=cn=x Credentials=\"new-" + secret + "\""},
+	} {
+		pre := entry(t, tc.dn, []string{tc.name, tc.before}, []string{"olcDbTimeout", "5"})
+		post := entry(t, tc.dn, []string{tc.name, tc.after}, []string{"olcDbTimeout", "9"})
+		record := modify(t, tc.dn, mod(directory.ModReplace, tc.name, tc.after), mod(directory.ModReplace, "olcDbTimeout", "9"))
+
+		step := Derive(0, record, pre, post, configTarget(t))
+		if step.Recoverability != Partial || reasonCodes(step)[ReasonSensitiveNotCaptured] != tc.name {
+			t.Errorf("%s: step %+v, want partial with the secret named", tc.name, step)
+		}
+		if out := jsonOf(t, step); strings.Contains(out, secret) {
+			t.Errorf("%s: a credential reached the step: %s", tc.name, out)
+		}
+		got, reasons := Assess(modify(t, tc.dn, mod(directory.ModReplace, tc.name, tc.after)), configTarget(t))
+		if got != Unavailable || len(reasons) != 1 || reasons[0].Code != ReasonSensitiveNotCaptured {
+			t.Errorf("%s: assessed %s %v, want unavailable for a secret", tc.name, got, reasons)
+		}
+	}
+}
+
+func TestConfigDefinitionsAreNeverPutBackAsSettings(t *testing.T) {
+	// cn=schema,cn=config itself, or a collection created after the session
+	// connected, is not a listed schema target and arrives here as
+	// configuration. A definition is not a setting: removing the attribute
+	// would remove every definition it holds.
+	const schemaRoot = "cn=schema,cn=config"
+	for _, name := range []string{"olcAttributeTypes", "olcObjectClasses", "attributeTypes", "objectClasses",
+		"olcDitContentRules", "olcLdapSyntaxes"} {
+		record := modify(t, schemaRoot, mod(directory.ModAdd, name, probeType))
+		pre := entry(t, schemaRoot, []string{"cn", "schema"})
+		post := entry(t, schemaRoot, []string{"cn", "schema"}, []string{name, "{0}" + probeType})
+
+		step := Derive(0, record, pre, post, configTarget(t))
+		if step.Recoverability != Unavailable || reasonCodes(step)[ReasonSchemaOrConfig] != name || len(step.Compensation) != 0 {
+			t.Errorf("%s: step %+v, want unavailable and nothing written", name, step)
+		}
+		if got, reasons := Assess(record, configTarget(t)); got != Unavailable || len(reasons) != 1 || reasons[0].Code != ReasonSchemaOrConfig {
+			t.Errorf("%s: assessed %s %v, want unavailable", name, got, reasons)
+		}
+	}
+}

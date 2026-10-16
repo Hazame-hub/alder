@@ -693,6 +693,17 @@ A plan can be saved and applied later
 - **No API change.** A saved plan is planned and applied through
   `POST /plan` and `POST /changeset/apply` as they are.
 
+Four more configuration attributes are secrets, and are withheld from the entry
+view and every export as `olcSyncrepl` is: a proxy back end's
+`olcDbIDAssertBind`, `olcDbACLBind` and `olcDbACLPasswd`, and 389 DS's
+`nsDS5ReplicaBootstrapCredentials`. They hold a password in the clear, and a
+recovery bundle copied them. **This changes what a read and an export
+contain**, as the same fix did for `olcSyncrepl`. A recovery step that
+touches one, or any setting whose value carries `credentials=`, now says
+`sensitive_value_not_captured`, and a definition written to a configuration
+entry that is not a schema target says `schema_or_config_not_supported`;
+both were `exact` before. Neither is a new reason code.
+
 A session can hold a read-only reference server
 ([proposals/second-server.md](proposals/second-server.md)). Only additions:
 

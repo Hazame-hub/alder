@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/hazame-hub/alder/internal/directory"
@@ -53,7 +54,7 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 	change := Change{DN: record.DN.String(), Type: string(directory.ChangeModify), Expect: &Expect{}}
 	skipped := 0
 	for _, t := range order {
-		if code, owned := notCompensated(sch, t.name); owned {
+		if code, owned := notCompensated(sch, t, pre, post); owned {
 			step.Reasons = append(step.Reasons, Reason{Code: code, Attribute: t.name})
 			skipped++
 			continue
@@ -79,18 +80,70 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 }
 
 // notCompensated says why a configuration attribute is left alone, if it is.
-func notCompensated(sch *schema.Schema, name string) (ReasonCode, bool) {
+func notCompensated(sch *schema.Schema, t *touchedAttribute, pre, post *directory.Entry) (ReasonCode, bool) {
+	name := t.name
 	switch {
-	case schema.IsSensitive(name):
+	case schema.IsSensitive(name) || carriesCredentials(t, pre, post):
 		// olcRootPW, nsslapd-rootpw, olcSyncrepl with its credentials: the
 		// name is recorded, the value never read into the bundle.
 		return ReasonSensitiveNotCaptured, true
+	case definitionAttribute(name):
+		// A definition written to a configuration entry that is not a
+		// listed schema target -- cn=schema,cn=config itself, or a
+		// collection created after the session connected. It is not a
+		// setting: putting the attribute back whole would remove or rewrite
+		// every definition it holds, and the definitions entries may now use.
+		return ReasonSchemaOrConfig, true
 	case accessRule(name):
 		return ReasonAccessRuleNotWritten, true
 	case serverOwned(sch, name):
 		return ReasonServerOwnedAttribute, true
 	}
 	return "", false
+}
+
+// credentialsField is how OpenLDAP writes a bind password inside a longer
+// configuration value: olcSyncrepl, olcDbIDAssertBind, olcDbACLBind, and
+// whatever the next back end adds.
+var credentialsField = regexp.MustCompile(`(?i)\bcredentials=`)
+
+// carriesCredentials reports whether any value of the attribute -- as the
+// change wrote it, or as the server held it before or after -- carries a bind
+// password. The sensitive table names the attributes known to; this catches
+// the one it does not, by what the value says it is.
+func carriesCredentials(t *touchedAttribute, pre, post *directory.Entry) bool {
+	var values [][]byte
+	for _, m := range t.mods {
+		values = append(values, m.Values...)
+	}
+	for _, e := range []*directory.Entry{pre, post} {
+		if e != nil {
+			values = append(values, e.Get(t.name)...)
+		}
+	}
+	for _, v := range values {
+		if credentialsField.Match(v) {
+			return true
+		}
+	}
+	return false
+}
+
+// definitionAttribute reports whether an attribute carries schema
+// definitions, under either arrangement a server keeps its schema in.
+//
+// By name, as accessRule is: this is what Alder chooses not to write as a
+// setting, not a guess at what a server can do. The schema branch, which
+// asks the server which attributes it writes definitions to, is where these
+// are compensated.
+func definitionAttribute(name string) bool {
+	switch strings.ToLower(schema.BaseName(name)) {
+	case "attributetypes", "objectclasses", "ditcontentrules", "ditstructurerules", "nameforms",
+		"ldapsyntaxes", "matchingrules", "matchingruleuse",
+		"olcattributetypes", "olcobjectclasses", "olcditcontentrules", "olcldapsyntaxes":
+		return true
+	}
+	return false
 }
 
 // accessRule reports whether an attribute carries access rules.

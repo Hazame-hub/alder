@@ -103,7 +103,8 @@ under its former name holding the same user data, still with its own identity
 | Rename or move an entry | Renames or moves it back. The new naming value is removed on the way back only if the entry did not already hold it. | `exact` |
 | Set a password | None. The previous password is never captured. | `unavailable`. Reason `password_not_captured`. |
 | Modify a setting in the configuration tree (`olc*`, `nsslapd-*`, any attribute of an entry there) | Replaces each attribute the change touched with the values the server stored before, in the order and the spelling it stored them, positions (`{n}`) included; removes one that had no value. The expectation is the attribute as the server stored it after the change. | `exact` |
-| Modify a sensitive setting (`olcRootPW`, `nsslapd-rootpw`, `olcSyncrepl`, which carries a credential, and the rest of the deny list) | None for that attribute: its name is recorded, never its value. | `partial`, or `unavailable` if nothing else was touched. Reason `sensitive_value_not_captured`. |
+| Modify a sensitive setting (`olcRootPW`, `nsslapd-rootpw`, `olcSyncrepl`, `olcDbIDAssertBind` and `olcDbACLBind`, which carry a credential, `olcDbACLPasswd`, `nsDS5ReplicaBootstrapCredentials`, and the rest of the deny list), or any setting whose value, before, after or as written, carries a `credentials=` field | None for that attribute: its name is recorded, never its value. | `partial`, or `unavailable` if nothing else was touched. Reason `sensitive_value_not_captured`. |
+| Write schema definitions (`olcAttributeTypes`, `olcObjectClasses`, `attributeTypes`, `objectClasses` and the other definition attributes) to a configuration entry that is not a schema target the session found when it connected -- `cn=schema,cn=config` itself, or a collection created since | None for that attribute. A definition is not a setting, and putting the attribute back whole would remove or rewrite every definition it holds. | `partial`, or `unavailable` if nothing else was touched. Reason `schema_or_config_not_supported`. |
 | Modify an access rule (`olcAccess`, `aci`) in the configuration tree | None for that attribute. Alder reads access rules and never writes them, and a compensation is a write. | `partial`, or `unavailable` if nothing else was touched. Reason `access_rule_not_written`. |
 | Create, remove or rename an entry in the configuration tree (an overlay, a 389 DS index) | None. The server acts on it as it happens, renumbers what is beside it, and does not always allow the opposite. | `unavailable`. Reason `config_entry_not_compensated`. |
 | Add a schema definition (an attribute type or object class) | Removes it, naming the value as the server stored it. | `partial`, always. Reason `definition_may_be_in_use`: entries may have come to use it, Alder does not search for them, and they are not recovered. |
@@ -246,7 +247,8 @@ you. If the directory has moved on, deciding what the entry should be is yours.
     and the step says so.
   - A password change records that it happened.
   - A sensitive setting in the configuration -- `olcRootPW`, `nsslapd-rootpw`,
-    an `olcSyncrepl` value with its credential -- records its name only.
+    an `olcSyncrepl`, `olcDbIDAssertBind` or `olcDbACLBind` value with its
+    credential, or any value carrying `credentials=` -- records its name only.
 
   No hash is kept either: a reusable hash of a secret would be an offline
   guessing oracle.
