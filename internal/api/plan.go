@@ -160,6 +160,15 @@ func (s *Server) planProposals(ctx context.Context, sess *session.Session, propo
 	return out, nil
 }
 
+// tooManyRecords refuses a document with more records than one plan covers.
+// POST /project/plan answers a project over the bound with the same words.
+func tooManyRecords(c *fiber.Ctx, records int) error {
+	return badRequest(c,
+		fmt.Sprintf("A plan covers at most %d changes, and this document has %d records.",
+			MaxChangesetChanges, records),
+		"The whole document is read and classified in one request, so it is bounded like a changeset.")
+}
+
 // parseLdifForPlan turns a document into proposals, writing the refusal and
 // returning false when it cannot.
 func parseLdifForPlan(c *fiber.Ctx, text string, mode *PlanLdifMode) ([]plan.Proposal, bool) {
@@ -189,10 +198,7 @@ func parseLdifForPlan(c *fiber.Ctx, text string, mode *PlanLdifMode) ([]plan.Pro
 		return nil, false
 	}
 	if len(records) > MaxChangesetChanges {
-		_ = badRequest(c,
-			fmt.Sprintf("A plan covers at most %d changes, and this document has %d records.",
-				MaxChangesetChanges, len(records)),
-			"The whole document is read and classified in one request, so it is bounded like a changeset.")
+		_ = tooManyRecords(c, len(records))
 		return nil, false
 	}
 	desired := mode != nil && *mode == PlanLdifModeDesired

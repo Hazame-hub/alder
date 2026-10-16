@@ -6604,3 +6604,36 @@ the envelope's keys are read exactly too.
 - **The browser refuses a signed plan** with the command that checks it.
   It holds no trusted keys, and unwrapping one unchecked would let a
   signature that was relied on go unverified.
+
+### 2026-10-16 — reading a project is bounded by its size
+
+POST /project/plan reads a project from the request, so what its files can
+make the reader do has to grow with them, not with their square. An audit
+found three ways it did not: an entry written N times was a problem for every
+pair of copies (3,000 copies, 168 KB, answered with 561 MB); a pattern written
+P times over F files was P×F problems; and N distinct entries under one parent
+were compared pairwise, an hour of CPU in 16 MiB.
+
+- **Entries are found by `dn.Key`**, a string two DNs share exactly when
+  `dn.Equal` says they are equal (types and values case-folded as
+  `strings.EqualFold` folds them, values space-folded, a multi-valued RDN's
+  assertions sorted, a hexstring kept apart), so a duplicate is one map
+  lookup, and is reported once, against its first description. The unmanaged
+  report and the overlap check between managed bases use the same key.
+- **A pattern repeated in a subtree is read once**, a file two of its
+  patterns match is listed once, and a file two subtrees claim is reported
+  once. A project lists at most 1,000 distinct patterns: each is a directory
+  read and matched in full, so patterns times files is the work.
+- **At most 100 problems are listed**, then one saying how many more; the
+  error still counts them all.
+- **A project over 2,000 entries is refused as it is read**, before any
+  record is compared: one plan covers no more, so it could never be planned.
+  The server answers it in POST /plan's words for the same document; the
+  client says so and exits 8, where it used to validate and then be refused.
+  Problems the files and alder.yaml already showed are listed with it, not
+  hidden behind it. `project fmt` makes no plan and reads any size.
+- **A wildcard pattern holds at most 256 bytes, and a path a request carries
+  4,096, with no name in it over 255** (PATH_MAX and NAME_MAX). `path.Match`
+  costs a pattern's length times a name's: one 120 KB pattern and name took
+  8 s. NewFS lists a file's directories by slicing its path and stops at the
+  first already listed, so a deep path is linear too.

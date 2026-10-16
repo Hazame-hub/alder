@@ -343,3 +343,48 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+// keyCorpus is DNs that Equal relates in every way it can: case, space,
+// escaping, the order of a multi-valued RDN, case folding beyond ASCII, a
+// hexstring against a string, and a value that is not UTF-8 once unescaped.
+var keyCorpus = []string{
+	"uid=alice,dc=test", "UID=Alice,DC=Test", "uid=alice, dc=test", "uid=alice,dc=other",
+	"cn=Alice Liddell,dc=test", "cn=alice   liddell,dc=test", `cn=\ Alice\ ,dc=test`, "cn=Alice,dc=test",
+	"cn=a+uid=b,dc=test", "uid=b+cn=a,dc=test", "UID=B+CN=A,dc=test", "cn=a+uid=c,dc=test",
+	"cn=a+cn=a,dc=test", "cn=a+cn=A,dc=test", "cn=a+cn=b,dc=test", "cn=b+cn=a,dc=test",
+	`cn=a\,b,dc=test`, `cn=a\2Cb,dc=test`, `cn=a\2cb,dc=test`, "cn=a,b=x,dc=test",
+	"cn=#4869,dc=test", "cn=#4869,DC=test", "cn=Hi,dc=test", `cn=\#4869,dc=test`,
+	"cn=k,dc=test", "cn=K,dc=test", "cn=K,dc=test", // KELVIN SIGN folds with k
+	"cn=σ,dc=test", "cn=Σ,dc=test", "cn=ς,dc=test", "cn=s,dc=test", "cn=ſ,dc=test",
+	`cn=\ff,dc=test`, `cn=\fe,dc=test`, "cn=�,dc=test", `cn=\ff\fe,dc=test`,
+	"2.5.4.3=Alice,dc=test", "cn=1:a,dc=test", "cn=1,dc=test", `cn=1\3aa,dc=test`,
+	"cn=,dc=test", "cn=a,dc=test,dc=x", "dc=test",
+}
+
+// Key is Equal as a map key: equal keys exactly for equal DNs, pair by pair.
+func TestKeyAgreesWithEqual(t *testing.T) {
+	for _, a := range keyCorpus {
+		for _, b := range keyCorpus {
+			da, db := dn.MustParse(a), dn.MustParse(b)
+			if got, want := da.Key() == db.Key(), da.Equal(db); got != want {
+				t.Errorf("%q and %q: keys equal %v, Equal %v", a, b, got, want)
+			}
+		}
+	}
+}
+
+func FuzzKey(f *testing.F) {
+	for i, a := range keyCorpus {
+		f.Add(a, keyCorpus[(i+1)%len(keyCorpus)])
+	}
+	f.Fuzz(func(t *testing.T, a, b string) {
+		da, errA := dn.ParseAllowEmpty(a)
+		db, errB := dn.ParseAllowEmpty(b)
+		if errA != nil || errB != nil {
+			return
+		}
+		if got, want := da.Key() == db.Key(), da.Equal(db); got != want {
+			t.Fatalf("%q and %q: keys equal %v, Equal %v", a, b, got, want)
+		}
+	})
+}

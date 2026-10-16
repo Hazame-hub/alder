@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/project"
 )
 
 // POST /project/plan, against a fake directory: the project is read by the
@@ -304,5 +305,66 @@ func TestAManagedBaseTheDirectoryLacksHasNothingUnmanaged(t *testing.T) {
 	u := decode[ProjectPlan](t, res).Unmanaged[0]
 	if u.Error != nil || len(u.Entries) != 0 || u.Entries == nil {
 		t.Errorf("unmanaged = %+v", u)
+	}
+}
+
+// A request's size bounds the answer's. One entry written three hundred
+// times was a problem for every pair of copies -- tens of thousands of
+// problems from a few kilobytes -- and is now one per copy, of which the
+// first hundred are listed.
+func TestAProjectsProblemsAreBoundedByItsSize(t *testing.T) {
+	rig := projectRig(t, Config{})
+	body := projectBody(t,
+		sentFile{Path: "alder.yaml", Content: projectYAML},
+		sentFile{Path: "people/a.ldif", Content: strings.Repeat(projectAlice+"\n", 300)})
+	res := rig.do(t, http.MethodPost, "/api/v1/project/plan", strings.NewReader(body))
+	if res.Status != http.StatusBadRequest {
+		t.Fatalf("status = %d\n%s", res.Status, res.Body)
+	}
+	got := decode[Error](t, res)
+	if got.Error != ErrorErrorProjectInvalid || got.Message != "the project is not valid: 299 problems" ||
+		got.Problems == nil || len(*got.Problems) != 101 {
+		t.Fatalf("error = %s: %s, %d bytes", got.Error, got.Message, len(res.Body))
+	}
+	if last := (*got.Problems)[100]; last.File != nil || !strings.HasPrefix(last.Message, "and 199 more problems") {
+		t.Errorf("the last problem = %+v", last)
+	}
+	if len(res.Body) > 32<<10 {
+		t.Errorf("a %d-byte request was answered with %d bytes", len(body), len(res.Body))
+	}
+
+	// A pattern repeated in alder.yaml over many files was a problem for
+	// every repetition and file; it is read once.
+	yaml := "version: 1\nmanaged:\n  - base: ou=people,dc=alder,dc=test\n    files:\n" +
+		strings.Repeat("      - people/*\n", 200) + projectYAML[strings.Index(projectYAML, "environments:"):]
+	files := []sentFile{{Path: "alder.yaml", Content: yaml}}
+	for i := 0; i < 50; i++ {
+		files = append(files, sentFile{Path: "people/" + strings.Repeat("x", i+1) + ".ldif",
+			Content: strings.Replace(projectAlice, "uid=alice", "uid=a"+strings.Repeat("x", i+1), 1)})
+	}
+	res = rig.do(t, http.MethodPost, "/api/v1/project/plan", strings.NewReader(projectBody(t, files...)))
+	if res.Status != http.StatusOK {
+		t.Fatalf("a repeated pattern: status = %d\n%.2000s", res.Status, res.Body)
+	}
+	if plan := decode[ProjectPlan](t, res); plan.Project.Entries != 50 {
+		t.Errorf("entries = %d, want each of the 50 files read once", plan.Project.Entries)
+	}
+}
+
+// A project larger than one plan is refused as POST /plan refuses its
+// document, in the same words, before its records are compared.
+func TestAProjectLargerThanOnePlanIsRefusedAsItsDocumentWouldBe(t *testing.T) {
+	if project.MaxRecords != MaxChangesetChanges {
+		t.Fatalf("project.MaxRecords = %d, MaxChangesetChanges = %d: a project is one plan", project.MaxRecords, MaxChangesetChanges)
+	}
+	rig := projectRig(t, Config{})
+	body := projectBody(t,
+		sentFile{Path: "alder.yaml", Content: projectYAML},
+		sentFile{Path: "people/a.ldif", Content: strings.Repeat(projectAlice+"\n", MaxChangesetChanges+1)})
+	res := rig.do(t, http.MethodPost, "/api/v1/project/plan", strings.NewReader(body))
+	got := decode[Error](t, res)
+	if res.Status != http.StatusBadRequest || got.Error != ErrorErrorBadRequest ||
+		got.Message != "A plan covers at most 2000 changes, and this document has 2001 records." {
+		t.Errorf("status %d: %s: %s", res.Status, got.Error, got.Message)
 	}
 }

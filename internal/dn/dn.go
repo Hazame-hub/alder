@@ -9,7 +9,10 @@ package dn
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -221,6 +224,74 @@ func (a AttributeTypeAndValue) equal(b AttributeTypeAndValue) bool {
 		return a.Value == b.Value
 	}
 	return strings.EqualFold(foldSpace(a.Value), foldSpace(b.Value))
+}
+
+// Key returns a string two DNs share exactly when Equal reports them equal,
+// for a map keyed by entry: finding a DN among many is then one lookup, not a
+// comparison with each. It is not a DN, and is never shown or parsed.
+//
+// It is Equal written as a value: a type and a string value are case-folded
+// as strings.EqualFold folds them, the value after foldSpace, and the
+// assertions of a multi-valued RDN are sorted, so their order does not count.
+// A hexstring value stays bytes and is marked as one, so it never meets a
+// string value. Every part is length-prefixed, so no value can end one part
+// and begin the next.
+func (d DN) Key() string {
+	var b strings.Builder
+	for _, r := range d {
+		writeKeyPart(&b, r.key())
+	}
+	return b.String()
+}
+
+func (r RDN) key() string {
+	parts := make([]string, len(r))
+	for i, a := range r {
+		parts[i] = a.key()
+	}
+	sort.Strings(parts)
+	var b strings.Builder
+	for _, p := range parts {
+		writeKeyPart(&b, p)
+	}
+	return b.String()
+}
+
+func (a AttributeTypeAndValue) key() string {
+	var b strings.Builder
+	writeKeyPart(&b, foldCase(a.Type))
+	if a.Hex {
+		b.WriteByte('#')
+		writeKeyPart(&b, a.Value)
+	} else {
+		b.WriteByte('=')
+		writeKeyPart(&b, foldCase(foldSpace(a.Value)))
+	}
+	return b.String()
+}
+
+func writeKeyPart(b *strings.Builder, s string) {
+	b.WriteString(strconv.Itoa(len(s)))
+	b.WriteByte(':')
+	b.WriteString(s)
+}
+
+// foldCase maps every rune to the smallest rune strings.EqualFold treats as
+// equal to it -- the least of its unicode.SimpleFold orbit -- so two strings
+// fold to the same text exactly when EqualFold reports them equal. Ranging
+// over the string reads a byte that is not UTF-8 as utf8.RuneError, as
+// EqualFold does.
+func foldCase(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		least := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			least = min(least, f)
+		}
+		b.WriteRune(least)
+	}
+	return b.String()
 }
 
 // HasSuffix reports whether d is at or below suffix in the tree. Every DN,

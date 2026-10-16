@@ -2,12 +2,15 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/hazame-hub/alder/internal/project"
 )
 
 const projectAlice = `dn: uid=alice,ou=people,dc=alder,dc=test
@@ -88,6 +91,23 @@ func TestProjectValidateListsProblemsAndExitsThree(t *testing.T) {
 	expectCode(t, r, ExitNotApplicable)
 	if !strings.Contains(r.stderr, "people/bob.ldif:1: uid=bob,ou=people,dc=alder,dc=test carries userPassword, a secret") {
 		t.Errorf("stderr does not locate the secret:\n%s", r.stderr)
+	}
+}
+
+// A project larger than one plan could never be planned, so validate says so
+// and plan asks the server nothing.
+func TestAProjectLargerThanOnePlanIsRefusedUnsent(t *testing.T) {
+	s := newStub(t)
+	dir := writeProject(t, s, map[string]string{"people/many.ldif": strings.Repeat(projectBob+"\n", 1999)})
+	for _, args := range [][]string{{"validate"}, {"plan", "--env", "dev"}} {
+		r := s.run(t, projectRun, append([]string{"project", "--project", dir}, args...)...)
+		expectCode(t, r, ExitFailed)
+		if !strings.Contains(r.stderr, "the project describes 2001 entries, and one plan covers at most 2000") {
+			t.Errorf("%s: stderr:\n%s", args[0], r.stderr)
+		}
+	}
+	if len(s.calls) != 0 {
+		t.Errorf("%d request(s) sent for a project too large to plan", len(s.calls))
 	}
 }
 
@@ -622,5 +642,23 @@ func TestAProjectsProblemsCannotDriveTheTerminal(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// fmt makes no plan, so a project over the plan's record limit still formats.
+func TestProjectFmtReadsAProjectTooLargeToPlan(t *testing.T) {
+	s := newStub(t)
+	var b strings.Builder
+	for i := 0; i <= project.MaxRecords; i++ {
+		fmt.Fprintf(&b, "dn: uid=u%d,ou=people,dc=alder,dc=test\nobjectClass: inetOrgPerson\nuid: u%d\ncn: u%d\nsn: u%d\n\n", i, i, i, i)
+	}
+	dir := writeProject(t, s, map[string]string{"people/many.ldif": b.String()})
+	r := s.run(t, projectRun, "project", "fmt", "--project", dir, "--check")
+	if r.code != ExitOK && r.code != ExitDifferences {
+		t.Fatalf("fmt --check exit %d:\n%s", r.code, r.stderr)
+	}
+	r = s.run(t, projectRun, "project", "validate", "--project", dir)
+	if !strings.Contains(r.stderr, "one plan covers at most") {
+		t.Errorf("validate did not refuse the size:\n%s", r.stderr)
 	}
 }

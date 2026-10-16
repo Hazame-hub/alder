@@ -478,12 +478,19 @@ func connectionFor(p *project.Project, e project.Environment, timeout time.Durat
 // into the client's exit statuses: a project that is not valid is 3, like a
 // change that cannot be applied as written; one that cannot be read is 8.
 func loadProject(env *Env, path string) (*project.Project, error) {
+	return loadProjectWith(env, path, project.Load)
+}
+
+// loadProjectWith is loadProject reading through load, for fmt, which reads
+// a project of any size.
+func loadProjectWith(env *Env, path string, load func(string) (*project.Project, error)) (*project.Project, error) {
 	file, err := project.Locate(path)
 	if err != nil {
 		return nil, failf("input", "cannot find the project: %s", safe(err.Error()))
 	}
-	p, err := project.Load(file)
+	p, err := load(file)
 	var invalid *project.Invalid
+	var tooLarge *project.TooLarge
 	switch {
 	case errors.As(err, &invalid):
 		// Every problem quotes the repository: a file name, a key, a DN, a
@@ -500,6 +507,10 @@ func loadProject(env *Env, path string) (*project.Project, error) {
 			Local:   "project_invalid",
 			Message: safe(invalid.Error()),
 		}
+	case errors.As(err, &tooLarge):
+		// The server would refuse its document; said before anything is
+		// asked of it.
+		return nil, failf("input", "%s", tooLarge.Error())
 	case err != nil:
 		return nil, failf("input", "cannot read the project: %s", safe(err.Error()))
 	}

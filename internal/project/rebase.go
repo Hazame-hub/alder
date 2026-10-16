@@ -409,22 +409,29 @@ func (p *Project) checkSuffixEntry(name string) []Problem {
 	if p.Suffix.IsEmpty() {
 		return nil
 	}
+	// Found once, not once for each environment: a second record of the same
+	// entry is already a problem of its own.
+	var entry dn.DN
+	for _, st := range p.Managed {
+		for _, r := range st.Records {
+			if entry == nil && r.DN.Equal(p.Suffix) {
+				entry = r.DN
+			}
+		}
+	}
+	if entry == nil {
+		return nil
+	}
 	var problems []Problem
 	for _, n := range sortedNames(p.Environments) {
 		to, err := dn.Parse(p.Environments[n].Suffix)
 		if err != nil || to.RDN().Equal(p.Suffix.RDN()) {
 			continue
 		}
-		for _, st := range p.Managed {
-			for _, r := range st.Records {
-				if r.DN.Equal(p.Suffix) {
-					problems = append(problems, Problem{File: name, Message: fmt.Sprintf(
-						"environments.%s: suffix %s would rename %s, which the project describes, to another RDN while "+
-							"its own %s value stays as written; manage the entries below the suffix, not the suffix entry",
-						n, to, r.DN, p.Suffix.RDN()[0].Type)})
-				}
-			}
-		}
+		problems = append(problems, Problem{File: name, Message: fmt.Sprintf(
+			"environments.%s: suffix %s would rename %s, which the project describes, to another RDN while "+
+				"its own %s value stays as written; manage the entries below the suffix, not the suffix entry",
+			n, to, entry, p.Suffix.RDN()[0].Type)})
 	}
 	return problems
 }
