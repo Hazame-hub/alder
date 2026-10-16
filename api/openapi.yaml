@@ -2458,6 +2458,11 @@ components:
         bindDn:
           type: string
           description: Empty for an anonymous bind.
+        configBindDn:
+          type: string
+          description: >-
+            The configuration identity the session binds as for the
+            configuration tree (1.39). Absent when the session has none.
         vendorName:
           type: string
           description: Display only. Nothing branches on it.

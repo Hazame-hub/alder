@@ -33,6 +33,8 @@ In the interface:
   the bundle for download after applying.
 - "Load recovery bundle" in the Changeset view previews a bundle and stages its
   changes for review.
+- "Load saved plan", next to it, does the same for a plan `alder plan --out`
+  saved: the same expectations, checked the same way.
 
 Over HTTP:
 - `recovery: true` on `POST /changeset/apply`, or `?recovery=true` on
