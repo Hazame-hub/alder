@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -195,6 +197,7 @@ func countSaved(plan apiclient.Plan) int {
 func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan apiclient.Plan,
 	path string, force bool, applyWith string) error {
 	var names attributeNames
+	var shown []apiclient.PlanItem
 	for _, item := range plan.Items {
 		if item.Record == nil || item.Baseline == nil {
 			continue
@@ -234,6 +237,7 @@ func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan 
 			return failf("plan_not_saved", "the plan was not saved to %s: %s", safe(path), err)
 		}
 		saved.Changes = append(saved.Changes, change)
+		shown = append(shown, item)
 	}
 	if len(saved.Changes) > 0 {
 		// Only a plan that no longer holds is stale (exit 4): a failure to
@@ -244,6 +248,15 @@ func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan 
 			return err
 		}
 		if err := holds(p, len(saved.Changes)); err != nil {
+			return &ExitError{Code: ExitStale, Local: "plan_not_saved",
+				Message: fmt.Sprintf("the plan was not saved to %s: %s. Plan again", safe(path), err)}
+		}
+		// The expectations were read after the plan was shown, so they hold
+		// whatever the directory held then. The saved changes' plan is of
+		// that state; if it is not what was shown, someone changed the
+		// directory in between, and saving would bind the reviewed plan to
+		// a state nobody reviewed.
+		if err := sameAsShown(shown, p); err != nil {
 			return &ExitError{Code: ExitStale, Local: "plan_not_saved",
 				Message: fmt.Sprintf("the plan was not saved to %s: %s. Plan again", safe(path), err)}
 		}
@@ -435,6 +448,58 @@ func planSaved(ctx context.Context, r *remote, changes []apiclient.ChangeRequest
 	return requestPlan(ctx, r, apiclient.PlanRequest{Changes: &sent, Reconcile: ptr(false)})
 }
 
+// sameAsShown compares the plan of the saved changes, made from the state
+// their expectations were read from, with the plan that was shown, item by
+// item: each change must still be the same action with the same effect on
+// group membership and the same references found to it. Those are what a
+// plan says about the directory as it found it; the rest of an item is the
+// change itself, which is the same record in both.
+func sameAsShown(shown []apiclient.PlanItem, fresh apiclient.Plan) error {
+	byIndex := make(map[int]apiclient.PlanItem, len(fresh.Items))
+	for _, item := range fresh.Items {
+		byIndex[item.Index] = item
+	}
+	for i, was := range shown {
+		now, ok := byIndex[i]
+		moved := func(what string) error {
+			return fmt.Errorf("%s changed after the plan was shown: %s", safe(was.Dn), what)
+		}
+		switch {
+		case !ok:
+			return moved("it is not in the plan of the saved changes")
+		case now.Action != was.Action:
+			return moved(fmt.Sprintf("it is now a %s, and was shown as a %s", now.Action, was.Action))
+		case membershipKey(now.Membership) != membershipKey(was.Membership):
+			return moved("what it does to group membership is not what was shown")
+		case now.References != nil && was.References != nil &&
+			(now.References.Count != was.References.Count || now.References.Dangling != was.References.Dangling):
+			return moved("the references found to it are not the ones shown")
+		}
+	}
+	return nil
+}
+
+// membershipKey is a plan item's membership changes as one comparable string,
+// whatever order the attributes and values are listed in.
+func membershipKey(changes *[]apiclient.PlanMembershipChange) string {
+	if changes == nil {
+		return ""
+	}
+	var parts []string
+	for _, c := range *changes {
+		if len(c.Gained) == 0 && len(c.Removed) == 0 {
+			continue
+		}
+		gained := append([]string{}, c.Gained...)
+		removed := append([]string{}, c.Removed...)
+		sort.Strings(gained)
+		sort.Strings(removed)
+		parts = append(parts, strings.ToLower(c.Attribute)+"\x00+"+strings.Join(gained, "\x00")+"\x00-"+strings.Join(removed, "\x00"))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "\x01")
+}
+
 // holds reports whether a plan of n saved changes applies each of them.
 func holds(p apiclient.Plan, n int) error {
 	if b := blocked(p); b > 0 {
@@ -465,6 +530,11 @@ func readSavedPlan(env *Env, path string) (*savedPlan, error) {
 func decodeSavedPlan(data []byte) (*savedPlan, error) {
 	if len(data) > maxRequestBytes {
 		return nil, fmt.Errorf("it is larger than %d bytes", maxRequestBytes)
+	}
+	// encoding/json matches a key in any case and keeps the last of two, so a
+	// file could say one thing to a person and another to this reader.
+	if err := exactKeys(data, reflect.TypeOf(savedPlan{})); err != nil {
+		return nil, err
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -501,7 +571,10 @@ func decodeSavedPlan(data []byte) (*savedPlan, error) {
 			return nil, fmt.Errorf("change %d carries a baseline, which no saved plan holds", i+1)
 		case c.Type == apiclient.ChangeRequestTypeAdd:
 		case c.Type == apiclient.ChangeRequestTypeModify:
-			if c.Expect == nil {
+			// An expectation that names nothing always holds. That every
+			// attribute changed is expected is checked once the schema can
+			// say which names are one attribute (expectsWhatItChanges).
+			if c.Expect == nil || len(c.Expect.Attributes) == 0 {
 				return nil, fmt.Errorf("change %d is a modification with no expectation", i+1)
 			}
 		case c.Type == apiclient.ChangeRequestTypeDelete && s.Input != nil:
@@ -659,6 +732,13 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 	}
 	defer r.close()
 
+	names, err := readAttributeNames(ctx, r)
+	if err != nil {
+		return err
+	}
+	if err := expectsWhatItChanges(o.plan, saved.Changes, names); err != nil {
+		return err
+	}
 	plan, raw, err := planSaved(ctx, r, saved.Changes)
 	if err != nil {
 		return err
