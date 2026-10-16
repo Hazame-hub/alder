@@ -1,0 +1,179 @@
+# Copy to .github/workflows/directory-apply.yml, beside directory.yml. It
+# assumes the project is in directory/; change PROJECT if not.
+#
+# Applies the repository to one environment, and applies exactly what a
+# person reviewed:
+#
+#   plan   saves the plan with --out and shows it in the run's summary.
+#   apply  waits for the environment's required reviewers, then applies that
+#          saved file with --plan, or refuses it.
+#
+# It runs only when someone starts it (Actions > directory-apply > Run
+# workflow) and picks an environment. It never runs on a pull request: it
+# holds a password, and a pull request can change alder.yaml, which names
+# where that password goes.
+#
+# The approval is GitHub's. In Settings > Environments, create one
+# environment per entry in alder.yaml, named the same, and give it required
+# reviewers, ideally with "Prevent self-review". Without that, apply runs as
+# soon as plan finishes and nobody reviews anything. Limit each environment's
+# deployment branches to the default branch too: the workflow can be started
+# from any branch, and the plan is made from that branch's alder.yaml.
+#
+# Store the passwords as repository secrets, ALDER_STAGING_BIND_PASSWORD and
+# ALDER_PRODUCTION_BIND_PASSWORD: the plan job has no environment, so it
+# cannot read an environment's secrets. The secret is chosen by name, so a
+# missing one is empty and the run fails to bind, rather than falling back to
+# the other environment's password.
+#
+# What the reviewer approves is the file, not the commit. The apply refuses
+# it (exit 3) if the project files, the host, the bind or the suffix differ
+# from what it was saved for, and refuses it whole (exit 4) if any change no
+# longer holds because the directory moved meanwhile. Nothing is written
+# then: run the workflow again and review the new plan.
+#
+# Both jobs must reach your Alder server and, through it, your directory.
+# Those are usually internal, which means a self-hosted runner.
+name: directory-apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to apply, as named in alder.yaml
+        type: choice
+        options: [staging, production]
+
+permissions:
+  contents: read
+
+# One apply per environment at a time; a second run waits rather than
+# planning against a directory the first is still writing.
+concurrency:
+  group: directory-apply-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  # Pin the client. 1.39.0 is the first release with saved plans
+  # (project plan --out, project apply --plan).
+  ALDER_VERSION: "1.39.0"
+  PROJECT: directory
+  ENVIRONMENT: ${{ inputs.environment }}
+
+jobs:
+  plan:
+    # A runner that can reach the Alder server named in alder.yaml.
+    runs-on: ubuntu-latest
+    outputs:
+      pending: ${{ steps.plan.outputs.pending }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install alder
+        run: |
+          set -eu
+          archive="alder_${ALDER_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/Hazame-hub/alder/releases/download/v${ALDER_VERSION}"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o checksums.txt "$base/checksums.txt"
+          grep " ${archive}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$archive" alder
+          sudo install -m 0755 alder /usr/local/bin/alder
+          rm -f alder "$archive" checksums.txt
+          alder version
+      - name: Plan ${{ inputs.environment }} and save the plan
+        id: plan
+        env:
+          # Only the chosen environment's password reaches this step.
+          BIND_PASSWORD: ${{ secrets[inputs.environment == 'production' && 'ALDER_PRODUCTION_BIND_PASSWORD' || 'ALDER_STAGING_BIND_PASSWORD'] }}
+          PASSWORD_VARIABLE: ${{ inputs.environment == 'production' && 'ALDER_PRODUCTION_BIND_PASSWORD' || 'ALDER_STAGING_BIND_PASSWORD' }}
+        run: |
+          set -u
+          export "$PASSWORD_VARIABLE=$BIND_PASSWORD"
+          unset BIND_PASSWORD
+          status=0
+          alder project plan --project "$PROJECT" --env "$ENVIRONMENT" \
+            --out saved-plan.json --detailed-exitcode > plan.txt || status=$?
+          cat plan.txt
+          {
+            echo "### Plan for $ENVIRONMENT"
+            echo
+            echo '```'
+            cat plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$status" in
+            0) echo "$ENVIRONMENT matches the repository; nothing to apply."
+               echo "pending=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "Plan saved. Approve the apply job to apply exactly this plan."
+               echo "pending=true" >> "$GITHUB_OUTPUT" ;;
+            3) echo "::error title=Cannot be applied::some change for $ENVIRONMENT cannot be applied as written; nothing was saved."
+               exit 1 ;;
+            4) echo "::error title=Directory moved::$ENVIRONMENT changed while the plan was being saved; run the workflow again."
+               exit 1 ;;
+            *) echo "::error title=Plan failed::alder exited $status for $ENVIRONMENT; see the message above."
+               exit 1 ;;
+          esac
+      - name: Keep the saved plan for the apply job
+        if: steps.plan.outputs.pending == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: saved-plan
+          path: saved-plan.json
+          retention-days: 7
+          if-no-files-found: error
+
+  apply:
+    needs: plan
+    if: needs.plan.outputs.pending == 'true'
+    # The gate: this job starts only once the environment's reviewers approve.
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    steps:
+      # The same commit the plan was saved from: the file records a digest of
+      # the project, and any other version is refused.
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: saved-plan
+      - name: Install alder
+        run: |
+          set -eu
+          archive="alder_${ALDER_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/Hazame-hub/alder/releases/download/v${ALDER_VERSION}"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o checksums.txt "$base/checksums.txt"
+          grep " ${archive}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$archive" alder
+          sudo install -m 0755 alder /usr/local/bin/alder
+          rm -f alder "$archive" checksums.txt
+          alder version
+      - name: Apply the saved plan to ${{ inputs.environment }}
+        env:
+          BIND_PASSWORD: ${{ secrets[inputs.environment == 'production' && 'ALDER_PRODUCTION_BIND_PASSWORD' || 'ALDER_STAGING_BIND_PASSWORD'] }}
+          PASSWORD_VARIABLE: ${{ inputs.environment == 'production' && 'ALDER_PRODUCTION_BIND_PASSWORD' || 'ALDER_STAGING_BIND_PASSWORD' }}
+        run: |
+          set -u
+          export "$PASSWORD_VARIABLE=$BIND_PASSWORD"
+          unset BIND_PASSWORD
+          status=0
+          alder project apply --project "$PROJECT" --env "$ENVIRONMENT" \
+            --plan saved-plan.json --yes --recovery-out recovery.json || status=$?
+          case "$status" in
+            0) echo "Applied the reviewed plan to $ENVIRONMENT." ;;
+            3) echo "::error title=Plan refused::the saved plan does not belong to this project version or environment; nothing was written."
+               exit 1 ;;
+            4) echo "::error title=Directory moved::$ENVIRONMENT changed since the plan was reviewed; nothing was written. Run the workflow again."
+               exit 1 ;;
+            6) echo "::error title=Partly applied::some changes were written; the recovery bundle is attached to this run."
+               exit 1 ;;
+            *) echo "::error title=Apply failed::alder exited $status for $ENVIRONMENT; plan again before retrying."
+               exit 1 ;;
+          esac
+      - name: Keep the recovery bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-bundle
+          path: recovery.json
+          retention-days: 90
+          if-no-files-found: ignore
