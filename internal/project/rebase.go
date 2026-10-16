@@ -72,18 +72,37 @@ type Rebase struct {
 	Entries int
 	// Values is how many DN-valued attribute values were moved.
 	Values int
-	// LeftAsWritten are values that read as a DN at or below From but
-	// belong to an attribute type without DN syntax. They are not names
-	// to the directory, so they were not rewritten; they are said, because
-	// one may be a name the schema does not know is one.
+	// LeftAsWritten are values that may name an entry below From and were
+	// not rewritten, each with the reason. They are said, because one may
+	// still name the files' entries and not the environment's.
 	LeftAsWritten []Untouched
 }
 
-// Untouched is one value ForEnvironment left as written.
+// Untouched is one attribute of one entry with a value ForEnvironment left
+// as written.
 type Untouched struct {
 	DN        dn.DN
 	Attribute string
+	Reason    LeftReason
 }
+
+// LeftReason says why a value was left as written.
+type LeftReason string
+
+const (
+	// ReadsAsDN is a value that is, whole, a DN at or below From, of an
+	// attribute type without DN syntax: not a name to the directory.
+	ReadsAsDN LeftReason = "reads_as_dn"
+	// ContainsDN is a value of an attribute type without DN syntax with a
+	// DN at or below From inside its text: an LDAP URL in memberURL or
+	// labeledURI, a groupdn or userdn in an aci. Only whole values of DN
+	// syntax are rebased, so it still names the files' entries.
+	ContainsDN LeftReason = "contains_dn"
+	// NotADN is a value of an attribute type with DN syntax, or Name And
+	// Optional UID, that does not parse as one. Sent as written, for the
+	// directory to judge.
+	NotADN LeftReason = "not_a_dn"
+)
 
 // Unrebasable is the error ForEnvironment returns when it cannot tell which
 // values to rewrite, or rewriting one would contradict the entry's own name.
@@ -123,10 +142,12 @@ func (p *Project) Rebasing(env string) (from, to dn.DN, ok bool) {
 //   - every value of an attribute type kinds says has DN syntax, or Name And
 //     Optional UID, that is at or below the project's suffix is moved the
 //     same way, and rendered as the dn package renders a DN. A value of that
-//     syntax outside the suffix, or one that does not parse as a DN, is left
-//     as written for the directory to judge.
+//     syntax outside the suffix is left as written; one that does not parse
+//     as a DN is left as written for the directory to judge, and listed in
+//     LeftAsWritten.
 //   - every other value is left byte for byte as written, even one that
-//     reads as a DN below the suffix; those are listed in LeftAsWritten.
+//     reads as a DN below the suffix or holds one inside its text, as an
+//     LDAP URL or an ACI does; those are listed in LeftAsWritten.
 //
 // It refuses, with *Unrebasable, a project using an attribute type the
 // schema does not define, since whether its values are names cannot be told,
@@ -197,23 +218,36 @@ func rebaseRecord(r *ldif.Record, from, to dn.DN, kindOf func(string) DNKind, rb
 		moved.DN = d
 		rb.Entries++
 	}
+	pattern := suffixPattern(from)
 	moved.Attrs = make([]ldif.Attribute, len(r.Attrs))
 	for i, a := range r.Attrs {
 		kind := kindOf(a.Name)
 		values := make([][]byte, len(a.Values))
-		noted := false
+		// One report for each attribute and reason, however many values.
+		noted := map[LeftReason]bool{}
+		note := func(reason LeftReason) {
+			if !noted[reason] {
+				rb.LeftAsWritten = append(rb.LeftAsWritten, Untouched{DN: moved.DN, Attribute: a.Name, Reason: reason})
+				noted[reason] = true
+			}
+		}
 		for j, v := range a.Values {
 			values[j] = v
 			switch kind {
 			case DistinguishedName, NameAndOptionalUID:
-				if nv, ok := rebaseValue(v, kind, from, to); ok {
+				switch nv, outcome := rebaseValue(v, kind, from, to); outcome {
+				case valueMoved:
 					values[j] = nv
 					rb.Values++
+				case valueNotADN:
+					note(NotADN)
 				}
 			default:
-				if !noted && readsAsDNBelow(v, from) {
-					rb.LeftAsWritten = append(rb.LeftAsWritten, Untouched{DN: moved.DN, Attribute: a.Name})
-					noted = true
+				switch {
+				case readsAsDNBelow(v, from):
+					note(ReadsAsDN)
+				case containsDNBelow(v, pattern):
+					note(ContainsDN)
 				}
 			}
 		}
@@ -225,9 +259,16 @@ func rebaseRecord(r *ldif.Record, from, to dn.DN, kindOf func(string) DNKind, rb
 // bitString is the optional UID of a Name And Optional UID value.
 var bitString = regexp.MustCompile(`^'[01]*'B$`)
 
-// rebaseValue moves one DN-valued value, reporting false for one that does
-// not parse or lies outside from.
-func rebaseValue(v []byte, kind DNKind, from, to dn.DN) ([]byte, bool) {
+// What rebaseValue did with a value.
+const (
+	valueMoved = iota
+	valueOutside
+	valueNotADN
+)
+
+// rebaseValue moves one DN-valued value, reporting whether it was moved,
+// lies outside from, or does not parse.
+func rebaseValue(v []byte, kind DNKind, from, to dn.DN) ([]byte, int) {
 	text, uid := string(v), ""
 	if kind == NameAndOptionalUID {
 		// RFC 4517 reads a trailing "#'...'B" as the UID, and so does this.
@@ -237,13 +278,13 @@ func rebaseValue(v []byte, kind DNKind, from, to dn.DN) ([]byte, bool) {
 	}
 	name, err := dn.Parse(text)
 	if err != nil {
-		return nil, false
+		return nil, valueNotADN
 	}
 	moved, ok := name.Rebase(from, to)
 	if !ok {
-		return nil, false
+		return nil, valueOutside
 	}
-	return []byte(moved.String() + uid), true
+	return []byte(moved.String() + uid), valueMoved
 }
 
 func readsAsDNBelow(v []byte, from dn.DN) bool {
@@ -252,6 +293,74 @@ func readsAsDNBelow(v []byte, from dn.DN) bool {
 	}
 	name, err := dn.Parse(string(v))
 	return err == nil && name.HasSuffix(from)
+}
+
+// suffixPattern is from as containsDNBelow looks for it.
+func suffixPattern(from dn.DN) string {
+	return foldForSearch(from.String())
+}
+
+// containsDNBelow reports whether v holds, somewhere in its text, a DN that
+// ends with the suffix pattern: the suffix where a DN may end, after a comma
+// (the RDNs of an entry below it), "ldap:///" or a double quote (an LDAP URL
+// or a quoted DN, as an ACI writes one), or at the start of the value, and
+// followed by nothing that would carry on its last value or name a further
+// RDN. Case is ignored, as are spaces after commas. It is a reading of text,
+// not a parse, which is why it only reports: it costs one pass to fold v and
+// one search for each place the suffix appears.
+func containsDNBelow(v []byte, pattern string) bool {
+	if pattern == "" || !utf8.Valid(v) {
+		return false
+	}
+	text := foldForSearch(string(v))
+	for at := 0; ; {
+		i := strings.Index(text[at:], pattern)
+		if i < 0 {
+			return false
+		}
+		i += at
+		end := i + len(pattern)
+		if dnMayStartBefore(text[:i]) && (end == len(text) || !continuesValue(text[end])) {
+			return true
+		}
+		at = i + 1
+	}
+}
+
+// foldForSearch lowers ASCII letters and drops the spaces that follow a
+// comma, so that "DC=Example, DC=Com" reads as "dc=example,dc=com".
+func foldForSearch(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	afterComma := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if afterComma && c == ' ' {
+			continue
+		}
+		afterComma = c == ','
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+func dnMayStartBefore(before string) bool {
+	return before == "" || strings.HasSuffix(before, ",") || strings.HasSuffix(before, `"`) ||
+		strings.HasSuffix(before, "ldap:///")
+}
+
+// continuesValue is a byte that, right after the suffix, would make it part
+// of a longer value (dc=testing, dc=test.example), a multi-valued RDN, or a
+// DN with more RDNs above it.
+func continuesValue(c byte) bool {
+	switch {
+	case 'a' <= c && c <= 'z', '0' <= c && c <= '9', c >= 0x80:
+		return true
+	}
+	return strings.IndexByte("-_.,+=\\", c) >= 0
 }
 
 // checkSuffixes checks the suffix keys on their own: an environment's

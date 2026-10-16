@@ -253,13 +253,17 @@ below the project's suffix to below the environment's, with the `dn` package
   other type declared with those syntaxes), when the value is at or below the
   project's suffix. A Name And Optional UID value keeps its `#'...'B` part. A
   moved value is written as Alder writes DNs. A value of those syntaxes
-  outside the suffix, or one that does not parse as a DN, is sent as written,
-  for the directory to judge.
+  outside the suffix is sent as written; one that does not parse as a DN is
+  sent as written, for the directory to judge, and named
+  (`leftAsWritten`, reason `not_a_dn`).
 - **Nothing else.** A value of any other syntax is sent byte for byte as
   written, however much it looks like a DN. One that reads as a DN below the
   suffix -- a `description` that quotes one, say -- is named on standard
-  error and in the JSON (`leftAsWritten`), because it may be a name the
-  schema does not know is one.
+  error and in the JSON (`leftAsWritten`, reason `reads_as_dn`), because it
+  may be a name the schema does not know is one. So is one with such a DN
+  inside its text (reason `contains_dn`): an LDAP URL in `memberURL` or
+  `labeledURI`, a `groupdn` in an `aci`. Its text is not rewritten, so it
+  still names the project's entries, not the environment's.
 
 **Which types hold DNs is the directory's answer.** The client reads the
 schema of the directory it is planning against (`GET /schema`, which reports

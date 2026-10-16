@@ -513,10 +513,26 @@ name, every managed base, and every value of an attribute type with DN (or
 Name And Optional UID) syntax from below the project's suffix to below the
 environment's; nothing else is touched. Standard error says so before
 anything is sent, the line under the environment says `Suffix FROM -> TO:`
-with how many entries and values moved, a value of another syntax that only
-looks like a DN is named on standard error as left as written, and `--json`
-adds `"rebase": {"from", "to", "entries", "values", "leftAsWritten": [{"dn",
-"attribute"}]}`. The plan, the unmanaged report and `--detailed-exitcode` use
+with how many entries and values moved, and `--json` adds `"rebase":
+{"from", "to", "entries", "values", "leftAsWritten": [{"dn", "attribute",
+"reason"}]}`. Values that may still name an entry below the project's suffix
+and were not rewritten are named on standard error, once for each entry,
+attribute and reason, with the reason:
+
+- `reads_as_dn`: the whole value is a DN below the suffix, of an attribute
+  type without DN syntax (`description: uid=alice,ou=people,…`).
+- `contains_dn`: a DN below the suffix appears inside the text of such a
+  value -- an LDAP URL in `memberURL` or `labeledURI`, a `groupdn` or
+  `userdn` in an `aci`. Text inside a value is never rewritten, so on a
+  directory both environments share, it still names the project's entries.
+  It is found by the suffix at the end of a DN (after a comma, `ldap:///`, a
+  double quote or at the start of the value), ignoring case and spaces after
+  commas; write such values in each environment's names, or keep that
+  environment's suffix the project's.
+- `not_a_dn`: a value of DN (or Name And Optional UID) syntax that does not
+  parse as a DN. Sent as written, for the directory to judge.
+
+None of these changes the plan or the exit status. The plan, the unmanaged report and `--detailed-exitcode` use
 the rebased names. A project using an attribute type the schema does not
 define is not planned for that environment (exit 3,
 `project_not_rebasable`).

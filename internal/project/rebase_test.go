@@ -91,9 +91,12 @@ uniqueMember: uid=bob,ou=people,dc=alder,dc=test
 	if rb.Entries != 4 || rb.Values != 4 {
 		t.Errorf("moved %d entries and %d values, want 4 and 4", rb.Entries, rb.Values)
 	}
-	if len(rb.LeftAsWritten) != 1 || rb.LeftAsWritten[0].Attribute != "description" ||
-		rb.LeftAsWritten[0].DN.String() != "cn=admins,ou=groups,dc=dev,dc=alder,dc=test" {
-		t.Errorf("left as written = %+v, want the description of cn=admins", rb.LeftAsWritten)
+	// The seeAlso that is not a DN, and the description that reads as one.
+	if len(rb.LeftAsWritten) != 2 ||
+		rb.LeftAsWritten[0].Attribute != "seeAlso" || rb.LeftAsWritten[0].Reason != NotADN ||
+		rb.LeftAsWritten[1].Attribute != "description" || rb.LeftAsWritten[1].Reason != ReadsAsDN ||
+		rb.LeftAsWritten[1].DN.String() != "cn=admins,ou=groups,dc=dev,dc=alder,dc=test" {
+		t.Errorf("left as written = %+v, want the seeAlso and the description of cn=admins", rb.LeftAsWritten)
 	}
 	if q.Managed[0].Base.String() != "ou=people,dc=dev,dc=alder,dc=test" ||
 		q.Managed[1].Base.String() != "ou=groups,dc=dev,dc=alder,dc=test" {
@@ -257,6 +260,98 @@ func TestDNKindOfSyntax(t *testing.T) {
 	} {
 		if got := DNKindOfSyntax(oid); got != want {
 			t.Errorf("DNKindOfSyntax(%q) = %v, want %v", oid, got, want)
+		}
+	}
+}
+
+// A DN inside a value of another syntax -- an LDAP URL, an ACI -- is not
+// rewritten, but it is said: on a shared server it still names the files'
+// entries, not the environment's.
+func TestRebasingSaysWhatItLeavesInsideAValue(t *testing.T) {
+	files := suffixed(func(f map[string]string) {
+		f["groups.ldif"] = `dn: cn=admins,ou=groups,dc=alder,dc=test
+objectClass: groupOfURLs
+cn: admins
+memberURL: ldap:///ou=people,dc=alder,dc=test??sub?(uid=*)
+labeledURI: ldap:///uid=alice, ou=People, DC=Alder, DC=Test
+aci: (targetattr="*")(version 3.0; acl "admins"; allow (all) groupdn="ldap:///cn=admins,ou=groups,dc=alder,dc=test";)
+description: see cn=admins,ou=groups,dc=alder,dc=testing and dc=alder,dc=test.example
+seeAlso: cn=other,dc=elsewhere,dc=test
+
+dn: cn=broken,ou=groups,dc=alder,dc=test
+objectClass: groupOfNames
+cn: broken
+member: uid=alice,ou=people,dc=alder,dc=test
+member: not a DN at all
+uniqueMember: uid=alice,ou=people,dc=alder,dc=test#'0101'B
+uniqueMember: =nonsense,dc=alder,dc=test
+`
+	})
+	p, err := load(t, write(t, files))
+	if err != nil {
+		t.Fatalf("refused: %s", problemsOf(err))
+	}
+	kinds := schemaKinds(map[string]DNKind{"memberurl": NotDN, "labeleduri": NotDN, "aci": NotDN})
+	q, rb, err := p.ForEnvironment("dev", kinds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rb.Values != 2 {
+		t.Errorf("moved %d values, want 2", rb.Values)
+	}
+	type left struct{ dn, attr string }
+	got := map[left]LeftReason{}
+	for _, u := range rb.LeftAsWritten {
+		got[left{u.DN.String(), u.Attribute}] = u.Reason
+	}
+	const admins, broken = "cn=admins,ou=groups,dc=dev,dc=alder,dc=test", "cn=broken,ou=groups,dc=dev,dc=alder,dc=test"
+	want := map[left]LeftReason{
+		{admins, "memberURL"}:    ContainsDN,
+		{admins, "labeledURI"}:   ContainsDN,
+		{admins, "aci"}:          ContainsDN,
+		{broken, "member"}:       NotADN,
+		{broken, "uniqueMember"}: NotADN,
+	}
+	if len(got) != len(want) || len(rb.LeftAsWritten) != len(want) {
+		t.Errorf("left as written = %+v, want %v", rb.LeftAsWritten, want)
+	}
+	for k, r := range want {
+		if got[k] != r {
+			t.Errorf("%s of %s: reason %q, want %q", k.attr, k.dn, got[k], r)
+		}
+	}
+	// Said, not rewritten.
+	doc, _ := q.Document()
+	doc = strings.ReplaceAll(doc, "\n ", "") // unfold
+	for _, s := range []string{
+		"memberURL: ldap:///ou=people,dc=alder,dc=test??sub?(uid=*)\n",
+		`groupdn="ldap:///cn=admins,ou=groups,dc=alder,dc=test";)` + "\n",
+		"member: not a DN at all\n",
+	} {
+		if !strings.Contains(doc, s) {
+			t.Errorf("the rebased document lacks %q:\n%s", s, doc)
+		}
+	}
+}
+
+func TestContainsDNBelow(t *testing.T) {
+	from := dn.MustParse("dc=alder,dc=test")
+	for v, want := range map[string]bool{
+		"dc=alder,dc=test":                          true,
+		"ldap:///dc=alder,dc=test":                  true,
+		"ldap:///ou=people,dc=alder,dc=test??sub?":  true,
+		`groupdn="ldap:///cn=a,DC=ALDER, DC=TEST"`:  true,
+		"x (cn=a,dc=alder,dc=test)":                 true,
+		"member of dc=alder,dc=test":                false,
+		"cn=a,dc=alder,dc=test,dc=com":              false,
+		"cn=a,dc=alder,dc=testing":                  false,
+		"cn=a,dc=alder,dc=test.example":             false,
+		"cn=a,xdc=alder,dc=test":                    false,
+		"no name here":                              false,
+		"cn=a,dc=other,dc=test then dc=alder,dc=te": false,
+	} {
+		if got := containsDNBelow([]byte(v), suffixPattern(from)); got != want {
+			t.Errorf("containsDNBelow(%q) = %v, want %v", v, got, want)
 		}
 	}
 }
