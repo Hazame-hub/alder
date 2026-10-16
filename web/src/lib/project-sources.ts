@@ -1,5 +1,6 @@
 import { unzipSync } from "fflate";
 import { isProjectFileName, maxRequestBytes, type PickedFile } from "./project";
+import { safeText } from "./display";
 
 /**
  * Where an opened project's files come from, besides the folder picker: a
@@ -31,6 +32,19 @@ export const maxZipBytes = 64 << 20;
  */
 export const maxWalkedEntries = 20_000;
 
+/**
+ * Members a .zip may list before reading it stops. The count comes from the
+ * zip's own directory and is not checked against its length, so a tiny file
+ * can claim billions of entries and hold the page while each is visited.
+ */
+export const maxZipMembers = 100_000;
+
+/** Why a .zip of this many bytes is not opened, or null. Checked before reading it. */
+export function zipSizeRefusal(bytes: number): string | null {
+  if (bytes <= maxZipBytes) return null;
+  return `This .zip is ${(bytes / (1 << 20)).toFixed(1)} MiB, more than the ${maxZipBytes >> 20} MiB opened in the browser. Unzip it and open the folder, or plan it with alder project plan.`;
+}
+
 export function isZipName(name: string): boolean {
   return name.toLowerCase().endsWith(".zip");
 }
@@ -60,19 +74,22 @@ function wanted(name: string): boolean {
  * request can carry.
  */
 export function readZip(zipName: string, data: Uint8Array): SourceResult {
-  if (data.byteLength > maxZipBytes) {
-    return {
-      ok: false,
-      message: `This .zip is ${(data.byteLength / (1 << 20)).toFixed(1)} MiB, more than the ${maxZipBytes >> 20} MiB opened in the browser. Unzip it and open the folder, or plan it with alder project plan.`,
-    };
-  }
+  const size = zipSizeRefusal(data.byteLength);
+  if (size !== null) return { ok: false, message: size };
   let declared = 0;
   let tooLarge = false;
+  let listed = 0;
+  const sizes = new Map<string, number>();
   let members: Record<string, Uint8Array>;
   try {
     members = unzipSync(data, {
       filter: (file) => {
+        listed += 1;
+        if (listed > maxZipMembers) {
+          throw new Error(`it lists more than ${maxZipMembers} members`);
+        }
         if (!wanted(file.name)) return false;
+        sizes.set(file.name, file.originalSize);
         declared += file.originalSize;
         if (declared > maxRequestBytes) tooLarge = true;
         return !tooLarge;
@@ -85,6 +102,18 @@ export function readZip(zipName: string, data: Uint8Array): SourceResult {
     return {
       ok: false,
       message: `The project files in this .zip come to more than the ${maxRequestBytes >> 20} MiB the server accepts in one request. Plan it with alder project plan.`,
+    };
+  }
+
+  // fflate inflates a member into a buffer of its declared size and neither
+  // grows it nor checks the CRC, so a damaged or misdeclared member comes
+  // back cut short. One that is not the size the zip says is refused, rather
+  // than planned as if it were whole.
+  const short = Object.entries(members).find(([name, bytes]) => bytes.byteLength !== sizes.get(name));
+  if (short) {
+    return {
+      ok: false,
+      message: `This .zip is damaged: ${safeText(short[0])} does not inflate to the size the zip declares. Unzip it with another tool and open the folder.`,
     };
   }
 

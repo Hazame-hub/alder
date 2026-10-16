@@ -17,6 +17,7 @@ import {
   isZipName,
   readZip,
   walkDroppedFolder,
+  zipSizeRefusal,
   type DroppedDirectoryEntry,
   type Picked,
   type SourceResult,
@@ -122,8 +123,16 @@ export function ProjectPanel({
     await open(result.picked);
   };
 
-  const openZip = (file: File) =>
+  // The size is checked before the file is read: a multi-gigabyte archive
+  // picked by mistake would otherwise be loaded whole before being refused.
+  const openZip = (file: File) => {
+    const tooLarge = zipSizeRefusal(file.size);
+    if (tooLarge !== null) {
+      setLocalError(tooLarge);
+      return;
+    }
     void openSource(file.arrayBuffer().then((buffer) => readZip(file.name, new Uint8Array(buffer))));
+  };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();

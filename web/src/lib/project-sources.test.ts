@@ -3,7 +3,10 @@ import { strToU8, zipSync, type Zippable } from "fflate";
 import { selectProjectFiles } from "./project";
 import {
   maxWalkedEntries,
+  maxZipBytes,
+  maxZipMembers,
   readZip,
+  zipSizeRefusal,
   walkDroppedFolder,
   type DroppedDirectoryEntry,
   type DroppedEntry,
@@ -76,6 +79,56 @@ describe("a project from a .zip", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.message).toContain("could not be read as a .zip");
+  });
+
+  it("refuses a .zip too large to open by its size alone, before it is read", () => {
+    expect(zipSizeRefusal(maxZipBytes)).toBeNull();
+    expect(zipSizeRefusal(3 * 2 ** 30)).toContain("3072.0 MiB");
+  });
+
+  it("refuses a member that does not inflate to its declared size, rather than planning it cut short", () => {
+    const data = zipSync({ "p/alder.yaml": strToU8("version: 1\n"), "p/a.ldif": strToU8("dn: dc=example\n") }, { level: 0 });
+    // The central directory's uncompressed size of p/a.ldif, made smaller
+    // than what the member holds.
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const name = strToU8("p/a.ldif");
+    let patched = false;
+    for (let i = 0; i + 46 < data.length; i++) {
+      if (view.getUint32(i, true) !== 0x02014b50) continue;
+      const n = view.getUint16(i + 28, true);
+      if (n === name.length && data.subarray(i + 46, i + 46 + n).every((b, j) => b === name[j])) {
+        view.setUint32(i + 24, 4, true);
+        patched = true;
+      }
+    }
+    expect(patched).toBe(true);
+    const r = readZip("p.zip", data);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toContain("p/a.ldif does not inflate to the size the zip declares");
+  });
+
+  it("stops listing a tiny .zip that claims more members than a project could hold", () => {
+    // A zip64 end record claiming far more entries than the file holds, which
+    // fflate visits one by one.
+    const out = new Uint8Array(56 + 20 + 22);
+    const v = new DataView(out.buffer);
+    v.setUint32(0, 0x06064b50, true);
+    v.setBigUint64(4, 44n, true);
+    v.setBigUint64(24, 1_000_000_000n, true);
+    v.setBigUint64(32, 1_000_000_000n, true);
+    v.setUint32(56, 0x07064b50, true);
+    v.setBigUint64(56 + 8, 0n, true);
+    v.setUint32(76, 0x06054b50, true);
+    v.setUint16(76 + 8, 0xffff, true);
+    v.setUint16(76 + 10, 0xffff, true);
+    v.setUint32(76 + 16, 0xffffffff, true);
+    const started = Date.now();
+    const r = readZip("tiny.zip", out);
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toContain(`more than ${maxZipMembers} members`);
   });
 
   it("refuses project files larger than one request, before inflating past it", () => {
