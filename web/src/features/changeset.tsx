@@ -36,6 +36,8 @@ import { UnknownOutcome } from "@/components/unknown-outcome";
 import { DownloadButton } from "@/components/ldif-block";
 import { assessmentLine, bundleText, overallRecovery, recoveryFilename } from "@/lib/recovery";
 import { RecoveryLoader } from "@/features/recovery-loader";
+import { SavedPlanHeading, SavedPlanLoader } from "@/features/saved-plan-loader";
+import { savedPlanRefusal, sessionMismatch } from "@/lib/saved-plan";
 import { ProjectHeading } from "@/features/project";
 import { safeText } from "@/lib/display";
 
@@ -77,8 +79,8 @@ export function ChangesetView({
     outcome?: ChangeOutcome;
   } | null>(null);
   const [prepareRecovery, setPrepareRecovery] = useState(false);
-  // Set when a recovery bundle has just been staged, so the plan is made as
-  // soon as the staged changes have rendered.
+  // Set when a recovery bundle or a saved plan has just been staged, so the
+  // plan is made as soon as the staged changes have rendered.
   const [pendingCheck, setPendingCheck] = useState(false);
 
   const body = { changes: staged.map((s) => s.change) };
@@ -139,9 +141,27 @@ export function ChangesetView({
     ...(current ? { changes: changesFromPlan(current, body.changes) } : body),
     ...(prepareRecovery && canRecover ? { recovery: true } : {}),
   };
-  // A change with an expectation -- one from a recovery bundle -- is only ever
-  // applied through a checked plan; the server refuses it otherwise.
-  const needsPlan = staged.some((s) => s.change.expect !== undefined);
+  // A change with an expectation -- one from a recovery bundle or a saved
+  // plan -- is only ever applied through a checked plan; the server refuses
+  // it otherwise.
+  // A saved plan always goes through one too, even one made only of adds,
+  // which carry no expectation: that plan is what says it applies whole.
+  const needsPlan = staged.some((s) => s.change.expect !== undefined) || origin?.kind === "saved-plan";
+  // A saved plan is applied whole or not at all, and only where it was made,
+  // as alder apply --plan applies it. The session is checked again here, not
+  // only on loading: the basket outlives a reconnect to another server.
+  const session = useQuery({
+    queryKey: ["session"],
+    queryFn: async () => unwrap(await api.GET("/session")),
+    enabled: origin?.kind === "saved-plan",
+  });
+  const wholePlan =
+    origin?.kind !== "saved-plan"
+      ? null
+      : !session.data
+        ? "Checking which directory this session is connected to."
+        : (sessionMismatch(origin, session.data) ??
+          (current ? savedPlanRefusal(applyBody.changes.length, staged.length) : null));
 
   const apply = useMutation({
     // What is sent travels with the request, so the answer is read against
@@ -220,6 +240,7 @@ export function ChangesetView({
       <div className="mx-auto max-w-2xl px-6 py-16">
         {resultPanel}
         <RecoveryLoader canStage onStaged={() => setPendingCheck(true)} />
+        <SavedPlanLoader onStaged={() => setPendingCheck(true)} />
         <div className="rounded-lg border border-dashed p-10 text-center">
           <ListChecks className="mx-auto mb-3 size-8 text-muted-foreground" />
           <h2 className="text-base font-medium">The changeset is empty</h2>
@@ -265,7 +286,7 @@ export function ChangesetView({
 
       {origin ? (
         <div className="mb-4">
-          <ProjectHeading origin={origin} />
+          {origin.kind === "project" ? <ProjectHeading origin={origin} /> : <SavedPlanHeading origin={origin} />}
         </div>
       ) : null}
 
@@ -376,10 +397,11 @@ export function ChangesetView({
       ) : null}
 
       {current ? <PlanSummary plan={current} /> : null}
+      {wholePlan ? <p className="mb-4 text-xs text-warning-tint-foreground">{wholePlan}</p> : null}
       {needsPlan && !current ? (
         <p className="mb-4 text-xs text-warning-tint-foreground">
-          These include changes from a recovery bundle, which are applied only
-          through a checked plan.
+          These include changes that expect an entry as it was, from a recovery
+          bundle or a saved plan, which are applied only through a checked plan.
         </p>
       ) : null}
 
@@ -499,7 +521,7 @@ export function ChangesetView({
           </span>
         )}
         <Button
-          disabled={!data || apply.isPending || stalePlan !== null || held !== null || (needsPlan && !current) || (current !== null && applyBody.changes.length === 0)}
+          disabled={!data || apply.isPending || stalePlan !== null || held !== null || (needsPlan && !current) || (current !== null && applyBody.changes.length === 0) || wholePlan !== null}
           onClick={() => {
             setResult(null);
             apply.mutate({ ids: sentIds(stagedIds, current), body: applyBody });
@@ -509,7 +531,9 @@ export function ChangesetView({
           {current
             ? `Apply ${applyBody.changes.length} of ${staged.length} in order`
             : `Apply ${staged.length} change${staged.length === 1 ? "" : "s"} in order`}
-          {origin ? ` to ${safeText(origin.host)}` : ""}
+          {/* A saved plan's host is where it was made; where this applies is
+              the session's, which the heading above already names. */}
+          {origin?.kind === "project" ? ` to ${safeText(origin.host)}` : ""}
         </Button>
       </div>
     </div>

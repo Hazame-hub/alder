@@ -1869,6 +1869,8 @@ export interface components {
             verified?: boolean;
             /** @description Empty for an anonymous bind. */
             bindDn?: string;
+            /** @description The configuration identity the session binds as for the configuration tree (1.39). Absent when the session has none. */
+            configBindDn?: string;
             /** @description Display only. Nothing branches on it. */
             vendorName?: string;
             vendorVersion?: string;

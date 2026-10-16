@@ -241,7 +241,8 @@ restart the Alder server, apply and see it applied.
 change set, not only projects (*built 2026-10-16*: an LDIF document or
 `--changes`; a deletion carries an exhaustive expectation; renames, password
 changes, `--recovery` and `--package` are not saved); loading a saved plan in the web interface
-next to *Load recovery bundle*; a signed plan, wrapped with `alder sign`
+next to *Load recovery bundle* (*built 2026-10-16*: a change set's plan
+only, refused for another host or bind); a signed plan, wrapped with `alder sign`
 as SIGNING.md wraps any document.
 
 **Out:** a persistent baseline key; plans stored on the server; applying a

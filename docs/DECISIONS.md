@@ -6410,3 +6410,47 @@ what the build settled:
 A conformance case saves through one Alder and applies through another, and
 checks that a plan overtaken on the modified entry or on the deleted one
 writes nothing.
+
+### 2026-10-16 — a saved plan loads in the web interface
+
+The saved-plans proposal listed this as a later item: loading a plan
+`alder plan --out` saved next to *Load recovery bundle*. What it settled:
+
+- **Only a change set's plan.** A project's plan is refused with the command
+  that applies it. `alder project apply --plan` checks that the project's
+  files still render to what was planned, and the browser has no files to
+  check, so loading one here would be the way around that check.
+- **Refused where the command line refuses.** A plan made against another
+  `host:port`, or binding as another DN, is refused before anything is
+  staged, as `alder apply --plan` refuses it before connecting. There is no
+  "this is the directory I mean" checkbox, unlike a recovery bundle's
+  origin: a bundle's origin is what a directory announces and can
+  legitimately differ, while a plan's host and bind are what its author
+  connected with, and planning the input again is the honest way to use it
+  elsewhere.
+- **Read as strictly as the command line reads it.** Unknown fields, a
+  baseline, a modification or deletion without its expectation, a rename,
+  a password change or a withheld value refuse the whole file.
+- **Staged, not applied.** "Review plan" stages the changes exactly as
+  written and the ordinary checked plan runs at once, as for a recovery
+  bundle. A change whose entry moved since it was saved shows as a conflict.
+- **Whole or not at all.** While the changeset is exactly the loaded plan,
+  its heading says so and Apply is refused unless every change would apply,
+  as `alder apply --plan` refuses it (exit 4); the ordinary changeset would
+  have applied the part that still holds. An adds-only plan, which carries
+  no expectation, goes through that check too, and the session is checked
+  again before Apply, because the changeset outlives a reconnect to another
+  server. A run that stops part way leaves an ordinary changeset. Removing
+  or adding a change makes
+  the rest an ordinary changeset, as editing a staged project plan does: an
+  edit is a new review, and every change still carries its expectation.
+- **One API addition: the session names its configuration identity.**
+  The file is read in the browser and its changes go through `POST /plan`
+  and `POST /changeset/apply`, which already hold changes with expectations
+  to a checked plan. Since #243 a saved plan records `configBindDn`, the
+  configuration identity it was made with, and `alder apply --plan` refuses
+  another one. To refuse it here too, `GET /session` now returns
+  `configBindDn` when the session has one (its password never). A plan with
+  one is refused in a session without it, and the reverse, compared without
+  regard to case as the command line compares it. The decision to keep the
+  basket unlocked was confirmed on 2026-10-16.
