@@ -6302,10 +6302,28 @@ open questions.
   evaluate, translate or author access rules, and a change or recovery
   bundle that carries one is applied like any other change, with a
   warning. The out-of-scope line says "authoring" for the same reason.
-- **Proved on both servers** by a conformance case that puts one inert rule
-  first, applies the bundle, and reads the rules back identical, positions
-  included -- `olcAccess` on OpenLDAP's database entry, `aci` on 389 DS's
-  `cn=config`, named in the suite's server table.
+- **An empty read is not taken for no rules.** A bind may be allowed to
+  write rules it cannot read. When none were read before the change, or none
+  after a change that left some, the attribute is not compensated and the
+  step says `hidden_attributes_unknown`, rather than deleting the whole list
+  or applying with no expectation. A list the bind can read only in part
+  cannot be detected, and the compensation puts back what was read.
+- **Put back where its step falls.** A compensation that restores access
+  rules is never merged with another modification of the same entry, so a
+  rule that grants what a compensation in between needs is not revoked
+  first. An expectation compares access rules byte for byte, whatever the
+  attribute's equality rule, so a rule changed in case alone is drift, not
+  something to write over.
+- **A conformance case on both servers**, whose first run is CI's: it puts
+  one inert rule first, applies the bundle, and reads the rules back
+  identical, positions included -- `olcAccess` on OpenLDAP's database entry,
+  `aci` on 389 DS's `cn=config`, named in the suite's server table. 389 DS
+  holds no `aci` on `cn=config` by default, so the harness seeds one inert
+  rule there (`test/compose/ds389/config-access.ldif`), and the case fails
+  rather than skips when it reads none.
+- **The configuration warning no longer says "there is no undo"**: a change
+  there is not a transaction, and a bundle puts it back only through another
+  write the server must accept.
 
 Why: Alder already wrote a reviewed rule on every path but this one, and the
 change a bundle exists for is the one that went wrong. An access rule is the
