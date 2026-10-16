@@ -6031,9 +6031,12 @@ type SessionInfo struct {
 	// BindDn Empty for an anonymous bind.
 	BindDn       *string       `json:"bindDn,omitempty"`
 	Capabilities *Capabilities `json:"capabilities,omitempty"`
-	Connected    bool          `json:"connected"`
-	Host         *string       `json:"host,omitempty"`
-	Port         *int          `json:"port,omitempty"`
+
+	// ConfigBindDn The configuration identity the session binds as for the configuration tree (1.39). Absent when the session has none.
+	ConfigBindDn *string `json:"configBindDn,omitempty"`
+	Connected    bool    `json:"connected"`
+	Host         *string `json:"host,omitempty"`
+	Port         *int    `json:"port,omitempty"`
 
 	// ReadOnly True when the server was started with --read-only.
 	ReadOnly *bool `json:"readOnly,omitempty"`
