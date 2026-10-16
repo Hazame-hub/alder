@@ -160,8 +160,9 @@ func applyCmd(env *Env) *cobra.Command {
 			"--plan FILE applies a plan saved by alder plan --out instead of an input: its\n" +
 			"changes, planned as they are written, shown, confirmed and applied with the\n" +
 			"baselines of that plan. It is refused before connecting (exit 3) when it was\n" +
-			"made against another host:port or binding as someone else, and refused whole\n" +
-			"(exit 4) when any of its changes no longer holds.\n\n" +
+			"made against another host:port or binding as someone else, including for\n" +
+			"configuration (--config-bind-dn, or its absence), and refused whole (exit 4)\n" +
+			"when any of its changes no longer holds.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 some change cannot be applied\n" +
 			"as written, 4 the plan went stale, 5 not confirmed, 6 stopped partway,\n" +
 			"7 usage, 8 failure.",

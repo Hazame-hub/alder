@@ -6290,6 +6290,15 @@ what the build settled:
   tell which document it came from, and nothing checks them.
 - **The directory is bound** by `host:port` and bind DN, compared before
   connecting (3), as an environment's are.
+- **So is the configuration identity, in both kinds of saved plan.** A plan
+  can hold `cn=config` and schema changes, reviewed as the
+  `--config-bind-dn` (or the environment's `config-bind-dn`) it was made
+  with; until now nothing stopped applying it later as another. The file's
+  `environment` gains an optional `configBindDn`, absent when there was
+  none, and an apply whose configuration bind differs from it, either way
+  round, is refused before connecting (3), compared as `bindDn` is. Optional
+  because v1 has not shipped and a plan made without one is unchanged; the
+  reader still refuses any field it does not know.
 - **Each saved plan stays with its command.** A project's plan applied by
   `alder apply` would skip the project's digest check; a change set's applied
   by `alder project apply` would be checked against a project it never came

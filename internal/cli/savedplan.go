@@ -78,10 +78,16 @@ type savedPlanInput struct {
 type savedPlanEnvironment struct {
 	// Name is the project's environment. A plan alder plan saved has none:
 	// its directory is the host and bind below.
-	Name   string           `json:"name,omitempty"`
-	Host   string           `json:"host"`
-	BindDN string           `json:"bindDn"`
-	Rebase *savedPlanRebase `json:"rebase,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Host   string `json:"host"`
+	BindDN string `json:"bindDn"`
+	// ConfigBindDN is the identity the configuration tree (cn=config, the
+	// schema) was read and would be written as, absent when the plan was
+	// made with none. An apply under another one, or with one where there
+	// was none, or with none where there was one, is refused: the plan's
+	// configuration changes were reviewed as that identity's.
+	ConfigBindDN string           `json:"configBindDn,omitempty"`
+	Rebase       *savedPlanRebase `json:"rebase,omitempty"`
 }
 
 type savedPlanRebase struct {
@@ -103,7 +109,7 @@ func projectDigest(p *project.Project) (string, error) {
 // environmentOf is what a saved plan records about where it was made, and
 // what an apply compares.
 func environmentOf(p *project.Project, envName string, conn *connection) savedPlanEnvironment {
-	e := savedPlanEnvironment{Name: envName, Host: conn.label(), BindDN: conn.bindDN}
+	e := savedPlanEnvironment{Name: envName, Host: conn.label(), BindDN: conn.bindDN, ConfigBindDN: conn.configBindDN}
 	if from, to, ok := p.Rebasing(envName); ok {
 		e.Rebase = &savedPlanRebase{From: from.String(), To: to.String()}
 	}
@@ -143,7 +149,7 @@ func saveInputPlan(ctx context.Context, env *Env, r *remote, in *planInput, conn
 	}
 	saved := newSavedPlan(env, plan)
 	saved.Input = in.saved()
-	saved.Environment = savedPlanEnvironment{Host: conn.label(), BindDN: conn.bindDN}
+	saved.Environment = savedPlanEnvironment{Host: conn.label(), BindDN: conn.bindDN, ConfigBindDN: conn.configBindDN}
 	if err := writeSaved(ctx, env, r, saved, plan, path, force, "alder apply"); err != nil {
 		return err
 	}
@@ -532,6 +538,9 @@ func matchSaved(path string, s *savedPlan, p *project.Project, envName string, c
 		return refuse("was made against %s; environment %s is now %s", safe(got.Host), safe(want.Name), safe(want.Host))
 	case !strings.EqualFold(got.BindDN, want.BindDN):
 		return refuse("was made binding as %s; environment %s now binds as %s", safe(got.BindDN), safe(want.Name), safe(want.BindDN))
+	case !strings.EqualFold(got.ConfigBindDN, want.ConfigBindDN):
+		return refuse("was made %s; environment %s now binds for configuration %s",
+			configBindMade(got.ConfigBindDN), safe(want.Name), configBindNow(want.ConfigBindDN))
 	case (got.Rebase == nil) != (want.Rebase == nil) ||
 		(got.Rebase != nil && (got.Rebase.From != want.Rebase.From || got.Rebase.To != want.Rebase.To)):
 		return refuse("was made with another suffix for environment %s than alder.yaml now gives it", safe(want.Name))
@@ -563,8 +572,33 @@ func matchSavedInput(path string, s *savedPlan, conn *connection) error {
 		return refuse("was made against %s, not %s", safe(got.Host), safe(conn.label()))
 	case !strings.EqualFold(got.BindDN, conn.bindDN):
 		return refuse("was made binding as %s, not %s", safe(got.BindDN), safe(conn.bindDN))
+	case !strings.EqualFold(got.ConfigBindDN, conn.configBindDN):
+		now := "without one"
+		if conn.configBindDN != "" {
+			now = safe(conn.configBindDN)
+		}
+		if got.ConfigBindDN == "" {
+			return refuse("was made without --config-bind-dn, not with %s", now)
+		}
+		return refuse("was made with --config-bind-dn %s, not %s", safe(got.ConfigBindDN), now)
 	}
 	return nil
+}
+
+// configBindMade and configBindNow say which configuration identity a
+// project's saved plan was made with, and which its environment now has.
+func configBindMade(dn string) string {
+	if dn == "" {
+		return "with no config-bind-dn"
+	}
+	return "binding for configuration as " + safe(dn)
+}
+
+func configBindNow(dn string) string {
+	if dn == "" {
+		return "without config-bind-dn"
+	}
+	return "as " + safe(dn)
 }
 
 // applySavedInput is alder apply --plan: a plan alder plan --out saved, its

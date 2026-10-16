@@ -687,6 +687,9 @@ A plan can be saved and applied later
   environment. A saved plan of a change set has `input` where a project's
   has `project`, no environment `name`, and may hold deletions, each with an
   exhaustive `expect`.
+  Either kind's `environment` carries an optional `configBindDn`, the
+  configuration bind it was made with, and an apply under another is
+  refused (exit 3).
 - **No API change.** A saved plan is planned and applied through
   `POST /plan` and `POST /changeset/apply` as they are.
 

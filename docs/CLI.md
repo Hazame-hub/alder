@@ -587,7 +587,8 @@ plan's, `--detailed-exitcode` included; an existing file is replaced only with
 planned as they are written, shown, confirmed and applied with the baselines
 of that plan. It is refused before connecting (exit 3) when the file was made
 for another environment, against another `host:port`, binding as someone
-else, with another suffix, or from project files that have changed since --
+else, with another `config-bind-dn` (or with one where it had none, or none
+where it had one), with another suffix, or from project files that have changed since --
 plan that version and review it. It is refused whole (exit 4) when any of its
 changes no longer holds: an attribute it replaces has changed, or an entry it
 adds now exists. Nothing is written; plan again and review. The format is in
@@ -801,8 +802,8 @@ alder apply --plan change.plan.json --yes
 It is the saved plan `alder project plan --out` writes
 ([proposals/saved-plans.md](proposals/saved-plans.md#the-file)), with the
 input it came from (`ldif` or `changes`, the mode, a SHA-256 of what was
-read) in place of a project, and the host and bind in place of an
-environment. Each change is the plan's own record. A modification expects the
+read) in place of a project, and the host, bind and any `--config-bind-dn`
+in place of an environment. Each change is the plan's own record. A modification expects the
 values of the attributes it replaces, under the names the entry returns them
 by (`cn` for `commonName` or `2.5.4.3`); **a deletion expects the entry exactly
 as it was read**, so it is applied only while the entry still holds what the
@@ -862,7 +863,9 @@ shown, confirmed and applied with the baselines of that plan. `--yes`,
 `--allow-deletes` and `--recovery-out` work as they do for any apply.
 
 - **Refused before connecting (exit 3)** when the file was made against
-  another `host:port` or binding as someone else, and when it is a project's
+  another `host:port`, binding as someone else, or with another
+  `--config-bind-dn` (one given where the plan had none counts, and none
+  given where it had one), and when it is a project's
   saved plan, which `alder project apply --plan` applies with the project's
   own checks. `alder project apply --plan` refuses a change set's plan the
   same way.
