@@ -81,6 +81,10 @@ func stubAttributeNames(s *stub) {
 		{"name": "cn", "names": []string{"cn", "commonName"}, "oid": "2.5.4.3"},
 		{"name": "title", "oid": "2.5.4.12"},
 		{"name": "userPassword", "oid": "2.5.4.35"},
+		// Kept by the directory, which a desired-state plan never replaces:
+		// one operational, one that only says no user modifies it.
+		{"name": "nsAccountLock", "oid": "2.16.840.1.113730.3.1.610", "operational": true},
+		{"name": "stampedBy", "oid": "1.3.6.1.4.1.99999.1", "noUserModification": true},
 	}
 	body, _ := json.Marshal(map[string]any{"subschemaDn": "cn=Subschema", "counts": map[string]any{}, "attributeTypes": types})
 	s.reply("GET /api/v1/schema", http.StatusOK, string(body))
