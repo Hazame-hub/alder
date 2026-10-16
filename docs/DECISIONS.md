@@ -6454,3 +6454,36 @@ The saved-plans proposal listed this as a later item: loading a plan
   one is refused in a session without it, and the reverse, compared without
   regard to case as the command line compares it. The decision to keep the
   basket unlocked was confirmed on 2026-10-16.
+
+### 2026-10-16 — a rebase says the DNs it leaves inside values
+
+An environment's suffix moved every entry name and every DN-syntax value,
+and named a value of another syntax only when the whole of it read as a DN
+below the project's suffix. A DN inside a value -- `memberURL:
+ldap:///ou=people,…??sub?(uid=*)`, a `labeledURI`, an `aci` with
+`groupdn="ldap:///cn=admins,…"` -- was left as written and not said, so the
+plan reported nothing while, on a directory shared by both environments, the
+development group and ACI went on naming production's entries. What was
+settled:
+
+- **Said, not rewritten.** Such a value is listed in `leftAsWritten` with
+  the reason `contains_dn`, on standard error and in the JSON. Rewriting
+  text inside a URL or an ACI means parsing formats the schema does not
+  describe, and a wrong guess would change what a reviewed ACI grants; the
+  rebase rewrites only what the schema says is a name.
+- **Found by the suffix where a DN ends.** The suffix is looked for after a
+  comma, a slash (`ldap:///`, `ldaps://`, `ldap://host:389/`), a quote,
+  `=`, `(`, a line break or at the start of the value, not followed by more
+  of a value or another RDN (`dc=testing`, `dc=test.example`, `…,dc=com` do
+  not match), ignoring ASCII case and spaces around commas and `=`. A value
+  that is not UTF-8 is read too, since folding is ASCII. Percent-encoded
+  URLs, escaped commas and types written as OIDs are not recognised. One pass
+  to fold the value and one comparison for each place the suffix appears:
+  linear in the value for a suffix of usual length, value times suffix at
+  worst. The rebase runs on the command line only, on the user's own files.
+- **A DN-syntax value that is no DN is said too** (`not_a_dn`). It was sent
+  as written, for the directory to judge, and that stays; it was silent.
+- **`reason` is added to each `leftAsWritten` object**: `reads_as_dn`,
+  `contains_dn` or `not_a_dn`. One per entry, attribute and reason. A saved
+  plan records only the rebase's `from` and `to`, so its format does not
+  change, and neither does the plan or the exit status.

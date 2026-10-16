@@ -21,14 +21,20 @@ type rebaseReport struct {
 	// values were moved from below From to below To.
 	Entries int `json:"entries"`
 	Values  int `json:"values"`
-	// LeftAsWritten are values that read as a DN below From, of attribute
-	// types without DN syntax in the directory's schema. Not rewritten.
+	// LeftAsWritten are attributes with a value that may name an entry
+	// below From and was not rewritten, one for each entry, attribute and
+	// reason.
 	LeftAsWritten []leftAsWritten `json:"leftAsWritten"`
 }
 
 type leftAsWritten struct {
 	DN        string `json:"dn"`
 	Attribute string `json:"attribute"`
+	// Reason is reads_as_dn (the whole value is a DN below From, of a type
+	// without DN syntax), contains_dn (a DN below From inside the text of
+	// such a value: an LDAP URL, an ACI) or not_a_dn (a value of DN syntax
+	// that does not parse as one).
+	Reason string `json:"reason"`
 }
 
 // forEnvironment is the project as the named environment holds it. When the
@@ -56,7 +62,8 @@ func forEnvironment(ctx context.Context, r *remote, p *project.Project, envName 
 	report := &rebaseReport{From: rb.From.String(), To: rb.To.String(), Entries: rb.Entries, Values: rb.Values,
 		LeftAsWritten: make([]leftAsWritten, 0, len(rb.LeftAsWritten))}
 	for _, u := range rb.LeftAsWritten {
-		report.LeftAsWritten = append(report.LeftAsWritten, leftAsWritten{DN: u.DN.String(), Attribute: u.Attribute})
+		report.LeftAsWritten = append(report.LeftAsWritten, leftAsWritten{DN: u.DN.String(), Attribute: u.Attribute,
+			Reason: string(u.Reason)})
 	}
 	return q, report, nil
 }
@@ -138,8 +145,18 @@ func renderEnvironment(w, errs io.Writer, envName, host string, rb *rebaseReport
 
 func reportLeftAsWritten(errs io.Writer, rb *rebaseReport) {
 	for _, u := range rb.LeftAsWritten {
-		writef(errs, "alder: %s of %s reads as a DN below %s and was left as written: "+
-			"this directory's schema does not give %s DN syntax\n",
-			safe(u.Attribute), safe(u.DN), safe(rb.From), safe(u.Attribute))
+		switch project.LeftReason(u.Reason) {
+		case project.ContainsDN:
+			writef(errs, "alder: %s of %s holds a DN below %s inside its text and was left as written: "+
+				"only whole values of DN syntax are rebased, so it still names %s, not %s\n",
+				safe(u.Attribute), safe(u.DN), safe(rb.From), safe(rb.From), safe(rb.To))
+		case project.NotADN:
+			writef(errs, "alder: %s of %s has DN syntax but does not parse as a DN and was left as written, "+
+				"for the directory to judge\n", safe(u.Attribute), safe(u.DN))
+		default:
+			writef(errs, "alder: %s of %s reads as a DN below %s and was left as written: "+
+				"this directory's schema does not give %s DN syntax\n",
+				safe(u.Attribute), safe(u.DN), safe(rb.From), safe(u.Attribute))
+		}
 	}
 }
