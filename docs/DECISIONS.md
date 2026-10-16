@@ -6410,11 +6410,15 @@ settled:
   describe, and a wrong guess would change what a reviewed ACI grants; the
   rebase rewrites only what the schema says is a name.
 - **Found by the suffix where a DN ends.** The suffix is looked for after a
-  comma, `ldap:///`, a double quote or at the start of the value, not
-  followed by more of a value or another RDN (`dc=testing`,
-  `dc=test.example`, `…,dc=com` do not match), ignoring case and spaces
-  after commas. One pass to fold the value and one search for each place the
-  suffix appears: linear in the value.
+  comma, a slash (`ldap:///`, `ldaps://`, `ldap://host:389/`), a quote,
+  `=`, `(`, a line break or at the start of the value, not followed by more
+  of a value or another RDN (`dc=testing`, `dc=test.example`, `…,dc=com` do
+  not match), ignoring ASCII case and spaces around commas and `=`. A value
+  that is not UTF-8 is read too, since folding is ASCII. Percent-encoded
+  URLs, escaped commas and types written as OIDs are not recognised. One pass
+  to fold the value and one comparison for each place the suffix appears:
+  linear in the value for a suffix of usual length, value times suffix at
+  worst. The rebase runs on the command line only, on the user's own files.
 - **A DN-syntax value that is no DN is said too** (`not_a_dn`). It was sent
   as written, for the directory to judge, and that stays; it was silent.
 - **`reason` is added to each `leftAsWritten` object**: `reads_as_dn`,

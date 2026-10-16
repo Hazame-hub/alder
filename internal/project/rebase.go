@@ -302,14 +302,17 @@ func suffixPattern(from dn.DN) string {
 
 // containsDNBelow reports whether v holds, somewhere in its text, a DN that
 // ends with the suffix pattern: the suffix where a DN may end, after a comma
-// (the RDNs of an entry below it), "ldap:///" or a double quote (an LDAP URL
-// or a quoted DN, as an ACI writes one), or at the start of the value, and
-// followed by nothing that would carry on its last value or name a further
-// RDN. Case is ignored, as are spaces after commas. It is a reading of text,
-// not a parse, which is why it only reports: it costs one pass to fold v and
-// one search for each place the suffix appears.
+// (the RDNs of an entry below it), a slash (an LDAP URL, ldap:///, ldaps://
+// or with a host), a quote (a quoted DN, as an ACI writes one), an equals
+// sign (base=...), an opening parenthesis, a line break, or at the start of
+// the value, and followed by nothing that would carry on its last value or
+// name a further RDN. ASCII case is ignored, as are spaces around commas and
+// equals signs. It is a reading of text, not a parse, which is why it only
+// reports. Folding is ASCII only, so a value that is not UTF-8 (Latin-1 prose,
+// say) is read too. It costs one pass to fold v and one comparison of the
+// pattern for each place the suffix appears.
 func containsDNBelow(v []byte, pattern string) bool {
-	if pattern == "" || !utf8.Valid(v) {
+	if pattern == "" {
 		return false
 	}
 	text := foldForSearch(string(v))
@@ -327,18 +330,30 @@ func containsDNBelow(v []byte, pattern string) bool {
 	}
 }
 
-// foldForSearch lowers ASCII letters and drops the spaces that follow a
-// comma, so that "DC=Example, DC=Com" reads as "dc=example,dc=com".
+// foldForSearch lowers ASCII letters and drops the spaces around a comma or
+// an equals sign, so that "DC = Example , DC=Com" reads as
+// "dc=example,dc=com".
 func foldForSearch(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
-	afterComma := false
+	afterSeparator := false
+	spaces := 0 // spaces seen and not yet written
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if afterComma && c == ' ' {
+		if c == ' ' {
+			if !afterSeparator {
+				spaces++
+			}
 			continue
 		}
-		afterComma = c == ','
+		separator := c == ',' || c == '='
+		if !separator {
+			for ; spaces > 0; spaces-- {
+				b.WriteByte(' ')
+			}
+		}
+		spaces = 0
+		afterSeparator = separator
 		if 'A' <= c && c <= 'Z' {
 			c += 'a' - 'A'
 		}
@@ -348,8 +363,7 @@ func foldForSearch(s string) string {
 }
 
 func dnMayStartBefore(before string) bool {
-	return before == "" || strings.HasSuffix(before, ",") || strings.HasSuffix(before, `"`) ||
-		strings.HasSuffix(before, "ldap:///")
+	return before == "" || strings.IndexByte(`,/"'=(`+"\n\r\t", before[len(before)-1]) >= 0
 }
 
 // continuesValue is a byte that, right after the suffix, would make it part
