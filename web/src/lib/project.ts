@@ -16,7 +16,7 @@ import { changeset, maxStagedChanges } from "./changeset";
 export type ProjectPlan = Schemas["ProjectPlan"];
 export type ProjectFile = Schemas["ProjectFile"];
 
-/** The project file, always at the top of the chosen folder. */
+/** The project file, at the top of the project's folder. */
 export const projectFileName = "alder.yaml";
 
 /** How many files one request may carry; the server refuses more. */
@@ -34,63 +34,96 @@ export type PickedFile<F> = { relativePath: string; file: F };
 export type Selection<F> =
   | {
       ok: true;
-      /** The chosen folder's own name, for the heading. Untrusted text. */
+      /**
+       * The project's folder for the heading: the chosen folder's own name,
+       * and the path below it when alder.yaml is further down. Untrusted text.
+       */
       folder: string;
-      /** What will be read and sent, by path below the folder. */
+      /** What will be read and sent, by path below the project's folder. */
       send: { path: string; file: F }[];
     }
-  | { ok: false; message: string };
+  | {
+      ok: false;
+      message: string;
+      /**
+       * When the chosen folder holds several projects below its top and none
+       * at it: each one's folder below the chosen one, to pick from and pass
+       * back as `root`. Untrusted text.
+       */
+      projects?: string[];
+    };
 
 function isLdif(name: string): boolean {
   return name.toLowerCase().endsWith(".ldif");
 }
 
+/** Whether a file of this name is ever read: alder.yaml or an LDIF file. */
+export function isProjectFileName(name: string): boolean {
+  return name === projectFileName || isLdif(name);
+}
+
 /**
  * Which of a chosen folder's files are read and sent.
  *
- * `alder.yaml` at the top of the folder, and every `*.ldif` below it outside
- * dot-directories, by path relative to the folder. Nothing else is read: not
- * `.git`, not a README, not a key file somebody left beside the project.
+ * The project is the folder holding `alder.yaml`: the chosen folder itself,
+ * or, when it has none at its top, the one folder below it that does (a
+ * repository root chosen instead of `directory/`). With several below and
+ * none at the top, the person picks one and it comes back as `root`. Below
+ * the project's folder, `alder.yaml` and every `*.ldif` outside
+ * dot-directories are sent, by path relative to it. Nothing else is read:
+ * not `.git`, not a README, not a key file somebody left beside the project.
  * Names are all the page sees of the rest, and they are not sent.
  */
-export function selectProjectFiles<F>(picked: PickedFile<F>[]): Selection<F> {
-  let folder = "";
-  const send: { path: string; file: F }[] = [];
-  const deeperProjects: string[] = [];
+export function selectProjectFiles<F>(picked: PickedFile<F>[], root?: string): Selection<F> {
+  let top = "";
+  const files: { below: string[]; file: F }[] = [];
+  const projects = new Set<string>();
 
   for (const { relativePath, file } of picked) {
     const parts = relativePath.split("/").filter((p) => p !== "");
     if (parts.length < 2) continue;
-    folder = folder || parts[0]!;
+    top = top || parts[0]!;
     const below = parts.slice(1);
     const dirs = below.slice(0, -1);
     const name = below[below.length - 1]!;
     if (dirs.some((d) => d.startsWith("."))) continue;
-    const path = below.join("/");
-    if (path === projectFileName) {
-      send.push({ path, file });
-    } else if (name === projectFileName) {
-      deeperProjects.push(dirs.join("/"));
-    } else if (isLdif(name)) {
-      send.push({ path, file });
-    }
+    if (name === projectFileName) projects.add(dirs.join("/"));
+    if (isProjectFileName(name)) files.push({ below, file });
   }
 
-  if (!send.some((s) => s.path === projectFileName)) {
-    if (deeperProjects.length > 0) {
-      const where = deeperProjects.sort()[0];
-      return {
-        ok: false,
-        message:
-          `There is no ${projectFileName} at the top of this folder; there is one in ${where}/. ` +
-          "Choose the folder that holds alder.yaml itself.",
-      };
+  let chosen: string;
+  if (root !== undefined) {
+    if (!projects.has(root)) {
+      return { ok: false, message: `There is no ${projectFileName} in ${root ? `${root}/` : "this folder"}.` };
     }
+    chosen = root;
+  } else if (projects.has("")) {
+    chosen = "";
+  } else if (projects.size === 1) {
+    chosen = [...projects][0]!;
+  } else if (projects.size > 1) {
     return {
       ok: false,
-      message: `There is no ${projectFileName} at the top of this folder, so it is not an Alder project.`,
+      message: `There is no ${projectFileName} at the top of this folder, and ${projects.size} folders below it have one. Choose which project to open.`,
+      projects: [...projects].sort(),
+    };
+  } else {
+    return {
+      ok: false,
+      message: `There is no ${projectFileName} in this folder, so it is not an Alder project.`,
     };
   }
+
+  const prefix = chosen === "" ? [] : chosen.split("/");
+  const send: { path: string; file: F }[] = [];
+  for (const { below, file } of files) {
+    if (below.length <= prefix.length || prefix.some((p, i) => below[i] !== p)) continue;
+    const path = below.slice(prefix.length).join("/");
+    // Another project's alder.yaml further down is not this project's file.
+    if (below[below.length - 1] === projectFileName && path !== projectFileName) continue;
+    send.push({ path, file });
+  }
+
   if (send.length > maxProjectFiles) {
     return {
       ok: false,
@@ -101,7 +134,7 @@ export function selectProjectFiles<F>(picked: PickedFile<F>[]): Selection<F> {
   }
   // The same order every time, so "Plan again" sends exactly what it sent.
   send.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return { ok: true, folder, send };
+  return { ok: true, folder: chosen === "" ? top : `${top}/${chosen}`, send };
 }
 
 /** The request as it will be sent, and whether the server would take it. */

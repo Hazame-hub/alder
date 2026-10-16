@@ -416,11 +416,13 @@ so the stricter meaning is asked for, never assumed.
   and, when it could not be read, an `error`. `project apply` does not make
   it: it applies what the project describes, and the report is about what it
   does not.
-- **The web interface** (first slice built). Opening a project in the
-  browser is specified, and accepted, in
+- **The web interface** (built, apart from the environment hint). Opening a
+  project in the browser is specified, and accepted, in
   [proposals/web-projects.md](proposals/web-projects.md). *Open project*, on
-  the Import screen, takes a folder: the page reads `alder.yaml` at its top
-  and every `*.ldif` below it outside dot-directories, and sends them to
+  the Import screen, takes a folder, chosen or dropped, or a `.zip` of one:
+  the page finds `alder.yaml` (at the top, the one folder below with one,
+  or the one the person picks among several), reads it and every `*.ldif`
+  below it outside dot-directories, and sends them to
   `POST /project/plan`. The server validates them with this package -- the
   same rules, globs and secrets check, in the same words as `validate` --
   plans them as `project plan` does and reports the unmanaged entries, in
