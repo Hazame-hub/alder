@@ -14,8 +14,10 @@ examples/project/
 │       ├── engineering.ldif
 │       └── operations.ldif
 └── ci/
-    ├── github-actions.yml copy to .github/workflows/directory.yml
-    └── gitlab-ci.yml      copy to .gitlab-ci.yml, or include it
+    ├── github-actions.yml        copy to .github/workflows/directory.yml
+    ├── github-actions-apply.yml  optional: copy to .github/workflows/directory-apply.yml
+    ├── gitlab-ci.yml             copy to .gitlab-ci.yml, or include it
+    └── gitlab-ci-apply.yml       optional: include it beside gitlab-ci.yml
 ```
 
 ## Try it
@@ -73,13 +75,38 @@ environments if that matters to you.
 it against the release's `checksums.txt`. Update `ALDER_VERSION` on purpose,
 not by accident.
 
+## Applying, with a reviewed plan
+
+The two `-apply` files are optional and apply the repository to an
+environment, with a person between the plan and the write. A first job saves
+the plan with `alder project plan --out`, shows it, and keeps the file. A
+second job applies **that file** with `alder project apply --plan --yes
+--recovery-out`, only once someone approves it:
+
+| File | Starts | Approval |
+|---|---|---|
+| `github-actions-apply.yml` | by hand: Actions > directory-apply > Run workflow, choosing the environment | the GitHub environment of the same name: give it required reviewers |
+| `gitlab-ci-apply.yml` | on the default branch: one saved plan per environment, then a manual apply job each | the GitLab protected environment of the same name |
+
+What is approved is the saved file, and the apply holds to it. It is refused
+before connecting (exit 3) when the project files, the host, the bind or the
+suffix are not the ones it was saved for, and refused whole (exit 4) when any
+change no longer holds because the directory moved since the plan. Nothing
+is written then: plan again and review that. A partial apply exits 6 and
+the job keeps the recovery bundle as an artifact.
+
+Both pin 1.39.0, the first release with saved plans. On GitHub, without
+required reviewers on the environment, the apply runs as soon as the plan is
+saved: set them up before the first run. These jobs hold a password and
+never run on a pull or merge request, for the reason given above.
+
 ## What is deliberately not here
 
-- **Applying from CI.** `alder project apply --env NAME --yes` does it in one
-  run, planning again against the directory as it is and applying exactly
-  that plan. Whether a merge should write to production without a person is
-  your call, not an example's; if you add it, give it its own job, a protected
-  environment and `--recovery-out` so the run leaves a recovery bundle.
+- **Applying without a person.** The apply files below always wait for
+  someone: a protected environment's reviewers on GitHub, a manual job on
+  GitLab. `alder project apply --env NAME --yes` plans and applies in one
+  run with nobody in between; whether a merge should do that to production is
+  your call, not an example's.
 - **Deleting.** A project never deletes an entry its files do not mention.
 - **Secrets.** `validate` refuses a `userPassword` or any other attribute
   Alder treats as sensitive, in any file.
