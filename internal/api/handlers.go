@@ -72,7 +72,10 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		return badRequest(c, "The connection settings are not usable.", err.Error())
 	}
 
-	if s.sessions.Full() {
+	// A browser that connects again replaces its own session, so that
+	// session's connections are not counted against the one replacing it.
+	previous := c.Cookies(s.cookieName())
+	if s.sessions.FullReplacing(previous) {
 		return s.sessionsFull(c)
 	}
 
@@ -96,7 +99,7 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 	// named secrets are withheld either way.
 	_, _ = conn.Schema(ctx)
 
-	sess, err := s.sessions.Add(conn, cfg, s.cfg.ReadOnly)
+	sess, err := s.sessions.AddReplacing(conn, cfg, s.cfg.ReadOnly, previous)
 	if err != nil {
 		_ = conn.Close()
 		if errors.Is(err, session.ErrFull) {
@@ -104,13 +107,10 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		}
 		return s.fail(c, err)
 	}
-	// Connecting again from a browser that already had a session replaces
-	// it. The old one is closed now rather than left holding its directory
-	// connection and its password until it times out, unreachable because
-	// its cookie has just been overwritten.
-	if previous := c.Cookies(s.cookieName()); previous != "" {
-		s.sessions.Remove(previous)
-	}
+	// Connecting again from a browser that already had a session replaced
+	// it: AddReplacing closed the old one, rather than leave it holding its
+	// directory connection and its password until it times out, unreachable
+	// because its cookie is about to be overwritten.
 	s.setSessionCookie(c, sess.ID)
 	return c.Status(fiber.StatusCreated).JSON(s.sessionInfo(sess))
 }

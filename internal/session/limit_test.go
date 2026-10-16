@@ -2,6 +2,8 @@ package session
 
 import (
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -55,5 +57,104 @@ func TestNoLimitMeansNoLimit(t *testing.T) {
 		if _, err := store.Add(&fakeSession{}, testConfig(), false); err != nil {
 			t.Fatalf("Add %d: %v", i+1, err)
 		}
+	}
+}
+
+// Requests that were all told there was room still take only the places
+// there are: the limit is checked again under the lock that inserts.
+func TestConcurrentAddsDoNotPassTheLimit(t *testing.T) {
+	store := NewStore(testLogger(), time.Minute, time.Hour)
+	defer store.Close()
+	store.SetLimit(3)
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range 64 {
+		wg.Go(func() {
+			<-start
+			_, _ = store.Add(&fakeSession{}, testConfig(), false)
+		})
+	}
+	close(start)
+	wg.Wait()
+	if n := store.Connections(); n != 3 {
+		t.Errorf("%d connections held against a limit of 3", n)
+	}
+}
+
+// Connecting again from the same browser replaces its session, and with it
+// the session's reference: the connections about to be freed do not keep
+// the replacement out.
+func TestAReplacementDoesNotCountTheSessionItReplaces(t *testing.T) {
+	store := NewStore(testLogger(), time.Minute, time.Hour)
+	defer store.Close()
+	store.SetLimit(2)
+	old, err := store.Add(&fakeSession{}, testConfig(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AttachReference(old, &fakeSession{}, testConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Full() {
+		t.Fatal("Full = false with a session and its reference against a limit of two")
+	}
+	if store.FullReplacing(old.ID) {
+		t.Error("FullReplacing(the session being replaced) = true, want room")
+	}
+	if _, err := store.AddReplacing(&fakeSession{}, testConfig(), false, old.ID); err != nil {
+		t.Fatalf("replacing the session = %v, want room", err)
+	}
+	if n := store.Connections(); n != 1 {
+		t.Errorf("%d connections after the replacement, want 1", n)
+	}
+	// Someone else's session ID is not a replacement of anything this
+	// request holds; only an ID in the store is subtracted, and an unknown
+	// one changes nothing.
+	if _, err := store.Add(&fakeSession{}, testConfig(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddReplacing(&fakeSession{}, testConfig(), false, "no-such-session"); !errors.Is(err, ErrFull) {
+		t.Errorf("an unknown replaced ID = %v, want ErrFull", err)
+	}
+}
+
+// Two reconnects with one cookie, at the limit: the session they replace is
+// taken out as the first goes in, so the second cannot count its places as
+// free too. When it stayed in until the handler removed it, both counted its
+// two places as free and the store held four connections against two.
+func TestConcurrentReplacementsOfOneSessionStayWithinTheLimit(t *testing.T) {
+	for range 50 {
+		store := NewStore(testLogger(), time.Minute, time.Hour)
+		store.SetLimit(2)
+		old, err := store.Add(&fakeSession{}, testConfig(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.AttachReference(old, &fakeSession{}, testConfig()); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		var added atomic.Int32
+		for range 2 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if _, err := store.AddReplacing(&fakeSession{}, testConfig(), false, old.ID); err == nil {
+					added.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		if added.Load() == 0 {
+			t.Fatal("neither replacement got in")
+		}
+		if store.Connections() > 2 {
+			t.Fatalf("%d connections against a limit of 2", store.Connections())
+		}
+		if _, err := store.Get(old.ID); err == nil {
+			t.Fatal("the replaced session is still in the store")
+		}
+		store.Close()
 	}
 }
