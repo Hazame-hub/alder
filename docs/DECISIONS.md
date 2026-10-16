@@ -6427,6 +6427,19 @@ An audit of saved plans (#236, #243) found four gaps, fixed together:
   made for another environment, where the docs say 3. The file is now read
   and matched first, as `alder apply --plan` already did.
 
+A review of those fixes tightened the binding to what the planner does:
+a replacement of an attribute the directory keeps (operational or
+`NO-USER-MODIFICATION`, as `plan.Reconcile` skips them; an add keeps them,
+as the planner adds the record whole) is refused, for which the schema
+summary gains `noUserModification`; an entry is matched by its name as the
+plan writes it, not as `dn.Equal` folds it, since a naming attribute may be
+case-exact; a replacement of an attribute the files write under two names on
+one entry is refused, because reconcile replaces each name in turn and the
+result depends on their order; and references are compared as none where an
+item has none and both searches ran to the end. Binding guarantees nothing
+is written that the files do not say. It does not stop a file from leaving
+changes out; signing is what proves a file is the one reviewed.
+
 ### 2026-10-16 — a saved plan can be signed, and an apply can require it
 
 The last later item of the saved-plans proposal: a signed plan, wrapped

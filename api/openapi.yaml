@@ -5574,6 +5574,7 @@ components:
         equality: { type: string }
         singleValue: { type: boolean }
         operational: { type: boolean }
+        noUserModification: { type: boolean }
 
     SyntaxSummary:
       type: object

@@ -597,10 +597,14 @@ The file is read strictly: an unknown key, a key in another case or a key
 given twice is refused (3). **Its changes are bound to the project**: once
 connected, and before anything is planned, every change must be one the
 project's desired state makes for this environment -- an add of an entry the
-files describe, with exactly the files' attributes and values, or a `replace`
-of an attribute the files name on that entry, to the values they give it --
-and every modification must expect each attribute it changes. Anything else is
-refused (3): editing the file alone does not change what runs. It is refused
+files describe (named exactly as the plan names it), with exactly the files'
+attributes and values, or a `replace` of an attribute the files name on that
+entry, to the values they give it, and never of one the directory keeps
+(operational or `NO-USER-MODIFICATION`), which a project's plan skips -- and
+every modification must expect each attribute it changes. Anything else is
+refused (3). That guarantees nothing is written that the files do not say; it
+does not prove the file is the one reviewed, since a file with changes left
+out still applies the rest. Signing the file is what proves that. It is refused
 whole (exit 4) when any of its changes no longer holds: an attribute it
 replaces has changed, or an entry it adds now exists. Nothing is written; plan
 again and review. The format is in

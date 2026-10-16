@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/ldif"
@@ -100,6 +101,99 @@ func TestProjectApplyPlanRefusesAChangeTheProjectDoesNotMake(t *testing.T) {
 			}
 			if !tc.connects && len(s.calls) != before {
 				t.Errorf("%d request(s) sent for a file that is not a saved plan", len(s.calls)-before)
+			}
+		})
+	}
+}
+
+// A desired-state plan never replaces an attribute the directory keeps, even
+// one the files write, as an export carries them: it skips them. A saved
+// replacement of one is not the project's, however its values read.
+func TestProjectApplyPlanRefusesAReplacementTheProjectsPlanSkips(t *testing.T) {
+	for _, attr := range []string{"nsAccountLock", "stampedBy"} {
+		t.Run(attr, func(t *testing.T) {
+			s := savedPlanStub(t, true)
+			dir := writeProject(t, s, map[string]string{
+				"people/alice.ldif": projectAlice + "title: After\n" + attr + ": false\n"})
+			saved := savePlanFor(t, s, dir)
+			tamper(t, saved, func(c map[string]any) {
+				c["mods"] = []any{map[string]any{"op": "replace", "name": attr, "values": []any{textValue("false")}}}
+				c["expect"] = map[string]any{"attributes": []any{map[string]any{"name": attr, "values": []any{textValue("true")}}}}
+			})
+			r := s.run(t, projectRun, "project", "apply", "--project", dir, "--env", "dev", "--plan", saved, "--yes")
+			expectCode(t, r, ExitNotApplicable)
+			if len(s.called("POST /api/v1/changeset/apply")) != 0 {
+				t.Fatalf("a replacement of %s, which the directory keeps, was applied", attr)
+			}
+		})
+	}
+}
+
+// Entry names are matched as the plan writes them, not as dn.Equal folds
+// them: an attribute that names entries may match case-exactly, and then
+// uid=ALICE is another entry than uid=alice.
+func TestProjectApplyPlanRefusesAnEntryNamedOtherwise(t *testing.T) {
+	s := savedPlanStub(t, true)
+	dir := writeSavedPlanProject(t, s)
+	saved := savePlanFor(t, s, dir)
+	tamper(t, saved, func(c map[string]any) { c["dn"] = "uid=ALICE,ou=people,dc=alder,dc=test" })
+	r := s.run(t, projectRun, "project", "apply", "--project", dir, "--env", "dev", "--plan", saved, "--yes")
+	expectCode(t, r, ExitNotApplicable)
+	if len(s.called("POST /api/v1/changeset/apply")) != 0 {
+		t.Fatal("a change to an entry named otherwise was applied")
+	}
+}
+
+// Files that write one attribute under two names on an entry the plan
+// modifies say two things; which one a replacement means is not something a
+// saved plan can settle.
+func TestProjectApplyPlanRefusesAReplacementOfAnAttributeWrittenTwice(t *testing.T) {
+	s := savedPlanStub(t, true)
+	dir := writeProject(t, s, map[string]string{
+		"people/alice.ldif": projectAlice + "title: After\ncommonName: Al\n"})
+	saved := savePlanFor(t, s, dir)
+	tamper(t, saved, func(c map[string]any) {
+		c["mods"] = []any{map[string]any{"op": "replace", "name": "commonName", "values": []any{textValue("Al")}}}
+		c["expect"] = map[string]any{"attributes": []any{map[string]any{"name": "cn", "values": []any{textValue("Alice")}}}}
+	})
+	r := s.run(t, projectRun, "project", "apply", "--project", dir, "--env", "dev", "--plan", saved, "--yes")
+	expectCode(t, r, ExitNotApplicable)
+	if !strings.Contains(r.stderr, "more than one name") {
+		t.Errorf("stderr does not say why:\n%s", r.stderr)
+	}
+	if len(s.called("POST /api/v1/changeset/apply")) != 0 {
+		t.Fatal("a replacement of an attribute written twice was applied")
+	}
+}
+
+// References are reported on an item only where some were found, so an item
+// with none has no references at all. Where both plans searched, and neither
+// search was cut short, none is a count of 0 like any other.
+func TestSameAsShownComparesReferencesFoundAndNone(t *testing.T) {
+	item := func(refs *apiclient.PlanReferenceImpact) apiclient.PlanItem {
+		return apiclient.PlanItem{Index: 0, Dn: "uid=bob,dc=x", Action: apiclient.PlanActionDelete, References: refs}
+	}
+	plan := func(truncated bool, items ...apiclient.PlanItem) apiclient.Plan {
+		return apiclient.Plan{Items: items, Impact: &apiclient.PlanImpact{
+			References: apiclient.PlanImpactReferences{Analysed: true, Truncated: truncated}}}
+	}
+	found := &apiclient.PlanReferenceImpact{Count: 1, Dangling: 1}
+	for _, tc := range []struct {
+		name         string
+		shown, fresh apiclient.Plan
+		differs      bool
+	}{
+		{"none, then some", plan(false, item(nil)), plan(false, item(found)), true},
+		{"some, then none", plan(false, item(found)), plan(false, item(nil)), true},
+		{"none, both times", plan(false, item(nil)), plan(false, item(nil)), false},
+		{"the same, both times", plan(false, item(found)), plan(false, item(found)), false},
+		{"a search cut short", plan(true, item(nil)), plan(false, item(found)), false},
+		{"a search cut short later", plan(false, item(found)), plan(true, item(nil)), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := sameAsShown(tc.shown, tc.shown.Items, tc.fresh)
+			if (err != nil) != tc.differs {
+				t.Errorf("sameAsShown = %v, want differs %v", err, tc.differs)
 			}
 		})
 	}
@@ -313,6 +407,7 @@ func stubSchemaWithNames(s *stub) {
 		{"name": "telephoneNumber", "oid": "2.5.4.20", "syntax": phone},
 		{"name": "manager", "oid": "0.9.2342.19200300.100.1.10", "syntax": dnSyntax},
 		{"name": "member", "oid": "2.5.4.31", "syntax": dnSyntax},
+		{"name": "nsAccountLock", "oid": "2.16.840.1.113730.3.1.610", "syntax": dirString, "operational": true},
 	}
 	body, _ := json.Marshal(map[string]any{"subschemaDn": "cn=Subschema", "counts": map[string]any{}, "attributeTypes": types})
 	s.reply("GET /api/v1/schema", http.StatusOK, string(body))
@@ -362,7 +457,7 @@ telephonenumber: +1 555 0100
 telephonenumber: +1 555 0101
 manager: uid=bob,ou=people,dc=alder,dc=test
 `,
-		"people/bob.ldif": projectBob + "commonName: Robert\n",
+		"people/bob.ldif": projectBob + "commonName: Robert\nnsAccountLock: true\n",
 		"people/carol.ldif": `dn: uid=carol,ou=people,dc=alder,dc=test
 objectClass: inetOrgPerson
 uid: carol
