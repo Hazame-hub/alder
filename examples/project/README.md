@@ -100,6 +100,21 @@ required reviewers on the environment, the apply runs as soon as the plan is
 saved: set them up before the first run. These jobs hold a password and
 never run on a pull or merge request, for the reason given above.
 
+**Signed plans.** The approval says a person looked; a signature says
+which file they looked at, wherever it travels next. To use one, the
+reviewer downloads the saved plan, reads it, signs it with `alder sign
+saved-plan.json --key reviewer.pem --signer "$NAME" --output
+saved-plan.signed.json`, and hands that file to the apply job, which runs
+`alder project apply ... --plan saved-plan.signed.json --trusted-keys
+/etc/alder/reviewers/`. A plan nobody signed, or signed by a key not in that
+directory, is then refused (exit 3), and one changed after it was signed
+(exit 8), before connecting. Keep the reviewers' public keys on the runner
+or somewhere only they can change, not in files a pull request can edit.
+`github-actions-apply.yml` marks where the flag goes; how the signed file
+reaches the apply job (a release asset, a protected bucket, an artifact the
+reviewer uploads) depends on your setup, so the example leaves it out. See
+[`docs/SIGNING.md`](../../docs/SIGNING.md#signing-a-saved-plan).
+
 ## What is deliberately not here
 
 - **Applying without a person.** The apply files below always wait for

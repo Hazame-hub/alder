@@ -34,7 +34,9 @@ In the interface:
 - "Load recovery bundle" in the Changeset view previews a bundle and stages its
   changes for review.
 - "Load saved plan", next to it, does the same for a plan `alder plan --out`
-  saved: the same expectations, checked the same way.
+  saved: the same expectations, checked the same way. A signed plan is
+  refused there, since the interface does not check plan signatures; apply
+  it with `alder apply --plan FILE --trusted-keys KEY`.
 
 Over HTTP:
 - `recovery: true` on `POST /changeset/apply`, or `?recovery=true` on

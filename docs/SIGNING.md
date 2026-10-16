@@ -138,6 +138,69 @@ the Preflight tab carry a badge for what their signature amounted to. An
 unsigned document shows nothing: most documents are unsigned, and a badge on
 every one of them would say only that the world is normal.
 
+## Signing a saved plan
+
+A saved plan ([proposals/saved-plans.md](proposals/saved-plans.md)) is what
+a reviewer approves and a later job applies. Between the two it is a file,
+and whoever can write it chooses what runs. A signature closes that gap:
+the reviewer signs the file they read, and the apply refuses any other.
+
+`alder sign` wraps a plan as it wraps any document, and `alder apply --plan`
+and `alder project apply --plan` read the envelope. In CI:
+
+```sh
+# The plan job, on the default branch: save the plan and publish the file.
+alder project plan --env prod --out prod.plan.json
+
+# The reviewer, on their own machine, after reading the plan:
+alder sign prod.plan.json --key ~/.alder/signing.pem --signer "reviewer" \
+  --output prod.plan.signed.json
+# ...and hands prod.plan.signed.json back to the pipeline.
+
+# The apply job, after approval, with the reviewers' public keys:
+alder project apply --env prod --plan prod.plan.signed.json \
+  --trusted-keys /etc/alder/reviewers/ --yes
+```
+
+| The file | Without `--trusted-keys` | With `--trusted-keys` |
+|---|---|---|
+| unsigned | applied, as in every release before | refused, exit 3 (`unsigned`) |
+| signed by a key you named | — | applied, `verified` |
+| signed, by no key you named | applied, signature not checked | refused, exit 3 (`signature_untrusted`) |
+| changed after a key you named signed it | — | refused, exit 8 (`signature_invalid`) |
+| a malformed signature, or an algorithm Alder does not know | refused, exit 8 (`signature_invalid`) | refused, exit 8 (`signature_invalid`) |
+
+- **Naming keys asks for the plan's origin to be established.** That is why
+  `--trusted-keys` on an apply refuses an unsigned plan, where `alder serve
+  --trusted-keys` reads one unless `--require-signature` is given. The
+  server reads documents to show them; an apply writes to a directory, and
+  an operator who named the keys a plan must come from has said what an
+  acceptable plan is. Without the flag nothing changes, which keeps every
+  plan an earlier 1.x release saved applying.
+- **A key you did not name cannot be checked.** An envelope names its keys
+  by id and does not carry them, so without `--trusted-keys` Alder holds no
+  key to verify against: the signature is reported as not checked (`--json`
+  status `unchecked`), and only a signature that is malformed or names an
+  unknown algorithm is refused. A plan changed after signing is caught by
+  naming the key that signed it. With keys named, a signature by any other
+  key is shown as not checked too: its signer label is the file's word only.
+- **The signature is checked before anything else happens**: before
+  connecting, with the other refusals of the file, and before anyone is
+  asked to confirm. The signed plan then goes through every check a bare
+  one does: read strictly, matched to the environment, the directory, the
+  binds and the project files, bound to the project's changes, and refused
+  whole if any change no longer holds. A trusted signature skips none of
+  them; a plan for project files that changed since is refused (3) however
+  it is signed.
+- **What the apply shows.** The plan shown starts with who signed it, the
+  key ids and whether each is trusted. With `--json` the apply document
+  carries `signature`, shaped like `alder verify --json`'s answer.
+- **An envelope whose payload is not a saved plan** is refused (3), as an
+  unknown document is.
+- **The web interface does not check plan signatures**, so it refuses a
+  signed plan and names the command that does, rather than unwrap one
+  unchecked.
+
 ## What a signature is not
 
 - **Not authorisation.** A verified document is one Alder knows the origin of.
@@ -169,6 +232,7 @@ every one of them would say only that the world is normal.
 ## See also
 
 - [SNAPSHOTS.md](SNAPSHOTS.md), [CHANGE-PACKAGES.md](CHANGE-PACKAGES.md),
-  [RECOVERY.md](RECOVERY.md) — the documents that can be signed
+  [RECOVERY.md](RECOVERY.md), [proposals/saved-plans.md](proposals/saved-plans.md)
+  — the documents that can be signed
 - [CLI.md](CLI.md) — `alder key`, `alder sign`, `alder verify`
 - [SECURITY.md](../SECURITY.md) — what Alder holds, and what it refuses to hold

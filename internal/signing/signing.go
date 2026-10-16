@@ -135,14 +135,15 @@ const (
 // Result is what a verifier concluded, in the form a report shows.
 type Result struct {
 	Status Status `json:"status"`
-	// Signers are the signatures that verified, in the order the envelope
-	// holds them.
+	// Signers are the envelope's signatures, in the order it holds them:
+	// a trusted one verified; any other names a key the verifier does not
+	// hold, so it was not checked and its labels are the file's word only.
 	Signers []Signer `json:"signers,omitempty"`
 	// Detail explains an invalid or untrusted answer, for a person.
 	Detail string `json:"detail,omitempty"`
 }
 
-// Signer is one signature that verified, and whether its key is trusted.
+// Signer is one signature, and whether its key is trusted (and so checked).
 type Signer struct {
 	KeyID    string `json:"keyId"`
 	Signer   string `json:"signer,omitempty"`
