@@ -99,6 +99,13 @@ A saved plan is the same idea pointed forwards:
   and the file is written only if every one applies, which closes the gap
   between the plan and the reads behind the expectations (exit 4 when it
   does not).
+
+  *Fixed 2026-10-16:* "every one applies" did not close that gap: an edit
+  between the plan and the read was written into the expectation and
+  overwritten at apply, unseen. The saved changes' plan must now also be
+  the one shown, item by item: the same action, the same effect on group
+  membership and the same references found, or the file is not written
+  (4).
 - **Applying a saved plan** sends those changes to `POST /plan` as
   `changes`, refuses if any comes back as a conflict (an expectation
   that no longer holds, an entry that now exists) or `invalid`, shows it,
@@ -129,6 +136,17 @@ operations are the file. Anyone who can edit the file between plan and
 apply can change what runs. In CI that is whoever can change the workflow
 run's artifacts, who could equally change the workflow. See open question
 3 for binding it to the project.
+
+*Fixed 2026-10-16:* the digest bound the project's files and nothing bound
+the changes to them, so editing `changes` alone still changed what ran. A
+project's saved plan is now applied only when every change is one the
+project's desired state makes for the environment: an add of an entry the
+files describe, exactly as they describe it, or a `replace` of an attribute
+they name on that entry, to the values they give it, compared under the
+environment's suffix and the schema's names for each attribute. Every
+modification, of either kind of plan, must also expect each attribute it
+changes. A change set's saved plan has nothing to be bound to: the file is
+the input, and what vouches for it is who could write it, or a signature.
 
 ## The commands
 
@@ -167,7 +185,9 @@ $ alder project apply --env prod --plan prod.plan.json [--yes]
 ## The file
 
 JSON, versioned the way the recovery bundle is, and read strictly: a field
-the reader does not know is refused rather than half-read.
+the reader does not know is refused rather than half-read, and so is a key
+in another case than the format's or a key given twice in one object
+(*fixed 2026-10-16*: Go's decoder accepted both, the last of two winning).
 
 ```json
 {
@@ -266,6 +286,9 @@ up-front check is).
    also refuses the case where the plan job ran on one commit and the
    apply job checks out a later one. Recommendation: yes, refuse, and say
    which; a workflow that wants the later commit plans it again.
+   *Completed 2026-10-16:* the digest alone bound the files, not the
+   changes; an apply now also refuses any saved change the project would
+   not make.
 4. **How long a saved plan stays valid.** Recommendation: no expiry. The
    expectations already say whether it still holds, and a date would refuse
    plans that are still exactly right.

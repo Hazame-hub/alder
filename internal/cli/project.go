@@ -120,8 +120,9 @@ func projectPlanCmd(env *Env) *cobra.Command {
 			"--out FILE saves the plan, so that alder project apply --plan FILE applies\n" +
 			"exactly it later, or refuses. Each change is saved with the state it expects\n" +
 			"to find, and the file is written only once the saved changes have been\n" +
-			"planned again and every one applies. A plan with a change that cannot be\n" +
-			"applied as written is not saved. The exit status is the plan's.\n\n" +
+			"planned again, every one applies, and that plan is the one shown. A plan\n" +
+			"with a change that cannot be applied as written is not saved. The exit\n" +
+			"status is the plan's.\n\n" +
 			"Exit status: 0 planned, 3 the project is not valid or some change cannot be\n" +
 			"applied as written, 4 the directory changed while the plan was being saved,\n" +
 			"7 usage, 8 failure.",
@@ -162,8 +163,12 @@ func projectApplyCmd(env *Env) *cobra.Command {
 			"planning the project: exactly the changes in it, each only if the directory\n" +
 			"still holds what it held when the plan was made. The file must have been\n" +
 			"made for this environment, its directory and binds, and from the project\n" +
-			"files as they are now; anything else is refused before connecting (3). A\n" +
-			"saved plan that no longer holds is refused whole (4): plan again and review.\n\n" +
+			"files as they are now; anything else is refused before connecting (3). Each\n" +
+			"change must also be one those files make for this environment -- an add of\n" +
+			"an entry exactly as they describe it, or a replace with the values they give\n" +
+			"-- and expect what it changes; one that is not is refused before anything is\n" +
+			"planned (3). A saved plan that no longer holds is refused whole (4): plan\n" +
+			"again and review.\n\n" +
 			"--env, --project, --plan and --yes are read from the command line only,\n" +
 			"never from ALDER_*.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 the project is not valid or\n" +
@@ -227,6 +232,18 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 		return err
 	}
 	envelope.Environment, envelope.Host = o.envName, conn.label()
+	// A saved plan is read and matched first, so a file that is not this
+	// environment's plan is refused as such (3) whether or not there is
+	// anyone to confirm it.
+	var saved *savedPlan
+	if o.plan != "" {
+		if saved, err = readSavedPlan(env, o.plan); err != nil {
+			return err
+		}
+		if err := matchSaved(o.plan, saved, p, o.envName, conn); err != nil {
+			return err
+		}
+	}
 	// Refused before connecting: a run that will not be allowed to apply has
 	// no business opening a session on production to find that out.
 	if !o.yes && !env.Interactive() {
@@ -234,8 +251,8 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 			Message: "not applied: there is no terminal to ask for confirmation, and --yes was not given. " +
 				"Review with alder project plan, then run apply with --yes"}
 	}
-	if o.plan != "" {
-		return applySaved(ctx, env, p, o, conn, &envelope)
+	if saved != nil {
+		return applySaved(ctx, env, p, saved, o, conn, &envelope)
 	}
 	// Rendered before connecting, so a project too large to plan is said
 	// without a session; an environment that rebases it renders it again.
@@ -483,18 +500,12 @@ func loadProjectWith(env *Env, path string, load func(string) (*project.Project,
 	return p, nil
 }
 
-// applySaved is project apply --plan: the saved plan's changes, planned as
-// they are written, shown, confirmed and applied with that plan's baselines.
-func applySaved(ctx context.Context, env *Env, p *project.Project, o projectOptions, conn *connection,
+// applySaved is project apply --plan: the saved plan's changes, checked
+// against the project, planned as they are written, shown, confirmed and
+// applied with that plan's baselines. The caller has read the file and
+// matched it to the environment and the project files.
+func applySaved(ctx context.Context, env *Env, p *project.Project, saved *savedPlan, o projectOptions, conn *connection,
 	envelope *applyEnvelope) error {
-	saved, err := readSavedPlan(env, o.plan)
-	if err != nil {
-		return err
-	}
-	if err := matchSaved(o.plan, saved, p, o.envName, conn); err != nil {
-		return err
-	}
-
 	writef(env.Stderr, "alder: applying the plan saved in %s at %s to environment %s: %s through %s\n",
 		safe(o.plan), saved.CreatedAt.Format(time.RFC3339), safe(o.envName), safe(conn.label()), safe(conn.apiURL))
 	out := env.Stdout
@@ -514,6 +525,24 @@ func applySaved(ctx context.Context, env *Env, p *project.Project, o projectOpti
 		return err
 	}
 	defer r.close()
+
+	// Every saved change has to be one the project, as this environment
+	// holds it, would make: the digest binds the files, and this binds the
+	// changes to them.
+	names, owned, err := readSchemaNames(ctx, r)
+	if err != nil {
+		return err
+	}
+	if err := expectsWhatItChanges(o.plan, saved.Changes, names); err != nil {
+		return err
+	}
+	q, _, err := forEnvironment(ctx, r, p, o.envName)
+	if err != nil {
+		return err
+	}
+	if err := bindToProject(o.plan, saved.Changes, q, names, owned); err != nil {
+		return err
+	}
 
 	plan, raw, err := planSaved(ctx, r, saved.Changes)
 	if err != nil {

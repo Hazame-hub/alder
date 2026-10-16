@@ -2,8 +2,10 @@
 
 Alder reads the access control rules a server holds and shows you the ones that
 bear on an entry, and — where the server will answer it — what a given identity
-may actually do there. It does not write access control, and it never evaluates
-the rules itself.
+may actually do there. It never authors an access rule, and it never evaluates
+the rules itself. A reviewed change or a recovery bundle that carries one is
+applied like any other change, with a warning
+([RECOVERY.md](RECOVERY.md#per-operation)).
 
 Rules read in 1.19; the server's own verdict added in 1.20.
 

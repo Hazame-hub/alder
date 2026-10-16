@@ -80,8 +80,9 @@ func configWarnings(record directory.ChangeRecord, caps directory.Capabilities) 
 	if _, isSchema := caps.SchemaWrite.Target(record.DN.String()); !isSchema {
 		warnings = append(warnings, fmt.Sprintf(
 			"%s is this server's own configuration, not directory data. Changes here take "+
-				"effect immediately, there is no undo, and a mistake can stop the directory "+
-				"serving or lock you out of it.", tree))
+				"effect immediately and are not a transaction: a recovery bundle puts a setting "+
+				"back only through another write the server must accept, and a mistake can "+
+				"stop the directory serving or lock you out of it.", tree))
 	}
 
 	touched := map[string]bool{}

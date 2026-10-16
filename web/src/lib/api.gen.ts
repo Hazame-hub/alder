@@ -3575,9 +3575,11 @@ export interface components {
              *     decided, whatever the server would allow.
              *
              *     Distinct from `readOnly`, which is the server's refusal. This is
-             *     Alder's: an access rule is read and never written, and a schema
-             *     definition is written by the schema editor one definition at a
-             *     time rather than by replacing a thousand of them in a text box.
+             *     Alder's: an access rule is read and never authored in the editor
+             *     (a reviewed change or a recovery bundle that carries one is applied,
+             *     with a warning), and a schema definition is written by the schema
+             *     editor one definition at a time rather than by replacing a
+             *     thousand of them in a text box.
              */
             elsewhere?: string;
             /** @description False when the schema does not define this attribute. */
@@ -3615,7 +3617,7 @@ export interface components {
             /**
              * @description What this entry's object classes permit, less whatever the entry
              *     editor does not offer — see `elsewhere` on an attribute's kind.
-             *     An access rule is read and never written, so `olcAccess` is not
+             *     The editor never authors an access rule, so `olcAccess` is not
              *     here even where a class permits it.
              *
              *     `must` is not filtered: an attribute a class requires has to be
@@ -3642,7 +3644,7 @@ export interface components {
              *     `supportedControl` are operational and unflagged too, but they
              *     belong to the server rather than to an entry. So is anything with
              *     `elsewhere` set on its kind — `aci` is operational and settable,
-             *     and Alder still does not write an access rule.
+             *     and the editor still does not author an access rule.
              */
             settableOperational?: string[];
             /** @description The single structural class, or empty when it is ambiguous. */
@@ -4169,6 +4171,7 @@ export interface components {
             equality?: string;
             singleValue?: boolean;
             operational?: boolean;
+            noUserModification?: boolean;
         };
         SyntaxSummary: {
             oid: string;

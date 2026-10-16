@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { strToU8, zipSync, type Zippable } from "fflate";
 import { selectProjectFiles } from "./project";
 import {
+  crc32,
   maxWalkedEntries,
   maxZipBytes,
   maxZipMembers,
@@ -86,26 +87,69 @@ describe("a project from a .zip", () => {
     expect(zipSizeRefusal(3 * 2 ** 30)).toContain("3072.0 MiB");
   });
 
-  it("refuses a member that does not inflate to its declared size, rather than planning it cut short", () => {
-    const data = zipSync({ "p/alder.yaml": strToU8("version: 1\n"), "p/a.ldif": strToU8("dn: dc=example\n") }, { level: 0 });
-    // The central directory's uncompressed size of p/a.ldif, made smaller
-    // than what the member holds.
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-    const name = strToU8("p/a.ldif");
-    let patched = false;
-    for (let i = 0; i + 46 < data.length; i++) {
-      if (view.getUint32(i, true) !== 0x02014b50) continue;
-      const n = view.getUint16(i + 28, true);
-      if (n === name.length && data.subarray(i + 46, i + 46 + n).every((b, j) => b === name[j])) {
-        view.setUint32(i + 24, 4, true);
-        patched = true;
+  // Sets, in both the local header and the central directory, a field of
+  // the member named: the CRC-32 (+0 from the local header's +14), the
+  // compressed size (+4) or the uncompressed size (+8).
+  function patchMember(data: Uint8Array, member: string, field: 0 | 4 | 8, value: number): Uint8Array {
+    const out = data.slice();
+    const view = new DataView(out.buffer);
+    const name = strToU8(member);
+    const named = (at: number, n: number) => n === name.length && out.subarray(at, at + n).every((b, j) => b === name[j]);
+    let patched = 0;
+    for (let i = 0; i + 46 < out.length; i++) {
+      const sig = view.getUint32(i, true);
+      if (sig === 0x04034b50 && named(i + 30, view.getUint16(i + 26, true))) {
+        view.setUint32(i + 14 + field, value, true);
+        patched += 1;
+      }
+      if (sig === 0x02014b50 && named(i + 46, view.getUint16(i + 28, true))) {
+        view.setUint32(i + 16 + field, value, true);
+        patched += 1;
       }
     }
-    expect(patched).toBe(true);
-    const r = readZip("p.zip", data);
+    expect(patched).toBe(2);
+    return out;
+  }
+
+  const twoEntries =
+    "dn: uid=a,ou=p,dc=example\nobjectClass: person\n\ndn: uid=b,ou=p,dc=example\nobjectClass: person\n";
+  const firstEntry = twoEntries.indexOf("\n\n") + 2;
+
+  for (const [stored, level] of [
+    ["stored", 0],
+    ["deflated", 6],
+  ] as const) {
+    it(`refuses a ${stored} member declared smaller than it is, rather than planning it cut short`, () => {
+      const data = zipSync({ "p/alder.yaml": strToU8("version: 1\n"), "p/a.ldif": [strToU8(twoEntries), { level }] });
+      // A deflated member is inflated into a buffer of the declared size and
+      // comes back as exactly that much: only its CRC-32 tells it is cut.
+      const r = readZip("p.zip", patchMember(data, "p/a.ldif", 8, firstEntry));
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.message).toContain("p/a.ldif does not inflate to the size and checksum the zip declares");
+    });
+  }
+
+  it("refuses a member whose bytes are not the ones its CRC-32 records", () => {
+    const data = zipSync({ "p/alder.yaml": strToU8("version: 1\n"), "p/a.ldif": strToU8(twoEntries) }, { level: 0 });
+    // Stored and cut consistently: both sizes say the first entry only.
+    let cut = patchMember(data, "p/a.ldif", 8, firstEntry);
+    cut = patchMember(cut, "p/a.ldif", 4, firstEntry);
+    const r = readZip("p.zip", cut);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.message).toContain("p/a.ldif does not inflate to the size the zip declares");
+    expect(r.message).toContain("p/a.ldif does not inflate to the size and checksum the zip declares");
+
+    // Whole bytes and a CRC-32 that is not theirs are refused as well; the
+    // same zip with its own CRC-32 is not.
+    expect(readZip("p.zip", patchMember(data, "p/a.ldif", 0, crc32(strToU8(twoEntries)) ^ 1)).ok).toBe(false);
+    expect(readZip("p.zip", data).ok).toBe(true);
+  });
+
+  it("computes CRC-32 as zip does", () => {
+    expect(crc32(new Uint8Array())).toBe(0);
+    expect(crc32(strToU8("123456789"))).toBe(0xcbf43926);
+    expect(crc32(strToU8("The quick brown fox jumps over the lazy dog"))).toBe(0x414fa339);
   });
 
   it("stops listing a tiny .zip that claims more members than a project could hold", () => {

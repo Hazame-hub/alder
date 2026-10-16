@@ -59,6 +59,18 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 			continue
 		}
 		before, after := pre.Get(t.name), post.Get(t.name)
+		if accessRule(t.name) && (len(before) == 0 || (len(after) == 0 && leavesValues(t.mods))) {
+			// An empty read of an access rule is not proof there is none: a
+			// bind may be allowed to write rules it cannot read, and one rule
+			// can hide another. Nothing read before would make the
+			// compensation a delete of the whole list, unread rules
+			// included; nothing read after a change that left rules leaves
+			// no expectation to hold the compensation to. Neither is
+			// guessed at.
+			step.Reasons = append(step.Reasons, Reason{Code: ReasonHiddenAttributesUnknown, Attribute: t.name})
+			skipped++
+			continue
+		}
 		// Byte for byte: a value the server re-spelled is put back as it was,
 		// and an ordered value's position is part of the value.
 		if sameSet(before, after, snapshot.ExactKey) {
@@ -79,6 +91,13 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 }
 
 // notCompensated says why a configuration attribute is left alone, if it is.
+//
+// An access rule is not left alone. A reviewed change replaced it and Alder
+// applied it, so putting back what the server held before is the same kind of
+// write, planned, warned about and checked against its expectation like the
+// change was (option B of docs/proposals/access-rules-in-recovery.md). Until
+// 1.39 it was held back here with access_rule_not_written, which stays in the
+// enum for the bundles written then.
 func notCompensated(sch *schema.Schema, name string) (ReasonCode, bool) {
 	switch {
 	case schema.IsSensitive(name):
@@ -86,7 +105,11 @@ func notCompensated(sch *schema.Schema, name string) (ReasonCode, bool) {
 		// name is recorded, the value never read into the bundle.
 		return ReasonSensitiveNotCaptured, true
 	case accessRule(name):
-		return ReasonAccessRuleNotWritten, true
+		// Before the server-owned test: a server that keeps aci declares it
+		// USAGE directoryOperation, which reads as server-owned, but it has
+		// no NO-USER-MODIFICATION and the change that is being undone wrote
+		// it.
+		return "", false
 	case serverOwned(sch, name):
 		return ReasonServerOwnedAttribute, true
 	}
@@ -96,15 +119,26 @@ func notCompensated(sch *schema.Schema, name string) (ReasonCode, bool) {
 // accessRule reports whether an attribute carries access rules.
 //
 // By name, which section 3 of the charter otherwise forbids. That rule is
-// about detecting what a server can do; this is what Alder chooses not to
-// write, and the charter names both attributes. The entry editor holds them
-// back the same way.
+// about detecting what a server can do; this is a decision about what an
+// access rule is, and the charter names both attributes. The entry editor
+// holds them back the same way, and the lockout warning names them too.
 func accessRule(name string) bool {
 	switch strings.ToLower(schema.BaseName(name)) {
 	case "aci", "olcaccess":
 		return true
 	}
 	return false
+}
+
+// leavesValues reports whether modifications certainly leave the attribute
+// holding values: the last one adds or replaces with values. A delete of some
+// values may or may not empty it, so it is not counted.
+func leavesValues(mods []directory.Mod) bool {
+	if len(mods) == 0 {
+		return false
+	}
+	last := mods[len(mods)-1]
+	return (last.Op == directory.ModAdd || last.Op == directory.ModReplace) && len(last.Values) > 0
 }
 
 // definitionChange is what a change did to one schema definition.
@@ -272,12 +306,22 @@ func storedDefinition(values [][]byte, oid string) ([]byte, bool) {
 // say how recoverable a schema or configuration change will be from the change
 // alone. Its values are the change's own: what a schema change removes is
 // taken as held before it, what it adds as held after. For a configuration
-// change both are empty: which settings are compensated depends on their names
-// alone, and whether one had a value before is something the bundle made at
-// apply says.
+// change both are empty but for access rules: which settings are compensated
+// depends on their names alone, and whether one had a value before is
+// something the bundle made at apply says.
 func assessState(record directory.ChangeRecord, kind string) (pre, post *directory.Entry) {
 	pre, post = directory.NewEntry(record.DN), directory.NewEntry(record.DN)
 	if kind != KindSchema {
+		// An access rule is assessed as one that was read before and after:
+		// an empty read of one is reported as unread rather than as no rules,
+		// and whether the bind could read them is what the bundle made at
+		// apply says. These values never leave Assess.
+		for _, t := range touchedAttributes(record) {
+			if accessRule(t.name) {
+				pre.Set(t.name, [][]byte{[]byte("before")})
+				post.Set(t.name, [][]byte{[]byte("after")})
+			}
+		}
 		return pre, post
 	}
 	for _, t := range touchedAttributes(record) {
