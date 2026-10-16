@@ -173,10 +173,11 @@ func projectApplyCmd(env *Env) *cobra.Command {
 			"again and review.\n\n" +
 			"A --plan file may be signed (alder sign). --trusted-keys PATH, repeatable,\n" +
 			"applies it only if it carries a valid signature by one of those public keys;\n" +
-			"an unsigned plan or one signed by another key is refused (3). A signature\n" +
-			"that does not match the plan is refused with or without it (8). Without\n" +
-			"--trusted-keys a signed plan is applied with its signature unchecked, and an\n" +
-			"unsigned one as before. All of this is decided before connecting.\n\n" +
+			"an unsigned plan or one signed by another key is refused (3), and one by a\n" +
+			"named key that does not match the plan (8). Without --trusted-keys no key\n" +
+			"is at hand to check against: a signed plan is applied with its signature\n" +
+			"unchecked (only a malformed signature is refused, 8), and an unsigned one\n" +
+			"as before. All of this is decided before connecting.\n\n" +
 			"--env, --project, --plan, --trusted-keys and --yes are read from the command\n" +
 			"line only, never from ALDER_*.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 the project is not valid,\n" +

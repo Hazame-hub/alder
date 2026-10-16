@@ -922,13 +922,14 @@ strictly as a bare one, and every check above still runs on it.
   `--require-signature` is given: naming keys on an apply is asking for the
   plan's origin to be established, and a plan nobody signed does not
   establish it.
-- **A signature that does not match the plan is refused**, with or without
-  `--trusted-keys` (exit 8, `signature_invalid`), as is one naming an
-  algorithm Alder does not know. Only a key you name can show that a
-  signature does not match: without `--trusted-keys` Alder holds no key to
-  check against.
+- **A signature by a key you named that does not match the plan is
+  refused** (exit 8, `signature_invalid`). Only a key you name can show that
+  a signature does not match. A malformed signature, or one naming an
+  algorithm Alder does not know, is refused with or without
+  `--trusted-keys`.
 - **Without `--trusted-keys`**, a signed plan is applied with its signature
-  reported as not checked, and an unsigned plan applies as it always has.
+  reported as not checked (`--json` status `unchecked`): a plan edited after
+  it was signed still applies. An unsigned plan applies as it always has.
 - All of this is decided **before connecting**, with the other exit-3
   refusals, and before anyone is asked to confirm. The plan shown starts with
   who signed it and each key id; with `--json`, the document carries a

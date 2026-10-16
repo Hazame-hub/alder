@@ -179,9 +179,11 @@ alder project apply --env prod --plan prod.plan.signed.json \
   plan an earlier 1.x release saved applying.
 - **A key you did not name cannot be checked.** An envelope names its keys
   by id and does not carry them, so without `--trusted-keys` Alder holds no
-  key to verify against: the signature is reported as not checked, and only
-  a signature that is malformed or names an unknown algorithm is refused.
-  A plan changed after signing is caught by naming the key that signed it.
+  key to verify against: the signature is reported as not checked (`--json`
+  status `unchecked`), and only a signature that is malformed or names an
+  unknown algorithm is refused. A plan changed after signing is caught by
+  naming the key that signed it. With keys named, a signature by any other
+  key is shown as not checked too: its signer label is the file's word only.
 - **The signature is checked before anything else happens**: before
   connecting, with the other refusals of the file, and before anyone is
   asked to confirm. The signed plan then goes through every check a bare

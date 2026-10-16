@@ -170,9 +170,10 @@ func applyCmd(env *Env) *cobra.Command {
 			"That is what a signature is for. A --plan file may be signed (alder sign);\n" +
 			"--trusted-keys PATH, repeatable, applies it only if it carries a valid\n" +
 			"signature by one of those public keys, and refuses an unsigned plan or one\n" +
-			"signed by another key (3). A signature that does not match the plan is\n" +
-			"refused with or without it (8). Without --trusted-keys a signed plan is\n" +
-			"applied with its signature unchecked, and an unsigned one as before.\n\n" +
+			"signed by another key (3), and one by a named key that does not match the\n" +
+			"plan (8). Without --trusted-keys no key is at hand to check against: a\n" +
+			"signed plan is applied with its signature unchecked (only a malformed\n" +
+			"signature is refused, 8), and an unsigned one as before.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 some change cannot be applied\n" +
 			"as written, or the plan is not signed by a trusted key, 4 the plan went\n" +
 			"stale, 5 not confirmed, 6 stopped partway, 7 usage, 8 failure or a\n" +

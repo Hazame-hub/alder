@@ -605,6 +605,9 @@ func readSavedPlan(env *Env, path string, trustedPaths []string) (*savedPlan, *v
 	case result.Status == signing.Invalid:
 		return nil, report, failf("signature_invalid", "not applied: %s: %s", safe(path), safe(result.Detail))
 	case trusted == nil:
+		// "untrusted" would read as "checked, by a key nobody named": nothing
+		// was checked at all.
+		report.Status = statusUnchecked
 		report.Detail = "no --trusted-keys was given, so no signature was checked"
 	case result.Status != signing.Verified:
 		return nil, report, notApplicable("signature_untrusted",
@@ -641,6 +644,10 @@ func describeFormat(format string) string {
 	return fmt.Sprintf("a document of format %s", safe(format))
 }
 
+// statusUnchecked is a saved plan's signature status when no --trusted-keys
+// was given: the signature was read, never checked.
+const statusUnchecked = "unchecked"
+
 // renderSignature says, in the header of the plan shown, who signed the
 // saved plan and what that amounted to. An unsigned plan shows nothing.
 func renderSignature(w io.Writer, sig *verifyEnvelope) {
@@ -654,12 +661,11 @@ func renderSignature(w io.Writer, sig *verifyEnvelope) {
 		writef(w, "Signed plan: signature not checked (no --trusted-keys given)\n")
 	}
 	for _, s := range sig.Signers {
+		// A signature by a key nobody named was never checked, verified
+		// header or not: anyone can add one, with any signer label.
 		trust := "not checked"
-		switch {
-		case s.Trusted:
+		if s.Trusted {
 			trust = "trusted"
-		case signing.Status(sig.Status) == signing.Verified:
-			trust = "untrusted"
 		}
 		writef(w, "  %s  %s  %s %s\n", safe(s.KeyID), trust, safe(s.Signer), safe(s.SignedAt))
 	}

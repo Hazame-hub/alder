@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hazame-hub/alder/internal/signing"
 )
 
 // 1.39: a saved plan, signed.
@@ -119,7 +121,7 @@ func TestProjectApplyOfASignedPlan(t *testing.T) {
 		r := apply(s, dir, signed, "--json")
 		expectCode(t, r, ExitOK)
 		doc := oneJSONDocument(t, r.stdout)
-		if sig, _ := doc["signature"].(map[string]any); sig["status"] != "untrusted" {
+		if sig, _ := doc["signature"].(map[string]any); sig["status"] != "unchecked" {
 			t.Errorf("signature = %v", doc["signature"])
 		}
 		if !strings.Contains(r.stderr, "not checked") {
@@ -270,5 +272,19 @@ func TestTrustedKeysWithoutAPlanIsAUsageError(t *testing.T) {
 	expectCode(t, r, ExitUsage)
 	if len(s.calls) != 0 {
 		t.Errorf("%d request(s) sent for a command line that was wrong", len(s.calls))
+	}
+}
+
+// A signature by a key nobody named was never checked, so its signer label is
+// the file's word only, even under a verified header.
+func TestAnUncheckedSignerIsNotShownAsVerified(t *testing.T) {
+	var out strings.Builder
+	renderSignature(&out, &verifyEnvelope{Status: string(signing.Verified), Signers: []signing.Signer{
+		{KeyID: "aa", Signer: "reviewer", Trusted: true},
+		{KeyID: "bb", Signer: "security-lead (approved)"},
+	}})
+	got := out.String()
+	if !strings.Contains(got, "aa  trusted  reviewer") || !strings.Contains(got, "bb  not checked  security-lead") {
+		t.Errorf("header:\n%s", got)
 	}
 }
