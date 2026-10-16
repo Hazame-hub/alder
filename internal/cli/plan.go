@@ -83,8 +83,8 @@ func planCmd(env *Env) *cobra.Command {
 			"overwrite.\n\n" +
 			"--out FILE saves the plan of an LDIF document or of --changes, for alder apply\n" +
 			"--plan to apply exactly it later, through any Alder, or refuse. It is written\n" +
-			"only when every change in it applies; exit 4 when the directory moved while it\n" +
-			"was being saved. --force replaces an existing file.\n\n" +
+			"only when every change in it applies, as the plan shown said; exit 4 when the\n" +
+			"directory moved while it was being saved. --force replaces an existing file.\n\n" +
 			"Exit status: 0 planned, 3 some change cannot be applied as written, 7 usage,\n" +
 			"8 failure. With --detailed-exitcode: 0 nothing to change, 2 changes pending,\n" +
 			"3 some change cannot be applied as written (it wins over 2).",
@@ -161,8 +161,10 @@ func applyCmd(env *Env) *cobra.Command {
 			"changes, planned as they are written, shown, confirmed and applied with the\n" +
 			"baselines of that plan. It is refused before connecting (exit 3) when it was\n" +
 			"made against another host:port or binding as someone else, including for\n" +
-			"configuration (--config-bind-dn, or its absence), and refused whole (exit 4)\n" +
-			"when any of its changes no longer holds.\n\n" +
+			"configuration (--config-bind-dn, or its absence), refused (exit 3) when a\n" +
+			"modification in it does not expect what it changes, and refused whole (exit 4)\n" +
+			"when any of its changes no longer holds. The file is the whole input: nothing\n" +
+			"binds its changes but who could write it.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 some change cannot be applied\n" +
 			"as written, 4 the plan went stale, 5 not confirmed, 6 stopped partway,\n" +
 			"7 usage, 8 failure.",

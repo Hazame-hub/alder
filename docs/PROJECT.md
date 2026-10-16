@@ -378,8 +378,15 @@ so the stricter meaning is asked for, never assumed.
   Alder can check it and a restart between review and apply changes
   nothing. The file names the environment, its `host:port`, the bind, the
   configuration bind (`config-bind-dn`) when it has one, and any suffix, and a digest of the project's entries; an apply for anything
-  else is refused before connecting (3), and one whose changes no longer
-  hold is refused whole (4). Specified, and accepted, in
+  else is refused before connecting (3). The changes are bound to the
+  project too: each must be one the project's desired state makes for that
+  environment, an add of an entry exactly as the files describe it or a
+  replacement with the values they give, and each modification must expect
+  what it changes, or the apply is refused (3), so editing the file cannot
+  make it write anything the files do not say. It can still leave changes
+  out; signing the file is what proves it is the one reviewed. One whose
+  changes no longer hold is refused
+  whole (4). Specified, and accepted, in
   [proposals/saved-plans.md](proposals/saved-plans.md).
 - **`alder project fmt`** (built): rewrite the project's LDIF in a canonical
   form, so a Git diff shows what changed and not how it was wrapped. A tidier

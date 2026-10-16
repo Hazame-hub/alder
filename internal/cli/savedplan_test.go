@@ -34,7 +34,9 @@ func savedPlanStub(t *testing.T, savedHolds bool) *stub {
 			"index": 1, "dn": "uid=bob,ou=people,dc=alder,dc=test", "action": "add", "exists": false, "intent": "desired", "kind": "data",
 			"record": map[string]any{"dn": "uid=bob,ou=people,dc=alder,dc=test", "type": "add", "attributes": []any{
 				map[string]any{"name": "objectClass", "values": []any{map[string]any{"text": "inetOrgPerson"}}},
+				map[string]any{"name": "uid", "values": []any{map[string]any{"text": "bob"}}},
 				map[string]any{"name": "cn", "values": []any{map[string]any{"text": "Bob"}}},
+				map[string]any{"name": "sn", "values": []any{map[string]any{"text": "B"}}},
 			}},
 			"baseline": "desired-bob",
 		})
@@ -77,6 +79,13 @@ func savedPlanStub(t *testing.T, savedHolds bool) *stub {
 	return s
 }
 
+// writeSavedPlanProject is the project savedPlanStub plans: alice with the
+// title the stub's plan replaces, and bob as the stub's plan adds him.
+func writeSavedPlanProject(t *testing.T, s *stub) string {
+	t.Helper()
+	return writeProject(t, s, map[string]string{"people/alice.ldif": projectAlice + "title: After\n"})
+}
+
 func readSaved(t *testing.T, path string) map[string]any {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -92,7 +101,7 @@ func readSaved(t *testing.T, path string) map[string]any {
 
 func TestProjectPlanOutSavesExactChangesWithWhatTheyExpect(t *testing.T) {
 	s := savedPlanStub(t, true)
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	out := filepath.Join(t.TempDir(), "dev.plan.json")
 	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--out", out, "--detailed-exitcode")
 	expectCode(t, r, ExitPending) // the plan's status, saved or not
@@ -149,7 +158,7 @@ func TestProjectPlanOutSavesExactChangesWithWhatTheyExpect(t *testing.T) {
 
 func TestProjectPlanOutIsNotWrittenWhenTheDirectoryMovesMeanwhile(t *testing.T) {
 	s := savedPlanStub(t, false)
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	out := filepath.Join(t.TempDir(), "dev.plan.json")
 	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--out", out)
 	expectCode(t, r, ExitStale)
@@ -163,7 +172,7 @@ func TestAProjectPlanThatCannotBeAppliedIsNotSaved(t *testing.T) {
 	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{conflict: 1}, map[string]any{
 		"index": 0, "dn": projectAliceDN, "action": "conflict", "exists": true, "intent": "desired",
 		"problem": map[string]any{"code": "entry_exists"}}))
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	out := filepath.Join(t.TempDir(), "dev.plan.json")
 	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--out", out)
 	expectCode(t, r, ExitNotApplicable)
@@ -177,7 +186,7 @@ func TestAProjectPlanThatCannotBeAppliedIsNotSaved(t *testing.T) {
 
 func TestProjectPlanOutWithJSONSaysWhereInOneDocument(t *testing.T) {
 	s := savedPlanStub(t, true)
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	out := filepath.Join(t.TempDir(), "dev.plan.json")
 	r := s.run(t, projectRun, "project", "plan", "--project", dir, "--env", "dev", "--out", out, "--json")
 	expectCode(t, r, ExitOK)
@@ -207,7 +216,7 @@ func savePlanFor(t *testing.T, s *stub, dir string) string {
 
 func TestProjectApplyPlanAppliesExactlyTheSavedChanges(t *testing.T) {
 	s := savedPlanStub(t, true)
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	saved := savePlanFor(t, s, dir)
 	before := len(s.called("POST /api/v1/plan"))
 
@@ -242,7 +251,7 @@ func TestProjectApplyPlanAppliesExactlyTheSavedChanges(t *testing.T) {
 
 func TestProjectApplyPlanThatNoLongerHoldsWritesNothing(t *testing.T) {
 	s := savedPlanStub(t, true)
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	saved := savePlanFor(t, s, dir)
 
 	moved := savedPlanStub(t, false)
@@ -281,7 +290,7 @@ func TestProjectApplyPlanRefusesAnotherEnvironmentOrProjectBeforeConnecting(t *t
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := savedPlanStub(t, true)
-			dir := writeProject(t, s, nil)
+			dir := writeSavedPlanProject(t, s)
 			saved := savePlanFor(t, s, dir)
 			if tc.change != nil {
 				tc.change(t, dir)
@@ -300,7 +309,7 @@ func TestProjectApplyPlanRefusesAnotherEnvironmentOrProjectBeforeConnecting(t *t
 
 func TestProjectApplyPlanReadsTheFileStrictly(t *testing.T) {
 	s := savedPlanStub(t, true)
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	saved := savePlanFor(t, s, dir)
 	for name, mutate := range map[string]func(doc map[string]any){
 		"an unknown field": func(doc map[string]any) { doc["approvedBy"] = "someone" },
@@ -334,7 +343,7 @@ func TestProjectApplyPlanReadsTheFileStrictly(t *testing.T) {
 
 func TestSavedPlanUsageErrors(t *testing.T) {
 	s := savedPlanStub(t, true)
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	for _, args := range [][]string{
 		{"plan", "--env", "dev", "--out", "-"},
 		{"plan", "--env", "dev", "--force"},

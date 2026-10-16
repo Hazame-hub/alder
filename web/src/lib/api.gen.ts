@@ -4170,6 +4170,7 @@ export interface components {
             equality?: string;
             singleValue?: boolean;
             operational?: boolean;
+            noUserModification?: boolean;
         };
         SyntaxSummary: {
             oid: string;

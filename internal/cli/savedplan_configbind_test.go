@@ -124,7 +124,7 @@ func withProjectConfigBind(t *testing.T, dir string) {
 
 func TestAProjectPlanRecordsTheConfigBindDN(t *testing.T) {
 	s := savedPlanStub(t, true)
-	dir := writeProject(t, s, nil)
+	dir := writeSavedPlanProject(t, s)
 	withProjectConfigBind(t, dir)
 	out := filepath.Join(t.TempDir(), "dev.plan.json")
 	r := s.run(t, projectRunWithConfig, "project", "plan", "--project", dir, "--env", "dev", "--out", out)
@@ -156,7 +156,7 @@ func TestProjectApplyPlanRefusesAnotherConfigBindDNBeforeConnecting(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := savedPlanStub(t, true)
-			dir := writeProject(t, s, nil)
+			dir := writeSavedPlanProject(t, s)
 			if tc.before != nil {
 				tc.before(t, dir)
 			}

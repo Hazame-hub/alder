@@ -2488,13 +2488,14 @@ type AttributeTypeInputUsage string
 
 // AttributeTypeSummary defines model for AttributeTypeSummary.
 type AttributeTypeSummary struct {
-	Desc        *string   `json:"desc,omitempty"`
-	Equality    *string   `json:"equality,omitempty"`
-	Name        string    `json:"name"`
-	Names       *[]string `json:"names,omitempty"`
-	Obsolete    *bool     `json:"obsolete,omitempty"`
-	Oid         string    `json:"oid"`
-	Operational *bool     `json:"operational,omitempty"`
+	Desc               *string   `json:"desc,omitempty"`
+	Equality           *string   `json:"equality,omitempty"`
+	Name               string    `json:"name"`
+	Names              *[]string `json:"names,omitempty"`
+	NoUserModification *bool     `json:"noUserModification,omitempty"`
+	Obsolete           *bool     `json:"obsolete,omitempty"`
+	Oid                string    `json:"oid"`
+	Operational        *bool     `json:"operational,omitempty"`
 
 	// Origin Where this definition came from, in the server's own words. The
 	// X-ORIGIN extension where the server keeps one, and otherwise the
