@@ -172,11 +172,13 @@ func TestConfigAccessRulesArePutBackWithTheirPositions(t *testing.T) {
 		t.Errorf("expect %+v, want the rules as the change left them", c.Expect)
 	}
 
-	// Rules the change added where there were none are removed.
+	// Rules the change added where none were read are not removed: an empty
+	// read is not proof there were none (see
+	// TestAccessRulesTheBindCouldNotReadAreNotGuessedAt).
 	step = Derive(0, modify(t, configDB, mod(directory.ModAdd, "olcAccess", "to * by * read")),
 		entry(t, configDB), entry(t, configDB, []string{"olcAccess", "{0}to * by * read"}), configTarget(t))
-	if step.Recoverability != Exact || len(step.Compensation) != 1 || step.Compensation[0].Mods[0].Op != "delete" {
-		t.Errorf("step %+v, want the added rules removed", step)
+	if step.Recoverability != Unavailable || len(step.Compensation) != 0 {
+		t.Errorf("step %+v, want no whole-list delete", step)
 	}
 }
 
@@ -506,26 +508,100 @@ func TestTwoChangesToTheSameAccessRulesGoBackToTheFirstState(t *testing.T) {
 		t.Fatal(err)
 	}
 	changes := b.Changes()
-	if len(changes) != 1 {
-		t.Fatalf("changes %+v, want one modification of the database entry", changes)
+	// Not merged: each puts back its own step's rules, last step first, each
+	// under the expectation of what its own change left.
+	if len(changes) != 2 {
+		t.Fatalf("changes %+v, want one modification per step", changes)
 	}
-	// The last replace is what the entry ends with: the rules before the
-	// first change. The expectation is the rules the second change left.
-	mods := changes[0].Mods
-	if last := mods[len(mods)-1]; last.Op != "replace" || !equalStrings(texts(t, last.Values), s0[1:]) {
-		t.Errorf("mods %+v, want the last to put back %q", mods, s0[1:])
+	for i, want := range []struct{ restores, expects []string }{{s1[1:], s2[1:]}, {s0[1:], s1[1:]}} {
+		mods := changes[i].Mods
+		if len(mods) != 1 || mods[0].Op != "replace" || !equalStrings(texts(t, mods[0].Values), want.restores) {
+			t.Errorf("change %d: mods %+v, want %q put back", i, mods, want.restores)
+		}
+		record, expect, err := changes[i].Record()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Type != directory.ChangeModify {
+			t.Errorf("record %+v", record)
+		}
+		live := entry(t, configDB, append([]string{"olcAccess"}, want.expects...))
+		if attr, differs := expect.Differs(nil, live); differs {
+			t.Errorf("change %d: the expectation does not hold of what its change left (%s)", i, attr)
+		}
 	}
-	record, expect, err := changes[0].Record()
+}
+
+func TestAccessRulesTheBindCouldNotReadAreNotGuessedAt(t *testing.T) {
+	// An empty read is not the same as no rules: a bind that may write the
+	// rules but not read them sees none either way.
+	rules := []string{"olcAccess", "{0}to * by users read"}
+	replace := modify(t, configDB, mod(directory.ModReplace, "olcAccess", "to * by users read"))
+
+	cases := []struct {
+		name      string
+		pre, post *directory.Entry
+	}{
+		// Nothing read before: the compensation would be a delete of the
+		// whole list, rules the bind could not see included.
+		{"nothing read before", entry(t, configDB), entry(t, configDB, rules)},
+		// Nothing read after a change that left rules: there is no
+		// expectation to hold it to.
+		{"nothing read after", entry(t, configDB, []string{"olcAccess", "{0}to * by * read"}), entry(t, configDB)},
+		{"nothing read at all", entry(t, configDB), entry(t, configDB)},
+	}
+	for _, tc := range cases {
+		step := Derive(0, replace, tc.pre, tc.post, configTarget(t))
+		if step.Recoverability != Unavailable || reasonCodes(step)[ReasonHiddenAttributesUnknown] != "olcAccess" ||
+			len(step.Compensation) != 0 {
+			t.Errorf("%s: step %+v, want unavailable, hidden_attributes_unknown, nothing to apply", tc.name, step)
+		}
+	}
+
+	// Beside a setting that was read, the step is partial and the setting
+	// is still put back.
+	record := modify(t, configDB, mod(directory.ModReplace, "olcSizeLimit", "900"),
+		mod(directory.ModReplace, "olcAccess", "to * by users read"))
+	step := Derive(0, record, entry(t, configDB, []string{"olcSizeLimit", "500"}),
+		entry(t, configDB, []string{"olcSizeLimit", "900"}, rules), configTarget(t))
+	if step.Recoverability != Partial || len(step.Compensation) != 1 || len(step.Compensation[0].Mods) != 1 ||
+		step.Compensation[0].Mods[0].Name != "olcSizeLimit" {
+		t.Errorf("step %+v, want partial with olcSizeLimit put back", step)
+	}
+
+	// Rules the change removed, read before and gone after, are put back:
+	// that empty read is what the change asked for.
+	step = Derive(0, modify(t, configDB, mod(directory.ModDelete, "olcAccess")),
+		entry(t, configDB, rules), entry(t, configDB), configTarget(t))
+	if step.Recoverability != Exact || len(step.Compensation) != 1 || step.Compensation[0].Mods[0].Op != "replace" {
+		t.Errorf("a removal: step %+v, want the rules put back", step)
+	}
+}
+
+func TestAccessRuleCompensationsAreNotMergedAcrossOthers(t *testing.T) {
+	// Forward: a rule on the config database that grants what the next
+	// change needs, a setting on another entry, then another setting on the
+	// first entry. Merging the third's compensation with the first's would
+	// revoke the grant before the second entry is put back.
+	const configDBZero = "olcDatabase={0}config,cn=config"
+	grant := Derive(0, modify(t, configDBZero, mod(directory.ModAdd, "olcAccess", "{0}to * by dn.exact=\"cn=op\" write")),
+		entry(t, configDBZero, []string{"olcAccess", "{0}to * by * none"}),
+		entry(t, configDBZero, []string{"olcAccess", "{0}to * by dn.exact=\"cn=op\" write", "{1}to * by * none"}), configTarget(t))
+	other := Derive(1, modify(t, configDB, mod(directory.ModReplace, "olcSizeLimit", "900")),
+		entry(t, configDB, []string{"olcSizeLimit", "500"}), entry(t, configDB, []string{"olcSizeLimit", "900"}), configTarget(t))
+	again := Derive(2, modify(t, configDBZero, mod(directory.ModReplace, "olcSizeLimit", "10")),
+		entry(t, configDBZero, []string{"olcSizeLimit", "5"}), entry(t, configDBZero, []string{"olcSizeLimit", "10"}), configTarget(t))
+	b, err := New(Origin{NamingContexts: []string{"dc=alder,dc=test"}}, []Step{grant, other, again}, fixedTime)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if attr, differs := expect.Differs(nil, entry(t, configDB, s2)); differs {
-		t.Errorf("the expectation does not hold of what the changes left (%s)", attr)
+	changes := b.Changes()
+	var order []string
+	for _, c := range changes {
+		order = append(order, c.DN+" "+c.Mods[0].Name)
 	}
-	if _, differs := expect.Differs(nil, entry(t, configDB, s1)); !differs {
-		t.Error("the expectation holds of rules somebody else has changed since")
-	}
-	if record.Type != directory.ChangeModify {
-		t.Errorf("record %+v", record)
+	want := []string{configDBZero + " olcSizeLimit", configDB + " olcSizeLimit", configDBZero + " olcAccess"}
+	if !equalStrings(order, want) {
+		t.Errorf("changes in the order %q, want %q", order, want)
 	}
 }

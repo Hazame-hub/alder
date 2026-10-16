@@ -59,6 +59,18 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 			continue
 		}
 		before, after := pre.Get(t.name), post.Get(t.name)
+		if accessRule(t.name) && (len(before) == 0 || (len(after) == 0 && leavesValues(t.mods))) {
+			// An empty read of an access rule is not proof there is none: a
+			// bind may be allowed to write rules it cannot read, and one rule
+			// can hide another. Nothing read before would make the
+			// compensation a delete of the whole list, unread rules
+			// included; nothing read after a change that left rules leaves
+			// no expectation to hold the compensation to. Neither is
+			// guessed at.
+			step.Reasons = append(step.Reasons, Reason{Code: ReasonHiddenAttributesUnknown, Attribute: t.name})
+			skipped++
+			continue
+		}
 		// Byte for byte: a value the server re-spelled is put back as it was,
 		// and an ordered value's position is part of the value.
 		if sameSet(before, after, snapshot.ExactKey) {
@@ -116,6 +128,17 @@ func accessRule(name string) bool {
 		return true
 	}
 	return false
+}
+
+// leavesValues reports whether modifications certainly leave the attribute
+// holding values: the last one adds or replaces with values. A delete of some
+// values may or may not empty it, so it is not counted.
+func leavesValues(mods []directory.Mod) bool {
+	if len(mods) == 0 {
+		return false
+	}
+	last := mods[len(mods)-1]
+	return (last.Op == directory.ModAdd || last.Op == directory.ModReplace) && len(last.Values) > 0
 }
 
 // definitionChange is what a change did to one schema definition.
@@ -283,12 +306,22 @@ func storedDefinition(values [][]byte, oid string) ([]byte, bool) {
 // say how recoverable a schema or configuration change will be from the change
 // alone. Its values are the change's own: what a schema change removes is
 // taken as held before it, what it adds as held after. For a configuration
-// change both are empty: which settings are compensated depends on their names
-// alone, and whether one had a value before is something the bundle made at
-// apply says.
+// change both are empty but for access rules: which settings are compensated
+// depends on their names alone, and whether one had a value before is
+// something the bundle made at apply says.
 func assessState(record directory.ChangeRecord, kind string) (pre, post *directory.Entry) {
 	pre, post = directory.NewEntry(record.DN), directory.NewEntry(record.DN)
 	if kind != KindSchema {
+		// An access rule is assessed as one that was read before and after:
+		// an empty read of one is reported as unread rather than as no rules,
+		// and whether the bind could read them is what the bundle made at
+		// apply says. These values never leave Assess.
+		for _, t := range touchedAttributes(record) {
+			if accessRule(t.name) {
+				pre.Set(t.name, [][]byte{[]byte("before")})
+				post.Set(t.name, [][]byte{[]byte("after")})
+			}
+		}
 		return pre, post
 	}
 	for _, t := range touchedAttributes(record) {
