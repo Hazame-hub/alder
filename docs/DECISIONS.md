@@ -6275,6 +6275,80 @@ together:
   changes.** A mutation's result outlived the detach, and was shown under
   the next reference's host.
 
+### 2026-10-16 — projects in the web interface: a dropped folder, a zip, a project further down
+
+Three of the later slices of the web-projects specification. The fourth, the
+environment hint, stays out as the specification recommends: it would be a
+guess that happens to agree.
+
+- **One selection, three ways in.** A dropped folder and a zip are turned
+  into the folder picker's list -- a path starting with the folder's name,
+  and something to read the text from -- and `selectProjectFiles` decides
+  what is sent for all three. A second selection rule would be a project
+  that opens one way and not another.
+- **Nothing is read that would not be sent.** A dropped folder is walked
+  without entering dot-directories, and only `alder.yaml` and `*.ldif` are
+  opened; the walk stops at 20,000 entries, which is a home directory
+  dropped by mistake, not a project. A zip's other members are never
+  inflated, and the members that are stay within the request limit by
+  their declared size and again by their inflated size. A member whose
+  path leaves the zip (`..`, absolute, a drive letter, a backslash) is not
+  listed.
+- **fflate for the zip.** Unpacking in the browser keeps the server's one
+  input, files, unchanged (the specification's reason). A hand-written
+  inflate is code to get wrong for no gain; fflate is small, MIT, and has
+  no dependencies.
+- **`alder.yaml` further down** (open question 3's later step). With none at
+  the top, the one folder below that has one is opened, and its path is in
+  the heading (`repo/directory`); with several, the page lists them and the
+  person picks. A project at the top always wins, and another project's
+  `alder.yaml` below the opened one is never sent.
+
+### 2026-10-16 — saved plans for any change set: `alder plan --out`, `alder apply --plan`
+
+The saved-plans specification's first "later" item. `alder plan --out`
+saves the plan of an LDIF document or of `--changes`; `alder apply --plan`
+applies it, or refuses it, through any Alder. Same format, same checks, and
+what the build settled:
+
+- **The input is recorded, not bound.** A project's saved plan is refused
+  when the project's files changed, because the project is the source of
+  truth and the apply re-reads it. A change set has no such source: the
+  saved file is what was reviewed, and `alder apply --plan` takes nothing
+  else. The input's kind, mode and SHA-256 are in the file so a reviewer can
+  tell which document it came from, and nothing checks them.
+- **The directory is bound** by `host:port` and bind DN, compared before
+  connecting (3), as an environment's are.
+- **So is the configuration identity, in both kinds of saved plan.** A plan
+  can hold `cn=config` and schema changes, reviewed as the
+  `--config-bind-dn` (or the environment's `config-bind-dn`) it was made
+  with; until now nothing stopped applying it later as another. The file's
+  `environment` gains an optional `configBindDn`, absent when there was
+  none, and an apply whose configuration bind differs from it, either way
+  round, is refused before connecting (3), compared as `bindDn` is. Optional
+  because v1 has not shipped and a plan made without one is unchanged; the
+  reader still refuses any field it does not know.
+- **Each saved plan stays with its command.** A project's plan applied by
+  `alder apply` would skip the project's digest check; a change set's applied
+  by `alder project apply` would be checked against a project it never came
+  from. Both are refused with the other command's name. The file says which
+  it is by carrying `project` or `input`, exactly one.
+- **Deletions are saved, with an exhaustive expectation.** A project never
+  deletes, so its saved plans never held one. A change set can, and a
+  reviewed deletion is right only while the entry is what the reviewer saw:
+  the expectation is every readable user attribute, exhaustive, which
+  recovery bundles have used since 1.9 to delete only what an add created.
+  A sensitive attribute cannot be expected and is not counted. `--yes` still
+  needs `--allow-deletes`.
+- **Not saved:** a rename (an expectation can bind the entry, not the place
+  it moves to), a password change and a value the server withheld (no secret
+  is ever written to the file), and `--recovery` and `--package`, which are
+  already files of exact changes and are applied as they are.
+
+A conformance case saves through one Alder and applies through another, and
+checks that a plan overtaken on the modified entry or on the deleted one
+writes nothing.
+
 ### 2026-10-16 — a saved plan loads in the web interface
 
 The saved-plans proposal listed this as a later item: loading a plan

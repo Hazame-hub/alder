@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +33,11 @@ type planOptions struct {
 	// detailedExitcode makes "changes pending" an exit status of its own.
 	// Only plan has it: apply's 0 already means "applied, or nothing to do".
 	detailedExitcode bool
+
+	// out saves the plan (alder plan --out); plan applies a saved one
+	// (alder apply --plan).
+	out  string
+	plan string
 
 	yes                 bool
 	allowDeletes        bool
@@ -74,6 +81,10 @@ func planCmd(env *Env) *cobra.Command {
 			"alder apply --recovery-out, against the directory as it is now. A change\n" +
 			"whose entry has moved on since the original apply is a conflict, never an\n" +
 			"overwrite.\n\n" +
+			"--out FILE saves the plan of an LDIF document or of --changes, for alder apply\n" +
+			"--plan to apply exactly it later, through any Alder, or refuse. It is written\n" +
+			"only when every change in it applies; exit 4 when the directory moved while it\n" +
+			"was being saved. --force replaces an existing file.\n\n" +
 			"Exit status: 0 planned, 3 some change cannot be applied as written, 7 usage,\n" +
 			"8 failure. With --detailed-exitcode: 0 nothing to change, 2 changes pending,\n" +
 			"3 some change cannot be applied as written (it wins over 2).",
@@ -85,6 +96,10 @@ func planCmd(env *Env) *cobra.Command {
 	conn.registerDirectory(cmd)
 	o.register(cmd)
 	registerDetailedExitcode(cmd, &o.detailedExitcode)
+	f := cmd.Flags()
+	f.StringVar(&o.out, "out", "", "save the plan to this file, for alder apply --plan")
+	f.BoolVar(&o.force, "force", false, "replace --out if it already exists")
+	envflags.Exclude(f, "out", "force")
 	return cmd
 }
 
@@ -142,6 +157,12 @@ func applyCmd(env *Env) *cobra.Command {
 			"It is not a backup, and it holds no password. apply --recovery FILE plans and\n" +
 			"applies a bundle's changes like any other; a bundle made against a directory\n" +
 			"that announces itself differently also needs --allow-origin-mismatch.\n\n" +
+			"--plan FILE applies a plan saved by alder plan --out instead of an input: its\n" +
+			"changes, planned as they are written, shown, confirmed and applied with the\n" +
+			"baselines of that plan. It is refused before connecting (exit 3) when it was\n" +
+			"made against another host:port or binding as someone else, including for\n" +
+			"configuration (--config-bind-dn, or its absence), and refused whole (exit 4)\n" +
+			"when any of its changes no longer holds.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 some change cannot be applied\n" +
 			"as written, 4 the plan went stale, 5 not confirmed, 6 stopped partway,\n" +
 			"7 usage, 8 failure.",
@@ -159,7 +180,8 @@ func applyCmd(env *Env) *cobra.Command {
 	f.BoolVar(&o.force, "force", false, "replace --recovery-out if it already exists")
 	f.BoolVar(&o.allowOriginMismatch, "allow-origin-mismatch", false,
 		"apply a --recovery bundle made against a directory that announces itself differently")
-	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch")
+	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder plan --out) instead of planning an input")
+	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch", "plan")
 	return cmd
 }
 
@@ -180,6 +202,24 @@ type planInput struct {
 	pkg          []byte
 	schemaTarget string
 	validation   *apiclient.PackageValidation
+	// kind and digest are what a saved plan records about the input:
+	// ldif or changes, and the SHA-256 of what was read.
+	kind   string
+	digest string
+}
+
+// saved is what a saved plan records about this input.
+func (in *planInput) saved() *savedPlanInput {
+	s := &savedPlanInput{Kind: in.kind, Digest: in.digest}
+	if in.kind == "ldif" {
+		s.Mode = string(in.mode)
+	}
+	return s
+}
+
+func inputDigest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func (o planOptions) input(env *Env, flags *pflag.FlagSet, args []string) (*planInput, error) {
@@ -244,6 +284,7 @@ func (in *planInput) load(env *Env, o planOptions, args []string) error {
 			return err
 		}
 		text := string(data)
+		in.kind, in.digest = "ldif", inputDigest(data)
 		in.ldif = &text
 		in.request = apiclient.PlanRequest{Ldif: &text, Mode: &in.mode, Reconcile: ptr(false)}
 		return nil
@@ -267,6 +308,7 @@ func (in *planInput) load(env *Env, o planOptions, args []string) error {
 		return failf("changes_invalid", "%s holds no change requests", name)
 	}
 	in.staged = changes
+	in.kind, in.digest = "changes", inputDigest(data)
 	in.request = apiclient.PlanRequest{Changes: &changes, Reconcile: ptr(false)}
 	return nil
 }
@@ -325,6 +367,20 @@ func runPlan(ctx context.Context, env *Env, conn *connection, o planOptions, fla
 	if err != nil {
 		return err
 	}
+	switch {
+	case o.out == "-":
+		return usagef("--out needs a file: standard output carries the plan")
+	case o.force && o.out == "":
+		return usagef("--force replaces the --out file, and none was given")
+	case o.out != "" && (o.recovery != "" || o.pkg != ""):
+		// A bundle is itself a file of exact changes with expectations, and a
+		// package is validated where it lands: neither is made safer by a
+		// second file.
+		return usagef("--out saves the plan of an LDIF document or of --changes; apply a --recovery bundle or a --package as it is")
+	}
+	if err := refuseExisting(o.out, o.force); err != nil {
+		return err
+	}
 	if err := conn.check(in.readsStdin); err != nil {
 		return err
 	}
@@ -362,12 +418,30 @@ func runPlan(ctx context.Context, env *Env, conn *connection, o planOptions, fla
 	if err != nil {
 		return err
 	}
+	// A plan with a change that cannot be applied as written is shown and not
+	// saved. With --json it is saved before the plan is written, so that a
+	// failure to save is the one document on standard output.
+	saving := o.out != "" && blocked(p) == 0
+	if saving && o.json {
+		if err := saveInputPlan(ctx, env, r, in, conn, p, o.out, o.force); err != nil {
+			return err
+		}
+	}
 	if o.json {
 		if err := writeDocument(env.Stdout, raw); err != nil {
 			return failf("output", "cannot write to standard output: %v", err)
 		}
 	} else {
 		renderPlan(env.Stdout, p, !o.summary)
+	}
+	switch {
+	case saving && !o.json:
+		if err := saveInputPlan(ctx, env, r, in, conn, p, o.out, o.force); err != nil {
+			return err
+		}
+	case o.out != "" && !saving:
+		writef(env.Stderr, "alder: the plan was not saved to %s: a change that cannot be applied as written is never saved\n",
+			safe(o.out))
 	}
 	return planExit(env, p, o.detailedExitcode)
 }
@@ -428,6 +502,9 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 		_ = writeDocument(env.Stdout, doc)
 	}()
 
+	if o.plan != "" {
+		return applySavedInput(ctx, env, conn, o, flags, args, &envelope)
+	}
 	in, err := o.input(env, flags, args)
 	if err != nil {
 		return err

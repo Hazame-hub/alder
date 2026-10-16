@@ -372,8 +372,8 @@ so the stricter meaning is asked for, never assumed.
   change is the plan's own record, a modification with the values it
   replaces as an `expect`, the precondition recovery bundles use, so any
   Alder can check it and a restart between review and apply changes
-  nothing. The file names the environment, its `host:port`, the bind and
-  any suffix, and a digest of the project's entries; an apply for anything
+  nothing. The file names the environment, its `host:port`, the bind, the
+  configuration bind (`config-bind-dn`) when it has one, and any suffix, and a digest of the project's entries; an apply for anything
   else is refused before connecting (3), and one whose changes no longer
   hold is refused whole (4). Specified, and accepted, in
   [proposals/saved-plans.md](proposals/saved-plans.md).
@@ -416,11 +416,13 @@ so the stricter meaning is asked for, never assumed.
   and, when it could not be read, an `error`. `project apply` does not make
   it: it applies what the project describes, and the report is about what it
   does not.
-- **The web interface** (first slice built). Opening a project in the
-  browser is specified, and accepted, in
+- **The web interface** (built, apart from the environment hint). Opening a
+  project in the browser is specified, and accepted, in
   [proposals/web-projects.md](proposals/web-projects.md). *Open project*, on
-  the Import screen, takes a folder: the page reads `alder.yaml` at its top
-  and every `*.ldif` below it outside dot-directories, and sends them to
+  the Import screen, takes a folder, chosen or dropped, or a `.zip` of one:
+  the page finds `alder.yaml` (at the top, the one folder below with one,
+  or the one the person picks among several), reads it and every `*.ldif`
+  below it outside dot-directories, and sends them to
   `POST /project/plan`. The server validates them with this package -- the
   same rules, globs and secrets check, in the same words as `validate` --
   plans them as `project plan` does and reports the unmanaged entries, in
