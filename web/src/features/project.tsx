@@ -239,7 +239,12 @@ export function ProjectPanel({
         />
       </div>
 
-      {localError ? <p className="mt-2 text-sm text-destructive">{safeText(localError)}</p> : null}
+      {localError ? (
+        // Several projects to pick from is a question, not a failure.
+        <p className={`mt-2 text-sm ${choosing ? "text-muted-foreground" : "text-destructive"}`}>
+          {safeText(localError)}
+        </p>
+      ) : null}
 
       {choosing ? (
         <ProjectChoice projects={choosing.projects} onChoose={(root) => void open(choosing.picked, root)} />
