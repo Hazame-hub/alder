@@ -38,6 +38,8 @@ type planOptions struct {
 	// (alder apply --plan).
 	out  string
 	plan string
+	// trusted are the public keys a --plan must be signed by, when named.
+	trusted []string
 
 	yes                 bool
 	allowDeletes        bool
@@ -165,9 +167,16 @@ func applyCmd(env *Env) *cobra.Command {
 			"modification in it does not expect what it changes, and refused whole (exit 4)\n" +
 			"when any of its changes no longer holds. The file is the whole input: nothing\n" +
 			"binds its changes but who could write it.\n\n" +
+			"That is what a signature is for. A --plan file may be signed (alder sign);\n" +
+			"--trusted-keys PATH, repeatable, applies it only if it carries a valid\n" +
+			"signature by one of those public keys, and refuses an unsigned plan or one\n" +
+			"signed by another key (3). A signature that does not match the plan is\n" +
+			"refused with or without it (8). Without --trusted-keys a signed plan is\n" +
+			"applied with its signature unchecked, and an unsigned one as before.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 some change cannot be applied\n" +
-			"as written, 4 the plan went stale, 5 not confirmed, 6 stopped partway,\n" +
-			"7 usage, 8 failure.",
+			"as written, or the plan is not signed by a trusted key, 4 the plan went\n" +
+			"stale, 5 not confirmed, 6 stopped partway, 7 usage, 8 failure or a\n" +
+			"signature that does not match.",
 		Args: argsBetween(0, 1, "at most one LDIF file, or - for standard input"),
 	}, func(ctx context.Context, args []string) error {
 		return runApply(ctx, env, &conn, o, cmd.Flags(), args)
@@ -183,7 +192,9 @@ func applyCmd(env *Env) *cobra.Command {
 	f.BoolVar(&o.allowOriginMismatch, "allow-origin-mismatch", false,
 		"apply a --recovery bundle made against a directory that announces itself differently")
 	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder plan --out) instead of planning an input")
-	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch", "plan")
+	f.StringArrayVar(&o.trusted, "trusted-keys", nil,
+		"with --plan, apply it only if signed by one of these public keys: a PEM file, a file of several, or a directory of .pem files; repeatable")
+	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch", "plan", "trusted-keys")
 	return cmd
 }
 
@@ -480,12 +491,16 @@ func applicable(p apiclient.Plan) int {
 type applyEnvelope struct {
 	// Environment and Host are set by alder project apply only, for the same
 	// reason project plan prints them: two environments' plans read alike.
-	Environment string          `json:"environment,omitempty"`
-	Host        string          `json:"host,omitempty"`
-	Rebase      *rebaseReport   `json:"rebase,omitempty"`
-	Plan        json.RawMessage `json:"plan,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
-	Error       json.RawMessage `json:"error,omitempty"`
+	Environment string        `json:"environment,omitempty"`
+	Host        string        `json:"host,omitempty"`
+	Rebase      *rebaseReport `json:"rebase,omitempty"`
+	// Signature is what a signed --plan's signature amounted to, in the shape
+	// alder verify --json prints. Absent for an unsigned plan nobody asked to
+	// be signed.
+	Signature *verifyEnvelope `json:"signature,omitempty"`
+	Plan      json.RawMessage `json:"plan,omitempty"`
+	Result    json.RawMessage `json:"result,omitempty"`
+	Error     json.RawMessage `json:"error,omitempty"`
 	// RecoveryFile is where the recovery bundle was written, when it was.
 	RecoveryFile string `json:"recoveryFile,omitempty"`
 }
@@ -506,6 +521,9 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 
 	if o.plan != "" {
 		return applySavedInput(ctx, env, conn, o, flags, args, &envelope)
+	}
+	if len(o.trusted) > 0 {
+		return usagef("--trusted-keys is about a --plan file, and none was given")
 	}
 	in, err := o.input(env, flags, args)
 	if err != nil {

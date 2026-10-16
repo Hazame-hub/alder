@@ -19,6 +19,7 @@ import (
 
 	"github.com/hazame-hub/alder/internal/apiclient"
 	"github.com/hazame-hub/alder/internal/project"
+	"github.com/hazame-hub/alder/internal/signing"
 )
 
 // A saved plan is the plan alder project plan or alder plan showed, kept in a
@@ -511,18 +512,127 @@ func holds(p apiclient.Plan, n int) error {
 	return nil
 }
 
-// readSavedPlan reads a saved plan file, strictly.
-func readSavedPlan(env *Env, path string) (*savedPlan, error) {
-	data, _, err := env.readInput(path, "the saved plan", int64(maxRequestBytes))
-	if err != nil {
-		return nil, err
+// readSavedPlan reads a saved plan file, strictly: a bare alder-plan, or an
+// alder-signed envelope whose payload is one.
+//
+// A signature that does not match is refused whatever was asked (8): nothing
+// should read a plan that changed after it was signed. With trusted keys
+// named, the plan must also carry a valid signature by one of them, or it is
+// refused (3): naming keys on an apply asks for the plan's origin to be
+// established, so an unsigned plan or a stranger's signature does not do.
+// Without them, an envelope is unwrapped and its signature reported as
+// unchecked, and an unsigned plan reads as it always has.
+//
+// The signature reported is what the apply's output carries: nil for an
+// unsigned plan that nobody asked to be signed. It is returned beside a
+// refusal too, so the refusal's JSON says what the signature amounted to.
+func readSavedPlan(env *Env, path string, trustedPaths []string) (*savedPlan, *verifyEnvelope, error) {
+	var trusted signing.TrustedKeys
+	if len(trustedPaths) > 0 {
+		var err error
+		if trusted, err = signing.LoadTrustedKeys(trustedPaths); err != nil {
+			return nil, nil, failf("key", "%v", err)
+		}
+		if len(trusted) == 0 {
+			// Only blank paths: refusing everything would be the answer, and
+			// a confusing one.
+			return nil, nil, usagef("--trusted-keys names no key")
+		}
 	}
-	saved, err := decodeSavedPlan(data)
+	// An envelope indents the plan inside it, so it may be a little larger
+	// than the plan; the plan itself is held to the plan's limit below.
+	data, _, err := env.readInput(path, "the saved plan", int64(maxRequestBytes)+(1<<16))
 	if err != nil {
-		return nil, &ExitError{Code: ExitNotApplicable, Local: "saved_plan_invalid",
+		return nil, nil, err
+	}
+	invalid := func(err error) error {
+		return &ExitError{Code: ExitNotApplicable, Local: "saved_plan_invalid",
 			Message: fmt.Sprintf("%s is not a saved plan this release reads: %s", safe(path), safe(err.Error()))}
 	}
-	return saved, nil
+
+	document := bytes.TrimSpace(data)
+	if !signing.IsEnvelope(document) {
+		if trusted != nil {
+			return nil, &verifyEnvelope{Status: string(signing.Unsigned)}, notApplicable("unsigned",
+				"not applied: %s carries no signature, and --trusted-keys asks for a plan signed by one of those keys", safe(path))
+		}
+		saved, err := decodeSavedPlan(data)
+		if err != nil {
+			return nil, nil, invalid(err)
+		}
+		return saved, nil, nil
+	}
+
+	envelope, err := signing.Decode(document)
+	if err != nil {
+		return nil, nil, failf("signature_invalid", "not applied: %s: %s", safe(path), safe(err.Error()))
+	}
+	result := signing.Verify(envelope, trusted)
+	report := &verifyEnvelope{Status: string(result.Status), Signers: result.Signers, Detail: result.Detail,
+		Payload: payloadSummary(envelope.Payload)}
+	switch {
+	case result.Status == signing.Invalid:
+		return nil, report, failf("signature_invalid", "not applied: %s: %s", safe(path), safe(result.Detail))
+	case trusted == nil:
+		report.Detail = "no --trusted-keys was given, so no signature was checked"
+	case result.Status != signing.Verified:
+		return nil, report, notApplicable("signature_untrusted",
+			"not applied: %s is signed by no key --trusted-keys names", safe(path))
+	}
+	// The envelope's own keys are read as exactly as the plan's: a key
+	// twice there, such as a second payload, would be one more way for the
+	// file to say one thing to a person and another to Alder.
+	if err := exactKeys(document, reflect.TypeOf(signing.Envelope{})); err != nil {
+		return nil, report, invalid(err)
+	}
+	if format, _ := report.Payload["format"].(string); format != savedPlanFormat {
+		return nil, report, invalid(fmt.Errorf("the signed document is %s, not a saved plan", describeFormat(format)))
+	}
+	var payload bytes.Buffer
+	if err := json.Compact(&payload, envelope.Payload); err != nil {
+		return nil, report, invalid(err)
+	}
+	saved, err := decodeSavedPlan(payload.Bytes())
+	if err != nil {
+		return nil, report, invalid(fmt.Errorf("the signed document is not a saved plan: %w", err))
+	}
+	return saved, report, nil
+}
+
+// describeFormat names a document's format for a refusal, bounded.
+func describeFormat(format string) string {
+	if format == "" {
+		return "a document with no format"
+	}
+	if len(format) > 64 {
+		format = format[:64] + "..."
+	}
+	return fmt.Sprintf("an %s document", safe(format))
+}
+
+// renderSignature says, in the header of the plan shown, who signed the
+// saved plan and what that amounted to. An unsigned plan shows nothing.
+func renderSignature(w io.Writer, sig *verifyEnvelope) {
+	if sig == nil {
+		return
+	}
+	switch signing.Status(sig.Status) {
+	case signing.Verified:
+		writef(w, "Signed plan: verified against --trusted-keys\n")
+	default:
+		writef(w, "Signed plan: signature not checked (no --trusted-keys given)\n")
+	}
+	for _, s := range sig.Signers {
+		trust := "not checked"
+		switch {
+		case s.Trusted:
+			trust = "trusted"
+		case signing.Status(sig.Status) == signing.Verified:
+			trust = "untrusted"
+		}
+		writef(w, "  %s  %s  %s %s\n", s.KeyID, trust, safe(s.Signer), safe(s.SignedAt))
+	}
+	writeln(w)
 }
 
 // decodeSavedPlan refuses anything it does not know rather than half-reading
@@ -700,7 +810,8 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 	// The file is read and matched first, so a file that is not this
 	// directory's plan is refused as such (exit 3) whether or not there is
 	// anyone to confirm it.
-	saved, err := readSavedPlan(env, o.plan)
+	saved, sig, err := readSavedPlan(env, o.plan, o.trusted)
+	envelope.Signature = sig
 	if err != nil {
 		return err
 	}
@@ -719,6 +830,7 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 	if o.json {
 		out = env.Stderr
 	}
+	renderSignature(out, envelope.Signature)
 	if len(saved.Changes) == 0 {
 		writeln(out, "Nothing to apply: the saved plan holds no change.")
 		return nil
