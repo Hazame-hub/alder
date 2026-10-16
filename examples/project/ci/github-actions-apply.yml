@@ -16,7 +16,15 @@
 # The approval is GitHub's. In Settings > Environments, create one
 # environment per entry in alder.yaml, named the same, and give it required
 # reviewers, ideally with "Prevent self-review". Without that, apply runs as
-# soon as plan finishes and nobody reviews anything.
+# soon as plan finishes and nobody reviews anything. Limit each environment's
+# deployment branches to the default branch too: the workflow can be started
+# from any branch, and the plan is made from that branch's alder.yaml.
+#
+# Store the passwords as repository secrets, ALDER_STAGING_BIND_PASSWORD and
+# ALDER_PRODUCTION_BIND_PASSWORD: the plan job has no environment, so it
+# cannot read an environment's secrets. The secret is chosen by name, so a
+# missing one is empty and the run fails to bind, rather than falling back to
+# the other environment's password.
 #
 # What the reviewer approves is the file, not the commit. The apply refuses
 # it (exit 3) if the project files, the host, the bind or the suffix differ
@@ -76,7 +84,7 @@ jobs:
         id: plan
         env:
           # Only the chosen environment's password reaches this step.
-          BIND_PASSWORD: ${{ inputs.environment == 'production' && secrets.ALDER_PRODUCTION_BIND_PASSWORD || secrets.ALDER_STAGING_BIND_PASSWORD }}
+          BIND_PASSWORD: ${{ secrets[inputs.environment == 'production' && 'ALDER_PRODUCTION_BIND_PASSWORD' || 'ALDER_STAGING_BIND_PASSWORD'] }}
           PASSWORD_VARIABLE: ${{ inputs.environment == 'production' && 'ALDER_PRODUCTION_BIND_PASSWORD' || 'ALDER_STAGING_BIND_PASSWORD' }}
         run: |
           set -u
@@ -141,7 +149,7 @@ jobs:
           alder version
       - name: Apply the saved plan to ${{ inputs.environment }}
         env:
-          BIND_PASSWORD: ${{ inputs.environment == 'production' && secrets.ALDER_PRODUCTION_BIND_PASSWORD || secrets.ALDER_STAGING_BIND_PASSWORD }}
+          BIND_PASSWORD: ${{ secrets[inputs.environment == 'production' && 'ALDER_PRODUCTION_BIND_PASSWORD' || 'ALDER_STAGING_BIND_PASSWORD'] }}
           PASSWORD_VARIABLE: ${{ inputs.environment == 'production' && 'ALDER_PRODUCTION_BIND_PASSWORD' || 'ALDER_STAGING_BIND_PASSWORD' }}
         run: |
           set -u

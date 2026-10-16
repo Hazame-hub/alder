@@ -80,6 +80,12 @@ func TestTheExampleApplyFilesApplyOnlyTheReviewedPlan(t *testing.T) {
 				t.Errorf("%s does not contain %q", name, want)
 			}
 		}
+		// `cond && secrets.A || secrets.B` is B whenever A is empty, so a
+		// missing production secret would send the staging password to the
+		// production directory. The secret is picked by name instead.
+		if strings.Contains(text, "&& secrets.") {
+			t.Errorf("%s picks a secret with `&& secrets.`, which falls back to the other one when it is empty", name)
+		}
 		// --yes without --plan would plan again and apply what nobody saw.
 		for _, line := range strings.Split(text, "\n") {
 			if strings.Contains(line, "--yes") && !strings.Contains(line, "--plan ") {
