@@ -6229,6 +6229,33 @@ a comparison against it proposes nothing for it; the allowlist and the
 connection limit hold before dialling; and its password appears in no
 response and nowhere in the log.
 
+### 2026-10-16 — the project example applies a saved plan, behind an approval
+
+`examples/project/ci/` gains two optional files, `github-actions-apply.yml`
+and `gitlab-ci-apply.yml`. One job saves the plan with `project plan --out`
+and shows it; a second applies that file with `project apply --plan --yes
+--recovery-out`. The plan-only files are unchanged and still never apply.
+
+- **The approval is the CI system's.** The apply job sits in the GitHub or
+  GitLab environment named after the Alder environment, and the example says
+  to protect it. Alder has no approval of its own to offer and should not
+  grow one: the CI system already knows who may approve a deployment.
+- **The plan job is not gated.** A reviewer approves after reading the plan,
+  so the gate goes on the apply only.
+- **What is approved is the file.** The apply refuses a file saved from other
+  project files, for another host, bind or suffix (3), or whose changes no
+  longer hold (4), as `--plan` does everywhere. A reviewer who approves a
+  stale plan therefore gets a refusal, not a different write.
+- **GitHub runs it by hand, GitLab on the default branch.** A GitHub job
+  cannot be both behind an environment gate and skipped when nothing is
+  pending without a job output, which a matrix overwrites; one environment
+  per run keeps the output meaningful and the approval about one plan.
+  GitLab's manual jobs already wait, so it saves a plan per environment on
+  each default-branch pipeline.
+- **Held by a test:** both files parse, pin a release by checksum, use
+  `--yes` only on the line with `--plan`, gate the apply and not the plan,
+  and never run on a pull or merge request.
+
 ### 2026-10-16 — saved plans for any change set: `alder plan --out`, `alder apply --plan`
 
 The saved-plans specification's first "later" item. `alder plan --out`

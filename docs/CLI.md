@@ -937,7 +937,9 @@ transaction across entries.
 [`examples/project/`](../examples/project/) is a complete Alder project with a
 GitHub Actions workflow and a GitLab CI file: `validate` on every pull request,
 and `project plan --detailed-exitcode` for each environment on the default
-branch and on a schedule.
+branch and on a schedule. Two optional files beside them apply a saved plan
+after a person approves it: `project plan --out` in one job, `project apply
+--plan` in a second behind a protected environment.
 
 A drift check in CI (Linux or macOS):
 
