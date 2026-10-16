@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.39.0](https://github.com/Hazame-hub/alder/compare/v1.38.0...v1.39.0) (2026-10-16)
+
+
+### Features
+
+* a second, read-only server inside one session (B6) ([#238](https://github.com/Hazame-hub/alder/issues/238)) ([38479bd](https://github.com/Hazame-hub/alder/commit/38479bd469bd163f4e68bbfcebab791e90943d00))
+* **cli:** apply a signed saved plan, and require one with --trusted-keys ([#248](https://github.com/Hazame-hub/alder/issues/248)) ([fd2bfe8](https://github.com/Hazame-hub/alder/commit/fd2bfe8c9cc0483f7ddf3a849a4360eb688c78b1))
+* **cli:** save a project's plan and apply exactly it later ([#236](https://github.com/Hazame-hub/alder/issues/236)) ([a5dcb89](https://github.com/Hazame-hub/alder/commit/a5dcb891a0d93da001387fb76bd5eb258e0ea2b1))
+* **cli:** save the plan of any change set, and apply exactly it later ([#243](https://github.com/Hazame-hub/alder/issues/243)) ([4c3720c](https://github.com/Hazame-hub/alder/commit/4c3720cea473e84976269cec317452bcae51c87f))
+* **recovery:** compensate configuration-tree access rules (option B) ([#241](https://github.com/Hazame-hub/alder/issues/241)) ([a885c94](https://github.com/Hazame-hub/alder/commit/a885c94308549d435d66a01263fb5e75bc82c526))
+* **web:** load a saved plan next to a recovery bundle ([#244](https://github.com/Hazame-hub/alder/issues/244)) ([b6f0af6](https://github.com/Hazame-hub/alder/commit/b6f0af65cc73a1988ff4b077d63b350a17eae502))
+* **web:** open a project from a dropped folder, a .zip, or a folder below the one chosen ([#242](https://github.com/Hazame-hub/alder/issues/242)) ([a97d5d0](https://github.com/Hazame-hub/alder/commit/a97d5d01c3e15df1abd06d165bd3bc2172481945))
+
+
+### Fixes
+
+* **cli:** bind saved plans to the project, to the plan shown, and to exact keys ([#245](https://github.com/Hazame-hub/alder/issues/245)) ([af4dfcd](https://github.com/Hazame-hub/alder/commit/af4dfcd83bf45764186f765f026c8afb176fd795))
+* **project:** bound what reading a project costs by its size ([#246](https://github.com/Hazame-hub/alder/issues/246)) ([c6e4be2](https://github.com/Hazame-hub/alder/commit/c6e4be2eba1e3998d91834c05b421d029ea3cef1))
+* **project:** say which DNs an environment suffix leaves inside values ([#251](https://github.com/Hazame-hub/alder/issues/251)) ([76ddfcc](https://github.com/Hazame-hub/alder/commit/76ddfcc2e00ff9a46e52cc7c803f91877955b21e))
+* **recovery:** keep proxy and replication credentials out of bundles; never restore definitions as settings ([#250](https://github.com/Hazame-hub/alder/issues/250)) ([3764c43](https://github.com/Hazame-hub/alder/commit/3764c4326b868c874df191ad1fb49b77fa1390ad))
+* **session:** hold --max-sessions under races and reconnects; forget a detached reference's report ([#240](https://github.com/Hazame-hub/alder/issues/240)) ([a2c4336](https://github.com/Hazame-hub/alder/commit/a2c4336f9e6c83245163ace1ad948c7a0f81c645))
+* **web:** check each zip member's CRC-32 before planning it ([#247](https://github.com/Hazame-hub/alder/issues/247)) ([7748fad](https://github.com/Hazame-hub/alder/commit/7748fada7beec1eba42e09603b3c34dd7324dd90))
+
+
+### Documentation
+
+* describe the reference server, saved plans and web projects for 1.39 ([#249](https://github.com/Hazame-hub/alder/issues/249)) ([81a485e](https://github.com/Hazame-hub/alder/commit/81a485ed5e68764dbe8fc38c9d8020df442aa09c))
+* **examples:** apply a saved plan from CI, behind an approval ([#239](https://github.com/Hazame-hub/alder/issues/239)) ([9393b4e](https://github.com/Hazame-hub/alder/commit/9393b4e6d821af0c2377ac9c02c3a1656198bfc5))
+
 ## [1.38.0](https://github.com/Hazame-hub/alder/compare/v1.37.1...v1.38.0) (2026-10-14)
 
 
