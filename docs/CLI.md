@@ -587,7 +587,8 @@ plan's, `--detailed-exitcode` included; an existing file is replaced only with
 planned as they are written, shown, confirmed and applied with the baselines
 of that plan. It is refused before connecting (exit 3) when the file was made
 for another environment, against another `host:port`, binding as someone
-else, with another suffix, or from project files that have changed since --
+else, with another `config-bind-dn` (or with one where it had none, or none
+where it had one), with another suffix, or from project files that have changed since --
 plan that version and review it. It is refused whole (exit 4) when any of its
 changes no longer holds: an attribute it replaces has changed, or an entry it
 adds now exists. Nothing is written; plan again and review. The format is in
@@ -790,6 +791,32 @@ whose changes are all `unchanged` is 0. It is a flag, never the default, because
 environment. With `--json` the plan is still the one document on standard
 output; 2 is only the status.
 
+**`--out FILE` saves the plan** of an LDIF document or of `--changes`, for
+`alder apply --plan` to apply exactly it later, through any Alder:
+
+```sh
+alder plan changes.ldif --out change.plan.json
+alder apply --plan change.plan.json --yes
+```
+
+It is the saved plan `alder project plan --out` writes
+([proposals/saved-plans.md](proposals/saved-plans.md#the-file)), with the
+input it came from (`ldif` or `changes`, the mode, a SHA-256 of what was
+read) in place of a project, and the host, bind and any `--config-bind-dn`
+in place of an environment. Each change is the plan's own record. A modification expects the
+values of the attributes it replaces, under the names the entry returns them
+by (`cn` for `commonName` or `2.5.4.3`); **a deletion expects the entry exactly
+as it was read**, so it is applied only while the entry still holds what the
+reviewer saw deleted. A rename or a password change is not saved, nor is a
+plan with a value the server withheld, nor a `--changes` change that carries
+its own `expect`: apply those with `alder apply`. Before
+the file is written, its changes are planned once more, exactly as an apply
+will plan them, and it is written only if every one applies (exit 4 when the
+directory moved meanwhile). A plan with a change that cannot be applied is
+shown and not saved. `--force` replaces an existing file. A `--recovery`
+bundle or a `--package` is not saved again: each is already a file of exact
+changes, applied as it is.
+
 ---
 
 ## `alder apply`
@@ -827,6 +854,25 @@ never sends a change that was not planned.
   the refusal of a stale plan and the server's checks all still apply.
 - **A plan that deletes entries needs `--allow-deletes` as well**, when `--yes`
   is what answers. `--yes` alone never deletes.
+
+### A saved plan
+
+**`alder apply --plan FILE`** applies a plan `alder plan --out` saved,
+instead of planning an input: its changes, planned as they are written,
+shown, confirmed and applied with the baselines of that plan. `--yes`,
+`--allow-deletes` and `--recovery-out` work as they do for any apply.
+
+- **Refused before connecting (exit 3)** when the file was made against
+  another `host:port`, binding as someone else, or with another
+  `--config-bind-dn` (one given where the plan had none counts, and none
+  given where it had one), and when it is a project's
+  saved plan, which `alder project apply --plan` applies with the project's
+  own checks. `alder project apply --plan` refuses a change set's plan the
+  same way.
+- **Refused whole (exit 4)** when any of its changes no longer holds: an
+  attribute it replaces has changed, an entry it adds now exists, or an
+  entry it deletes no longer holds exactly what it held. Nothing is written;
+  plan again and review.
 
 ### When the directory moves
 

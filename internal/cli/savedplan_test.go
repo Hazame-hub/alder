@@ -21,6 +21,7 @@ const projectAliceDN = "uid=alice,ou=people,dc=alder,dc=test"
 func savedPlanStub(t *testing.T, savedHolds bool) *stub {
 	t.Helper()
 	s := newStub(t)
+	stubAttributeNames(s)
 	desired := planJSON(t, counts{add: 1, modify: 1},
 		map[string]any{
 			"index": 0, "dn": projectAliceDN, "action": "modify", "exists": true, "intent": "desired", "kind": "data",
