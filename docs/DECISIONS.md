@@ -6382,6 +6382,13 @@ The saved-plans proposal listed this as a later item: loading a plan
   or adding a change makes
   the rest an ordinary changeset, as editing a staged project plan does: an
   edit is a new review, and every change still carries its expectation.
-- **No API change.** The file is read in the browser and its changes go
-  through `POST /plan` and `POST /changeset/apply`, which already hold
-  changes with expectations to a checked plan.
+- **One API addition: the session names its configuration identity.**
+  The file is read in the browser and its changes go through `POST /plan`
+  and `POST /changeset/apply`, which already hold changes with expectations
+  to a checked plan. Since #243 a saved plan records `configBindDn`, the
+  configuration identity it was made with, and `alder apply --plan` refuses
+  another one. To refuse it here too, `GET /session` now returns
+  `configBindDn` when the session has one (its password never). A plan with
+  one is refused in a session without it, and the reverse, compared without
+  regard to case as the command line compares it. The decision to keep the
+  basket unlocked was confirmed on 2026-10-16.

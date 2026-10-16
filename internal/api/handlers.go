@@ -157,6 +157,9 @@ func (s *Server) sessionInfo(sess *session.Session) SessionInfo {
 		ReadOnly:     ptr(sess.ReadOnly),
 		Capabilities: ptr(capabilitiesView(caps)),
 	}
+	if dn := sess.Config.ConfigBindDN; dn != "" {
+		info.ConfigBindDn = ptr(dn)
+	}
 	if caps.VendorName != "" {
 		info.VendorName = ptr(caps.VendorName)
 	}

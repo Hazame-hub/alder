@@ -23,7 +23,7 @@ export type SavedPlan = {
   createdAt: string;
   alderVersion: string;
   input: { kind: "ldif" | "changes"; mode?: string; digest: string };
-  environment: { host: string; bindDn: string };
+  environment: { host: string; bindDn: string; configBindDn?: string };
   changes: ChangeRequest[];
   unchanged: number;
 };
@@ -46,7 +46,10 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-function unknownKey(o: Record<string, unknown>, known: string[]): string | undefined {
+function unknownKey(
+  o: Record<string, unknown>,
+  known: string[],
+): string | undefined {
   return Object.keys(o).find((k) => !known.includes(k));
 }
 
@@ -76,7 +79,8 @@ function isMod(m: unknown): boolean {
     unknownKey(m, ["op", "name", "values"]) === undefined &&
     (m.op === "add" || m.op === "delete" || m.op === "replace") &&
     typeof m.name === "string" &&
-    (m.values === undefined || (Array.isArray(m.values) && m.values.every(isValue)))
+    (m.values === undefined ||
+      (Array.isArray(m.values) && m.values.every(isValue)))
   );
 }
 
@@ -86,9 +90,24 @@ function isMod(m: unknown): boolean {
  * nothing the server would refuse, or the page could not show, gets staged.
  */
 function isChange(c: Record<string, unknown>): boolean {
-  if (unknownKey(c, ["dn", "type", "mods", "attributes", "expect", "baseline"]) !== undefined) return false;
-  if (c.attributes !== undefined && !(Array.isArray(c.attributes) && c.attributes.every(isAttribute))) return false;
-  if (c.mods !== undefined && !(Array.isArray(c.mods) && c.mods.every(isMod))) return false;
+  if (
+    unknownKey(c, [
+      "dn",
+      "type",
+      "mods",
+      "attributes",
+      "expect",
+      "baseline",
+    ]) !== undefined
+  )
+    return false;
+  if (
+    c.attributes !== undefined &&
+    !(Array.isArray(c.attributes) && c.attributes.every(isAttribute))
+  )
+    return false;
+  if (c.mods !== undefined && !(Array.isArray(c.mods) && c.mods.every(isMod)))
+    return false;
   if (c.expect !== undefined) {
     const e = c.expect;
     if (
@@ -107,13 +126,20 @@ function isChange(c: Record<string, unknown>): boolean {
 /** Whether any value of a change was withheld: a value with neither form. */
 function withheld(change: ChangeRequest): string | undefined {
   const lists: { name: string; values: unknown[] | undefined }[] = [
-    ...(change.attributes ?? []).map((a) => ({ name: a.name, values: a.values })),
+    ...(change.attributes ?? []).map((a) => ({
+      name: a.name,
+      values: a.values,
+    })),
     ...(change.mods ?? []).map((m) => ({ name: m.name, values: m.values })),
-    ...(change.expect?.attributes ?? []).map((a) => ({ name: a.name, values: a.values })),
+    ...(change.expect?.attributes ?? []).map((a) => ({
+      name: a.name,
+      values: a.values,
+    })),
   ];
   for (const { name, values } of lists) {
     for (const v of values ?? []) {
-      if (!isObject(v) || (v.text === undefined && v.base64 === undefined)) return name;
+      if (!isObject(v) || (v.text === undefined && v.base64 === undefined))
+        return name;
     }
   }
   return undefined;
@@ -122,7 +148,9 @@ function withheld(change: ChangeRequest): string | undefined {
 export function parseSavedPlan(text: string): Reading {
   const refuse = (message: string): Reading => ({ ok: false, message });
   if (text.length > maxSavedPlanBytes) {
-    return refuse(`The file is larger than the ${maxSavedPlanBytes >> 20} MiB the server accepts.`);
+    return refuse(
+      `The file is larger than the ${maxSavedPlanBytes >> 20} MiB the server accepts.`,
+    );
   }
   let parsed: unknown;
   try {
@@ -133,21 +161,35 @@ export function parseSavedPlan(text: string): Reading {
   if (!isObject(parsed)) return refuse("The file is not a saved plan.");
   const s = parsed;
   if (s.format !== savedPlanFormat) {
-    return refuse(`The file is not a saved plan: its format is ${safeText(String(s.format))}, not ${savedPlanFormat}.`);
+    return refuse(
+      `The file is not a saved plan: its format is ${safeText(String(s.format))}, not ${savedPlanFormat}.`,
+    );
   }
   if (s.version !== savedPlanVersion) {
-    return refuse(`This saved plan is version ${safeText(String(s.version))}; this release reads version ${savedPlanVersion}.`);
+    return refuse(
+      `This saved plan is version ${safeText(String(s.version))}; this release reads version ${savedPlanVersion}.`,
+    );
   }
   const extra = Object.keys(s).find((k) => !topLevel.has(k));
   if (extra !== undefined) {
-    return refuse(`This saved plan holds ${safeText(extra)}, which this release does not know.`);
+    return refuse(
+      `This saved plan holds ${safeText(extra)}, which this release does not know.`,
+    );
   }
   const env = s.environment;
-  if (!isObject(env) || typeof env.host !== "string" || env.host === "" || typeof env.bindDn !== "string") {
-    return refuse("This saved plan does not name the directory it was made against.");
+  if (
+    !isObject(env) ||
+    typeof env.host !== "string" ||
+    env.host === "" ||
+    typeof env.bindDn !== "string"
+  ) {
+    return refuse(
+      "This saved plan does not name the directory it was made against.",
+    );
   }
   if (s.project !== undefined) {
-    const name = typeof env.name === "string" ? safeText(env.name) : "its environment";
+    const name =
+      typeof env.name === "string" ? safeText(env.name) : "its environment";
     return refuse(
       `This is a project's plan, for ${name}. Apply it with alder project apply --plan, which checks the project's files still match it.`,
     );
@@ -163,35 +205,63 @@ export function parseSavedPlan(text: string): Reading {
   ) {
     return refuse("This saved plan does not say which input it was made from.");
   }
-  if (unknownKey(env, ["host", "bindDn"]) !== undefined) {
-    return refuse("This saved plan names an environment or a rebase, which only a project's plan has.");
+  if (unknownKey(env, ["host", "bindDn", "configBindDn"]) !== undefined) {
+    return refuse(
+      "This saved plan names an environment or a rebase, which only a project's plan has.",
+    );
   }
-  if (typeof s.createdAt !== "string" || typeof s.alderVersion !== "string" || typeof s.unchanged !== "number") {
+  if (
+    env.configBindDn !== undefined &&
+    (typeof env.configBindDn !== "string" || env.configBindDn === "")
+  ) {
+    return refuse(
+      "This saved plan names its configuration identity in a form this release does not read.",
+    );
+  }
+  if (
+    typeof s.createdAt !== "string" ||
+    typeof s.alderVersion !== "string" ||
+    typeof s.unchanged !== "number"
+  ) {
     return refuse("This saved plan is missing when or by what it was made.");
   }
-  if (!Array.isArray(s.changes)) return refuse("This saved plan has no changes list.");
+  if (!Array.isArray(s.changes))
+    return refuse("This saved plan has no changes list.");
   const changes: ChangeRequest[] = [];
   for (const [i, raw] of s.changes.entries()) {
     const n = i + 1;
-    if (!isObject(raw) || typeof raw.dn !== "string") return refuse(`Change ${n} is not a change.`);
+    if (!isObject(raw) || typeof raw.dn !== "string")
+      return refuse(`Change ${n} is not a change.`);
     const c = raw as unknown as ChangeRequest;
-    if (c.baseline !== undefined) return refuse(`Change ${n} carries a baseline, which no saved plan holds.`);
+    if (c.baseline !== undefined)
+      return refuse(
+        `Change ${n} carries a baseline, which no saved plan holds.`,
+      );
     switch (c.type) {
       case "add":
         break;
       case "modify":
-        if (!c.expect) return refuse(`Change ${n} is a modification with no expectation.`);
+        if (!c.expect)
+          return refuse(`Change ${n} is a modification with no expectation.`);
         break;
       case "delete":
-        if (!c.expect?.exhaustive) return refuse(`Change ${n} is a deletion that does not expect the entry exactly.`);
+        if (!c.expect?.exhaustive)
+          return refuse(
+            `Change ${n} is a deletion that does not expect the entry exactly.`,
+          );
         break;
       default:
-        return refuse(`Change ${n} is a ${safeText(String(c.type))}, which a saved plan does not hold.`);
+        return refuse(
+          `Change ${n} is a ${safeText(String(c.type))}, which a saved plan does not hold.`,
+        );
     }
-    if (!isChange(raw)) return refuse(`Change ${n} is not a change this release reads.`);
+    if (!isChange(raw))
+      return refuse(`Change ${n} is not a change this release reads.`);
     const name = withheld(c);
     if (name !== undefined) {
-      return refuse(`A value of ${safeText(name)} on ${safeText(c.dn)} was withheld from this plan, so it cannot be applied from it.`);
+      return refuse(
+        `A value of ${safeText(name)} on ${safeText(c.dn)} was withheld from this plan, so it cannot be applied from it.`,
+      );
     }
     changes.push(c);
   }
@@ -200,8 +270,18 @@ export function parseSavedPlan(text: string): Reading {
     plan: {
       createdAt: s.createdAt,
       alderVersion: s.alderVersion,
-      input: { kind: input.kind, mode: input.mode as string | undefined, digest: input.digest },
-      environment: { host: env.host, bindDn: env.bindDn },
+      input: {
+        kind: input.kind,
+        mode: input.mode as string | undefined,
+        digest: input.digest,
+      },
+      environment: {
+        host: env.host,
+        bindDn: env.bindDn,
+        ...(typeof env.configBindDn === "string"
+          ? { configBindDn: env.configBindDn }
+          : {}),
+      },
       changes,
       unchanged: s.unchanged,
     },
@@ -217,9 +297,12 @@ export function sessionLabel(session: SessionInfo): string {
 /**
  * Why this session is not where the plan was made, or null when it is. The
  * same check alder apply --plan makes before connecting: the same host:port,
- * binding as the same DN.
+ * binding as the same DN, with the same configuration identity.
  */
-export function sessionMismatch(made: { host: string; bindDn: string }, session: SessionInfo): string | null {
+export function sessionMismatch(
+  made: { host: string; bindDn: string; configBindDn?: string },
+  session: SessionInfo,
+): string | null {
   if (!session.connected) return "This session is not connected.";
   const here = sessionLabel(session);
   if (made.host !== here) {
@@ -227,8 +310,18 @@ export function sessionMismatch(made: { host: string; bindDn: string }, session:
   }
   const bind = session.bindDn ?? "";
   if (made.bindDn.toLowerCase() !== bind.toLowerCase()) {
-    const as = (dn: string) => (dn === "" ? "anonymously" : `as ${safeText(dn)}`);
+    const as = (dn: string) =>
+      dn === "" ? "anonymously" : `as ${safeText(dn)}`;
     return `It was made binding ${as(made.bindDn)}, and this session binds ${as(bind)}.`;
+  }
+  const madeConfig = made.configBindDn ?? "";
+  const config = session.configBindDn ?? "";
+  if (madeConfig.toLowerCase() !== config.toLowerCase()) {
+    const with_ = (dn: string) =>
+      dn === ""
+        ? "with no configuration identity"
+        : `binding for configuration as ${safeText(dn)}`;
+    return `It was made ${with_(madeConfig)}, and this session is connected ${with_(config)}.`;
   }
   return null;
 }
@@ -241,6 +334,7 @@ export type SavedPlanOrigin = {
   kind: "saved-plan";
   host: string;
   bindDn: string;
+  configBindDn?: string;
   createdAt: string;
 };
 
@@ -254,7 +348,10 @@ export function savedPlanOrigin(plan: SavedPlan): SavedPlanOrigin {
  * at all, as alder apply --plan applies it: applying the part that still
  * holds would apply something nobody reviewed as a whole.
  */
-export function savedPlanRefusal(applicable: number, staged: number): string | null {
+export function savedPlanRefusal(
+  applicable: number,
+  staged: number,
+): string | null {
   if (applicable === staged) return null;
   return `This saved plan no longer holds: ${applicable} of its ${staged} changes would apply, and a saved plan is applied whole or not at all. Nothing will be written; plan the input again and review that.`;
 }

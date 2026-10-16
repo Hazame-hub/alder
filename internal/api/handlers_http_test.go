@@ -340,6 +340,31 @@ func TestTheSessionEndpointReportsCapabilities(t *testing.T) {
 	}
 }
 
+// A saved plan records the configuration identity it was made with, and the
+// browser can only compare it with the session's if the session says which.
+// Its password stays in the session.
+func TestTheSessionEndpointNamesTheConfigurationIdentity(t *testing.T) {
+	rig := newRig(t, Config{}, &fakeSession{caps: defaultCaps()})
+	if out := decode[SessionInfo](t, rig.do(t, http.MethodGet, "/api/v1/session", nil)); out.ConfigBindDn != nil {
+		t.Errorf("a session with no configuration identity names one: %q", *out.ConfigBindDn)
+	}
+
+	sess, err := rig.server.sessions.Get(rig.cookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Config.ConfigBindDN = "cn=config"
+	sess.Config.ConfigBindPassword = sentinelPassword + "-config"
+
+	res := rig.do(t, http.MethodGet, "/api/v1/session", nil)
+	if out := decode[SessionInfo](t, res); out.ConfigBindDn == nil || *out.ConfigBindDn != "cn=config" {
+		t.Errorf("configuration identity is %v, want cn=config", out.ConfigBindDn)
+	}
+	if strings.Contains(res.Body, sentinelPassword) {
+		t.Errorf("a password reached the response:\n%s", res.Body)
+	}
+}
+
 // The bind password is held in the session, one struct field away from every
 // response that describes the connection.
 //
