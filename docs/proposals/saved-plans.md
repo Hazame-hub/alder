@@ -227,7 +227,8 @@ restart the Alder server, apply and see it applied.
 
 **Later, if asked for:** `alder plan --out` / `alder apply --plan` for any
 change set, not only projects; loading a saved plan in the web interface
-next to *Load recovery bundle*; a signed plan, wrapped with `alder sign`
+next to *Load recovery bundle* (*built 2026-10-16*: a change set's plan
+only, refused for another host or bind); a signed plan, wrapped with `alder sign`
 as SIGNING.md wraps any document.
 
 **Out:** a persistent baseline key; plans stored on the server; applying a

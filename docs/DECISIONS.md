@@ -6228,3 +6228,33 @@ configuration capture equal what a session of its own on the consumer reads;
 a comparison against it proposes nothing for it; the allowlist and the
 connection limit hold before dialling; and its password appears in no
 response and nowhere in the log.
+
+### 2026-10-16 — a saved plan loads in the web interface
+
+The saved-plans proposal listed this as a later item: loading a plan
+`alder plan --out` saved next to *Load recovery bundle*. What it settled:
+
+- **Only a change set's plan.** A project's plan is refused with the command
+  that applies it. `alder project apply --plan` checks that the project's
+  files still render to what was planned, and the browser has no files to
+  check, so loading one here would be the way around that check.
+- **Refused where the command line refuses.** A plan made against another
+  `host:port`, or binding as another DN, is refused before anything is
+  staged, as `alder apply --plan` refuses it before connecting. There is no
+  "this is the directory I mean" checkbox, unlike a recovery bundle's
+  origin: a bundle's origin is what a directory announces and can
+  legitimately differ, while a plan's host and bind are what its author
+  connected with, and planning the input again is the honest way to use it
+  elsewhere.
+- **Read as strictly as the command line reads it.** Unknown fields, a
+  baseline, a modification or deletion without its expectation, a rename,
+  a password change or a withheld value refuse the whole file.
+- **Staged, not applied.** "Review plan" stages the changes exactly as
+  written and the ordinary checked plan runs at once, as for a recovery
+  bundle. A change whose entry moved since it was saved shows as a conflict
+  and the apply is refused. As with any staged changes, the user can still
+  remove one before applying; what they cannot do is apply one without its
+  expectation being checked.
+- **No API change.** The file is read in the browser and its changes go
+  through `POST /plan` and `POST /changeset/apply`, which already hold
+  changes with expectations to a checked plan.
