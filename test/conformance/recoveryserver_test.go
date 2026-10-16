@@ -100,6 +100,10 @@ func TestRecoveryReturnsAConfigurationSettingToWhatItWas(t *testing.T) {
 // and changes nothing for any other case in the suite while it is in place.
 // Putting it first renumbers every ordered rule after it, which is what makes
 // "positions included" something the round trip has to get right.
+//
+// It does not skip when the entry holds no readable rule: a compensation is
+// only derived from rules that were read, so the case fails instead, and the
+// harness seeds one on each server.
 func TestRecoveryPutsConfigurationAccessRulesBack(t *testing.T) {
 	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
 		if !sess.Capabilities().Config.Readable || s.configAccessDN == "" {
@@ -117,7 +121,12 @@ func TestRecoveryPutsConfigurationAccessRulesBack(t *testing.T) {
 		}
 		was := read()
 		if len(was) == 0 {
-			t.Skipf("%s holds no %s this bind can read, so there is no rule to put back", s.configAccessDN, attr)
+			// Both harness servers hold rules there: OpenLDAP from slapd.conf,
+			// 389 DS from test/compose/ds389/config-access.ldif. None read
+			// is a harness that was not seeded, or rules the bind cannot
+			// read -- which the bundle would rightly not compensate, and so
+			// would prove nothing here.
+			t.Fatalf("%s holds no %s this bind can read; is the harness seeded? (task compose:up)", s.configAccessDN, attr)
 		}
 		// Put back outside Alder whatever happens: a failure here must not
 		// leave the server with rules the rest of the suite did not expect.
