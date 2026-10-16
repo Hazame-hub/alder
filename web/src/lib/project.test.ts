@@ -34,12 +34,46 @@ describe("which of a chosen folder's files are sent", () => {
     expect(s.send.map((f) => f.path)).toEqual(["CAPS.LDIF", "alder.yaml", "groups.ldif", "people/engineering.ldif"]);
   });
 
-  it("says where alder.yaml is when it is not at the top", () => {
-    const s = selectProjectFiles(picked("repo/README.md", "repo/directory/alder.yaml", "repo/directory/a.ldif"));
+  it("opens the one project below the chosen folder when there is none at its top", () => {
+    const s = selectProjectFiles(
+      picked("repo/README.md", "repo/directory/alder.yaml", "repo/directory/a.ldif", "repo/other.ldif"),
+    );
+    expect(s.ok).toBe(true);
+    if (!s.ok) return;
+    expect(s.folder).toBe("repo/directory");
+    expect(s.send.map((f) => f.path)).toEqual(["a.ldif", "alder.yaml"]);
+  });
+
+  it("asks which project when several folders below have one, and opens the one picked", () => {
+    const files = picked(
+      "repo/prod/alder.yaml",
+      "repo/prod/a.ldif",
+      "repo/lab/alder.yaml",
+      "repo/lab/b.ldif",
+      "repo/.old/alder.yaml",
+    );
+    const s = selectProjectFiles(files);
     expect(s.ok).toBe(false);
     if (s.ok) return;
-    expect(s.message).toContain("no alder.yaml at the top of this folder");
-    expect(s.message).toContain("directory/");
+    expect(s.projects).toEqual(["lab", "prod"]);
+    expect(s.message).toContain("Choose which project");
+
+    const lab = selectProjectFiles(files, "lab");
+    expect(lab.ok).toBe(true);
+    if (!lab.ok) return;
+    expect(lab.folder).toBe("repo/lab");
+    expect(lab.send.map((f) => f.path)).toEqual(["alder.yaml", "b.ldif"]);
+
+    const nowhere = selectProjectFiles(files, ".old");
+    expect(nowhere.ok).toBe(false);
+  });
+
+  it("prefers the project at the top, and does not send another project's alder.yaml below it", () => {
+    const s = selectProjectFiles(picked("repo/alder.yaml", "repo/sub/alder.yaml", "repo/sub/c.ldif"));
+    expect(s.ok).toBe(true);
+    if (!s.ok) return;
+    expect(s.folder).toBe("repo");
+    expect(s.send.map((f) => f.path)).toEqual(["alder.yaml", "sub/c.ldif"]);
   });
 
   it("says plainly when there is no project at all", () => {
