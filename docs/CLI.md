@@ -606,9 +606,16 @@ replaces has changed, or an entry it adds now exists. Nothing is written; plan
 again and review. The format is in
 [proposals/saved-plans.md](proposals/saved-plans.md#the-file).
 
+The file may be signed: `alder sign` wraps it, and `--trusted-keys PATH`
+applies it only if one of those keys signed it (exit 3 for an unsigned plan
+or a stranger's signature; 8 for a signature that does not match, with or
+without the flag). It works exactly as for `alder apply --plan`, under
+[A saved plan](#a-saved-plan), and is never read from `ALDER_*`.
+
 Without a terminal and without `--yes`, `apply` refuses before connecting to
-anything. `--yes`, like `--env` and `--project`, is never read from the
-environment: an inherited `ALDER_YES` must not confirm an apply nobody typed.
+anything. `--yes`, like `--env`, `--project`, `--plan` and `--trusted-keys`,
+is never read from the environment: an inherited `ALDER_YES` must not confirm
+an apply nobody typed.
 Exit codes are `alder apply`'s, and 3 also when the project is not valid; with
 `--json`, standard output is `alder apply`'s document with `environment` and
 `host` beside it, and `rebase` for an environment with its own suffix, as for
@@ -699,8 +706,8 @@ connection flags.
   nothing written, and the two may not be the same file.
 - **`alder key show FILE`** prints a public key's key id. A private key is
   refused.
-- **`alder sign DOCUMENT --key K --output F`** wraps a snapshot, change package
-  or recovery bundle in a signed envelope. Signing an already-signed document
+- **`alder sign DOCUMENT --key K --output F`** wraps a snapshot, change package,
+  recovery bundle or saved plan in a signed envelope. Signing an already-signed document
   adds a signature beside the first, so two people can sign one document; the
   same key twice is refused. `--signer` records a label. `--json` reports
   on standard output, so it cannot be combined with `--output -`.
@@ -711,7 +718,9 @@ connection flags.
 
 A server started with `alder serve --trusted-keys` reports what a document's
 signature amounted to wherever it reads one, and `--require-signature` makes it
-read signed documents only. See [SIGNING.md](SIGNING.md).
+read signed documents only. `alder apply --plan` and `alder project apply
+--plan` read a signed saved plan, and take `--trusted-keys` to require one. See
+[SIGNING.md](SIGNING.md).
 
 ---
 
@@ -890,14 +899,42 @@ shown, confirmed and applied with the baselines of that plan. `--yes`,
   its changes to anything else: the input's digest is recorded for a
   reviewer, and checked by nobody. Whoever can edit the file between review
   and apply chooses what runs, within what the bind is allowed to do. Keep
-  it where only the people who approve it can write, or sign it with
-  `alder sign` and check it with `alder verify` before applying it
-  ([SIGNING.md](SIGNING.md)); `apply --plan` checking a signature itself is
-  planned.
+  it where only the people who approve it can write, or sign it, as below.
 - **Refused whole (exit 4)** when any of its changes no longer holds: an
   attribute it replaces has changed, an entry it adds now exists, or an
   entry it deletes no longer holds exactly what it held. Nothing is written;
   plan again and review.
+
+**A signed saved plan.** The file may be an envelope `alder sign` wrote around
+the plan ([SIGNING.md](SIGNING.md#signing-a-saved-plan)). Its plan is read as
+strictly as a bare one, and every check above still runs on it.
+
+- **`--trusted-keys PATH`**, repeatable, takes what `alder verify` takes: a
+  public key file, a file of several, or a directory of `.pem` files. With it,
+  the plan is applied only if it carries a valid signature by one of those
+  keys: an unsigned plan is refused (exit 3, `unsigned`), and one signed only
+  by other keys (exit 3, `signature_untrusted`). This is stricter than `alder
+  serve --trusted-keys`, which still reads an unsigned document unless
+  `--require-signature` is given: naming keys on an apply is asking for the
+  plan's origin to be established, and a plan nobody signed does not
+  establish it.
+- **A signature that does not match the plan is refused**, with or without
+  `--trusted-keys` (exit 8, `signature_invalid`), as is one naming an
+  algorithm Alder does not know. Only a key you name can show that a
+  signature does not match: without `--trusted-keys` Alder holds no key to
+  check against.
+- **Without `--trusted-keys`**, a signed plan is applied with its signature
+  reported as not checked, and an unsigned plan applies as it always has.
+- All of this is decided **before connecting**, with the other exit-3
+  refusals, and before anyone is asked to confirm. The plan shown starts with
+  who signed it and each key id; with `--json`, the document carries a
+  `signature` object shaped like `alder verify --json`'s (`status`,
+  `signers`, `detail`, `payload`). `--trusted-keys` is never read from
+  `ALDER_*`.
+
+```sh
+alder apply --plan change.plan.signed.json --trusted-keys /etc/alder/reviewers/ --yes
+```
 
 ### When the directory moves
 

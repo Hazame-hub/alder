@@ -607,7 +607,7 @@ func describeFormat(format string) string {
 	if len(format) > 64 {
 		format = format[:64] + "..."
 	}
-	return fmt.Sprintf("an %s document", safe(format))
+	return fmt.Sprintf("a document of format %s", safe(format))
 }
 
 // renderSignature says, in the header of the plan shown, who signed the
@@ -630,7 +630,7 @@ func renderSignature(w io.Writer, sig *verifyEnvelope) {
 		case signing.Status(sig.Status) == signing.Verified:
 			trust = "untrusted"
 		}
-		writef(w, "  %s  %s  %s %s\n", s.KeyID, trust, safe(s.Signer), safe(s.SignedAt))
+		writef(w, "  %s  %s  %s %s\n", safe(s.KeyID), trust, safe(s.Signer), safe(s.SignedAt))
 	}
 	writeln(w)
 }

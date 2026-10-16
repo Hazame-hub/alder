@@ -6426,3 +6426,35 @@ An audit of saved plans (#236, #243) found four gaps, fixed together:
 - **`project apply --plan` without a terminal or `--yes`** said 5 for a file
   made for another environment, where the docs say 3. The file is now read
   and matched first, as `alder apply --plan` already did.
+
+### 2026-10-16 — a saved plan can be signed, and an apply can require it
+
+The last later item of the saved-plans proposal: a signed plan, wrapped
+with `alder sign` as any document is. `alder apply --plan` and `alder
+project apply --plan` read an `alder-signed` envelope whose payload is an
+`alder-plan`; the payload goes through the plan's own strict reader, and
+the envelope's keys are read exactly too.
+
+- **`--trusted-keys` on an apply refuses an unsigned plan (3).** This is
+  stricter than `alder serve --trusted-keys`, which reads unsigned
+  documents unless `--require-signature`. A server reads documents to show
+  them, and most are unsigned; an apply writes, and naming the keys on it
+  is asking for the plan's origin to be established. A second flag
+  (`--require-signature` on apply) would make the safe reading the one
+  that takes more typing. A valid signature by another key is refused (3)
+  too.
+- **Without `--trusted-keys`, nothing changes** (owner's decision, for 1.x
+  compatibility): an unsigned plan applies as before, and a signed one is
+  unwrapped and applied with its signature reported as not checked. An
+  envelope names its keys by id only, so with no key named nothing can be
+  verified; only a malformed signature or an unknown algorithm is refused
+  then (8). A mismatch against a named key is always 8.
+- **Checked before connecting** and before any confirmation, with the
+  other exit-3 refusals of the file, so a refused plan opens no session.
+  Every check of a bare plan still runs on a signed one.
+- **Shown.** The plan's header names each signer, key id and whether it is
+  trusted; `--json` adds `signature`, shaped like `alder verify --json`.
+  `--trusted-keys` is never read from `ALDER_*`.
+- **The browser refuses a signed plan** with the command that checks it.
+  It holds no trusted keys, and unwrapping one unchecked would let a
+  signature that was relied on go unverified.
