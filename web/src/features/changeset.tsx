@@ -37,7 +37,7 @@ import { DownloadButton } from "@/components/ldif-block";
 import { assessmentLine, bundleText, overallRecovery, recoveryFilename } from "@/lib/recovery";
 import { RecoveryLoader } from "@/features/recovery-loader";
 import { SavedPlanHeading, SavedPlanLoader } from "@/features/saved-plan-loader";
-import { savedPlanRefusal } from "@/lib/saved-plan";
+import { savedPlanRefusal, sessionMismatch } from "@/lib/saved-plan";
 import { ProjectHeading } from "@/features/project";
 import { safeText } from "@/lib/display";
 
@@ -144,10 +144,24 @@ export function ChangesetView({
   // A change with an expectation -- one from a recovery bundle or a saved
   // plan -- is only ever applied through a checked plan; the server refuses
   // it otherwise.
-  const needsPlan = staged.some((s) => s.change.expect !== undefined);
-  // A saved plan is applied whole or not at all (alder apply --plan).
+  // A saved plan always goes through one too, even one made only of adds,
+  // which carry no expectation: that plan is what says it applies whole.
+  const needsPlan = staged.some((s) => s.change.expect !== undefined) || origin?.kind === "saved-plan";
+  // A saved plan is applied whole or not at all, and only where it was made,
+  // as alder apply --plan applies it. The session is checked again here, not
+  // only on loading: the basket outlives a reconnect to another server.
+  const session = useQuery({
+    queryKey: ["session"],
+    queryFn: async () => unwrap(await api.GET("/session")),
+    enabled: origin?.kind === "saved-plan",
+  });
   const wholePlan =
-    origin?.kind === "saved-plan" && current ? savedPlanRefusal(applyBody.changes.length, staged.length) : null;
+    origin?.kind !== "saved-plan"
+      ? null
+      : !session.data
+        ? "Checking which directory this session is connected to."
+        : (sessionMismatch(origin, session.data) ??
+          (current ? savedPlanRefusal(applyBody.changes.length, staged.length) : null));
 
   const apply = useMutation({
     // What is sent travels with the request, so the answer is read against

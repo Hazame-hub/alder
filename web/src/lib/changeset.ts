@@ -164,7 +164,10 @@ export const changeset = {
     // it was staged from -- the snapshots screen sends its changes here and
     // then shows a result it has no other way of knowing is out of date.
     if (appliedIds.length > 0) bench.markStale();
-    if (staged.length === 0) origin = null;
+    // What is left of a saved plan after a run that stopped part way is no
+    // longer the plan that was reviewed whole; it is shown as the ordinary
+    // changeset it now is.
+    if (staged.length === 0 || (appliedIds.length > 0 && origin?.kind === "saved-plan")) origin = null;
     emit();
   },
 

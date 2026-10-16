@@ -50,6 +50,60 @@ function unknownKey(o: Record<string, unknown>, known: string[]): string | undef
   return Object.keys(o).find((k) => !known.includes(k));
 }
 
+function isValue(v: unknown): boolean {
+  return (
+    isObject(v) &&
+    unknownKey(v, ["text", "base64", "size"]) === undefined &&
+    (v.text === undefined || typeof v.text === "string") &&
+    (v.base64 === undefined || typeof v.base64 === "string") &&
+    (v.size === undefined || typeof v.size === "number")
+  );
+}
+
+function isAttribute(a: unknown): boolean {
+  return (
+    isObject(a) &&
+    unknownKey(a, ["name", "values"]) === undefined &&
+    typeof a.name === "string" &&
+    Array.isArray(a.values) &&
+    a.values.every(isValue)
+  );
+}
+
+function isMod(m: unknown): boolean {
+  return (
+    isObject(m) &&
+    unknownKey(m, ["op", "name", "values"]) === undefined &&
+    (m.op === "add" || m.op === "delete" || m.op === "replace") &&
+    typeof m.name === "string" &&
+    (m.values === undefined || (Array.isArray(m.values) && m.values.every(isValue)))
+  );
+}
+
+/**
+ * Whether a change has the shape a saved plan's change has, every key known
+ * and every list a list: what the command line's reader holds a file to, so
+ * nothing the server would refuse, or the page could not show, gets staged.
+ */
+function isChange(c: Record<string, unknown>): boolean {
+  if (unknownKey(c, ["dn", "type", "mods", "attributes", "expect", "baseline"]) !== undefined) return false;
+  if (c.attributes !== undefined && !(Array.isArray(c.attributes) && c.attributes.every(isAttribute))) return false;
+  if (c.mods !== undefined && !(Array.isArray(c.mods) && c.mods.every(isMod))) return false;
+  if (c.expect !== undefined) {
+    const e = c.expect;
+    if (
+      !isObject(e) ||
+      unknownKey(e, ["attributes", "exhaustive"]) !== undefined ||
+      !Array.isArray(e.attributes) ||
+      !e.attributes.every(isAttribute) ||
+      (e.exhaustive !== undefined && typeof e.exhaustive !== "boolean")
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Whether any value of a change was withheld: a value with neither form. */
 function withheld(change: ChangeRequest): string | undefined {
   const lists: { name: string; values: unknown[] | undefined }[] = [
@@ -134,6 +188,7 @@ export function parseSavedPlan(text: string): Reading {
       default:
         return refuse(`Change ${n} is a ${safeText(String(c.type))}, which a saved plan does not hold.`);
     }
+    if (!isChange(raw)) return refuse(`Change ${n} is not a change this release reads.`);
     const name = withheld(c);
     if (name !== undefined) {
       return refuse(`A value of ${safeText(name)} on ${safeText(c.dn)} was withheld from this plan, so it cannot be applied from it.`);
@@ -164,15 +219,16 @@ export function sessionLabel(session: SessionInfo): string {
  * same check alder apply --plan makes before connecting: the same host:port,
  * binding as the same DN.
  */
-export function sessionMismatch(plan: SavedPlan, session: SessionInfo): string | null {
+export function sessionMismatch(made: { host: string; bindDn: string }, session: SessionInfo): string | null {
+  if (!session.connected) return "This session is not connected.";
   const here = sessionLabel(session);
-  if (plan.environment.host !== here) {
-    return `It was made against ${safeText(plan.environment.host)}, and this session is connected to ${safeText(here)}.`;
+  if (made.host !== here) {
+    return `It was made against ${safeText(made.host)}, and this session is connected to ${safeText(here)}.`;
   }
   const bind = session.bindDn ?? "";
-  if (plan.environment.bindDn.toLowerCase() !== bind.toLowerCase()) {
+  if (made.bindDn.toLowerCase() !== bind.toLowerCase()) {
     const as = (dn: string) => (dn === "" ? "anonymously" : `as ${safeText(dn)}`);
-    return `It was made binding ${as(plan.environment.bindDn)}, and this session binds ${as(bind)}.`;
+    return `It was made binding ${as(made.bindDn)}, and this session binds ${as(bind)}.`;
   }
   return null;
 }

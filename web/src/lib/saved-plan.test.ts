@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "@/lib/api";
-import { parseSavedPlan, savedPlanRefusal, sessionLabel, sessionMismatch } from "@/lib/saved-plan";
+import { changeset } from "@/lib/changeset";
+import { parseSavedPlan, savedPlanOrigin, savedPlanRefusal, sessionLabel, sessionMismatch } from "@/lib/saved-plan";
 
 // What alder plan --out writes (internal/cli/savedplan.go): exact changes,
 // each modification and deletion with the state it expects, and no baseline.
@@ -82,6 +83,19 @@ describe("parseSavedPlan", () => {
     expect(change({ type: "setpassword", newPassword: "x" })).toContain("setpassword");
   });
 
+  it("refuses a change whose shape it does not know, rather than staging it or failing to show it", () => {
+    const change = (c: Record<string, unknown>) => refusal({ changes: [{ dn: "uid=a,dc=example,dc=test", ...c }] });
+    expect(change({ type: "modify", mods: [], expect: { attributes: null } })).toContain("not a change this release reads");
+    expect(change({ type: "add", attributes: { name: "cn" } })).toContain("not a change this release reads");
+    expect(change({ type: "add", attributes: [], newSuperior: "dc=x" })).toContain("not a change this release reads");
+    expect(change({ type: "modify", mods: [{ op: "rename", name: "cn" }], expect: { attributes: [] } })).toContain(
+      "not a change this release reads",
+    );
+    expect(change({ type: "add", attributes: [{ name: "cn", values: [{ text: 1 }] }] })).toContain(
+      "not a change this release reads",
+    );
+  });
+
   it("refuses a plan with a withheld value, and never shows one", () => {
     const message = refusal({
       changes: [
@@ -116,15 +130,19 @@ describe("sessionMismatch", () => {
   };
 
   it("accepts the same host:port and bind, the DN compared as alder apply --plan does", () => {
-    expect(sessionMismatch(plan(), session)).toBeNull();
+    expect(sessionMismatch(plan().environment, session)).toBeNull();
   });
 
   it("refuses another host, port or bind", () => {
-    expect(sessionMismatch(plan(), { ...session, host: "ldap-replica.example.test" })).toContain(
+    expect(sessionMismatch(plan().environment, { ...session, host: "ldap-replica.example.test" })).toContain(
       "connected to ldap-replica.example.test:636",
     );
-    expect(sessionMismatch(plan(), { ...session, port: 389 })).toContain("ldap.example.test:389");
-    expect(sessionMismatch(plan(), { ...session, bindDn: "" })).toContain("this session binds anonymously");
+    expect(sessionMismatch(plan().environment, { ...session, port: 389 })).toContain("ldap.example.test:389");
+    expect(sessionMismatch(plan().environment, { ...session, bindDn: "" })).toContain("this session binds anonymously");
+  });
+
+  it("refuses a session that is not connected", () => {
+    expect(sessionMismatch(plan().environment, { connected: false })).toContain("not connected");
   });
 
   it("writes an IPv6 address as the command line does", () => {
@@ -138,5 +156,21 @@ describe("savedPlanRefusal", () => {
     const why = savedPlanRefusal(1, 2);
     expect(why).toContain("1 of its 2 changes would apply");
     expect(why).toContain("Nothing will be written");
+  });
+});
+
+describe("a saved plan's origin in the changeset", () => {
+  it("lasts while the changeset is exactly the plan, and ends when a run applies part of it", () => {
+    changeset.clear();
+    const r = read();
+    if (!r.ok) throw new Error(r.message);
+    changeset.addMany(r.plan.changes.map((c) => ({ change: c, label: c.dn })));
+    changeset.setOrigin(savedPlanOrigin(r.plan));
+    expect(changeset.origin()?.kind).toBe("saved-plan");
+    changeset.removeApplied([]);
+    expect(changeset.origin()?.kind).toBe("saved-plan");
+    changeset.removeApplied([changeset.all()[0]!.id]);
+    expect(changeset.origin()).toBeNull();
+    changeset.clear();
   });
 });

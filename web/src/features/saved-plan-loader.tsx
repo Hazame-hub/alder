@@ -39,7 +39,7 @@ export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
     else setError(reading.message);
   };
 
-  const mismatch = plan && session.data ? sessionMismatch(plan, session.data) : null;
+  const mismatch = plan && session.data ? sessionMismatch(plan.environment, session.data) : null;
 
   const stage = () => {
     if (!plan) return;

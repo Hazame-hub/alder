@@ -6255,7 +6255,11 @@ The saved-plans proposal listed this as a later item: loading a plan
 - **Whole or not at all.** While the changeset is exactly the loaded plan,
   its heading says so and Apply is refused unless every change would apply,
   as `alder apply --plan` refuses it (exit 4); the ordinary changeset would
-  have applied the part that still holds. Removing or adding a change makes
+  have applied the part that still holds. An adds-only plan, which carries
+  no expectation, goes through that check too, and the session is checked
+  again before Apply, because the changeset outlives a reconnect to another
+  server. A run that stops part way leaves an ordinary changeset. Removing
+  or adding a change makes
   the rest an ordinary changeset, as editing a staged project plan does: an
   edit is a new review, and every change still carries its expectation.
 - **No API change.** The file is read in the browser and its changes go
