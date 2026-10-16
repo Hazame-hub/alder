@@ -1,0 +1,131 @@
+# Include from .gitlab-ci.yml, beside gitlab-ci.yml, and add its two stages
+# after plan:
+#
+#   stages: [validate, plan, save-plan, apply]
+#   include:
+#     - local: ci/gitlab-ci-apply.yml
+#
+# It assumes the project is in directory/; change PROJECT if not. Its
+# variables are set on its own jobs, so the release it pins does not clash
+# with the one gitlab-ci.yml pins.
+#
+# Applies the repository to an environment, and applies exactly what a
+# person reviewed:
+#
+#   save-plan  on the default branch: saves each environment's plan with
+#              --out, prints it in the job log and keeps it as an artifact.
+#   apply      manual, one per environment: applies that saved file with
+#              --plan, or refuses it.
+#
+# The approval is GitLab's. Make each environment a protected environment
+# (Settings > CI/CD > Protected environments) with the people allowed to
+# deploy and, on Premium, required approvals. Without that, anyone who can
+# run a pipeline on the default branch can press apply.
+#
+# What the person approves is the file, not the commit. The apply refuses it
+# (exit 3) if the project files, the host, the bind or the suffix differ
+# from what it was saved for, and refuses it whole (exit 4) if any change no
+# longer holds because the directory moved meanwhile. Nothing is written
+# then: run a new pipeline and review the new plan. A plan with nothing to
+# change is saved too, and applying it writes nothing.
+#
+# Store ALDER_STAGING_BIND_PASSWORD and ALDER_PRODUCTION_BIND_PASSWORD as
+# masked, protected variables, as gitlab-ci.yml says. These jobs never run
+# on a merge request: alder.yaml names where a password goes, and a merge
+# request can change alder.yaml.
+#
+# Every job must reach your Alder server and, through it, your directory,
+# which usually means a runner inside your network.
+
+.alder-install:
+  image: alpine:3.22
+  variables:
+    # Pin the client. 1.39.0 is the first release with saved plans
+    # (project plan --out, project apply --plan).
+    ALDER_VERSION: "1.39.0"
+    PROJECT: directory
+  before_script:
+    - apk add --no-cache curl
+    - archive="alder_${ALDER_VERSION}_linux_amd64.tar.gz"
+    - base="https://github.com/Hazame-hub/alder/releases/download/v${ALDER_VERSION}"
+    - curl -fsSL -o "$archive" "$base/$archive"
+    - curl -fsSL -o checksums.txt "$base/checksums.txt"
+    - grep " ${archive}\$" checksums.txt | sha256sum -c -
+    - tar -xzf "$archive" -C /usr/local/bin alder
+    - rm -f "$archive" checksums.txt
+    - alder version
+
+.save-plan:
+  extends: .alder-install
+  stage: save-plan
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "merge_request_event"
+  script:
+    - status=0
+    - >
+      alder project plan --project "$PROJECT" --env "$ALDER_ENVIRONMENT"
+      --out "saved-plan-$ALDER_ENVIRONMENT.json" --detailed-exitcode || status=$?
+    - |
+      case "$status" in
+        0) echo "$ALDER_ENVIRONMENT matches the repository; applying this plan writes nothing." ;;
+        2) echo "Plan saved. Review it above, then run apply:$ALDER_ENVIRONMENT to apply exactly this plan." ;;
+        3) echo "Some change for $ALDER_ENVIRONMENT cannot be applied as written; nothing was saved."; exit 1 ;;
+        4) echo "$ALDER_ENVIRONMENT changed while the plan was being saved; run a new pipeline."; exit 1 ;;
+        *) echo "alder exited $status for $ALDER_ENVIRONMENT; see the message above."; exit 1 ;;
+      esac
+  artifacts:
+    paths: ["saved-plan-$ALDER_ENVIRONMENT.json"]
+    expire_in: 1 week
+
+.apply:
+  extends: .alder-install
+  stage: apply
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "merge_request_event"
+      when: manual
+  # One apply per environment at a time.
+  resource_group: directory-$ALDER_ENVIRONMENT
+  script:
+    - status=0
+    - >
+      alder project apply --project "$PROJECT" --env "$ALDER_ENVIRONMENT"
+      --plan "saved-plan-$ALDER_ENVIRONMENT.json" --yes
+      --recovery-out recovery.json || status=$?
+    - |
+      case "$status" in
+        0) echo "Applied the reviewed plan to $ALDER_ENVIRONMENT." ;;
+        3) echo "The saved plan does not belong to this project version or environment; nothing was written."; exit 1 ;;
+        4) echo "$ALDER_ENVIRONMENT changed since the plan was reviewed; nothing was written. Run a new pipeline."; exit 1 ;;
+        6) echo "Some changes were written; the recovery bundle is kept as this job's artifact."; exit 1 ;;
+        *) echo "alder exited $status for $ALDER_ENVIRONMENT; plan again before retrying."; exit 1 ;;
+      esac
+  artifacts:
+    when: always
+    paths: [recovery.json]
+    expire_in: 90 days
+
+save-plan:staging:
+  extends: .save-plan
+  variables:
+    ALDER_ENVIRONMENT: staging
+
+save-plan:production:
+  extends: .save-plan
+  variables:
+    ALDER_ENVIRONMENT: production
+
+apply:staging:
+  extends: .apply
+  needs: ["save-plan:staging"]
+  environment:
+    name: staging
+  variables:
+    ALDER_ENVIRONMENT: staging
+
+apply:production:
+  extends: .apply
+  needs: ["save-plan:production"]
+  environment:
+    name: production
+  variables:
+    ALDER_ENVIRONMENT: production
