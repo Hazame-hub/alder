@@ -76,8 +76,10 @@ var openldapModel = model{
 		structured: set("olcaccess", "olclimits", "olcsyncrepl", "olcdbindex", "olcauthzregexp",
 			"olcpasswordhash", "olcsecurity", "olctlsciphersuite"),
 		// olcSyncrepl carries the credentials the replica binds with inside
-		// the value, so the whole value is a secret.
-		sensitive: set("olcrootpw", "olcsyncrepl", "olcdbcryptkey"),
+		// the value, so the whole value is a secret; so do a proxy back end's
+		// olcDbIDAssertBind and olcDbACLBind.
+		sensitive: set("olcrootpw", "olcsyncrepl", "olcdbcryptkey",
+			"olcdbidassertbind", "olcdbaclbind", "olcdbaclpasswd"),
 	},
 	// Everything under cn=schema,cn=config is the schema snapshot's subject.
 	skipTree: func(entry *directory.Entry) bool {

@@ -62,7 +62,11 @@ func TestWhatIsNeverWrittenWhateverItLooksLike(t *testing.T) {
 		"olcSyncrepl", "olcDbCryptKey", "nsDS5ReplicaBindCredentials",
 		"nsMultiplexorCredentials", "nsslapd-keyPassword", "nsSymmetricKey",
 		"nsds5ReplicaCredentials", "krbPrincipalKey",
+		"olcDbIDAssertBind", "olcDbACLBind", "olcDbACLPasswd", "nsDS5ReplicaBootstrapCredentials",
 	} {
+		if !IsSensitive(name) {
+			t.Errorf("%s is not sensitive", name)
+		}
 		for _, v := range []string{"{SSHA}looks-hashed", "rid=001 credentials=\"secret\""} {
 			if Releasable(name, []byte(v)) {
 				t.Errorf("%s was released carrying %q", name, v)
