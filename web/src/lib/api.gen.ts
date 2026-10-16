@@ -1694,9 +1694,10 @@ export interface components {
             remedy?: components["schemas"]["Remedy"];
             /**
              * @description With `project_invalid`, every problem the project has, not only
-             *     the first, in the words `alder project validate` prints. A
-             *     message quotes the files -- a key, a DN, a pattern -- and is
-             *     untrusted text. Added in 1.38.
+             *     the first, in the words `alder project validate` prints -- up to
+             *     100, and past that the first 100 and one more saying how many
+             *     are not listed. A message quotes the files -- a key, a DN, a
+             *     pattern -- and is untrusted text. Added in 1.38.
              */
             problems?: components["schemas"]["ProjectProblem"][];
         };

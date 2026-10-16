@@ -53,21 +53,13 @@ func ListUnmanaged(p *Project, capture func(base dn.DN) ([]dn.DN, error)) []Unma
 	return out
 }
 
-// dnSet holds DNs and answers membership by dn.Equal. It buckets by depth and
-// the leaf's attribute types, which two equal DNs always share, so a lookup
-// compares against a handful rather than every DN in the project.
-type dnSet map[string][]dn.DN
+// dnSet holds DNs and answers membership by dn.Equal, keyed by dn.Key, which
+// two DNs share exactly when they are equal.
+type dnSet map[string]struct{}
 
-func (s dnSet) add(d dn.DN) {
-	k := bucket(d)
-	s[k] = append(s[k], d)
-}
+func (s dnSet) add(d dn.DN) { s[d.Key()] = struct{}{} }
 
 func (s dnSet) has(d dn.DN) bool {
-	for _, x := range s[bucket(d)] {
-		if x.Equal(d) {
-			return true
-		}
-	}
-	return false
+	_, ok := s[d.Key()]
+	return ok
 }

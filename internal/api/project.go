@@ -69,9 +69,12 @@ func (s *Server) PlanProject(c *fiber.Ctx) error {
 
 	p, err := project.LoadFS(fsys)
 	var invalid *project.Invalid
+	var tooLarge *project.TooLarge
 	switch {
 	case errors.As(err, &invalid):
 		return projectInvalid(c, invalid)
+	case errors.As(err, &tooLarge):
+		return tooManyRecords(c, tooLarge.Records)
 	case err != nil:
 		return badRequest(c, "A project file could not be read.", err.Error())
 	}

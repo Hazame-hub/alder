@@ -39,6 +39,25 @@ const (
 	maxLDIFFileBytes    = 64 << 20
 )
 
+// MaxRecords is how many entries one project may describe. A project is
+// planned as one desired-state document, and one plan covers at most
+// api.MaxChangesetChanges records, the same number; a project over it could
+// never be planned, so it is refused when it is read, before its records are
+// checked one against another.
+const MaxRecords = 2000
+
+// maxProblems is how many problems Invalid lists. A file can be written to
+// hold any number -- one entry repeated is a problem per copy -- and listing
+// a hundred is already more than anyone reads before fixing the first; the
+// rest are counted.
+const maxProblems = 100
+
+// maxPatterns is how many file patterns a project may list across its
+// subtrees, a pattern repeated in one subtree counted once. Each is a
+// directory read and matched in full, so it is the patterns times the files
+// that bounds the work, and a real project lists a handful.
+const maxPatterns = 1000
+
 // Project is a loaded alder.yaml.
 type Project struct {
 	// File is the alder.yaml that was read, and Dir the directory paths in it
@@ -113,13 +132,38 @@ func (p Problem) String() string {
 // valid. Any other error means it could not be read at all.
 type Invalid struct {
 	Problems []Problem
+	// total is how many problems were found, when Problems lists only the
+	// first of them; zero means it lists them all.
+	total int
 }
 
 func (e *Invalid) Error() string {
-	if len(e.Problems) == 1 {
+	if e.total == 0 && len(e.Problems) == 1 {
 		return "the project is not valid: " + e.Problems[0].String()
 	}
-	return fmt.Sprintf("the project is not valid: %d problems", len(e.Problems))
+	return fmt.Sprintf("the project is not valid: %d problems", max(e.total, len(e.Problems)))
+}
+
+// invalid lists problems as Invalid does: all of them up to maxProblems, and
+// past that the first maxProblems and one more saying how many are left out.
+func invalid(problems []Problem) *Invalid {
+	if len(problems) <= maxProblems {
+		return &Invalid{Problems: problems}
+	}
+	listed := append(problems[:maxProblems:maxProblems], Problem{Message: fmt.Sprintf(
+		"and %d more problems, not listed; fix these and validate again", len(problems)-maxProblems)})
+	return &Invalid{Problems: listed, total: len(problems)}
+}
+
+// TooLarge is the error for a project that describes more entries than one
+// plan covers. It is not Invalid: nothing in the files is wrong, the project
+// is only larger than Alder plans at once.
+type TooLarge struct {
+	Records int
+}
+
+func (e *TooLarge) Error() string {
+	return fmt.Sprintf("the project describes %d entries, and one plan covers at most %d", e.Records, MaxRecords)
 }
 
 // Locate finds alder.yaml from what --project was given: nothing (the current
@@ -218,7 +262,7 @@ func loadFrom(src source, name, display string) (*Project, error) {
 		} else if len(problems) == 0 {
 			add(name, 0, "%s", strings.TrimPrefix(err.Error(), "yaml: "))
 		}
-		return nil, &Invalid{Problems: problems}
+		return nil, invalid(problems)
 	}
 	// Decode reads one document. Anything after a "---" would be silently
 	// ignored -- a second environments block, a pasted copy with a password
@@ -229,12 +273,12 @@ func loadFrom(src source, name, display string) (*Project, error) {
 			"would be ignored, so put the whole project in one document")
 	}
 	if len(problems) > 0 {
-		return nil, &Invalid{Problems: problems}
+		return nil, invalid(problems)
 	}
 
 	if f.Version != 1 {
 		add(name, 0, "version must be 1, and is %d", f.Version)
-		return nil, &Invalid{Problems: problems}
+		return nil, invalid(problems)
 	}
 
 	if f.Suffix != "" {
@@ -253,7 +297,24 @@ func loadFrom(src source, name, display string) (*Project, error) {
 	if len(f.Managed) == 0 {
 		add(name, 0, "managed names no subtree, so the project manages nothing")
 	}
+	patterns := 0
+	for _, m := range f.Managed {
+		distinct := map[string]bool{}
+		for _, pattern := range m.Files {
+			distinct[pattern] = true
+		}
+		patterns += len(distinct)
+	}
+	if patterns > maxPatterns {
+		add(name, 0, "managed lists %d file patterns, and a project lists at most %d; "+
+			"a pattern such as people/*.ldif matches every file in its directory", patterns, maxPatterns)
+		return nil, invalid(problems)
+	}
+	// A file belongs to one subtree. Within a subtree, a pattern written
+	// twice is read once and a file two patterns match is listed once; a file
+	// two subtrees claim is reported once, however many claim it.
 	claimed := map[string]string{} // file -> the base that claimed it
+	reported := map[string]bool{}  // files reported as claimed twice
 	for i, m := range f.Managed {
 		where := fmt.Sprintf("managed[%d]", i)
 		base, err := dn.Parse(m.Base)
@@ -271,14 +332,27 @@ func loadFrom(src source, name, display string) (*Project, error) {
 		if len(m.Files) == 0 {
 			add(name, 0, "%s (%s): files is empty", where, m.Base)
 		}
+		patterns := map[string]bool{}
+		listed := map[string]bool{}
 		for _, pattern := range m.Files {
+			if patterns[pattern] {
+				continue
+			}
+			patterns[pattern] = true
 			matches, patternProblems := expand(src, pattern)
 			for _, problem := range patternProblems {
 				add(name, 0, "%s (%s): %s", where, m.Base, problem)
 			}
 			for _, rel := range matches {
+				if listed[rel] {
+					continue
+				}
+				listed[rel] = true
 				if other, ok := claimed[rel]; ok {
-					add(name, 0, "%s is matched by both %s and %s; a file belongs to one subtree", rel, other, m.Base)
+					if !reported[rel] {
+						reported[rel] = true
+						add(name, 0, "%s is matched by both %s and %s; a file belongs to one subtree", rel, other, m.Base)
+					}
 					continue
 				}
 				claimed[rel] = m.Base
@@ -288,33 +362,40 @@ func loadFrom(src source, name, display string) (*Project, error) {
 		p.Managed = append(p.Managed, st)
 	}
 
-	// Overlapping subtrees would give an entry two owners.
-	for i := range p.Managed {
-		for j := i + 1; j < len(p.Managed); j++ {
-			a, b := p.Managed[i].Base, p.Managed[j].Base
-			if a.HasSuffix(b) || b.HasSuffix(a) {
-				add(name, 0, "managed subtrees %s and %s overlap; each entry must belong to exactly one", a, b)
-			}
-		}
+	for _, o := range overlaps(p.Managed) {
+		add(name, 0, "managed subtrees %s and %s overlap; each entry must belong to exactly one",
+			p.Managed[o[0]].Base, p.Managed[o[1]].Base)
 	}
 
-	seen := map[string][]seenEntry{}
+	// Every file is read before any record is checked, so a project too
+	// large to plan is refused before the work that grows with its size.
+	var read []readFile
+	total := 0
 	for i := range p.Managed {
-		st := &p.Managed[i]
-		for _, rel := range st.Files {
-			records, fileProblems, err := readRecords(src, rel, st.Base, seen)
+		for _, rel := range p.Managed[i].Files {
+			rf, err := readRecords(src, rel, i)
 			if err != nil {
 				return nil, err
 			}
-			problems = append(problems, fileProblems...)
-			st.Records = append(st.Records, records...)
+			total += len(rf.records)
+			read = append(read, rf)
 		}
+	}
+	if total > MaxRecords {
+		return nil, &TooLarge{Records: total}
+	}
+	seen := map[string]seenEntry{}
+	for _, rf := range read {
+		st := &p.Managed[rf.subtree]
+		problems = append(problems, rf.problems...)
+		problems = append(problems, checkRecords(rf, st.Base, seen)...)
+		st.Records = append(st.Records, rf.records...)
 	}
 
 	problems = append(problems, p.checkSuffixEntry(name)...)
 
 	if len(problems) > 0 {
-		return nil, &Invalid{Problems: problems}
+		return nil, invalid(problems)
 	}
 	return p, nil
 }
@@ -501,32 +582,88 @@ func within(dir, path string) bool {
 	return r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) && !filepath.IsAbs(r)
 }
 
+// overlaps finds the pairs of subtrees, as indexes into managed with the
+// earlier first and in that order, whose bases are one at or below the other:
+// they would give an entry two owners. A base written twice is paired with
+// its first only. Each base is looked up with those of its suffixes as deep
+// as some base, by dn.Key, rather than compared with every other base.
+func overlaps(managed []Subtree) [][2]int {
+	first := map[string]int{}
+	depths := map[int]bool{}
+	for i, st := range managed {
+		if _, ok := first[st.Base.Key()]; !ok {
+			first[st.Base.Key()] = i
+		}
+		depths[len(st.Base)] = true
+	}
+	var pairs [][2]int
+	for j, st := range managed {
+		if i := first[st.Base.Key()]; i != j {
+			pairs = append(pairs, [2]int{i, j})
+			continue
+		}
+		for n := 1; n < len(st.Base); n++ {
+			if !depths[len(st.Base)-n] {
+				continue
+			}
+			if i, ok := first[st.Base[n:].Key()]; ok {
+				pairs = append(pairs, [2]int{min(i, j), max(i, j)})
+			}
+		}
+	}
+	sort.Slice(pairs, func(a, b int) bool {
+		if pairs[a][0] != pairs[b][0] {
+			return pairs[a][0] < pairs[b][0]
+		}
+		return pairs[a][1] < pairs[b][1]
+	})
+	return pairs
+}
+
 type seenEntry struct {
-	dn   dn.DN
 	file string
 	line int
 }
 
-func readRecords(src source, rel string, base dn.DN, seen map[string][]seenEntry) ([]*ldif.Record, []Problem, error) {
+// readFile is one file's records, read but not yet checked, or the problem
+// that kept it from being read as LDIF.
+type readFile struct {
+	rel      string
+	subtree  int
+	records  []*ldif.Record
+	problems []Problem
+}
+
+func readRecords(src source, rel string, subtree int) (readFile, error) {
+	rf := readFile{rel: rel, subtree: subtree}
 	raw, err := readLimited(src.fsys, rel, src.display(rel), maxLDIFFileBytes)
 	if err != nil {
-		return nil, nil, err
-	}
-	var problems []Problem
-	add := func(line int, format string, a ...any) {
-		problems = append(problems, Problem{File: rel, Line: line, Message: fmt.Sprintf(format, a...)})
+		return rf, err
 	}
 	records, err := ldif.Unmarshal(raw)
 	if err != nil {
 		var syn *ldif.SyntaxError
 		if errors.As(err, &syn) {
-			add(syn.Line, "%s", syn.Msg)
+			rf.problems = append(rf.problems, Problem{File: rel, Line: syn.Line, Message: syn.Msg})
 		} else {
-			add(0, "%v", err)
+			rf.problems = append(rf.problems, Problem{File: rel, Message: err.Error()})
 		}
-		return nil, problems, nil
+		return rf, nil
 	}
-	for _, r := range records {
+	rf.records = records
+	return rf, nil
+}
+
+// checkRecords checks one file's records against base and against every
+// record checked before them; seen is keyed by dn.Key, so an entry described
+// twice is found in one lookup and reported once, against where it was first
+// described.
+func checkRecords(rf readFile, base dn.DN, seen map[string]seenEntry) []Problem {
+	var problems []Problem
+	add := func(line int, format string, a ...any) {
+		problems = append(problems, Problem{File: rf.rel, Line: line, Message: fmt.Sprintf(format, a...)})
+	}
+	for _, r := range rf.records {
 		if r.Change != ldif.ChangeNone {
 			add(r.Line, "%s is a changetype record; a project describes the state entries should be in, not operations", r.DN)
 			continue
@@ -549,28 +686,14 @@ func readRecords(src source, rel string, base dn.DN, seen map[string][]seenEntry
 					"Set a password through Alder, as a change, never as declared state", r.DN, a.Name)
 			}
 		}
-		key := bucket(r.DN)
-		for _, prior := range seen[key] {
-			if prior.dn.Equal(r.DN) {
-				add(r.Line, "%s is already described at %s:%d", r.DN, prior.file, prior.line)
-			}
+		key := r.DN.Key()
+		if prior, ok := seen[key]; ok {
+			add(r.Line, "%s is already described at %s:%d", r.DN, prior.file, prior.line)
+			continue
 		}
-		seen[key] = append(seen[key], seenEntry{dn: r.DN, file: rel, line: r.Line})
+		seen[key] = seenEntry{file: rf.rel, line: r.Line}
 	}
-	return records, problems, nil
-}
-
-// bucket narrows the duplicate search: two equal DNs have the same depth and
-// the same leaf attribute types. The types are sorted because a multi-valued
-// RDN may list them in any order and still be the same name. Equality itself
-// is dn.Equal.
-func bucket(d dn.DN) string {
-	types := make([]string, 0, len(d.RDN()))
-	for _, ava := range d.RDN() {
-		types = append(types, strings.ToLower(ava.Type))
-	}
-	sort.Strings(types)
-	return fmt.Sprintf("%d|%s", len(d), strings.Join(types, "+"))
+	return problems
 }
 
 type passwordKey struct {

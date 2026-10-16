@@ -450,6 +450,7 @@ func loadProject(env *Env, path string) (*project.Project, error) {
 	}
 	p, err := project.Load(file)
 	var invalid *project.Invalid
+	var tooLarge *project.TooLarge
 	switch {
 	case errors.As(err, &invalid):
 		// Every problem quotes the repository: a file name, a key, a DN, a
@@ -466,6 +467,10 @@ func loadProject(env *Env, path string) (*project.Project, error) {
 			Local:   "project_invalid",
 			Message: safe(invalid.Error()),
 		}
+	case errors.As(err, &tooLarge):
+		// The server would refuse its document; said before anything is
+		// asked of it.
+		return nil, failf("input", "%s", tooLarge.Error())
 	case err != nil:
 		return nil, failf("input", "cannot read the project: %s", safe(err.Error()))
 	}

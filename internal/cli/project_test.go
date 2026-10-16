@@ -91,6 +91,23 @@ func TestProjectValidateListsProblemsAndExitsThree(t *testing.T) {
 	}
 }
 
+// A project larger than one plan could never be planned, so validate says so
+// and plan asks the server nothing.
+func TestAProjectLargerThanOnePlanIsRefusedUnsent(t *testing.T) {
+	s := newStub(t)
+	dir := writeProject(t, s, map[string]string{"people/many.ldif": strings.Repeat(projectBob+"\n", 1999)})
+	for _, args := range [][]string{{"validate"}, {"plan", "--env", "dev"}} {
+		r := s.run(t, projectRun, append([]string{"project", "--project", dir}, args...)...)
+		expectCode(t, r, ExitFailed)
+		if !strings.Contains(r.stderr, "the project describes 2001 entries, and one plan covers at most 2000") {
+			t.Errorf("%s: stderr:\n%s", args[0], r.stderr)
+		}
+	}
+	if len(s.calls) != 0 {
+		t.Errorf("%d request(s) sent for a project too large to plan", len(s.calls))
+	}
+}
+
 func TestProjectPlanSendsTheProjectAsDesiredStateAndNamesTheEnvironment(t *testing.T) {
 	s := newStub(t)
 	s.reply("POST /api/v1/plan", http.StatusOK, planJSON(t, counts{modify: 1}, exactModify("b0")))
