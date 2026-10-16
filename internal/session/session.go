@@ -262,8 +262,11 @@ func (st *Store) Add(conn directory.Session, cfg directory.ConnConfig, readOnly 
 }
 
 // AddReplacing is Add for a connection that replaces the session with ID
-// replacing, which the caller removes once this returns: the limit is
-// checked as FullReplacing checks it.
+// replacing: the limit is checked as FullReplacing checks it, and the session
+// replaced is taken out under the same lock that inserts the new one, then
+// closed. Taken out there, not by the caller afterwards, so that two
+// reconnects with one cookie cannot both count its places as free: the
+// second finds it gone and subtracts nothing.
 func (st *Store) AddReplacing(conn directory.Session, cfg directory.ConnConfig, readOnly bool, replacing string) (*Session, error) {
 	if st.FullReplacing(replacing) {
 		return nil, ErrFull
@@ -289,8 +292,16 @@ func (st *Store) AddReplacing(conn directory.Session, cfg directory.ConnConfig, 
 		return nil, ErrFull
 	}
 	st.sessions[id] = s
+	var replaced *Session
+	if replacing != "" {
+		replaced = st.sessions[replacing]
+		delete(st.sessions, replacing)
+	}
 	live := len(st.sessions)
 	st.mu.Unlock()
+	if replaced != nil {
+		st.closeSession(replaced, "replaced")
+	}
 
 	// The bind DN identifies the session; the password is never a log field at
 	// any level, per rule 6 of the project charter.
@@ -344,6 +355,12 @@ func (st *Store) remove(id, reason string) {
 	if !ok {
 		return
 	}
+	st.closeSession(s, reason)
+}
+
+// closeSession closes a session already taken out of the store, and its
+// reference. Closing one twice does nothing the second time.
+func (st *Store) closeSession(s *Session, reason string) {
 	s.mu.Lock()
 	already := s.closed
 	s.closed = true

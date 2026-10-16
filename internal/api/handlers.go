@@ -107,13 +107,10 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		}
 		return s.fail(c, err)
 	}
-	// Connecting again from a browser that already had a session replaces
-	// it. The old one is closed now rather than left holding its directory
-	// connection and its password until it times out, unreachable because
-	// its cookie has just been overwritten.
-	if previous != "" {
-		s.sessions.Remove(previous)
-	}
+	// Connecting again from a browser that already had a session replaced
+	// it: AddReplacing closed the old one, rather than leave it holding its
+	// directory connection and its password until it times out, unreachable
+	// because its cookie is about to be overwritten.
 	s.setSessionCookie(c, sess.ID)
 	return c.Status(fiber.StatusCreated).JSON(s.sessionInfo(sess))
 }
