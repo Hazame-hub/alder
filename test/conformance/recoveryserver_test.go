@@ -3,6 +3,8 @@
 package conformance
 
 import (
+	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -85,6 +87,164 @@ func TestRecoveryReturnsAConfigurationSettingToWhatItWas(t *testing.T) {
 			t.Errorf("%s is %v after recovery, and was %v", s.configWriteAttr, got, was)
 		}
 	})
+}
+
+// TestRecoveryPutsConfigurationAccessRulesBack: a reviewed change replaced
+// the configuration tree's access rules, and the bundle puts back exactly what
+// the server held before -- every rule, in its spelling, at its position --
+// with the same lockout warning the change carried.
+//
+// The replacement puts one rule first that names an entry which does not
+// exist, and keeps every other rule: it still grants the test bind everything
+// it had (each server's administrator, which its rules do not bind anyway),
+// and changes nothing for any other case in the suite while it is in place.
+// Putting it first renumbers every ordered rule after it, which is what makes
+// "positions included" something the round trip has to get right.
+//
+// It does not skip when the entry holds no readable rule: a compensation is
+// only derived from rules that were read, so the case fails instead, and the
+// harness seeds one on each server.
+func TestRecoveryPutsConfigurationAccessRulesBack(t *testing.T) {
+	eachServerForSchema(t, func(t *testing.T, s server, sess directory.Session) {
+		if !sess.Capabilities().Config.Readable || s.configAccessDN == "" {
+			t.Skip("the configuration tree is not readable")
+		}
+		target := mustDN(t, s.configAccessDN)
+		attr := s.configAccessAttr
+		read := func() []string {
+			t.Helper()
+			e, err := sess.Read(ctx(t), target, []string{attr})
+			if err != nil {
+				t.Fatalf("reading %s: %v", s.configAccessDN, err)
+			}
+			return e.GetStrings(attr)
+		}
+		was := read()
+		if len(was) == 0 {
+			// Both harness servers hold rules there: OpenLDAP from slapd.conf,
+			// 389 DS from test/compose/ds389/config-access.ldif. None read
+			// is a harness that was not seeded, or rules the bind cannot
+			// read -- which the bundle would rightly not compensate, and so
+			// would prove nothing here.
+			t.Fatalf("%s holds no %s this bind can read; is the harness seeded? (task compose:up)", s.configAccessDN, attr)
+		}
+		// Put back outside Alder whatever happens: a failure here must not
+		// leave the server with rules the rest of the suite did not expect.
+		t.Cleanup(func() {
+			if sameSet(read(), was) {
+				return
+			}
+			if err := sess.Apply(ctx(t), directory.ChangeRecord{DN: target, Type: directory.ChangeModify,
+				Mods: []directory.Mod{{Op: directory.ModReplace, Name: attr, Values: bs(was...)}}}); err != nil {
+				t.Errorf("restoring %s on %s outside Alder: %v", attr, s.configAccessDN, err)
+			}
+		})
+
+		// The rules as a person would write them: the position the server
+		// keeps in front of an ordered value, where it keeps one, is left for
+		// the server to assign.
+		replacement := []string{s.configAccessProbe}
+		for _, v := range was {
+			replacement = append(replacement, withoutPosition(v))
+		}
+		client, base := alderSession(t, s, true)
+		result := recoveryPlanAndApply(t, client, base, []recChange{
+			{"dn": s.configAccessDN, "type": "modify", "mods": []recChange{
+				{"op": "replace", "name": attr, "values": textValues(replacement...)}}},
+		}, true)
+		changed := read()
+		if len(changed) != len(was)+1 || sameSet(changed, was) {
+			t.Fatalf("the rules did not change as asked: %q", changed)
+		}
+
+		bundle := recoveryOf(t, result.Recovery)
+		if len(bundle.Steps) != 1 || bundle.Steps[0].Kind != api.PlanTargetConfig ||
+			bundle.Steps[0].Recoverability != api.RecoverabilityExact || bundle.Steps[0].Reasons != nil {
+			t.Fatalf("bundle %+v, want one exact configuration step with no reasons", bundle.Steps)
+		}
+
+		inspection := inspectBundle(t, client, base, result.Recovery)
+		if len(inspection.Changes) != 1 || len(inspection.Drift) != 1 || inspection.Drift[0].State != api.RecoveryDriftReady {
+			t.Fatalf("changes %+v drift %+v", inspection.Changes, inspection.Drift)
+		}
+		// What goes back is what the server held, character for character,
+		// under an expectation of what the change left.
+		change := inspection.Changes[0]
+		if change.Mods == nil || len(*change.Mods) != 1 || (*change.Mods)[0].Op != api.ChangeModOpReplace ||
+			!sameSet(requestTexts((*change.Mods)[0].Values), was) {
+			t.Errorf("the compensation %+v does not put back %q", change.Mods, was)
+		}
+		if change.Expect == nil || len(change.Expect.Attributes) != 1 ||
+			!sameSet(requestTexts(&change.Expect.Attributes[0].Values), changed) {
+			t.Errorf("expectation %+v, want the rules as the change left them", change.Expect)
+		}
+
+		// Planned like the change was, with the same lockout warning.
+		body, _ := json.Marshal(map[string]any{"changes": asChanges(t, inspection.Changes), "reconcile": false})
+		res := post(t, client, base+"/plan", string(body))
+		if res.status != http.StatusOK {
+			t.Fatalf("planning the compensation: status %d\n%s", res.status, res.body)
+		}
+		plan := decodeInto[api.Plan](t, res)
+		if len(plan.Items) != 1 || !warnsAbout(plan.Items[0].Preview, attr) {
+			t.Errorf("the compensation is planned without the lockout warning for %s: %+v", attr, plan.Items)
+		}
+
+		recovered := recoveryPlanAndApply(t, client, base, asChanges(t, inspection.Changes), false)
+		if recovered.FailedIndex != nil {
+			t.Fatalf("recovery stopped: %+v", recovered.Outcomes)
+		}
+		// Identical, positions included: an ordered rule's position is part
+		// of the value the server returns.
+		if got := read(); len(got) != len(was) || !sameSet(got, was) {
+			t.Errorf("%s is %q after recovery, and was %q", attr, got, was)
+		}
+	})
+}
+
+// withoutPosition is a value without the "{n}" a server that keeps ordered
+// values puts in front of it, and the value unchanged when it has none.
+func withoutPosition(v string) string {
+	if !strings.HasPrefix(v, "{") {
+		return v
+	}
+	end := strings.IndexByte(v, '}')
+	if end < 2 {
+		return v
+	}
+	for _, c := range v[1:end] {
+		if c < '0' || c > '9' {
+			return v
+		}
+	}
+	return v[end+1:]
+}
+
+func requestTexts(values *[]api.AttributeValue) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, 0, len(*values))
+	for _, v := range *values {
+		if v.Text == nil {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, *v.Text)
+	}
+	return out
+}
+
+func warnsAbout(preview *api.ChangePreview, attr string) bool {
+	if preview == nil || preview.Warnings == nil {
+		return false
+	}
+	for _, w := range *preview.Warnings {
+		if len(w) > len(attr) && strings.EqualFold(w[:len(attr)+1], attr+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRecoveryRemovesADefinitionTheChangeAdded(t *testing.T) {

@@ -49,10 +49,11 @@ func TestConfigWarnings(t *testing.T) {
 			wantNot: []string{"own configuration"},
 		},
 		{
-			name:   "a configuration entry is called out",
-			record: modify(t, "olcDatabase={1}mdb,cn=config", "olcSizeLimit", directory.ModReplace),
-			caps:   capsWithConfig(""),
-			want:   []string{"own configuration", "no undo"},
+			name:    "a configuration entry is called out",
+			record:  modify(t, "olcDatabase={1}mdb,cn=config", "olcSizeLimit", directory.ModReplace),
+			caps:    capsWithConfig(""),
+			want:    []string{"own configuration", "not a transaction", "another write"},
+			wantNot: []string{"no undo"},
 		},
 		{
 			// The single most destructive thing reachable through the editor.

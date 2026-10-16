@@ -113,6 +113,20 @@ type server struct {
 	configWriteAttr  string
 	configWriteValue string
 
+	// configAccessDN and configAccessAttr name an entry of this server's
+	// configuration tree that holds access rules, and the attribute holding
+	// them; configAccessProbe is one more rule, in this server's own syntax,
+	// that names an entry which does not exist and so changes nothing for
+	// anybody.
+	//
+	// Where the rules live and how they are written is the one thing the two
+	// servers do not share -- an ordered olcAccess list on the database entry,
+	// aci values on cn=config -- so the table says it and the recovery case
+	// that uses it stays identical for both.
+	configAccessDN    string
+	configAccessAttr  string
+	configAccessProbe string
+
 	// replicaPort is the LDAPS port of this server's consumer in the harness:
 	// a second instance of the same software that holds nothing of its own
 	// and gets everything from this one.
@@ -162,6 +176,10 @@ var servers = []server{
 		configWriteAttr:  "olcIdleTimeout",
 		configWriteValue: "1800",
 
+		configAccessDN:    "olcDatabase={1}mdb,cn=config",
+		configAccessAttr:  "olcAccess",
+		configAccessProbe: `to dn.exact="cn=alder-recovery-probe,dc=alder,dc=test" by * none`,
+
 		replicaPort: 20636,
 	},
 	{
@@ -184,6 +202,11 @@ var servers = []server{
 		configWriteDN:    "cn=config",
 		configWriteAttr:  "nsslapd-idletimeout",
 		configWriteValue: "1800",
+
+		configAccessDN:   "cn=config",
+		configAccessAttr: "aci",
+		configAccessProbe: `(target = "ldap:///cn=alder-recovery-probe,cn=config")(targetattr = "*")` +
+			`(version 3.0; acl "alder recovery probe"; deny (all) userdn = "ldap:///anyone";)`,
 
 		replicaPort:              21636,
 		learnsSchemaFromConsumer: true,

@@ -267,13 +267,16 @@ func TestRecoveryOfAnEditedDefinitionIsAConflict(t *testing.T) {
 	}
 }
 
-func TestRecoveryOfASettingNeverCarriesASecretOrAnAccessRule(t *testing.T) {
+func TestRecoveryOfASettingNeverCarriesASecret(t *testing.T) {
+	// Until 1.39 this case also changed olcAccess and held it back with
+	// access_rule_not_written. Access rules are compensated now; see
+	// TestRecoveryPutsAccessRulesBackWithTheLockoutWarning.
 	rig, _ := serverStateRig(t)
 	_, result := applyThroughPlan(t, rig, parseChanges(t, fmt.Sprintf(
-		`{"dn":%q,"type":"modify","mods":[{"op":"replace","name":"olcRootPW","values":[{"text":%q}]},
-		 {"op":"add","name":"olcAccess","values":[{"text":"to * by * none"}]}]}`, scDatabase, sentinelPassword)), true)
+		`{"dn":%q,"type":"modify","mods":[{"op":"replace","name":"olcRootPW","values":[{"text":%q}]}]}`,
+		scDatabase, sentinelPassword)), true)
 	raw := bundleJSON(t, result.Recovery)
-	for _, leak := range []string{sentinelPassword, oldHash, "by * none"} {
+	for _, leak := range []string{sentinelPassword, oldHash} {
 		if bytes.Contains(raw, []byte(leak)) {
 			t.Errorf("the bundle carries %q", leak)
 		}
@@ -282,6 +285,72 @@ func TestRecoveryOfASettingNeverCarriesASecretOrAnAccessRule(t *testing.T) {
 	if b.Recoverability != RecoverabilityUnavailable || len(b.Steps[0].Compensation) != 0 {
 		t.Errorf("bundle %+v, want unavailable with nothing to apply", b)
 	}
+}
+
+func TestRecoveryPutsAccessRulesBackWithTheLockoutWarning(t *testing.T) {
+	rig, mem := serverStateRig(t)
+	mem.ordered["olcaccess"] = true
+	rig.fake.caps.Config.DN = scConfig
+	mem.byDN[memKey(mustParse(t, scDatabase))].Set("olcAccess", [][]byte{
+		[]byte("{0}to attrs=userPassword by self write by anonymous auth by * none"),
+		[]byte("{1}to * by self write by users read by * read"),
+	})
+	s0 := mem.state(t)
+
+	// A rule put first, which renumbers every rule after it.
+	p, result := applyThroughPlan(t, rig, parseChanges(t, fmt.Sprintf(
+		`{"dn":%q,"type":"modify","mods":[{"op":"add","name":"olcAccess","values":[{"text":"{0}to dn.exact=\"cn=probe\" by * none"}]}]}`,
+		scDatabase)), true)
+	if item := p.Items[0]; item.Recovery == nil || item.Recovery.Recoverability != RecoverabilityExact {
+		t.Errorf("the plan says recovery %+v, want exact", item.Recovery)
+	}
+	if b := decodeBundle(t, result.Recovery); b.Recoverability != RecoverabilityExact || b.Steps[0].Reasons != nil {
+		t.Fatalf("bundle %+v, want exact with no reasons", b)
+	}
+
+	inspection := inspect(t, rig, bundleJSON(t, result.Recovery))
+	if len(inspection.Changes) != 1 || inspection.Drift[0].State != RecoveryDriftReady {
+		t.Fatalf("changes %+v drift %+v", inspection.Changes, inspection.Drift)
+	}
+
+	// The compensation is planned like the change was, and carries the same
+	// warning: it is the same kind of write.
+	body, _ := json.Marshal(map[string]any{"changes": inspection.Changes})
+	recoveryPlan := planFor(t, rig, string(body))
+	if !hasWarning(p.Items[0].Preview, "olcAccess: ") {
+		t.Fatalf("the forward change carries no lockout warning: %+v", p.Items[0].Preview)
+	}
+	if !hasWarning(recoveryPlan.Items[0].Preview, "olcAccess: ") {
+		t.Errorf("the compensation carries no lockout warning: %+v", recoveryPlan.Items[0].Preview)
+	}
+
+	_, recovered := applyThroughPlan(t, rig, inspection.Changes, false)
+	if recovered.AppliedCount != 1 {
+		t.Fatalf("recovery applied %d: %+v", recovered.AppliedCount, recovered.Outcomes)
+	}
+	// Byte for byte, positions included.
+	if got := mem.state(t); got != s0 {
+		t.Errorf("not back at S0\n--- S0\n%s\n--- now\n%s", s0, got)
+	}
+
+	// Applied twice, the second finds what it expects gone: a conflict, not a
+	// second write.
+	again := inspect(t, rig, bundleJSON(t, result.Recovery))
+	if again.Drift[0].State == RecoveryDriftReady {
+		t.Errorf("a bundle already applied is still ready: %+v", again.Drift[0])
+	}
+}
+
+func hasWarning(preview *ChangePreview, prefix string) bool {
+	if preview == nil || preview.Warnings == nil {
+		return false
+	}
+	for _, w := range *preview.Warnings {
+		if strings.HasPrefix(w, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestABadExpectedDefinitionIsRefused(t *testing.T) {

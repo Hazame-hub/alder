@@ -38,7 +38,7 @@ var reasonText = map[apiclient.RecoveryReasonCode]string{
 	apiclient.RecoveryReasonPostStateUnavailable:       "the entry could not be read after the change",
 	apiclient.RecoveryReasonDefinitionMayBeInUse:       "entries may now use this schema definition, and are not recovered",
 	apiclient.RecoveryReasonConfigEntryNotCompensated:  "creating, removing or renaming a configuration entry is not recovered",
-	apiclient.RecoveryReasonAccessRuleNotWritten:       "Alder does not write access rules",
+	apiclient.RecoveryReasonAccessRuleNotWritten:       "the Alder version that wrote this bundle did not recover access rules",
 }
 
 func assessmentText(level apiclient.RecoveryRecoverability, reasons *[]apiclient.RecoveryReason) string {

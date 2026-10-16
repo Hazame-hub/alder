@@ -91,6 +91,9 @@ func New(origin Origin, steps []Step, created time.Time) (*Bundle, error) {
 //     not depend on each other.
 //   - A modification followed by the delete of the same entry, which is what
 //     compensating an add and then an edit of it produces, becomes the delete.
+//   - A modification that puts back an access rule is never merged, and ends
+//     the run: a rule may grant what a compensation beside it needs, so it
+//     runs exactly where its step falls.
 //
 // In both, the expectation of the compensation that runs first wins for every
 // attribute it names: it describes the entry as it is now. Anything else is
@@ -112,6 +115,14 @@ func merge(ordered []Change) []Change {
 		key := foldedDN(c.DN)
 		switch c.Type {
 		case string(directory.ChangeModify):
+			if touchesAccessRule(c) {
+				// Never merged, in either direction: an access rule can grant
+				// what a compensation between the two needs, so it is put
+				// back exactly where its step falls.
+				out = append(out, c)
+				run = map[string]int{}
+				continue
+			}
 			if at, ok := run[key]; ok {
 				merged := out[at]
 				merged.Mods = append(append([]Mod(nil), merged.Mods...), c.Mods...)
@@ -132,6 +143,15 @@ func merge(ordered []Change) []Change {
 		run = map[string]int{}
 	}
 	return out
+}
+
+func touchesAccessRule(c Change) bool {
+	for _, m := range c.Mods {
+		if accessRule(m.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeExpect joins two expectations: first's attributes, then second's that
