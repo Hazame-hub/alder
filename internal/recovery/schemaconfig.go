@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hazame-hub/alder/internal/config"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/schema"
 	"github.com/hazame-hub/alder/internal/snapshot"
@@ -83,7 +84,7 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 func notCompensated(sch *schema.Schema, t *touchedAttribute, pre, post *directory.Entry) (ReasonCode, bool) {
 	name := t.name
 	switch {
-	case schema.IsSensitive(name) || carriesCredentials(t, pre, post):
+	case config.NameLooksSensitive(name) || carriesCredentials(t, pre, post):
 		// olcRootPW, nsslapd-rootpw, olcSyncrepl with its credentials: the
 		// name is recorded, the value never read into the bundle.
 		return ReasonSensitiveNotCaptured, true
@@ -140,7 +141,8 @@ func definitionAttribute(name string) bool {
 	switch strings.ToLower(schema.BaseName(name)) {
 	case "attributetypes", "objectclasses", "ditcontentrules", "ditstructurerules", "nameforms",
 		"ldapsyntaxes", "matchingrules", "matchingruleuse",
-		"olcattributetypes", "olcobjectclasses", "olcditcontentrules", "olcldapsyntaxes":
+		"olcattributetypes", "olcobjectclasses", "olcditcontentrules", "olcldapsyntaxes",
+		"olcobjectidentifier":
 		return true
 	}
 	return false

@@ -702,7 +702,10 @@ contain**, as the same fix did for `olcSyncrepl`. A recovery step that
 touches one, or any setting whose value carries `credentials=`, now says
 `sensitive_value_not_captured`, and a definition written to a configuration
 entry that is not a schema target says `schema_or_config_not_supported`;
-both were `exact` before. Neither is a new reason code.
+both were `exact` before. Neither is a new reason code. As for `olcSyncrepl`,
+a basket item, change package or saved plan that sets one of the four is
+now refused (a plan shows their values as sizes only, so a plan posted back
+has to supply the value again).
 
 A session can hold a read-only reference server
 ([proposals/second-server.md](proposals/second-server.md)). Only additions:

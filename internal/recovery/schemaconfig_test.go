@@ -424,6 +424,10 @@ func TestConfigProxyAndReplicationCredentialsAreNotCaptured(t *testing.T) {
 		{proxyDB, "olcDbACLPasswd", secret, "new-" + secret},
 		{"cn=to-b,cn=replica,cn=dc\\3Dalder\\2Cdc\\3Dtest,cn=mapping tree,cn=config",
 			"nsDS5ReplicaBootstrapCredentials", secret, "new-" + secret},
+		// Not in the table: caught by its name, as a configuration read
+		// withholds it.
+		{proxyDB, "olcDbPseudoRootPW", secret, "new-" + secret},
+		{"cn=config", "nsslapd-ldapssotoken-secret", secret, "new-" + secret},
 		// Not listed anywhere: caught by its value.
 		{proxyDB, "olcDbFutureBind",
 			"bindmethod=simple binddn=cn=x credentials=" + secret,
@@ -454,7 +458,7 @@ func TestConfigDefinitionsAreNeverPutBackAsSettings(t *testing.T) {
 	// would remove every definition it holds.
 	const schemaRoot = "cn=schema,cn=config"
 	for _, name := range []string{"olcAttributeTypes", "olcObjectClasses", "attributeTypes", "objectClasses",
-		"olcDitContentRules", "olcLdapSyntaxes"} {
+		"olcDitContentRules", "olcLdapSyntaxes", "olcObjectIdentifier"} {
 		record := modify(t, schemaRoot, mod(directory.ModAdd, name, probeType))
 		pre := entry(t, schemaRoot, []string{"cn", "schema"})
 		post := entry(t, schemaRoot, []string{"cn", "schema"}, []string{name, "{0}" + probeType})

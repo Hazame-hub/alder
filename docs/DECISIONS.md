@@ -6404,8 +6404,11 @@ Two ways a configuration step was marked `exact` when it should not have been.
   password into the compensation and the new one into the expectation. They
   are added to `sensitiveAttrs` and to `neverReleased` -- each is the
   password in the clear, never a digest -- and to the per-server sets in
-  `internal/config`, so the entry view, exports, snapshots and recovery
-  agree. No OID was added: none was checked against a published source.
+  `internal/config`. Recovery now also asks the configuration reader's own
+  name rule (`config.NameLooksSensitive`: "secret", "rootpw", a "-pw" or
+  "passwd" ending, and so on), so a setting a configuration read withholds,
+  such as `olcDbPseudoRootPW`, is never captured into a bundle either. No OID
+  was added: none was checked against a published source.
 - **A table alone is the shape of this bug**, which is the third time it has
   happened (`olcSyncrepl`, then these). So the configuration branch of
   recovery also refuses any attribute whose value -- as written, or as the
@@ -6420,7 +6423,8 @@ Two ways a configuration step was marked `exact` when it should not have been.
   collection created later are classed as configuration, and a definition
   written there was compensated by putting the whole attribute back -- a
   `delete olcAttributeTypes` that removes every definition the entry holds.
-  The configuration branch now refuses the definition attributes by name, as
+  The configuration branch now refuses the definition attributes by name
+  (`olcObjectIdentifier` among them), as
   it refuses access rules, with `schema_or_config_not_supported`. Routing
   them to the schema branch instead was rejected for now: it would mean
   classing targets by DN shape (`cn=schema,<configContext>`), which

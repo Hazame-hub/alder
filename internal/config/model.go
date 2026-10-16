@@ -201,6 +201,15 @@ func (c classifier) isSensitive(attribute string) bool {
 	if c.sensitive[key] {
 		return true
 	}
+	return NameLooksSensitive(attribute)
+}
+
+// NameLooksSensitive is isSensitive without a provider's own list: Alder's
+// sensitivity table, then the names a configuration tree uses for secrets.
+// Recovery asks it too, so what a configuration read withholds is never
+// captured into a recovery bundle either.
+func NameLooksSensitive(attribute string) bool {
+	key := strings.ToLower(attribute)
 	if schema.IsSensitive(attribute) {
 		return true
 	}
