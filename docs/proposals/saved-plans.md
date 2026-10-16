@@ -146,8 +146,9 @@ $ alder project apply --env prod --plan prod.plan.json [--yes]
   project. The project is still read and validated, for `alder.yaml`, the
   environment and its credentials; its LDIF is not planned.
 - The environment is part of the file: its name, its `host:port`, the bind
-  DN and any suffix rebase (#233). An apply for another `--env`, or for one
-  whose `host`, `port` or bind no longer match, is refused before
+  DN, the configuration bind DN when it has one, and any suffix rebase
+  (#233). An apply for another `--env`, or for one whose `host`, `port`,
+  bind or configuration bind no longer match, is refused before
   connecting (exit 3). This restores what PROJECT.md's first draft said ("a
   plan carries the environment it was made for, and `apply` refuses one
   made for a different `--env`"), which the 2026-10-11 decision had to
@@ -179,6 +180,7 @@ the reader does not know is refused rather than half-read.
     "name": "prod",
     "host": "ldap.example.org:636",
     "bindDn": "cn=alder,ou=service,dc=example,dc=org",
+    "configBindDn": "cn=Directory Manager",
     "rebase": { "from": "dc=example,dc=test", "to": "dc=example,dc=org" }
   },
   "changes": [
@@ -198,6 +200,16 @@ the path the plan job happened to run in, which the apply job does not
 share. The digest is the SHA-256 of the project's entries rendered as one
 LDIF document, as the files write them, before any environment's suffix;
 the suffix is compared on its own, in `environment.rebase`.
+
+*Settled with #243:* `environment.configBindDn` is the configuration bind
+DN (`config-bind-dn` in `alder.yaml`, `--config-bind-dn` for `alder plan`)
+the plan was made with, and is absent when it was made with none. A plan
+can hold `cn=config` and schema changes, which were read and reviewed as
+that identity's; an apply whose configuration bind differs, including one
+given where the file has none or none given where it has one, is refused
+before connecting (3). It is compared as `bindDn` is, without regard to
+case. The field is optional, so a file without it is the file of a plan
+made with no configuration bind, and the reader stays strict otherwise.
 
 `changes` are `ChangeRequest`s, the object `POST /plan` and
 `/changeset/apply` already take. `unchanged` is a count, for the summary
@@ -226,7 +238,9 @@ an entry behind the plan's back, apply and see it refused; plan, save,
 restart the Alder server, apply and see it applied.
 
 **Later, if asked for:** `alder plan --out` / `alder apply --plan` for any
-change set, not only projects; loading a saved plan in the web interface
+change set, not only projects (*built 2026-10-16*: an LDIF document or
+`--changes`; a deletion carries an exhaustive expectation; renames, password
+changes, `--recovery` and `--package` are not saved); loading a saved plan in the web interface
 next to *Load recovery bundle*; a signed plan, wrapped with `alder sign`
 as SIGNING.md wraps any document.
 

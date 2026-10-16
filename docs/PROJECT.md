@@ -372,8 +372,8 @@ so the stricter meaning is asked for, never assumed.
   change is the plan's own record, a modification with the values it
   replaces as an `expect`, the precondition recovery bundles use, so any
   Alder can check it and a restart between review and apply changes
-  nothing. The file names the environment, its `host:port`, the bind and
-  any suffix, and a digest of the project's entries; an apply for anything
+  nothing. The file names the environment, its `host:port`, the bind, the
+  configuration bind (`config-bind-dn`) when it has one, and any suffix, and a digest of the project's entries; an apply for anything
   else is refused before connecting (3), and one whose changes no longer
   hold is refused whole (4). Specified, and accepted, in
   [proposals/saved-plans.md](proposals/saved-plans.md).

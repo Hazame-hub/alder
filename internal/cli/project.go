@@ -161,7 +161,7 @@ func projectApplyCmd(env *Env) *cobra.Command {
 			"--plan FILE applies a plan alder project plan --out saved, instead of\n" +
 			"planning the project: exactly the changes in it, each only if the directory\n" +
 			"still holds what it held when the plan was made. The file must have been\n" +
-			"made for this environment, its directory and bind, and from the project\n" +
+			"made for this environment, its directory and binds, and from the project\n" +
 			"files as they are now; anything else is refused before connecting (3). A\n" +
 			"saved plan that no longer holds is refused whole (4): plan again and review.\n\n" +
 			"--env, --project, --plan and --yes are read from the command line only,\n" +
