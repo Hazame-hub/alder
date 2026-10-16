@@ -693,8 +693,11 @@ A plan can be saved and applied later
   Either kind's `environment` carries an optional `configBindDn`, the
   configuration bind it was made with, and an apply under another is
   refused (exit 3).
-- **No API change.** A saved plan is planned and applied through
-  `POST /plan` and `POST /changeset/apply` as they are.
+- **`AttributeTypeSummary` gains an optional `noUserModification`**, the
+  effective flag through `SUP`, beside `operational`. An apply of a
+  project's saved plan reads both to refuse a replacement of an attribute
+  the directory keeps. A saved plan is otherwise planned and applied
+  through `POST /plan` and `POST /changeset/apply` as they are.
 
 A session can hold a read-only reference server
 ([proposals/second-server.md](proposals/second-server.md)). Only additions:

@@ -72,34 +72,25 @@ func attributeKey(names attributeNames, name string) string {
 // it, would not make. A project plans its entries as desired state: an entry
 // the directory lacks is added exactly as the files describe it, and one it
 // holds is reconciled into replacements of the attributes that differ, each
-// with every value the files give it. Nothing else.
-func bindToProject(path string, changes []apiclient.ChangeRequest, p *project.Project, names attributeNames) error {
-	entries := map[string][]*ldif.Record{}
+// with every value the files give it, skipping the attributes the directory
+// keeps (owned). Nothing else.
+func bindToProject(path string, changes []apiclient.ChangeRequest, p *project.Project, names attributeNames,
+	owned ownedAttributes) error {
+	// By name exactly as a plan writes it: the files' DN as the project
+	// renders it into the plan's document, and as the server renders that
+	// back. Not dn.Equal, which folds case: for an attribute that names
+	// entries case-exactly, uid=ALICE is another entry than uid=alice.
+	entries := map[string]*ldif.Record{}
 	for _, st := range p.Managed {
 		for _, rec := range st.Records {
-			key := strings.ToLower(rec.DN.String())
-			entries[key] = append(entries[key], rec)
-		}
-	}
-	lookup := func(name string) *ldif.Record {
-		d, err := dn.Parse(name)
-		if err != nil {
-			return nil
-		}
-		for _, rec := range entries[strings.ToLower(d.String())] {
-			if rec.DN.Equal(d) {
-				return rec
-			}
-		}
-		// The same DN spelled otherwise: in another case, or with spaces.
-		for _, st := range p.Managed {
-			for _, rec := range st.Records {
-				if rec.DN.Equal(d) {
-					return rec
+			written := rec.DN.String()
+			entries[written] = rec
+			if d, err := dn.Parse(written); err == nil {
+				if _, taken := entries[d.String()]; !taken {
+					entries[d.String()] = rec
 				}
 			}
 		}
-		return nil
 	}
 	for i, c := range changes {
 		refuse := func(format string, a ...any) error {
@@ -108,7 +99,7 @@ func bindToProject(path string, changes []apiclient.ChangeRequest, p *project.Pr
 					i+1, safe(path), c.Type, safe(c.Dn)) + fmt.Sprintf(format, a...) +
 					". A saved plan applies only what the project's files ask for; plan again and review"}
 		}
-		rec := lookup(c.Dn)
+		rec := entries[c.Dn]
 		if rec == nil {
 			return refuse("the project does not describe that entry")
 		}
@@ -143,9 +134,19 @@ func bindToProject(path string, changes []apiclient.ChangeRequest, p *project.Pr
 				if m.Op != apiclient.ChangeModOpReplace {
 					return refuse("it does not replace %s, and a project only ever replaces an attribute", safe(m.Name))
 				}
+				base, _, _ := strings.Cut(m.Name, ";")
+				if owned[strings.ToLower(names.canonical(base))] {
+					return refuse("%s is kept by the directory, and a project's plan never replaces it", safe(m.Name))
+				}
 				held, ok := want[attributeKey(names, m.Name)]
 				if !ok {
 					return refuse("the files do not name %s on that entry", safe(m.Name))
+				}
+				if held.written > 1 {
+					// Reconcile replaces each name the files write, one
+					// after the other, so which values the entry ends with
+					// depends on their order: nothing a review settles.
+					return refuse("the files write %s under more than one name on that entry; write it once and plan again", safe(m.Name))
 				}
 				var values [][]byte
 				if m.Values != nil {
@@ -165,26 +166,16 @@ func bindToProject(path string, changes []apiclient.ChangeRequest, p *project.Pr
 	return nil
 }
 
-// projectValues are the values an entry's files give one attribute: under
-// each name it is written with, and all of them together.
+// projectValues are the values an entry's files give one attribute, under
+// every name it is written with, and how many names that is.
 type projectValues struct {
-	written [][][]byte
+	written int
 	all     [][]byte
 }
 
-// matches is whether values are what the files give the attribute, under
-// one of its names or all of them: a reconcile replaces each name the files
-// write, with that name's values.
+// matches is whether values are what the files give the attribute.
 func (v projectValues) matches(values [][]byte) bool {
-	if sameValueSet(values, v.all) {
-		return true
-	}
-	for _, w := range v.written {
-		if sameValueSet(values, w) {
-			return true
-		}
-	}
-	return false
+	return sameValueSet(values, v.all)
 }
 
 func projectAttributes(rec *ldif.Record, names attributeNames) map[string]projectValues {
@@ -192,7 +183,7 @@ func projectAttributes(rec *ldif.Record, names attributeNames) map[string]projec
 	for _, a := range rec.Attrs {
 		key := attributeKey(names, a.Name)
 		v := out[key]
-		v.written = append(v.written, a.Values)
+		v.written++
 		v.all = append(v.all, a.Values...)
 		out[key] = v
 	}

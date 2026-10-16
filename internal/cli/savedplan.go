@@ -256,7 +256,7 @@ func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan 
 		// that state; if it is not what was shown, someone changed the
 		// directory in between, and saving would bind the reviewed plan to
 		// a state nobody reviewed.
-		if err := sameAsShown(shown, p); err != nil {
+		if err := sameAsShown(plan, shown, p); err != nil {
 			return &ExitError{Code: ExitStale, Local: "plan_not_saved",
 				Message: fmt.Sprintf("the plan was not saved to %s: %s. Plan again", safe(path), err)}
 		}
@@ -302,18 +302,31 @@ func (n attributeNames) canonical(name string) string {
 // (cn, never commonName or 2.5.4.3), so one written under another name would
 // find nothing and expect the attribute absent, which always holds.
 func readAttributeNames(ctx context.Context, r *remote) (attributeNames, error) {
+	names, _, err := readSchemaNames(ctx, r)
+	return names, err
+}
+
+// ownedAttributes are the attribute types the directory keeps, by the name
+// it returns them under, lowercased: operational or NO-USER-MODIFICATION, as
+// the schema resolves them through SUP. A desired-state plan never replaces
+// one (plan.Reconcile skips them).
+type ownedAttributes map[string]bool
+
+// readSchemaNames is readAttributeNames, with the attribute types the
+// directory keeps.
+func readSchemaNames(ctx context.Context, r *remote) (attributeNames, ownedAttributes, error) {
 	const what = "reading the directory's schema"
 	res, err := r.api.GetSchemaWithResponse(ctx, nil)
 	if err != nil {
-		return nil, transportFailure(ctx, what, err)
+		return nil, nil, transportFailure(ctx, what, err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return nil, r.refusal(ctx, what, res.HTTPResponse, res.Body)
+		return nil, nil, r.refusal(ctx, what, res.HTTPResponse, res.Body)
 	}
 	if res.JSON200 == nil || res.JSON200.AttributeTypes == nil {
-		return nil, failf("unexpected_response", "Alder answered the schema request with no attribute types")
+		return nil, nil, failf("unexpected_response", "Alder answered the schema request with no attribute types")
 	}
-	names := attributeNames{}
+	names, owned := attributeNames{}, ownedAttributes{}
 	for _, at := range *res.JSON200.AttributeTypes {
 		all := []string{at.Name, at.Oid}
 		if at.Names != nil {
@@ -324,8 +337,11 @@ func readAttributeNames(ctx context.Context, r *remote) (attributeNames, error) 
 				names[strings.ToLower(n)] = at.Name
 			}
 		}
+		if (at.Operational != nil && *at.Operational) || (at.NoUserModification != nil && *at.NoUserModification) {
+			owned[strings.ToLower(at.Name)] = true
+		}
 	}
-	return names, nil
+	return names, owned, nil
 }
 
 // expectationFor reads the entry a modification is about and returns what it
@@ -454,7 +470,21 @@ func planSaved(ctx context.Context, r *remote, changes []apiclient.ChangeRequest
 // group membership and the same references found to it. Those are what a
 // plan says about the directory as it found it; the rest of an item is the
 // change itself, which is the same record in both.
-func sameAsShown(shown []apiclient.PlanItem, fresh apiclient.Plan) error {
+//
+// An item carries references only where some were found, so where both plans
+// searched for them, and neither search was cut short, an item without is
+// one with none. A search cut short, or not made, compares nothing.
+func sameAsShown(shownPlan apiclient.Plan, shown []apiclient.PlanItem, fresh apiclient.Plan) error {
+	searched := func(p apiclient.Plan) bool {
+		return p.Impact != nil && p.Impact.References.Analysed && !p.Impact.References.Truncated
+	}
+	compareReferences := searched(shownPlan) && searched(fresh)
+	references := func(item apiclient.PlanItem) (int, int) {
+		if item.References == nil {
+			return 0, 0
+		}
+		return item.References.Count, item.References.Dangling
+	}
 	byIndex := make(map[int]apiclient.PlanItem, len(fresh.Items))
 	for _, item := range fresh.Items {
 		byIndex[item.Index] = item
@@ -464,6 +494,8 @@ func sameAsShown(shown []apiclient.PlanItem, fresh apiclient.Plan) error {
 		moved := func(what string) error {
 			return fmt.Errorf("%s changed after the plan was shown: %s", safe(was.Dn), what)
 		}
+		wasCount, wasDangling := references(was)
+		nowCount, nowDangling := references(now)
 		switch {
 		case !ok:
 			return moved("it is not in the plan of the saved changes")
@@ -471,8 +503,7 @@ func sameAsShown(shown []apiclient.PlanItem, fresh apiclient.Plan) error {
 			return moved(fmt.Sprintf("it is now a %s, and was shown as a %s", now.Action, was.Action))
 		case membershipKey(now.Membership) != membershipKey(was.Membership):
 			return moved("what it does to group membership is not what was shown")
-		case now.References != nil && was.References != nil &&
-			(now.References.Count != was.References.Count || now.References.Dangling != was.References.Dangling):
+		case compareReferences && (nowCount != wasCount || nowDangling != wasDangling):
 			return moved("the references found to it are not the ones shown")
 		}
 	}

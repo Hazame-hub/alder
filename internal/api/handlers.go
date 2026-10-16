@@ -835,7 +835,10 @@ func attributeTypeSummary(sch *schema.Schema, at *schema.AttributeType, origins 
 		Equality:    ptr(sch.EffectiveEquality(at)),
 		SingleValue: ptr(sch.EffectiveSingleValue(at)),
 		Operational: ptr(sch.EffectiveUsage(at).Operational()),
-		Origin:      ptrIfSet(provenance(at.OID, at.Extensions, origins)),
+		// What plan.Reconcile's directoryOwns checks beside the usage: a
+		// client that binds a saved plan to a project needs both.
+		NoUserModification: ptr(sch.EffectiveNoUserModification(at)),
+		Origin:             ptrIfSet(provenance(at.OID, at.Extensions, origins)),
 	}
 }
 

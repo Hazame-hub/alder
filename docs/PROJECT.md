@@ -378,8 +378,10 @@ so the stricter meaning is asked for, never assumed.
   project too: each must be one the project's desired state makes for that
   environment, an add of an entry exactly as the files describe it or a
   replacement with the values they give, and each modification must expect
-  what it changes, or the apply is refused (3), so editing the file alone
-  changes nothing that runs. One whose changes no longer hold is refused
+  what it changes, or the apply is refused (3), so editing the file cannot
+  make it write anything the files do not say. It can still leave changes
+  out; signing the file is what proves it is the one reviewed. One whose
+  changes no longer hold is refused
   whole (4). Specified, and accepted, in
   [proposals/saved-plans.md](proposals/saved-plans.md).
 - **`alder project fmt`** (built): rewrite the project's LDIF in a canonical

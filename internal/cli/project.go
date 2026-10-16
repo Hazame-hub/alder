@@ -518,7 +518,7 @@ func applySaved(ctx context.Context, env *Env, p *project.Project, saved *savedP
 	// Every saved change has to be one the project, as this environment
 	// holds it, would make: the digest binds the files, and this binds the
 	// changes to them.
-	names, err := readAttributeNames(ctx, r)
+	names, owned, err := readSchemaNames(ctx, r)
 	if err != nil {
 		return err
 	}
@@ -529,7 +529,7 @@ func applySaved(ctx context.Context, env *Env, p *project.Project, saved *savedP
 	if err != nil {
 		return err
 	}
-	if err := bindToProject(o.plan, saved.Changes, q, names); err != nil {
+	if err := bindToProject(o.plan, saved.Changes, q, names, owned); err != nil {
 		return err
 	}
 
