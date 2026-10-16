@@ -231,6 +231,29 @@ whose entry has changed since is a conflict and never an overwrite. From a
 shell, `alder apply --recovery-out` writes one and `--recovery` plans one.
 Details in [`RECOVERY.md`](RECOVERY.md).
 
+**Save a plan, and apply exactly it later.** A review and an apply are not
+always the same moment: a plan goes into a ticket, someone approves it, and the
+apply runs tomorrow. `alder plan --out` saves the plan of an LDIF document or of
+`--changes` as a file, and `alder apply --plan` applies that file and nothing
+else. Each change in it is the plan's own record, carrying what the entry held
+when it was planned: the values a modification replaces, and for a deletion the
+whole entry. So the file still works after the Alder that made it restarts, and
+through any other Alder; a plan made for another host or bind is refused before
+anything connects, and if any change no longer holds because the directory
+moved, the whole file is refused and nothing is written. A rename or a password
+change is not saved; apply those directly.
+
+In the browser, **Load saved plan** sits beside *Load recovery bundle* on the
+empty changeset. It shows when the plan was made and from what, the directory
+and bind it was made for, and what each change expects; nothing is applied on
+loading. *Review plan* stages the changes and checks them against the
+directory, and the set is applied whole or not at all, as `alder apply --plan`
+applies it. A plan made for another directory or login is refused there too,
+and a project's plan is left to `alder project apply --plan`. See
+[CLI.md](CLI.md#a-saved-plan).
+
+![A saved plan loaded on the empty changeset, before anything is staged](screenshots/saved-plan.png)
+
 ## Import and export
 
 **Import and export.** Export an entry, a subtree, or what a search is
@@ -428,6 +451,12 @@ it is detached or the session ends. Every write dialog says which server it
 applies to. Details in
 [`proposals/second-server.md`](proposals/second-server.md).
 
+![One entry compared with the same entry on a read-only reference server](screenshots/reference-compare.png)
+
+*`uid=user0004` on the directory Alder is connected to, compared with the same
+entry on a reference server where someone changed its team and shell and gave
+it a title. The password is compared on presence alone.*
+
 **Carry a change between directories.** A change package is a portable
 description of what you intend to change -- entries and schema together, with
 the dependencies between them written down. It holds no password, no plan token
@@ -479,8 +508,9 @@ password is never a command-line argument. The client has no LDAP code of its
 own. It uses the server's Snapshot, Diff, Plan and Apply, and adds its own
 safety policy on top: it asks before applying, needs `--allow-deletes` before
 `--yes` will delete, and refuses a plan that already contains a conflict. Two
-snapshot files are compared without any directory credentials. See
-[`CLI.md`](CLI.md).
+snapshot files are compared without any directory credentials. `alder plan
+--out` saves a plan for `alder apply --plan` to apply exactly, later, in
+another job. See [`CLI.md`](CLI.md).
 
 **Keep a directory's intended state in Git.** An Alder project is an
 `alder.yaml` beside LDIF files in a repository: the subtrees the repository is
@@ -496,7 +526,10 @@ directory has moved. There is no state file, and an entry the files do not
 mention is never deleted: the plan lists it as unmanaged.
 `alder project fmt` keeps the LDIF in one canonical form so a diff shows what
 changed. See [`PROJECT.md`](PROJECT.md), and
-[`examples/project/`](../examples/project/) for a project with its CI.
+[`examples/project/`](../examples/project/) for a project with its CI: validate
+on every pull request, a scheduled plan for drift, and an optional apply that
+saves the plan in one job and applies that file in a second, only once someone
+approves it.
 
 **Open a project in the browser.** *Open project*, on the Import screen,
 takes the folder holding `alder.yaml` -- chosen, dropped on the panel, or

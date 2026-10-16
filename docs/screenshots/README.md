@@ -16,6 +16,8 @@ is mocked up or edited beyond cropping and compression.
 | `ansible-preview.png` | The same dialog on the Ansible tab | README, Feature tour |
 | `changeset-plan.png` | Three staged changes, checked against the directory | README, Getting started, Feature tour |
 | `schema-browser.png` | `inetOrgPerson` in the schema browser | README, Feature tour |
+| `reference-compare.png` | `uid=user0004` compared with the same entry on a reference server | Feature tour |
+| `saved-plan.png` | A plan saved by `alder plan --out`, loaded on the empty changeset | Feature tour |
 
 ## How they were made
 
@@ -26,6 +28,14 @@ the DevTools screencast and encoded with `ffmpeg` (a 128-colour palette, 12
 frames a second, played 1.2× fast) and `gifsicle`. The terminal GIF is a real
 `bash` session in a pseudo-terminal, every command typed into it and every
 line of output exactly what `alder` printed, replayed in xterm.js.
+
+`reference-compare.png` and `saved-plan.png` were captured on 2026-10-16 from
+`main` the same way. The reference server in the first is a second copy of the
+harness's OpenLDAP directory, seeded identically, with one entry changed by
+hand (`alderTeam`, `loginShell` and a `title` on `uid=user0004`). The saved
+plan in the second was written by `alder plan --out` from a two-change LDIF
+document, by a development build, which is why its version reads `dev+` and a
+commit.
 
 Neither Playwright nor xterm.js is a dependency of Alder; the capture scripts
 are kept out of the repository for that reason.
