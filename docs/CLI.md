@@ -578,7 +578,10 @@ change is the plan's own record, and a modification carries the values of the
 attributes it replaces as an `expect`, the precondition a recovery bundle's
 changes carry. Before the file is written, its changes are planned once more
 exactly as an apply will plan them, and it is written only if every one
-applies; exit 4 when the directory moved meanwhile. A plan with a change that
+applies and that plan is the one shown: each change the same action, with the
+same effect on group membership. The expectations are read after the plan is
+shown, so a directory edited in between is refused rather than written into
+them; exit 4 when the directory moved meanwhile. A plan with a change that
 cannot be applied is shown and not saved. The exit status is otherwise the
 plan's, `--detailed-exitcode` included; an existing file is replaced only with
 `--force`; with `--json` the document says `saved`.
@@ -589,9 +592,18 @@ of that plan. It is refused before connecting (exit 3) when the file was made
 for another environment, against another `host:port`, binding as someone
 else, with another `config-bind-dn` (or with one where it had none, or none
 where it had one), with another suffix, or from project files that have changed since --
-plan that version and review it. It is refused whole (exit 4) when any of its
-changes no longer holds: an attribute it replaces has changed, or an entry it
-adds now exists. Nothing is written; plan again and review. The format is in
+plan that version and review it -- with or without `--yes` and a terminal.
+The file is read strictly: an unknown key, a key in another case or a key
+given twice is refused (3). **Its changes are bound to the project**: once
+connected, and before anything is planned, every change must be one the
+project's desired state makes for this environment -- an add of an entry the
+files describe, with exactly the files' attributes and values, or a `replace`
+of an attribute the files name on that entry, to the values they give it --
+and every modification must expect each attribute it changes. Anything else is
+refused (3): editing the file alone does not change what runs. It is refused
+whole (exit 4) when any of its changes no longer holds: an attribute it
+replaces has changed, or an entry it adds now exists. Nothing is written; plan
+again and review. The format is in
 [proposals/saved-plans.md](proposals/saved-plans.md#the-file).
 
 Without a terminal and without `--yes`, `apply` refuses before connecting to
@@ -811,8 +823,9 @@ reviewer saw deleted. A rename or a password change is not saved, nor is a
 plan with a value the server withheld, nor a `--changes` change that carries
 its own `expect`: apply those with `alder apply`. Before
 the file is written, its changes are planned once more, exactly as an apply
-will plan them, and it is written only if every one applies (exit 4 when the
-directory moved meanwhile). A plan with a change that cannot be applied is
+will plan them, and it is written only if every one applies and that plan is
+the one shown, the same action with the same effect on group membership and
+the same references found (exit 4 when the directory moved meanwhile). A plan with a change that cannot be applied is
 shown and not saved. `--force` replaces an existing file. A `--recovery`
 bundle or a `--package` is not saved again: each is already a file of exact
 changes, applied as it is.
@@ -868,7 +881,19 @@ shown, confirmed and applied with the baselines of that plan. `--yes`,
   given where it had one), and when it is a project's
   saved plan, which `alder project apply --plan` applies with the project's
   own checks. `alder project apply --plan` refuses a change set's plan the
-  same way.
+  same way. So is a file that is not read exactly: an unknown key, a key in
+  another case, or one given twice.
+- **Refused once connected (exit 3)**, before anything is planned, when a
+  modification does not expect every attribute it changes, under any of the
+  attribute's names.
+- **The file is the whole input.** Unlike a project's plan, nothing binds
+  its changes to anything else: the input's digest is recorded for a
+  reviewer, and checked by nobody. Whoever can edit the file between review
+  and apply chooses what runs, within what the bind is allowed to do. Keep
+  it where only the people who approve it can write, or sign it with
+  `alder sign` and check it with `alder verify` before applying it
+  ([SIGNING.md](SIGNING.md)); `apply --plan` checking a signature itself is
+  planned.
 - **Refused whole (exit 4)** when any of its changes no longer holds: an
   attribute it replaces has changed, an entry it adds now exists, or an
   entry it deletes no longer holds exactly what it held. Nothing is written;

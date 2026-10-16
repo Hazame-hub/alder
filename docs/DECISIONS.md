@@ -6348,3 +6348,37 @@ what the build settled:
 A conformance case saves through one Alder and applies through another, and
 checks that a plan overtaken on the modified entry or on the deleted one
 writes nothing.
+
+### 2026-10-16 — saved plans: bound to the project, read before shown, keys exact
+
+An audit of saved plans (#236, #243) found four gaps, fixed together:
+
+- **The changes were bound to nothing.** The digest bound a project's
+  files, and apply never asked whether the saved changes came from them; the
+  reader took a modification expecting nothing (`"attributes": []`, which
+  always holds). Editing the file alone -- a member added to a group outside
+  every managed base -- applied. Now every modification must expect each
+  attribute it changes (the reader refuses an empty expectation; once
+  connected, names are compared through the schema, as the expectation was
+  written), and `project apply --plan` renders the project for the
+  environment, suffix included, and refuses (3, `saved_plan_mismatch`) any
+  change its desired state would not make: an entry the files do not
+  describe, an add that is not the files' entry exactly, or a modification
+  that is not a `replace` of an attribute the files name with the values
+  they give. That is all the desired-state planner emits, so a real plan
+  passes. A change set's saved plan has no source to bind to; the docs now
+  say the file is the whole input, and point at signing.
+- **The expectation was read after the plan was shown**, and never compared
+  with it, so an edit in between went into `expect` and was overwritten
+  unseen. Reading every entry before planning would cost a read per entry
+  the project describes; instead the saved changes' plan, already made to
+  prove the file applies, must match the shown plan item by item -- action,
+  membership effect, references -- or the file is not written (4). Those are
+  everything a plan says about the state it found; the rest of an item is
+  the record, the same in both. Both `--out` paths share this code.
+- **The reader matched keys in any case and took the last of two.** A token
+  walk now refuses a duplicate key in any object and any key that is not the
+  struct's own spelling, before decoding.
+- **`project apply --plan` without a terminal or `--yes`** said 5 for a file
+  made for another environment, where the docs say 3. The file is now read
+  and matched first, as `alder apply --plan` already did.

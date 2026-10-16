@@ -681,7 +681,10 @@ A plan can be saved and applied later
   continue to read it, as they do recovery bundles. Its `changes` are the
   API's `ChangeRequest`, so they follow the API's rules above. Its reader is
   strict, so a file that uses a later addition is refused rather than
-  half-read.
+  half-read; keys are read exactly as written, and one given twice is
+  refused. A modification must expect every attribute it changes, and a
+  project's saved plan applies only changes the project itself makes for
+  the environment (exit 3 otherwise).
 - **`alder plan --out FILE` and `--force`**, and **`alder apply --plan
   FILE`**, for change sets that are not a project. None of them reads the
   environment. A saved plan of a change set has `input` where a project's
