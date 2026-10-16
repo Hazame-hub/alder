@@ -36,7 +36,8 @@ import { UnknownOutcome } from "@/components/unknown-outcome";
 import { DownloadButton } from "@/components/ldif-block";
 import { assessmentLine, bundleText, overallRecovery, recoveryFilename } from "@/lib/recovery";
 import { RecoveryLoader } from "@/features/recovery-loader";
-import { SavedPlanLoader } from "@/features/saved-plan-loader";
+import { SavedPlanHeading, SavedPlanLoader } from "@/features/saved-plan-loader";
+import { savedPlanRefusal } from "@/lib/saved-plan";
 import { ProjectHeading } from "@/features/project";
 import { safeText } from "@/lib/display";
 
@@ -144,6 +145,9 @@ export function ChangesetView({
   // plan -- is only ever applied through a checked plan; the server refuses
   // it otherwise.
   const needsPlan = staged.some((s) => s.change.expect !== undefined);
+  // A saved plan is applied whole or not at all (alder apply --plan).
+  const wholePlan =
+    origin?.kind === "saved-plan" && current ? savedPlanRefusal(applyBody.changes.length, staged.length) : null;
 
   const apply = useMutation({
     // What is sent travels with the request, so the answer is read against
@@ -268,7 +272,7 @@ export function ChangesetView({
 
       {origin ? (
         <div className="mb-4">
-          <ProjectHeading origin={origin} />
+          {origin.kind === "project" ? <ProjectHeading origin={origin} /> : <SavedPlanHeading origin={origin} />}
         </div>
       ) : null}
 
@@ -379,6 +383,7 @@ export function ChangesetView({
       ) : null}
 
       {current ? <PlanSummary plan={current} /> : null}
+      {wholePlan ? <p className="mb-4 text-xs text-warning-tint-foreground">{wholePlan}</p> : null}
       {needsPlan && !current ? (
         <p className="mb-4 text-xs text-warning-tint-foreground">
           These include changes that expect an entry as it was, from a recovery
@@ -502,7 +507,7 @@ export function ChangesetView({
           </span>
         )}
         <Button
-          disabled={!data || apply.isPending || stalePlan !== null || held !== null || (needsPlan && !current) || (current !== null && applyBody.changes.length === 0)}
+          disabled={!data || apply.isPending || stalePlan !== null || held !== null || (needsPlan && !current) || (current !== null && applyBody.changes.length === 0) || wholePlan !== null}
           onClick={() => {
             setResult(null);
             apply.mutate({ ids: sentIds(stagedIds, current), body: applyBody });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "@/lib/api";
-import { parseSavedPlan, sessionLabel, sessionMismatch } from "@/lib/saved-plan";
+import { parseSavedPlan, savedPlanRefusal, sessionLabel, sessionMismatch } from "@/lib/saved-plan";
 
 // What alder plan --out writes (internal/cli/savedplan.go): exact changes,
 // each modification and deletion with the state it expects, and no baseline.
@@ -129,5 +129,14 @@ describe("sessionMismatch", () => {
 
   it("writes an IPv6 address as the command line does", () => {
     expect(sessionLabel({ connected: true, host: "::1", port: 10636 })).toBe("[::1]:10636");
+  });
+});
+
+describe("savedPlanRefusal", () => {
+  it("applies a saved plan whole or not at all, as alder apply --plan does", () => {
+    expect(savedPlanRefusal(3, 3)).toBeNull();
+    const why = savedPlanRefusal(1, 2);
+    expect(why).toContain("1 of its 2 changes would apply");
+    expect(why).toContain("Nothing will be written");
   });
 });

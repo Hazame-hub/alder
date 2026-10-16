@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileUp, SearchCheck, X } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
 import { changeset } from "@/lib/changeset";
-import { parseSavedPlan, sessionMismatch } from "@/lib/saved-plan";
-import type { SavedPlan } from "@/lib/saved-plan";
+import { parseSavedPlan, savedPlanOrigin, sessionMismatch } from "@/lib/saved-plan";
+import type { SavedPlan, SavedPlanOrigin } from "@/lib/saved-plan";
 import { Button } from "@/components/ui/button";
 import { safeText } from "@/lib/display";
 
@@ -15,8 +15,8 @@ import { safeText } from "@/lib/display";
  * As with a recovery bundle, nothing is applied on loading. "Review plan"
  * stages the changes exactly as written, each with the state it expects, and
  * the ordinary plan checks them against the directory: a change whose entry
- * moved since the plan was saved shows as a conflict, and the apply is refused
- * as it would be from the command line. A plan made against another directory
+ * moved since the plan was saved shows as a conflict, and the whole plan is
+ * then refused, as alder apply --plan refuses it, rather than applied in part. A plan made against another directory
  * or bind is refused outright, as alder apply --plan refuses it.
  */
 export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
@@ -47,6 +47,9 @@ export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
       plan.changes.map((c) => ({ change: c, label: `Saved plan: ${c.type} ${c.dn}` })),
     );
     if (outcome.staged > 0) {
+      // Set after staging: staging drops any origin, and this one says the
+      // basket is exactly the plan, which is applied whole or not at all.
+      changeset.setOrigin(savedPlanOrigin(plan));
       reset();
       onStaged();
     } else {
@@ -144,10 +147,10 @@ export function SavedPlanSummary({ plan, counts }: { plan: SavedPlan; counts: st
         <dd>
           {plan.input.kind === "ldif" ? "an LDIF document" : "--changes"}
           {plan.input.mode ? ` read as ${safeText(plan.input.mode)}` : ""}
-          <span className="block font-dn text-muted-foreground">{safeText(plan.input.digest)}</span>
+          <span className="block break-all font-dn text-muted-foreground">{safeText(plan.input.digest)}</span>
         </dd>
         <dt className="text-muted-foreground">Directory</dt>
-        <dd className="font-dn">
+        <dd className="break-all font-dn">
           {safeText(plan.environment.host)}, binding{" "}
           {plan.environment.bindDn === "" ? "anonymously" : `as ${safeText(plan.environment.bindDn)}`}
         </dd>
@@ -173,6 +176,36 @@ export function SavedPlanSummary({ plan, counts }: { plan: SavedPlan; counts: st
           ))}
         </ol>
       ) : null}
+    </div>
+  );
+}
+
+/** The changeset's heading while it is exactly a loaded saved plan. */
+export function SavedPlanHeading({ origin }: { origin: SavedPlanOrigin }) {
+  return (
+    <div className="space-y-0.5 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+      <div>
+        <span className="font-medium">Saved plan</span>
+        <span className="text-muted-foreground"> — made {safeText(origin.createdAt)}</span>
+      </div>
+      <div>
+        <span className="font-medium">
+          Planned against <span className="break-all font-dn">{safeText(origin.host)}</span>
+          {origin.bindDn ? (
+            <>
+              {" "}
+              as <span className="break-all font-dn">{safeText(origin.bindDn)}</span>
+            </>
+          ) : (
+            " anonymously"
+          )}
+        </span>
+        <span className="text-muted-foreground">
+          {" "}
+          — applied whole or not at all. Removing a change makes the rest an
+          ordinary changeset.
+        </span>
+      </div>
     </div>
   );
 }

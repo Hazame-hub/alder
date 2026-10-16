@@ -176,3 +176,29 @@ export function sessionMismatch(plan: SavedPlan, session: SessionInfo): string |
   }
   return null;
 }
+
+/**
+ * The changeset's origin while it is exactly a loaded saved plan. Any edit
+ * to the basket drops it, as it drops a project's.
+ */
+export type SavedPlanOrigin = {
+  kind: "saved-plan";
+  host: string;
+  bindDn: string;
+  createdAt: string;
+};
+
+export function savedPlanOrigin(plan: SavedPlan): SavedPlanOrigin {
+  return { kind: "saved-plan", ...plan.environment, createdAt: plan.createdAt };
+}
+
+/**
+ * Why a checked plan of a saved plan's changes may not be applied, or null
+ * when every one of them would apply. A saved plan is applied whole or not
+ * at all, as alder apply --plan applies it: applying the part that still
+ * holds would apply something nobody reviewed as a whole.
+ */
+export function savedPlanRefusal(applicable: number, staged: number): string | null {
+  if (applicable === staged) return null;
+  return `This saved plan no longer holds: ${applicable} of its ${staged} changes would apply, and a saved plan is applied whole or not at all. Nothing will be written; plan the input again and review that.`;
+}

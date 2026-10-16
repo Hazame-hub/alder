@@ -78,7 +78,7 @@ const PROBLEM: Record<PlanProblemCode, string> = {
   has_children: "the entry has children",
   rename_target_exists: "the new name is already taken",
   expected_state_differs:
-    "the entry is no longer as the change expects: the directory has drifted since the original apply",
+    "the entry is no longer as the change expects: the directory has changed since the change was made",
   dependency_required: "a schema definition it names would not be defined when it runs",
   referenced_by_schema: "the schema would still refer to the definition it removes",
   object_class_undefined: "an object class is not defined by the schema",

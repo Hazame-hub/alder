@@ -2,6 +2,9 @@ import { useSyncExternalStore } from "react";
 import type { ChangeRequest } from "@/lib/api";
 import { bench } from "./snapshot-bench";
 import type { ProjectOrigin } from "./project";
+import type { SavedPlanOrigin } from "./saved-plan";
+
+export type ChangesetOrigin = ProjectOrigin | SavedPlanOrigin;
 
 /**
  * The staged changeset.
@@ -34,14 +37,15 @@ const listeners = new Set<() => void>();
 /**
  * Where the whole changeset came from, when that is one thing the operator
  * should keep in view while reviewing it: a project's plan, staged on its own,
- * whose heading names the project and the directory it was planned against.
+ * whose heading names the project and the directory it was planned against, or
+ * a saved plan, which is applied whole or not at all.
  *
  * It is true only while the changeset is exactly what was staged, so any
  * other change to the basket -- adding, removing, reordering, clearing --
  * drops it. Applying keeps it while anything of the project is left, since
  * what is left is still the rest of that plan.
  */
-let origin: ProjectOrigin | null = null;
+let origin: ChangesetOrigin | null = null;
 
 function emit() {
   // A new array on every change: useSyncExternalStore compares by identity, and
@@ -82,7 +86,7 @@ export const changeset = {
   /** What the changeset as a whole is, if it is one thing. */
   origin: () => origin,
 
-  setOrigin(next: ProjectOrigin | null) {
+  setOrigin(next: ChangesetOrigin | null) {
     origin = next;
     emit();
   },
@@ -175,6 +179,6 @@ export function useChangeset(): StagedChange[] {
   return useSyncExternalStore(subscribe, changeset.all, changeset.all);
 }
 
-export function useChangesetOrigin(): ProjectOrigin | null {
+export function useChangesetOrigin(): ChangesetOrigin | null {
   return useSyncExternalStore(subscribe, changeset.origin, changeset.origin);
 }

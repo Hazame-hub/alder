@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { parseSavedPlan } from "@/lib/saved-plan";
-import { SavedPlanSummary } from "./saved-plan-loader";
+import { parseSavedPlan, savedPlanOrigin } from "@/lib/saved-plan";
+import { SavedPlanHeading, SavedPlanSummary } from "./saved-plan-loader";
 
 // What loading a saved plan shows before anything is staged: where it was
 // made, from what, and every change with what it expects.
@@ -34,5 +34,16 @@ describe("SavedPlanSummary", () => {
     expect(html).toContain("uid=gone\\u202e,dc=example,dc=test");
     expect(html).not.toContain("‮");
     expect(html).toContain("expects uid and nothing else as it was planned");
+  });
+});
+
+describe("SavedPlanHeading", () => {
+  it("names where the plan was made and that it applies whole", () => {
+    const r = parseSavedPlan(text);
+    if (!r.ok) throw new Error(r.message);
+    const html = renderToStaticMarkup(<SavedPlanHeading origin={savedPlanOrigin(r.plan)} />);
+    expect(html).toContain("ldap.example.test:636");
+    expect(html).toContain("anonymously");
+    expect(html).toContain("applied whole or not at all");
   });
 });

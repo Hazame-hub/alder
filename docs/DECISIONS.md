@@ -6251,10 +6251,13 @@ The saved-plans proposal listed this as a later item: loading a plan
   a password change or a withheld value refuse the whole file.
 - **Staged, not applied.** "Review plan" stages the changes exactly as
   written and the ordinary checked plan runs at once, as for a recovery
-  bundle. A change whose entry moved since it was saved shows as a conflict
-  and the apply is refused. As with any staged changes, the user can still
-  remove one before applying; what they cannot do is apply one without its
-  expectation being checked.
+  bundle. A change whose entry moved since it was saved shows as a conflict.
+- **Whole or not at all.** While the changeset is exactly the loaded plan,
+  its heading says so and Apply is refused unless every change would apply,
+  as `alder apply --plan` refuses it (exit 4); the ordinary changeset would
+  have applied the part that still holds. Removing or adding a change makes
+  the rest an ordinary changeset, as editing a staged project plan does: an
+  edit is a new review, and every change still carries its expectation.
 - **No API change.** The file is read in the browser and its changes go
   through `POST /plan` and `POST /changeset/apply`, which already hold
   changes with expectations to a checked plan.
