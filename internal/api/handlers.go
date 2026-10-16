@@ -148,6 +148,7 @@ func (s *Server) sessionInfo(sess *session.Session) SessionInfo {
 	caps := sess.Conn.Capabilities()
 	info := SessionInfo{
 		Connected:    true,
+		Role:         ptr(ServerSideSession),
 		Host:         ptr(sess.Host()),
 		Port:         ptr(sess.Port()),
 		Tls:          ptr(sess.TLS()),
@@ -708,21 +709,26 @@ func (s *Server) ListObjectViews(c *fiber.Ctx) error {
 	return c.JSON(ObjectViewList{Views: objectViews(sch)})
 }
 
-func (s *Server) GetSchema(c *fiber.Ctx) error {
+func (s *Server) GetSchema(c *fiber.Ctx, params GetSchemaParams) error {
 	sess := s.require(c)
 	if sess == nil {
+		return nil
+	}
+	// The session's schema, or its reference's (B6).
+	r, _, ok := onServer(c, sess, params.On)
+	if !ok {
 		return nil
 	}
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 
-	sch, err := sess.Conn.Schema(ctx)
+	sch, err := r.Schema(ctx)
 	if err != nil {
 		return s.fail(c, err)
 	}
 	// Where each definition came from, which the connection worked out once at
 	// connect time.
-	write := sess.Conn.Capabilities().SchemaWrite
+	write := r.Capabilities().SchemaWrite
 
 	counts := sch.Counts()
 	view := SchemaView{

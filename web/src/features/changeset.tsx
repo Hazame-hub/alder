@@ -29,6 +29,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { LdifBlock } from "@/components/ldif-block";
+import { AppliesTo } from "@/components/applies-to";
 import { PlanSummary } from "@/components/plan-summary";
 import { ErrorNote } from "@/components/change-dialog";
 import { UnknownOutcome } from "@/components/unknown-outcome";
@@ -254,6 +255,7 @@ export function ChangesetView({
             Applied top to bottom, one at a time. LDAP has no transaction across
             entries, so a failure stops the run and reports what already landed.
           </p>
+          <AppliesTo />
         </div>
         <Button variant="ghost" size="sm" onClick={() => changeset.clear()}>
           <Trash2 />

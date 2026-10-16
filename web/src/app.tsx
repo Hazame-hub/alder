@@ -40,6 +40,7 @@ import { PreflightPanel } from "@/features/preflight";
 import { JumpPalette } from "@/features/palette";
 import { ChangesetView } from "@/features/changeset";
 import { ObjectListPanel } from "@/features/objects";
+import { ReferenceChip } from "@/features/reference";
 import { OverviewPanel } from "@/features/overview";
 import { isDirectoryView, type AppSearch, type AppView } from "@/lib/route";
 import { useChangeset } from "@/lib/changeset";
@@ -519,6 +520,7 @@ function TopBar({
             {info.vendorName ? ` · ${info.vendorName}` : ""}
           </div>
         </div>
+        <ReferenceChip session={info} />
         <Button
           variant="ghost"
           size="icon-sm"

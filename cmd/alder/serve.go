@@ -105,8 +105,9 @@ func serveCmd() *cobra.Command {
 		"how many API requests to answer at once. A request that waits longer than "+
 			"five seconds for a slot is refused with 503. Negative turns the bound off")
 	f.IntVar(&o.maxSessions, "max-sessions", api.DefaultMaxSessions,
-		"how many directory sessions to hold at once. A connection beyond it is refused "+
-			"with 503 until one closes or times out. Negative turns the bound off")
+		"how many directory connections to hold at once: sessions, and the reference server "+
+			"a session may attach. A connection beyond it is refused with 503 until one closes "+
+			"or times out. Negative turns the bound off")
 
 	return cmd
 }

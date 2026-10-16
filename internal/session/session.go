@@ -44,9 +44,14 @@ const (
 // ErrNotFound reports an unknown, expired, or already-closed session.
 var ErrNotFound = errors.New("session: no such session")
 
-// ErrFull reports that the store already holds as many live sessions as it
-// was told to.
+// ErrFull reports that the store already holds as many directory connections
+// as it was told to.
 var ErrFull = errors.New("session: as many sessions are open as this server allows")
+
+// ErrReferenceAttached reports that a session already has a reference server.
+// One is the most a session holds; replacing it is a detach and an attach,
+// so a reference never changes under a screen that is showing it.
+var ErrReferenceAttached = errors.New("session: a reference server is already attached")
 
 // Session is one user's connection to a directory.
 type Session struct {
@@ -62,6 +67,52 @@ type Session struct {
 	ReadOnly  bool
 	mu        sync.Mutex
 	closed    bool
+
+	// reference is the second, read-only server attached for comparison, if
+	// any. Guarded by mu: it is attached and detached while handlers read it.
+	reference *Reference
+}
+
+// Reference is a second directory held by a session for comparison (B6).
+//
+// It is read-only by type. Conn is a directory.Reader, which has no Apply, so
+// there is no handler that can write to it by mistake, and "which server does
+// this write go to" has one answer: the session's own. Its credentials live
+// where the session's do -- in this process's memory, under the same cookie --
+// and are cleared when it closes, exactly as the session's are.
+type Reference struct {
+	// Conn reads the reference server. It cannot write.
+	Conn      directory.Reader
+	CreatedAt time.Time
+
+	// closer releases the connection. Kept apart from Conn so that the one
+	// thing a holder of Conn can do besides reading is nothing.
+	closer func() error
+	// config holds the password until the reference closes. Nothing outside
+	// this package reads it; the accessors below are what can be shown.
+	config directory.ConnConfig
+}
+
+// Host, Port, TLS, BindDN and Address are the parts of the reference's
+// configuration that are safe to show.
+func (r *Reference) Host() string    { return r.config.Host }
+func (r *Reference) Port() int       { return r.config.Port }
+func (r *Reference) TLS() string     { return string(r.config.TLS) }
+func (r *Reference) BindDN() string  { return r.config.BindDN }
+func (r *Reference) Address() string { return r.config.Address() }
+
+// Verified reports whether the reference connection verified the server
+// certificate.
+func (r *Reference) Verified() bool {
+	return r.config.TLS != directory.TLSModePlaintext && !r.config.InsecureSkipVerify
+}
+
+// Reference returns the session's reference server, or nil when none is
+// attached.
+func (s *Session) Reference() *Reference {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reference
 }
 
 // Host, Port, TLS, BindDN and Verified expose the parts of the configuration
@@ -91,10 +142,13 @@ type Store struct {
 	maxLifetime time.Duration
 	logger      *slog.Logger
 
-	// limit is the most live sessions the store holds; zero or less is no
-	// limit. Every session is a directory connection, and opening one needs
-	// no prior authentication -- an anonymous bind is a bind -- so without a
-	// ceiling a loop of requests holds a connection each for the idle timeout.
+	// limit is the most directory connections the store holds; zero or less
+	// is no limit. Every session is a directory connection, and opening one
+	// needs no prior authentication -- an anonymous bind is a bind -- so
+	// without a ceiling a loop of requests holds a connection each for the
+	// idle timeout. A session's reference server is a connection too, and
+	// counts: otherwise attaching one to every session would double the
+	// ceiling an operator set.
 	limit int
 
 	stop chan struct{}
@@ -128,8 +182,8 @@ func NewStore(logger *slog.Logger, idleTimeout, maxLifetime time.Duration) *Stor
 	return s
 }
 
-// SetLimit sets the most live sessions the store holds. Zero or less is no
-// limit.
+// SetLimit sets the most directory connections the store holds: sessions,
+// and the reference servers attached to them. Zero or less is no limit.
 func (st *Store) SetLimit(n int) {
 	st.mu.Lock()
 	st.limit = n
@@ -142,7 +196,7 @@ func (st *Store) SetLimit(n int) {
 // both have been told there was room.
 func (st *Store) Full() bool {
 	st.mu.RLock()
-	full := st.limit > 0 && len(st.sessions) >= st.limit
+	full := st.limit > 0 && st.connections() >= st.limit
 	st.mu.RUnlock()
 	if !full {
 		return false
@@ -152,7 +206,29 @@ func (st *Store) Full() bool {
 	st.reap()
 	st.mu.RLock()
 	defer st.mu.RUnlock()
-	return len(st.sessions) >= st.limit
+	return st.connections() >= st.limit
+}
+
+// connections counts the directory connections the store holds: one per
+// session, and one per reference. Called with st.mu held.
+func (st *Store) connections() int {
+	n := len(st.sessions)
+	for _, s := range st.sessions {
+		s.mu.Lock()
+		if s.reference != nil {
+			n++
+		}
+		s.mu.Unlock()
+	}
+	return n
+}
+
+// Connections reports how many directory connections the store holds, for
+// the health endpoint and the log.
+func (st *Store) Connections() int {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.connections()
 }
 
 // Add stores a connected session and returns its ID, or ErrFull.
@@ -241,10 +317,18 @@ func (st *Store) remove(id, reason string) {
 	bindDN := s.Config.BindDN
 	age := time.Since(s.CreatedAt)
 	s.Config.BindPassword = ""
+	s.Config.ConfigBindPassword = ""
+	// The reference never outlives its session: whatever closed the one --
+	// a disconnect, a reconnect, a timeout -- closes the other.
+	reference := s.reference
+	s.reference = nil
 	s.mu.Unlock()
 
 	if already {
 		return
+	}
+	if reference != nil {
+		st.closeReference(reference, reason)
 	}
 	_ = s.Conn.Close()
 
@@ -258,6 +342,90 @@ func (st *Store) remove(id, reason string) {
 		"bind_dn", bindDN,
 		"age", age.Round(time.Second).String(),
 		"live_sessions", live)
+}
+
+// AttachReference gives a session its reference server: a second connection,
+// held read-only, for comparison. It returns ErrNotFound when the session has
+// gone, ErrReferenceAttached when it already has one, and ErrFull when the
+// store holds as many connections as it allows. On any error the caller
+// still owns conn and closes it.
+func (st *Store) AttachReference(sess *Session, conn directory.Session, cfg directory.ConnConfig) (*Reference, error) {
+	if st.Full() {
+		return nil, ErrFull
+	}
+	st.mu.Lock()
+	if current, ok := st.sessions[sess.ID]; !ok || current != sess {
+		st.mu.Unlock()
+		return nil, ErrNotFound
+	}
+	sess.mu.Lock()
+	switch {
+	case sess.closed:
+		sess.mu.Unlock()
+		st.mu.Unlock()
+		return nil, ErrNotFound
+	case sess.reference != nil:
+		sess.mu.Unlock()
+		st.mu.Unlock()
+		return nil, ErrReferenceAttached
+	}
+	sess.mu.Unlock()
+	// Full was asked before dialling, and two requests can both have been
+	// told there was room; this is the answer that counts.
+	if st.limit > 0 && st.connections() >= st.limit {
+		st.mu.Unlock()
+		return nil, ErrFull
+	}
+	ref := &Reference{Conn: conn, CreatedAt: time.Now(), closer: conn.Close, config: cfg}
+	sess.mu.Lock()
+	sess.reference = ref
+	sess.mu.Unlock()
+	live := st.connections()
+	st.mu.Unlock()
+
+	// Logged as a session of its own, so an operator watching the log can
+	// account for every directory connection. The password is never a field.
+	st.logger.Info("session opened",
+		"role", "reference",
+		"address", cfg.Address(),
+		"bind_dn", cfg.BindDN,
+		"read_only", true,
+		"connections", live)
+	return ref, nil
+}
+
+// DetachReference closes a session's reference server, if it has one, and
+// reports whether it had.
+func (st *Store) DetachReference(sess *Session) bool {
+	sess.mu.Lock()
+	ref := sess.reference
+	sess.reference = nil
+	sess.mu.Unlock()
+	if ref == nil {
+		return false
+	}
+	st.closeReference(ref, "detached")
+	return true
+}
+
+// closeReference closes a reference that has already been taken off its
+// session, clears its password, and logs it.
+func (st *Store) closeReference(ref *Reference, reason string) {
+	address := ref.config.Address()
+	bindDN := ref.config.BindDN
+	age := time.Since(ref.CreatedAt)
+	ref.config.BindPassword = ""
+	ref.config.ConfigBindPassword = ""
+	if ref.closer != nil {
+		_ = ref.closer()
+	}
+	st.logger.Info("session closed",
+		"role", "reference",
+		"reason", reason,
+		"address", address,
+		"bind_dn", bindDN,
+		"age", age.Round(time.Second).String(),
+		"connections", st.Connections())
 }
 
 // Len reports the number of live sessions, for the health endpoint.

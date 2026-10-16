@@ -382,6 +382,12 @@ func (s *Server) CompareEntries(c *fiber.Ctx, params CompareEntriesParams) error
 		attrs = append(attrs, "+")
 	}
 
+	// The left entry is always the session's own. The right one may be read
+	// from the reference instead (B6): the same entry on two servers.
+	rightReader, rightServer, ok := onServer(c, sess, params.RightOn)
+	if !ok {
+		return nil
+	}
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 
@@ -389,7 +395,7 @@ func (s *Server) CompareEntries(c *fiber.Ctx, params CompareEntriesParams) error
 	if err != nil {
 		return s.fail(c, err)
 	}
-	right, err := sess.Conn.Read(ctx, rightDN, attrs)
+	right, err := rightReader.Read(ctx, rightDN, attrs)
 	if err != nil {
 		return s.fail(c, err)
 	}
@@ -397,24 +403,39 @@ func (s *Server) CompareEntries(c *fiber.Ctx, params CompareEntriesParams) error
 	if err != nil {
 		return s.fail(c, err)
 	}
+	// Each entry is described by its own server's schema; the rows are
+	// compared under the session's, which is the one any change would meet.
+	rightSch := sch
+	if params.RightOn != nil && *params.RightOn == ServerSideReference {
+		if rightSch, err = rightReader.Schema(ctx); err != nil {
+			return s.fail(c, err)
+		}
+	}
 
 	got := compareEntries(left, right, sch, clamp(deref(params.Limit), 100, 1, maxCompareValues))
 
 	// One-sided rows are the ones a read cannot be trusted about: an attribute
 	// the access rules hide is missing from the result exactly as one the entry
-	// does not hold is. Ask the server which, for those rows only.
-	resolved, probesTruncated := resolveOneSided(ctx, sess.Conn.VisibilityOf, leftDN, rightDN, got.Attributes)
+	// does not hold is. Ask the server which, for those rows only -- each
+	// side's own server, since a reference's access rules are its own.
+	resolved, probesTruncated := resolveOneSided(ctx, sess.Conn.VisibilityOf, rightReader.VisibilityOf,
+		leftDN, rightDN, got.Attributes)
 	if resolved > 0 {
 		got.Counts = recount(got.Attributes)
 	}
 
-	return c.JSON(EntryComparison{
+	out := EntryComparison{
 		Left:       comparedEntry(left, sch),
-		Right:      comparedEntry(right, sch),
+		Right:      comparedEntry(right, rightSch),
 		Attributes: got.Attributes,
 		Counts:     got.Counts,
 		Truncated:  got.Truncated || probesTruncated,
-	})
+	}
+	if params.RightOn != nil && *params.RightOn == ServerSideReference {
+		out.Left.Server = ptr(sess.Config.Address())
+		out.Right.Server = ptr(rightServer)
+	}
+	return c.JSON(out)
 }
 
 // structuralName is the entry's single structural class, or empty where it has
@@ -469,7 +490,7 @@ type visibilityProbe func(ctx context.Context, target dn.DN, attribute string) (
 // withheld was answered by values that both sides returned, and needs nothing.
 func resolveOneSided(
 	ctx context.Context,
-	probe visibilityProbe,
+	leftProbe, rightProbe visibilityProbe,
 	leftDN, rightDN dn.DN,
 	rows []AttributeComparison,
 ) (resolved int, truncated bool) {
@@ -477,11 +498,12 @@ func resolveOneSided(
 	for i := range rows {
 		var missing dn.DN
 		var side *ComparedSide
+		var probe visibilityProbe
 		switch rows[i].Status {
 		case LeftOnly:
-			missing, side = rightDN, &rows[i].Right
+			missing, side, probe = rightDN, &rows[i].Right, rightProbe
 		case RightOnly:
-			missing, side = leftDN, &rows[i].Left
+			missing, side, probe = leftDN, &rows[i].Left, leftProbe
 		default:
 			continue
 		}

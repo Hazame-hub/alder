@@ -30,9 +30,9 @@ import (
 // abuse, not a throttle on use.
 const DefaultMaxInFlight = 64
 
-// DefaultMaxSessions is how many directory sessions are open at once by
-// default. Each is a connection to a directory, held until it is closed or
-// times out, and opening one needs no authentication beforehand, so the
+// DefaultMaxSessions is how many directory connections are open at once by
+// default: sessions, and the reference server a session may attach (B6).
+// Each is held until it is closed or times out, and opening one needs no authentication beforehand, so the
 // bound is what stops a loop of connection requests from holding hundreds.
 // Far above what a team uses -- a session per browser tab or CLI run -- and
 // a negative --max-sessions turns it off.
@@ -96,6 +96,10 @@ func answeredWithoutTheDirectory(c *fiber.Ctx) bool {
 	case "/api/v1/session":
 		// Not POST: opening a session dials the directory and binds, which
 		// is directory work and belongs in the queue.
+		return c.Method() == fiber.MethodDelete || c.Method() == fiber.MethodGet
+	case "/api/v1/session/reference":
+		// The same reasoning for the reference: describing it reads nothing
+		// from a directory, and detaching it is letting go. Attaching dials.
 		return c.Method() == fiber.MethodDelete || c.Method() == fiber.MethodGet
 	case "/api/v1/source":
 		return true

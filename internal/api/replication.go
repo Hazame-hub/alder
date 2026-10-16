@@ -15,15 +15,24 @@ import (
 // same rule: it says what this server holds and where, and it never contacts
 // anybody else. A report that dialled the host named in a configuration value
 // would be a report that can be pointed at anything.
-func (s *Server) GetReplication(c *fiber.Ctx) error {
+//
+// With on=reference it reads the session's reference server instead (B6), so
+// two servers' records can be set side by side without a disconnect. That is
+// still each server's own record, read from that server: neither report
+// contacts anybody the operator did not connect to.
+func (s *Server) GetReplication(c *fiber.Ctx, params GetReplicationParams) error {
 	sess := s.require(c)
 	if sess == nil {
+		return nil
+	}
+	r, _, ok := onServer(c, sess, params.On)
+	if !ok {
 		return nil
 	}
 	ctx, cancel := reqCtx(c)
 	defer cancel()
 
-	report, err := replication.For(ctx, sess.Conn, replication.Options{})
+	report, err := replication.For(ctx, r, replication.Options{})
 	if err != nil {
 		return s.fail(c, err)
 	}

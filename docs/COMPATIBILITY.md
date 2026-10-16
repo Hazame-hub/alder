@@ -685,6 +685,20 @@ A plan can be saved and applied later
 - **No API change.** A saved plan is planned and applied through
   `POST /plan` and `POST /changeset/apply` as they are.
 
+A session can hold a read-only reference server
+([proposals/second-server.md](proposals/second-server.md)). Only additions:
+
+- **`/session/reference`**, a new path: `GET`, `POST` and `DELETE`.
+- **Optional parameters naming a server**: `on` on `GET /schema`,
+  `GET /replication` and the `POST /snapshots/capture` body; `rightOn` on
+  `GET /compare`. Omitted, each reads the session's own server as before.
+- **`DiffSide` gains `reference`**, and **`DiffSideKind` gains `reference`**.
+  A comparison sent without one is answered as before.
+- **New optional response fields**: `SessionInfo.role`,
+  `DiffSideSummary.server`, `ComparedEntry.server`.
+- **`--max-sessions` counts directory connections**, so a reference takes a
+  place. A deployment that attaches no reference sees no difference.
+
 ---
 
 ## Not covered

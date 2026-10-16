@@ -32,7 +32,11 @@ export type Slot = {
   bytes: number;
 };
 
-export type SideChoice = "live" | "A" | "B";
+/**
+ * A side of a comparison: the session's directory now, its reference server
+ * now (B6), or a loaded document.
+ */
+export type SideChoice = "live" | "reference" | "A" | "B";
 
 /** A comparison and the two sides it was made of, as they were named then. */
 export type Comparison = {

@@ -67,7 +67,7 @@ func forEnvironment(ctx context.Context, r *remote, p *project.Project, envName 
 // inherited from a superior type where the type names none.
 func dnKinds(ctx context.Context, r *remote) (project.DNKinds, error) {
 	const what = "reading the directory's schema"
-	res, err := r.api.GetSchemaWithResponse(ctx)
+	res, err := r.api.GetSchemaWithResponse(ctx, nil)
 	if err != nil {
 		return nil, transportFailure(ctx, what, err)
 	}

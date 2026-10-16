@@ -43,7 +43,7 @@ type liveRequest struct {
 
 // liveRequestFrom validates what a caller asked to read, answering the request
 // itself when it is unusable.
-func (s *Server) liveRequestFrom(c *fiber.Ctx, sess *session.Session, base, scope, rawFilter string, operational bool) (liveRequest, bool) {
+func (s *Server) liveRequestFrom(c *fiber.Ctx, r directory.Reader, base, scope, rawFilter string, operational bool) (liveRequest, bool) {
 	parsedBase, err := dn.Parse(strings.TrimSpace(base))
 	if err != nil {
 		return liveRequest{}, fail(badRequest(c, "The base is not a DN.", err.Error()))
@@ -66,7 +66,7 @@ func (s *Server) liveRequestFrom(c *fiber.Ctx, sess *session.Session, base, scop
 	// servers in ways a data comparison would misreport -- ordered values,
 	// server-maintained entries -- so they are refused rather than captured as
 	// if they were ordinary entries.
-	if kind := targetKind(sess.Conn.Capabilities(), parsedBase); kind != PlanTargetData {
+	if kind := targetKind(r.Capabilities(), parsedBase); kind != PlanTargetData {
 		return liveRequest{}, fail(writeError(c, fiber.StatusBadRequest, ErrorErrorSnapshotScopeUnsupported,
 			fmt.Sprintf("A data snapshot of the %s is not supported; its base must be directory data.", kind),
 			"Capture the schema as a schema snapshot (kind schema). Server configuration is not captured."))
@@ -81,8 +81,8 @@ func fail(error) bool { return false }
 // the read stopped short of the whole subtree -- more entries than a snapshot
 // holds, a server size limit, or referrals to entries held elsewhere -- in which
 // case the snapshot holds only what was read.
-func (s *Server) captureLive(ctx context.Context, sess *session.Session, req liveRequest) (*snapshot.Snapshot, bool, error) {
-	sch, _ := sess.Conn.Schema(ctx)
+func (s *Server) captureLive(ctx context.Context, r directory.Reader, req liveRequest) (*snapshot.Snapshot, bool, error) {
+	sch, _ := r.Schema(ctx)
 	scope, _ := directory.ParseScope(req.scope)
 	attrs := append([]string{"*"}, snapshot.IdentityAttributes...)
 	if req.operational {
@@ -97,7 +97,7 @@ func (s *Server) captureLive(ctx context.Context, sess *session.Session, req liv
 		if want > directory.MaxPageSize {
 			want = directory.MaxPageSize
 		}
-		res, err := sess.Conn.Search(ctx, directory.SearchRequest{
+		res, err := r.Search(ctx, directory.SearchRequest{
 			BaseDN: req.base, Scope: scope, Filter: req.parsed,
 			Attributes: attrs, Limit: want, PageSize: want, Cookie: cookie,
 		})
@@ -124,7 +124,7 @@ func (s *Server) captureLive(ctx context.Context, sess *session.Session, req liv
 		cookie = res.Cookie
 	}
 
-	caps := sess.Conn.Capabilities()
+	caps := r.Capabilities()
 	snap, err := snapshot.Build(snapshot.Capture{
 		Base: req.base, Scope: req.scope, Filter: req.rawFilter,
 		Vendor: caps.VendorName, VendorVersion: caps.VendorVersion,
@@ -150,9 +150,15 @@ func (s *Server) CaptureSnapshot(c *fiber.Ctx) error {
 	if body.Kind != nil {
 		kind = string(*body.Kind)
 	}
+	// Either of the session's servers. A capture only reads, so the reference
+	// is as good a source as the session's own.
+	r, _, ok := onServer(c, sess, body.On)
+	if !ok {
+		return nil
+	}
 	switch kind {
 	case snapshot.KindSchema:
-		return s.captureSchemaSnapshot(c, sess)
+		return s.captureSchemaSnapshot(c, r)
 	case snapshot.KindConfig:
 		// A configuration is one tree, the server's own, and there is nothing
 		// to narrow: a base or a filter here means the request was written for
@@ -162,7 +168,7 @@ func (s *Server) CaptureSnapshot(c *fiber.Ctx) error {
 			return badRequest(c, "A configuration snapshot takes no base, scope, filter or operational attributes.",
 				"The configuration is the tree the server announced, and there is nothing in it to narrow.")
 		}
-		return s.captureConfigSnapshot(c, sess)
+		return s.captureConfigSnapshot(c, r)
 	case snapshot.KindData:
 	default:
 		return refuseSnapshotKind(c, kind)
@@ -174,14 +180,14 @@ func (s *Server) CaptureSnapshot(c *fiber.Ctx) error {
 	if body.Scope != nil {
 		scope = string(*body.Scope)
 	}
-	req, ok := s.liveRequestFrom(c, sess, *body.Base, scope, deref(body.Filter), deref(body.OperationalAttributes))
+	req, ok := s.liveRequestFrom(c, r, *body.Base, scope, deref(body.Filter), deref(body.OperationalAttributes))
 	if !ok {
 		return nil
 	}
 
 	ctx, cancel := reqCtx(c)
 	defer cancel()
-	snap, truncated, err := s.captureLive(ctx, sess, req)
+	snap, truncated, err := s.captureLive(ctx, r, req)
 	if err != nil {
 		return s.snapshotFail(c, err)
 	}
@@ -194,7 +200,7 @@ func (s *Server) CaptureSnapshot(c *fiber.Ctx) error {
 	if snap.EntryCount == 0 && req.scope != "base" {
 		// An empty subtree is a legitimate snapshot, but an empty base is not
 		// there at all; say which.
-		if _, readErr := sess.Conn.Read(ctx, req.base, []string{"1.1"}); readErr != nil {
+		if _, readErr := r.Read(ctx, req.base, []string{"1.1"}); readErr != nil {
 			return s.fail(c, readErr)
 		}
 	}
@@ -321,8 +327,24 @@ func (s *Server) snapshotFail(c *fiber.Ctx, err error) error {
 }
 
 type diffSideBody struct {
-	Snapshot json.RawMessage `json:"snapshot"`
-	Live     *DiffLiveSide   `json:"live"`
+	Snapshot  json.RawMessage `json:"snapshot"`
+	Live      *DiffLiveSide   `json:"live"`
+	Reference *DiffLiveSide   `json:"reference"`
+}
+
+// hasSnapshot reports whether the side carries a document.
+func (b diffSideBody) hasSnapshot() bool {
+	trimmed := bytes.TrimSpace(b.Snapshot)
+	return len(trimmed) > 0 && string(trimmed) != "null"
+}
+
+// read is what a side that is read from a directory asks for -- the
+// session's own (live) or its reference -- or nil for a document.
+func (b diffSideBody) read() *DiffLiveSide {
+	if b.Live != nil {
+		return b.Live
+	}
+	return b.Reference
 }
 
 type diffBody struct {
@@ -335,9 +357,46 @@ type diffBody struct {
 	signatures map[string]signing.Result
 }
 
+// sideNames is the order sides are resolved in. A map's order is not one,
+// and a read side that takes its base from the other read side needs the
+// other resolved first.
+var sideNames = []string{"source", "target"}
+
+// side returns the named side of the request.
+func (b *diffBody) side(name string) diffSideBody {
+	if name == "target" {
+		return b.Target
+	}
+	return b.Source
+}
+
+// readSide is a side read from a directory just now: the directory, and the
+// address it was read from. Only the session's own may be the source of a
+// proposal; a reference side is read-only by type.
+type readSide struct {
+	reader    directory.Reader
+	server    string
+	reference bool
+}
+
+// readSideFor is the directory a side reads, answering the request itself
+// when it names a reference the session does not have.
+func readSideFor(c *fiber.Ctx, sess *session.Session, side diffSideBody) (readSide, bool) {
+	on := ServerSideSession
+	if side.Live == nil {
+		on = ServerSideReference
+	}
+	r, server, ok := onServer(c, sess, &on)
+	if !ok {
+		return readSide{}, false
+	}
+	return readSide{reader: r, server: server, reference: on == ServerSideReference}, true
+}
+
 type resolvedSide struct {
 	side      diff.Side
 	integrity snapshot.Integrity
+	read      readSide
 }
 
 // DiffStates compares two states.
@@ -346,15 +405,25 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 	if err := json.Unmarshal(c.Body(), &body); err != nil {
 		return badRequest(c, "The request body is not valid JSON.", err.Error())
 	}
-	for name, side := range map[string]diffSideBody{"source": body.Source, "target": body.Target} {
-		hasSnapshot := len(bytes.TrimSpace(side.Snapshot)) > 0 && string(bytes.TrimSpace(side.Snapshot)) != "null"
-		if hasSnapshot == (side.Live != nil) {
-			return badRequest(c, fmt.Sprintf("The %s must be exactly one of a snapshot or the live directory.", name), "")
+	for _, name := range sideNames {
+		side := body.side(name)
+		given := 0
+		for _, present := range []bool{side.hasSnapshot(), side.Live != nil, side.Reference != nil} {
+			if present {
+				given++
+			}
+		}
+		if given != 1 {
+			return badRequest(c, fmt.Sprintf("The %s must be exactly one of a snapshot, the live directory or the reference.", name), "")
 		}
 	}
 	if body.Source.Live != nil && body.Target.Live != nil {
 		return badRequest(c, "Compare a snapshot with the live directory, or two snapshots.",
 			"Both sides live would compare this directory with itself.")
+	}
+	if body.Source.Reference != nil && body.Target.Reference != nil {
+		return badRequest(c, "Compare the reference with the live directory or a snapshot.",
+			"Both sides on the reference would compare that directory with itself.")
 	}
 
 	// A side that is a document may be a signed one. It is unwrapped here,
@@ -379,14 +448,25 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 	// Two snapshots are documents the caller sent. Comparing them reads no
 	// directory, so it needs no session and opens none -- it is still a request,
 	// bounded by the body limit, the in-flight gate and the request timeout, and
-	// its snapshots are decoded exactly as strictly. A live side reads the
-	// directory as the session's identity, so it needs a session, and without one
-	// is refused before either snapshot is decoded. The comparison below is the
-	// same code either way.
+	// its snapshots are decoded exactly as strictly. A live or reference side
+	// reads a directory the session holds, so it needs a session, and without
+	// one is refused before either snapshot is decoded. The comparison below
+	// is the same code either way.
 	var sess *session.Session
-	if body.Source.Live != nil || body.Target.Live != nil {
+	reads := map[string]readSide{}
+	if body.Source.read() != nil || body.Target.read() != nil {
 		if sess = s.require(c); sess == nil {
 			return nil
+		}
+		for _, name := range sideNames {
+			if body.side(name).read() == nil {
+				continue
+			}
+			r, ok := readSideFor(c, sess, body.side(name))
+			if !ok {
+				return nil
+			}
+			reads[name] = r
 		}
 	}
 	kind, ok := diffKind(c, body)
@@ -394,15 +474,16 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 		return nil
 	}
 	if kind == snapshot.KindSchema {
-		return s.diffSchema(c, sess, body)
+		return s.diffSchema(c, reads, body)
 	}
 	if kind == snapshot.KindConfig {
-		return s.diffConfig(c, sess, body)
+		return s.diffConfig(c, reads, body)
 	}
 
 	sides := map[string]*resolvedSide{}
-	for name, side := range map[string]diffSideBody{"source": body.Source, "target": body.Target} {
-		if side.Live != nil {
+	for _, name := range sideNames {
+		side := body.side(name)
+		if side.read() != nil {
 			continue
 		}
 		snap, integrity, err := snapshot.Decode(side.Snapshot)
@@ -414,42 +495,65 @@ func (s *Server) DiffStates(c *fiber.Ctx) error {
 
 	ctx, cancel := reqCtx(c)
 	defer cancel()
-	for name, side := range map[string]diffSideBody{"source": body.Source, "target": body.Target} {
-		if side.Live == nil {
+	for _, name := range sideNames {
+		asked := body.side(name).read()
+		if asked == nil {
 			continue
 		}
-		other := sides["target"]
-		if name == "target" {
-			other = sides["source"]
+		otherName := "source"
+		if name == "source" {
+			otherName = "target"
 		}
-		base, scope, rawFilter, operational := other.side.Snapshot.Source.Base, other.side.Snapshot.Source.Scope,
-			other.side.Snapshot.Source.Filter, other.side.Snapshot.OperationalAttributes
-		if side.Live.Base != nil {
-			base = *side.Live.Base
+		// Omitted fields come from the other side: its snapshot's capture,
+		// or -- where both sides are read from a directory -- whatever the
+		// other side asked for, or what it was read with.
+		var base, scope, rawFilter string
+		var operational bool
+		if other := sides[otherName]; other != nil {
+			src := other.side.Snapshot
+			base, scope, rawFilter, operational = src.Source.Base, src.Source.Scope, src.Source.Filter, src.OperationalAttributes
+		} else if o := body.side(otherName).read(); o != nil {
+			base, scope, rawFilter, operational = deref(o.Base), string(deref(o.Scope)), deref(o.Filter), deref(o.OperationalAttributes)
 		}
-		if side.Live.Scope != nil {
-			scope = string(*side.Live.Scope)
+		if asked.Base != nil {
+			base = *asked.Base
 		}
-		if side.Live.Filter != nil {
-			rawFilter = *side.Live.Filter
+		if asked.Scope != nil {
+			scope = string(*asked.Scope)
 		}
-		if side.Live.OperationalAttributes != nil {
-			operational = *side.Live.OperationalAttributes
+		if asked.Filter != nil {
+			rawFilter = *asked.Filter
 		}
-		req, ok := s.liveRequestFrom(c, sess, base, scope, rawFilter, operational)
+		if asked.OperationalAttributes != nil {
+			operational = *asked.OperationalAttributes
+		}
+		if strings.TrimSpace(base) == "" {
+			return badRequest(c, "Name the subtree to compare.",
+				"Neither side is a snapshot to take the base from, so one of the two sides needs a base.")
+		}
+		rs := reads[name]
+		req, ok := s.liveRequestFrom(c, rs.reader, base, scope, rawFilter, operational)
 		if !ok {
 			return nil
 		}
-		snap, truncated, err := s.captureLive(ctx, sess, req)
+		snap, truncated, err := s.captureLive(ctx, rs.reader, req)
 		if err != nil {
 			return s.snapshotFail(c, err)
 		}
-		sides[name] = &resolvedSide{side: diff.Side{Snapshot: snap, Live: true, Truncated: truncated}}
+		// Only the session's own server is Live: it is the one a comparison
+		// may propose changes to. The reference is read as freshly, and is
+		// asked about what it lacks through its own connection.
+		side := diff.Side{Snapshot: snap, Live: !rs.reference, Truncated: truncated}
+		if rs.reference {
+			side.Probe = rs.reader.VisibilityOf
+		}
+		sides[name] = &resolvedSide{side: side, read: rs}
 	}
 
 	opts := diff.Options{IncludeUnchanged: body.IncludeUnchanged, ProbeBudget: snapshotProbeBudget}
 	if sess != nil {
-		// Only a live side has a directory to ask about attributes it lacks.
+		// Only a side read from a directory has one to ask about attributes
+		// it lacks. A live side asks the session's own.
 		opts.Probe = func(ctx context.Context, target dn.DN, attribute string) (directory.AttributeVisibility, error) {
 			return sess.Conn.VisibilityOf(ctx, target, attribute)
 		}
@@ -521,14 +625,27 @@ func sideSummary(side *resolvedSide) DiffSideSummary {
 	if snap.Source.Vendor != "" {
 		out.Vendor = ptr(snap.Source.Vendor)
 	}
-	if side.side.Live {
-		out.Kind = DiffSideKindLive
+	if kind, ok := readKind(side.read); ok {
+		out.Kind = kind
+		out.Server = ptr(side.read.server)
 		return out
 	}
 	out.CreatedAt = ptr(snap.CreatedAt)
 	out.Checksum = ptr(snap.Checksum)
 	out.Integrity = ptr(SnapshotIntegrity(side.integrity))
 	return out
+}
+
+// readKind is how a summary names a side read from a directory: live for
+// the session's own, reference for its reference. A document is neither.
+func readKind(r readSide) (DiffSideKind, bool) {
+	switch {
+	case r.reader == nil:
+		return "", false
+	case r.reference:
+		return DiffSideKindReference, true
+	}
+	return DiffSideKindLive, true
 }
 
 func attributeChangeView(a diff.AttributeChange) DiffAttributeChange {

@@ -26,12 +26,12 @@ type Driver interface {
 	Connect(ctx context.Context, cfg ConnConfig) (Session, error)
 }
 
-// Session is an authenticated connection to a directory.
+// Reader is a directory connection without the method that writes.
 //
-// A Session is used concurrently by HTTP handlers, so implementations must be
-// safe for concurrent use. An LDAP connection is not, which is why the driver
-// serialises operations rather than leaving each handler to remember.
-type Session interface {
+// A session's reference server (B6) is held as one, so that no handler can
+// write to it by mistake: the compiler refuses, which is a stronger promise
+// than a check every write path has to remember.
+type Reader interface {
 	// Capabilities reports what the server announced at connect time.
 	Capabilities() Capabilities
 	// Schema returns the parsed subschema, reading it once and caching it. A
@@ -59,6 +59,15 @@ type Session interface {
 	// answers "no such attribute" for the first and "insufficient access" for
 	// the second, on both target servers, which the conformance suite pins.
 	VisibilityOf(ctx context.Context, target dn.DN, attribute string) (AttributeVisibility, error)
+}
+
+// Session is an authenticated connection to a directory.
+//
+// A Session is used concurrently by HTTP handlers, so implementations must be
+// safe for concurrent use. An LDAP connection is not, which is why the driver
+// serialises operations rather than leaving each handler to remember.
+type Session interface {
+	Reader
 	// Apply performs a change. It is the only method that writes.
 	Apply(ctx context.Context, ch ChangeRecord) error
 	// Close releases the connection.

@@ -68,6 +68,12 @@ type Side struct {
 	// Truncated reports that the live read stopped at a bound, so an entry
 	// missing from this side may simply not have been reached.
 	Truncated bool
+	// Probe, when set, asks the directory this side was read from just now
+	// whether an attribute it lacks is absent or hidden. It is how a side
+	// read from a session's reference server (B6) is asked, since
+	// Options.Probe asks the session's own. A side that is not Live is never
+	// a source of proposals, Probe or not.
+	Probe Probe
 }
 
 // AttributeChange is one attribute's difference within an entry.
@@ -327,21 +333,34 @@ func (r *Result) add(item Item) {
 	r.Items = append(r.Items, item)
 }
 
+// read reports whether a side was read from a directory just now, and so has
+// a directory to ask about what it lacks.
+func read(side Side) bool { return side.Live || side.Probe != nil }
+
+// probeOf is the probe that asks the directory a side was read from.
+func probeOf(side Side, opts Options) Probe {
+	if side.Probe != nil {
+		return side.Probe
+	}
+	return opts.Probe
+}
+
 // probeMissing asks the live directory about attributes it lacks and the other
 // side holds, and turns a denied or unverified answer into unknown.
 func (r *Result) probeMissing(ctx context.Context, item *Item, source, target Side, opts Options, probes *int) error {
 	for i := range item.Attributes {
 		a := &item.Attributes[i]
 		var liveDN dn.DN
+		var probe Probe
 		switch {
-		case source.Live && a.sourceHasNothing && !a.targetHasNothing:
-			liveDN = item.sourceDN
-		case target.Live && a.targetHasNothing && !a.sourceHasNothing:
-			liveDN = item.targetDN
+		case read(source) && a.sourceHasNothing && !a.targetHasNothing:
+			liveDN, probe = item.sourceDN, probeOf(source, opts)
+		case read(target) && a.targetHasNothing && !a.sourceHasNothing:
+			liveDN, probe = item.targetDN, probeOf(target, opts)
 		default:
 			continue
 		}
-		if opts.Probe == nil {
+		if probe == nil {
 			continue
 		}
 		if *probes >= opts.ProbeBudget {
@@ -351,7 +370,7 @@ func (r *Result) probeMissing(ctx context.Context, item *Item, source, target Si
 			continue
 		}
 		*probes++
-		visibility, err := opts.Probe(ctx, liveDN, a.Name)
+		visibility, err := probe(ctx, liveDN, a.Name)
 		if err != nil {
 			return err
 		}

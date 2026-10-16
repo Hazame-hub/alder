@@ -10,7 +10,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/hazame-hub/alder/internal/config"
 	"github.com/hazame-hub/alder/internal/diff"
-	"github.com/hazame-hub/alder/internal/session"
+	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/snapshot"
 )
 
@@ -33,10 +33,10 @@ const (
 )
 
 // captureConfigSnapshot answers a capture request for kind config.
-func (s *Server) captureConfigSnapshot(c *fiber.Ctx, sess *session.Session) error {
+func (s *Server) captureConfigSnapshot(c *fiber.Ctx, r directory.Reader) error {
 	ctx, cancel := reqCtx(c)
 	defer cancel()
-	snap, err := config.Capture(ctx, sess.Conn, config.Options{})
+	snap, err := config.Capture(ctx, r, config.Options{})
 	if err != nil {
 		return configRefusal(c, s, err)
 	}
@@ -74,14 +74,15 @@ func configRefusal(c *fiber.Ctx, s *Server, err error) error {
 type resolvedConfigSide struct {
 	side      diff.ConfigSide
 	integrity snapshot.Integrity
+	read      readSide
 }
 
 // diffConfig compares two configuration states.
-func (s *Server) diffConfig(c *fiber.Ctx, sess *session.Session, body diffBody) error {
+func (s *Server) diffConfig(c *fiber.Ctx, reads map[string]readSide, body diffBody) error {
 	sides := map[string]*resolvedConfigSide{}
-	for name, side := range map[string]diffSideBody{"source": body.Source, "target": body.Target} {
-		if side.Live != nil {
-			l := side.Live
+	for _, name := range sideNames {
+		side := body.side(name)
+		if l := side.read(); l != nil {
 			if l.Base != nil || l.Scope != nil || l.Filter != nil || l.OperationalAttributes != nil || l.SchemaTarget != nil {
 				return badRequest(c, "The live configuration is read whole.",
 					"base, scope, filter, operationalAttributes and schemaTarget do not apply to a configuration side.")
@@ -97,15 +98,18 @@ func (s *Server) diffConfig(c *fiber.Ctx, sess *session.Session, body diffBody) 
 
 	ctx, cancel := reqCtx(c)
 	defer cancel()
-	for name, side := range map[string]diffSideBody{"source": body.Source, "target": body.Target} {
-		if side.Live == nil {
+	for _, name := range sideNames {
+		rs, ok := reads[name]
+		if !ok {
 			continue
 		}
-		snap, err := config.Capture(ctx, sess.Conn, config.Options{})
+		snap, err := config.Capture(ctx, rs.reader, config.Options{})
 		if err != nil {
 			return configRefusal(c, s, err)
 		}
-		sides[name] = &resolvedConfigSide{side: diff.ConfigSide{Snapshot: snap, Live: true}}
+		// Only the session's own server is Live, and so only it is ever
+		// offered a change.
+		sides[name] = &resolvedConfigSide{side: diff.ConfigSide{Snapshot: snap, Live: !rs.reference}, read: rs}
 	}
 
 	result := diff.CompareConfig(sides["source"].side, sides["target"].side,
@@ -252,8 +256,9 @@ func configSideSummary(side *resolvedConfigSide) DiffSideSummary {
 		Filter: configSideFilter, OperationalAttributes: false, EntryCount: snap.Counts.Settings,
 		DefinitionCount: ptr(snap.Counts.Resources), Vendor: ptrIfSet(snap.Source.Vendor),
 	}
-	if side.side.Live {
-		out.Kind = DiffSideKindLive
+	if kind, ok := readKind(side.read); ok {
+		out.Kind = kind
+		out.Server = ptr(side.read.server)
 		return out
 	}
 	out.CreatedAt = ptr(snap.CreatedAt)

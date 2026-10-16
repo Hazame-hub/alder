@@ -559,14 +559,17 @@ func (e DiffReasonCode) Valid() bool {
 
 // Defines values for DiffSideKind.
 const (
-	DiffSideKindLive     DiffSideKind = "live"
-	DiffSideKindSnapshot DiffSideKind = "snapshot"
+	DiffSideKindLive      DiffSideKind = "live"
+	DiffSideKindReference DiffSideKind = "reference"
+	DiffSideKindSnapshot  DiffSideKind = "snapshot"
 )
 
 // Valid indicates whether the value is a known member of the DiffSideKind enum.
 func (e DiffSideKind) Valid() bool {
 	switch e {
 	case DiffSideKindLive:
+		return true
+	case DiffSideKindReference:
 		return true
 	case DiffSideKindSnapshot:
 		return true
@@ -1916,6 +1919,24 @@ func (e SearchRequestScope) Valid() bool {
 	}
 }
 
+// Defines values for ServerSide.
+const (
+	ServerSideReference ServerSide = "reference"
+	ServerSideSession   ServerSide = "session"
+)
+
+// Valid indicates whether the value is a known member of the ServerSide enum.
+func (e ServerSide) Valid() bool {
+	switch e {
+	case ServerSideReference:
+		return true
+	case ServerSideSession:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SnapshotCompleteness.
 const (
 	SnapshotCompletenessComplete SnapshotCompleteness = "complete"
@@ -2803,6 +2824,10 @@ type ComparedEntry struct {
 	ObjectClasses *[]string `json:"objectClasses,omitempty"`
 	Rdn           *string   `json:"rdn,omitempty"`
 
+	// Server The host and port this entry was read from, when the two entries were
+	// read from different servers (`rightOn=reference`, 1.39).
+	Server *string `json:"server,omitempty"`
+
 	// Structural The single structural class. A difference here explains most of the
 	// rows below it and should be read first.
 	Structural *string `json:"structural,omitempty"`
@@ -3451,19 +3476,35 @@ type DiffRequest struct {
 	// IncludeUnchanged List unchanged entries as items rather than only counting them.
 	IncludeUnchanged *bool `json:"includeUnchanged,omitempty"`
 
-	// Source Exactly one of `snapshot` or `live`.
+	// Source Exactly one of `snapshot`, `live` or `reference`. `reference` (1.39)
+	// reads the session's reference server the way `live` reads the
+	// session's own, and is never changed: a comparison proposes changes
+	// only when its source is `live`. A `live` and a `reference` side may be
+	// compared; two `reference` sides may not.
 	Source DiffSide `json:"source"`
 
-	// Target Exactly one of `snapshot` or `live`.
+	// Target Exactly one of `snapshot`, `live` or `reference`. `reference` (1.39)
+	// reads the session's reference server the way `live` reads the
+	// session's own, and is never changed: a comparison proposes changes
+	// only when its source is `live`. A `live` and a `reference` side may be
+	// compared; two `reference` sides may not.
 	Target DiffSide `json:"target"`
 }
 
-// DiffSide Exactly one of `snapshot` or `live`.
+// DiffSide Exactly one of `snapshot`, `live` or `reference`. `reference` (1.39)
+// reads the session's reference server the way `live` reads the
+// session's own, and is never changed: a comparison proposes changes
+// only when its source is `live`. A `live` and a `reference` side may be
+// compared; two `reference` sides may not.
 type DiffSide struct {
 	// Live The live directory. Omitted fields are taken from the other side's
 	// snapshot, so `{}` means "the same subtree, as it is now".
-	Live     *DiffLiveSide      `json:"live,omitempty"`
-	Snapshot *DiffSide_Snapshot `json:"snapshot,omitempty"`
+	Live *DiffLiveSide `json:"live,omitempty"`
+
+	// Reference The live directory. Omitted fields are taken from the other side's
+	// snapshot, so `{}` means "the same subtree, as it is now".
+	Reference *DiffLiveSide      `json:"reference,omitempty"`
+	Snapshot  *DiffSide_Snapshot `json:"snapshot,omitempty"`
 }
 
 // DiffSide_Snapshot defines model for DiffSide.Snapshot.
@@ -3488,7 +3529,10 @@ type DiffSideSummary struct {
 	Kind                  DiffSideKind       `json:"kind"`
 	OperationalAttributes bool               `json:"operationalAttributes"`
 	Scope                 SnapshotScope      `json:"scope"`
-	Vendor                *string            `json:"vendor,omitempty"`
+
+	// Server For a `live` or `reference` side, the host and port it was read from (1.39).
+	Server *string `json:"server,omitempty"`
+	Vendor *string `json:"vendor,omitempty"`
 }
 
 // DocumentSignature What this server concluded about the signature on a document it was
@@ -5977,6 +6021,10 @@ type SearchResultEntry struct {
 	Rdn        *string           `json:"rdn,omitempty"`
 }
 
+// ServerSide Which of a session's servers a read is of (1.39): its own, or the
+// read-only reference attached for comparison. Only reads take one.
+type ServerSide string
+
 // SessionInfo defines model for SessionInfo.
 type SessionInfo struct {
 	// BindDn Empty for an anonymous bind.
@@ -5987,8 +6035,12 @@ type SessionInfo struct {
 	Port         *int          `json:"port,omitempty"`
 
 	// ReadOnly True when the server was started with --read-only.
-	ReadOnly *bool   `json:"readOnly,omitempty"`
-	Tls      *string `json:"tls,omitempty"`
+	ReadOnly *bool `json:"readOnly,omitempty"`
+
+	// Role Which of a session's servers a read is of (1.39): its own, or the
+	// read-only reference attached for comparison. Only reads take one.
+	Role *ServerSide `json:"role,omitempty"`
+	Tls  *string     `json:"tls,omitempty"`
 
 	// VendorName Display only. Nothing branches on it.
 	VendorName    *string `json:"vendorName,omitempty"`
@@ -6061,6 +6113,10 @@ type SnapshotCaptureRequest struct {
 	// before the one that added a kind refuses a snapshot of it rather than
 	// misreading it.
 	Kind *StateKind `json:"kind,omitempty"`
+
+	// On Which of a session's servers a read is of (1.39): its own, or the
+	// read-only reference attached for comparison. Only reads take one.
+	On *ServerSide `json:"on,omitempty"`
 
 	// OperationalAttributes Capture operational attributes too. Off by default.
 	OperationalAttributes *bool          `json:"operationalAttributes,omitempty"`
@@ -6260,6 +6316,11 @@ type CompareEntriesParams struct {
 
 	// Limit Values reported per attribute.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// RightOn Which server the right entry is read from (1.39). `reference` reads it from
+	// the session's reference server, so one entry can be compared across two
+	// servers; the left entry is always the session's own.
+	RightOn *ServerSide `form:"rightOn,omitempty" json:"rightOn,omitempty"`
 }
 
 // GetConfigEntryModelParams defines parameters for GetConfigEntryModel.
@@ -6373,6 +6434,12 @@ type ListReferencesParams struct {
 	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetReplicationParams defines parameters for GetReplication.
+type GetReplicationParams struct {
+	// On Which server's record (1.39). Defaults to the session's.
+	On *ServerSide `form:"on,omitempty" json:"on,omitempty"`
+}
+
 // GetReplicationConflictsParams defines parameters for GetReplicationConflicts.
 type GetReplicationConflictsParams struct {
 	// Dn The base to look below.
@@ -6387,6 +6454,12 @@ type GetEntryReplicationParams struct {
 // ResolveParams defines parameters for Resolve.
 type ResolveParams struct {
 	Q string `form:"q" json:"q"`
+}
+
+// GetSchemaParams defines parameters for GetSchema.
+type GetSchemaParams struct {
+	// On Which server's schema (1.39). Defaults to the session's.
+	On *ServerSide `form:"on,omitempty" json:"on,omitempty"`
 }
 
 // GetRequirementsParams defines parameters for GetRequirements.
@@ -6474,6 +6547,9 @@ type SearchJSONRequestBody = SearchRequest
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = ConnectRequest
+
+// AttachReferenceJSONRequestBody defines body for AttachReference for application/json ContentType.
+type AttachReferenceJSONRequestBody = ConnectRequest
 
 // CaptureSnapshotJSONRequestBody defines body for CaptureSnapshot for application/json ContentType.
 type CaptureSnapshotJSONRequestBody = SnapshotCaptureRequest
@@ -7988,7 +8064,7 @@ type ClientInterface interface {
 	// that could render or log it.
 	//
 	// Corresponds with GET /replication (the `GetReplication` operationId).
-	GetReplication(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetReplication(ctx context.Context, params *GetReplicationParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetReplicationConflicts Entries this server has marked as conflicting
 	//
@@ -8051,7 +8127,7 @@ type ClientInterface interface {
 	// GetSchema The whole schema, indexed for browsing
 	//
 	// Corresponds with GET /schema (the `GetSchema` operationId).
-	GetSchema(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetSchema(ctx context.Context, params *GetSchemaParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetAttributeType One attribute type, with its cross-links resolved
 	//
@@ -8189,6 +8265,67 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /session (the `CreateSession` operationId).
 	CreateSession(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DetachReference Close the reference server
+	//
+	// Closes the reference connection and discards its credentials. The session is untouched.
+	//
+	// Corresponds with DELETE /session/reference (the `DetachReference` operationId).
+	DetachReference(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetReference Describe the reference server, if one is attached
+	//
+	// A session may hold one second, read-only connection, the reference,
+	// for comparison (1.39). See `docs/proposals/second-server.md`.
+	//
+	// Corresponds with GET /session/reference (the `GetReference` operationId).
+	GetReference(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AttachReferenceWithBody Connect to a second, read-only server for comparison
+	//
+	// Opens a second connection under this session, through the same
+	// settings, TLS rules and target allowlist as `POST /session`, and holds
+	// it read-only: nothing in the API can write to it. Its bind password is
+	// held in this process's memory beside the session's, never returned and
+	// never logged, and is cleared when the reference closes.
+	//
+	// The reference never outlives the session. Disconnecting, connecting
+	// again, the idle timeout and the maximum lifetime close both; activity
+	// on the session keeps both alive. It counts against `--max-sessions`,
+	// which bounds directory connections.
+	//
+	// Reads that take a side name it with `on: reference` (a capture),
+	// `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+	// `/schema`) or a `reference` side (`/diff`). Changes always go to the
+	// session's own server.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /session/reference (the `AttachReference` operationId).
+	AttachReferenceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AttachReference Connect to a second, read-only server for comparison
+	//
+	// Opens a second connection under this session, through the same
+	// settings, TLS rules and target allowlist as `POST /session`, and holds
+	// it read-only: nothing in the API can write to it. Its bind password is
+	// held in this process's memory beside the session's, never returned and
+	// never logged, and is cleared when the reference closes.
+	//
+	// The reference never outlives the session. Disconnecting, connecting
+	// again, the idle timeout and the maximum lifetime close both; activity
+	// on the session keeps both alive. It counts against `--max-sessions`,
+	// which bounds directory connections.
+	//
+	// Reads that take a side name it with `on: reference` (a capture),
+	// `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+	// `/schema`) or a `reference` side (`/diff`). Changes always go to the
+	// session's own server.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /session/reference (the `AttachReference` operationId).
+	AttachReference(ctx context.Context, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CaptureSnapshotWithBody Capture a subtree as a versioned snapshot
 	//
@@ -10080,8 +10217,8 @@ func (c *Client) ListReferences(ctx context.Context, params *ListReferencesParam
 // that could render or log it.
 //
 // Corresponds with GET /replication (the `GetReplication` operationId).
-func (c *Client) GetReplication(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetReplicationRequest(c.Server)
+func (c *Client) GetReplication(ctx context.Context, params *GetReplicationParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetReplicationRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -10183,8 +10320,8 @@ func (c *Client) Resolve(ctx context.Context, params *ResolveParams, reqEditors 
 // GetSchema The whole schema, indexed for browsing
 //
 // Corresponds with GET /schema (the `GetSchema` operationId).
-func (c *Client) GetSchema(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetSchemaRequest(c.Server)
+func (c *Client) GetSchema(ctx context.Context, params *GetSchemaParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSchemaRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -10432,6 +10569,107 @@ func (c *Client) CreateSessionWithBody(ctx context.Context, contentType string, 
 // Corresponds with POST /session (the `CreateSession` operationId).
 func (c *Client) CreateSession(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateSessionRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DetachReference Close the reference server
+//
+// Closes the reference connection and discards its credentials. The session is untouched.
+//
+// Corresponds with DELETE /session/reference (the `DetachReference` operationId).
+func (c *Client) DetachReference(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDetachReferenceRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetReference Describe the reference server, if one is attached
+//
+// A session may hold one second, read-only connection, the reference,
+// for comparison (1.39). See `docs/proposals/second-server.md`.
+//
+// Corresponds with GET /session/reference (the `GetReference` operationId).
+func (c *Client) GetReference(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetReferenceRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AttachReferenceWithBody Connect to a second, read-only server for comparison
+//
+// Opens a second connection under this session, through the same
+// settings, TLS rules and target allowlist as `POST /session`, and holds
+// it read-only: nothing in the API can write to it. Its bind password is
+// held in this process's memory beside the session's, never returned and
+// never logged, and is cleared when the reference closes.
+//
+// The reference never outlives the session. Disconnecting, connecting
+// again, the idle timeout and the maximum lifetime close both; activity
+// on the session keeps both alive. It counts against `--max-sessions`,
+// which bounds directory connections.
+//
+// Reads that take a side name it with `on: reference` (a capture),
+// `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+// `/schema`) or a `reference` side (`/diff`). Changes always go to the
+// session's own server.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /session/reference (the `AttachReference` operationId).
+func (c *Client) AttachReferenceWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAttachReferenceRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AttachReference Connect to a second, read-only server for comparison
+//
+// Opens a second connection under this session, through the same
+// settings, TLS rules and target allowlist as `POST /session`, and holds
+// it read-only: nothing in the API can write to it. Its bind password is
+// held in this process's memory beside the session's, never returned and
+// never logged, and is cleared when the reference closes.
+//
+// The reference never outlives the session. Disconnecting, connecting
+// again, the idle timeout and the maximum lifetime close both; activity
+// on the session keeps both alive. It counts against `--max-sessions`,
+// which bounds directory connections.
+//
+// Reads that take a side name it with `on: reference` (a capture),
+// `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+// `/schema`) or a `reference` side (`/diff`). Changes always go to the
+// session's own server.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /session/reference (the `AttachReference` operationId).
+func (c *Client) AttachReference(ctx context.Context, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAttachReferenceRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -11129,6 +11367,18 @@ func NewCompareEntriesRequest(server string, params *CompareEntriesParams) (*htt
 		if params.Limit != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.RightOn != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "rightOn", *params.RightOn, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -12360,7 +12610,7 @@ func NewListReferencesRequest(server string, params *ListReferencesParams) (*htt
 }
 
 // NewGetReplicationRequest constructs an http.Request for the GetReplication method
-func NewGetReplicationRequest(server string) (*http.Request, error) {
+func NewGetReplicationRequest(server string, params *GetReplicationParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -12376,6 +12626,33 @@ func NewGetReplicationRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.On != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "on", *params.On, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -12537,7 +12814,7 @@ func NewResolveRequest(server string, params *ResolveParams) (*http.Request, err
 }
 
 // NewGetSchemaRequest constructs an http.Request for the GetSchema method
-func NewGetSchemaRequest(server string) (*http.Request, error) {
+func NewGetSchemaRequest(server string, params *GetSchemaParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -12553,6 +12830,33 @@ func NewGetSchemaRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.On != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "on", *params.On, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -12840,6 +13144,100 @@ func NewCreateSessionRequestWithBody(server string, contentType string, body io.
 	}
 
 	operationPath := fmt.Sprintf("/session")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDetachReferenceRequest constructs an http.Request for the DetachReference method
+func NewDetachReferenceRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/reference")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetReferenceRequest constructs an http.Request for the GetReference method
+func NewGetReferenceRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/reference")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAttachReferenceRequest calls the generic AttachReference builder with application/json body
+func NewAttachReferenceRequest(server string, body AttachReferenceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAttachReferenceRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAttachReferenceRequestWithBody constructs an http.Request for the AttachReference method, with any body, and a specified content type
+func NewAttachReferenceRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/reference")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -14375,7 +14773,7 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /replication (the `GetReplication` operationId).
-	GetReplicationWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetReplicationReply, error)
+	GetReplicationWithResponse(ctx context.Context, params *GetReplicationParams, reqEditors ...RequestEditorFn) (*GetReplicationReply, error)
 
 	// GetReplicationConflictsWithResponse Entries this server has marked as conflicting
 	//
@@ -14446,7 +14844,7 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /schema (the `GetSchema` operationId).
-	GetSchemaWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSchemaReply, error)
+	GetSchemaWithResponse(ctx context.Context, params *GetSchemaParams, reqEditors ...RequestEditorFn) (*GetSchemaReply, error)
 
 	// GetAttributeTypeWithResponse One attribute type, with its cross-links resolved
 	//
@@ -14594,6 +14992,71 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /session (the `CreateSession` operationId).
 	CreateSessionWithResponse(ctx context.Context, body CreateSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSessionReply, error)
+
+	// DetachReferenceWithResponse Close the reference server
+	//
+	// Closes the reference connection and discards its credentials. The session is untouched.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /session/reference (the `DetachReference` operationId).
+	DetachReferenceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DetachReferenceReply, error)
+
+	// GetReferenceWithResponse Describe the reference server, if one is attached
+	//
+	// A session may hold one second, read-only connection, the reference,
+	// for comparison (1.39). See `docs/proposals/second-server.md`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/reference (the `GetReference` operationId).
+	GetReferenceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetReferenceReply, error)
+
+	// AttachReferenceWithBodyWithResponse Connect to a second, read-only server for comparison
+	//
+	// Opens a second connection under this session, through the same
+	// settings, TLS rules and target allowlist as `POST /session`, and holds
+	// it read-only: nothing in the API can write to it. Its bind password is
+	// held in this process's memory beside the session's, never returned and
+	// never logged, and is cleared when the reference closes.
+	//
+	// The reference never outlives the session. Disconnecting, connecting
+	// again, the idle timeout and the maximum lifetime close both; activity
+	// on the session keeps both alive. It counts against `--max-sessions`,
+	// which bounds directory connections.
+	//
+	// Reads that take a side name it with `on: reference` (a capture),
+	// `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+	// `/schema`) or a `reference` side (`/diff`). Changes always go to the
+	// session's own server.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /session/reference (the `AttachReference` operationId).
+	AttachReferenceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AttachReferenceReply, error)
+
+	// AttachReferenceWithResponse Connect to a second, read-only server for comparison
+	//
+	// Opens a second connection under this session, through the same
+	// settings, TLS rules and target allowlist as `POST /session`, and holds
+	// it read-only: nothing in the API can write to it. Its bind password is
+	// held in this process's memory beside the session's, never returned and
+	// never logged, and is cleared when the reference closes.
+	//
+	// The reference never outlives the session. Disconnecting, connecting
+	// again, the idle timeout and the maximum lifetime close both; activity
+	// on the session keeps both alive. It counts against `--max-sessions`,
+	// which bounds directory connections.
+	//
+	// Reads that take a side name it with `on: reference` (a capture),
+	// `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+	// `/schema`) or a `reference` side (`/diff`). Changes always go to the
+	// session's own server.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /session/reference (the `AttachReference` operationId).
+	AttachReferenceWithResponse(ctx context.Context, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*AttachReferenceReply, error)
 
 	// CaptureSnapshotWithBodyWithResponse Capture a subtree as a versioned snapshot
 	//
@@ -17336,6 +17799,178 @@ func (r CreateSessionReply) ContentType() string {
 	return ""
 }
 
+type DetachReferenceReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r DetachReferenceReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DetachReferenceReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DetachReferenceReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DetachReferenceReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetReferenceReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionInfo
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetReferenceReply) GetJSON200() *SessionInfo {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetReferenceReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetReferenceReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r GetReferenceReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetReferenceReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetReferenceReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetReferenceReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AttachReferenceReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *SessionInfo
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r AttachReferenceReply) GetJSON201() *SessionInfo {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AttachReferenceReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AttachReferenceReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AttachReferenceReply) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r AttachReferenceReply) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r AttachReferenceReply) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r AttachReferenceReply) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r AttachReferenceReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AttachReferenceReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AttachReferenceReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AttachReferenceReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type CaptureSnapshotReply struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -19162,8 +19797,8 @@ func (c *ClientWithResponses) ListReferencesWithResponse(ctx context.Context, pa
 // Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with GET /replication (the `GetReplication` operationId).
-func (c *ClientWithResponses) GetReplicationWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetReplicationReply, error) {
-	rsp, err := c.GetReplication(ctx, reqEditors...)
+func (c *ClientWithResponses) GetReplicationWithResponse(ctx context.Context, params *GetReplicationParams, reqEditors ...RequestEditorFn) (*GetReplicationReply, error) {
+	rsp, err := c.GetReplication(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -19257,8 +19892,8 @@ func (c *ClientWithResponses) ResolveWithResponse(ctx context.Context, params *R
 // Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with GET /schema (the `GetSchema` operationId).
-func (c *ClientWithResponses) GetSchemaWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSchemaReply, error) {
-	rsp, err := c.GetSchema(ctx, reqEditors...)
+func (c *ClientWithResponses) GetSchemaWithResponse(ctx context.Context, params *GetSchemaParams, reqEditors ...RequestEditorFn) (*GetSchemaReply, error) {
+	rsp, err := c.GetSchema(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -19476,6 +20111,95 @@ func (c *ClientWithResponses) CreateSessionWithResponse(ctx context.Context, bod
 		return nil, err
 	}
 	return ParseCreateSessionReply(rsp)
+}
+
+// DetachReferenceWithResponse Close the reference server
+//
+// Closes the reference connection and discards its credentials. The session is untouched.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /session/reference (the `DetachReference` operationId).
+func (c *ClientWithResponses) DetachReferenceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DetachReferenceReply, error) {
+	rsp, err := c.DetachReference(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDetachReferenceReply(rsp)
+}
+
+// GetReferenceWithResponse Describe the reference server, if one is attached
+//
+// A session may hold one second, read-only connection, the reference,
+// for comparison (1.39). See `docs/proposals/second-server.md`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/reference (the `GetReference` operationId).
+func (c *ClientWithResponses) GetReferenceWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetReferenceReply, error) {
+	rsp, err := c.GetReference(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetReferenceReply(rsp)
+}
+
+// AttachReferenceWithBodyWithResponse Connect to a second, read-only server for comparison
+//
+// Opens a second connection under this session, through the same
+// settings, TLS rules and target allowlist as `POST /session`, and holds
+// it read-only: nothing in the API can write to it. Its bind password is
+// held in this process's memory beside the session's, never returned and
+// never logged, and is cleared when the reference closes.
+//
+// The reference never outlives the session. Disconnecting, connecting
+// again, the idle timeout and the maximum lifetime close both; activity
+// on the session keeps both alive. It counts against `--max-sessions`,
+// which bounds directory connections.
+//
+// Reads that take a side name it with `on: reference` (a capture),
+// `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+// `/schema`) or a `reference` side (`/diff`). Changes always go to the
+// session's own server.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /session/reference (the `AttachReference` operationId).
+func (c *ClientWithResponses) AttachReferenceWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AttachReferenceReply, error) {
+	rsp, err := c.AttachReferenceWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAttachReferenceReply(rsp)
+}
+
+// AttachReferenceWithResponse Connect to a second, read-only server for comparison
+//
+// Opens a second connection under this session, through the same
+// settings, TLS rules and target allowlist as `POST /session`, and holds
+// it read-only: nothing in the API can write to it. Its bind password is
+// held in this process's memory beside the session's, never returned and
+// never logged, and is cleared when the reference closes.
+//
+// The reference never outlives the session. Disconnecting, connecting
+// again, the idle timeout and the maximum lifetime close both; activity
+// on the session keeps both alive. It counts against `--max-sessions`,
+// which bounds directory connections.
+//
+// Reads that take a side name it with `on: reference` (a capture),
+// `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+// `/schema`) or a `reference` side (`/diff`). Changes always go to the
+// session's own server.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /session/reference (the `AttachReference` operationId).
+func (c *ClientWithResponses) AttachReferenceWithResponse(ctx context.Context, body AttachReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*AttachReferenceReply, error) {
+	rsp, err := c.AttachReference(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAttachReferenceReply(rsp)
 }
 
 // CaptureSnapshotWithBodyWithResponse Capture a subtree as a versioned snapshot
@@ -21633,6 +22357,130 @@ func ParseCreateSessionReply(rsp *http.Response) (*CreateSessionReply, error) {
 			return nil, err
 		}
 		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDetachReferenceReply parses an HTTP response from a DetachReferenceWithResponse call
+func ParseDetachReferenceReply(rsp *http.Response) (*DetachReferenceReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DetachReferenceReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetReferenceReply parses an HTTP response from a GetReferenceWithResponse call
+func ParseGetReferenceReply(rsp *http.Response) (*GetReferenceReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetReferenceReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAttachReferenceReply parses an HTTP response from a AttachReferenceWithResponse call
+func ParseAttachReferenceReply(rsp *http.Response) (*AttachReferenceReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AttachReferenceReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest SessionInfo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 

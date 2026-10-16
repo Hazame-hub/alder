@@ -150,6 +150,85 @@ paths:
       responses:
         "204": { description: Disconnected. }
 
+  /session/reference:
+    get:
+      tags: [session]
+      operationId: getReference
+      summary: Describe the reference server, if one is attached
+      description: |
+        A session may hold one second, read-only connection, the reference,
+        for comparison (1.39). See `docs/proposals/second-server.md`.
+      responses:
+        "200":
+          description: The reference server. `readOnly` is always true and `role` is `reference`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionInfo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+    post:
+      tags: [session]
+      operationId: attachReference
+      summary: Connect to a second, read-only server for comparison
+      description: |
+        Opens a second connection under this session, through the same
+        settings, TLS rules and target allowlist as `POST /session`, and holds
+        it read-only: nothing in the API can write to it. Its bind password is
+        held in this process's memory beside the session's, never returned and
+        never logged, and is cleared when the reference closes.
+
+        The reference never outlives the session. Disconnecting, connecting
+        again, the idle timeout and the maximum lifetime close both; activity
+        on the session keeps both alive. It counts against `--max-sessions`,
+        which bounds directory connections.
+
+        Reads that take a side name it with `on: reference` (a capture),
+        `rightOn=reference` (`/compare`), `?on=reference` (`/replication`,
+        `/schema`) or a `reference` side (`/diff`). Changes always go to the
+        session's own server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectRequest" }
+      responses:
+        "201":
+          description: Attached.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: The target is not on this Alder's allowlist (`target_not_allowed`). Checked before anything is dialled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: A reference is already attached (`conflict`). Detach it first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: The directory refused the connection or the bind.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: This Alder holds as many directory connections as `--max-sessions` allows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+    delete:
+      tags: [session]
+      operationId: detachReference
+      summary: Close the reference server
+      description: Closes the reference connection and discards its credentials. The session is untouched.
+      responses:
+        "204": { description: Closed, or there was none. }
+
   /tree:
     get:
       tags: [browse]
@@ -254,6 +333,13 @@ paths:
           in: query
           schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
           description: Values reported per attribute.
+        - name: rightOn
+          in: query
+          schema: { $ref: "#/components/schemas/ServerSide" }
+          description: |
+            Which server the right entry is read from (1.39). `reference` reads it from
+            the session's reference server, so one entry can be compared across two
+            servers; the left entry is always the session's own.
       responses:
         "200":
           description: The comparison.
@@ -489,6 +575,11 @@ paths:
       tags: [schema]
       operationId: getSchema
       summary: The whole schema, indexed for browsing
+      parameters:
+        - name: on
+          in: query
+          schema: { $ref: "#/components/schemas/ServerSide" }
+          description: Which server's schema (1.39). Defaults to the session's.
       responses:
         "200":
           description: The schema.
@@ -1165,6 +1256,11 @@ paths:
       tags: [access]
       operationId: getReplication
       summary: What this server records about its own replication
+      parameters:
+        - name: on
+          in: query
+          schema: { $ref: "#/components/schemas/ServerSide" }
+          description: Which server's record (1.39). Defaults to the session's.
       description: |
         Reports whether this server is a supplier, a consumer or both, which
         links it has and to whom, and how far along it is. Introduced in Alder
@@ -2337,11 +2433,22 @@ components:
         objectClasses: { type: integer }
         attributeTypes: { type: integer }
 
+    ServerSide:
+      type: string
+      description: |
+        Which of a session's servers a read is of (1.39): its own, or the
+        read-only reference attached for comparison. Only reads take one.
+      enum: [session, reference]
+      x-enum-varnames: [ServerSideSession, ServerSideReference]
+
     SessionInfo:
       type: object
       required: [connected]
       properties:
         connected: { type: boolean }
+        role:
+          $ref: "#/components/schemas/ServerSide"
+          description: Present when connected. `reference` for the reference server (1.39).
         host: { type: string }
         port: { type: integer }
         tls: { type: string }
@@ -2478,6 +2585,9 @@ components:
         operationalAttributes:
           type: boolean
           description: Capture operational attributes too. Off by default.
+        "on":
+          $ref: "#/components/schemas/ServerSide"
+          description: Which server to capture (1.39). Defaults to the session's.
 
     PackageValue:
       type: object
@@ -4373,7 +4483,12 @@ components:
 
     DiffSide:
       type: object
-      description: Exactly one of `snapshot` or `live`.
+      description: |
+        Exactly one of `snapshot`, `live` or `reference`. `reference` (1.39)
+        reads the session's reference server the way `live` reads the
+        session's own, and is never changed: a comparison proposes changes
+        only when its source is `live`. A `live` and a `reference` side may be
+        compared; two `reference` sides may not.
       properties:
         snapshot:
           oneOf:
@@ -4381,6 +4496,7 @@ components:
             - $ref: "#/components/schemas/SchemaSnapshot"
             - $ref: "#/components/schemas/ConfigSnapshot"
         live: { $ref: "#/components/schemas/DiffLiveSide" }
+        reference: { $ref: "#/components/schemas/DiffLiveSide" }
 
     DiffRequest:
       type: object
@@ -4394,14 +4510,17 @@ components:
 
     DiffSideKind:
       type: string
-      enum: [snapshot, live]
-      x-enum-varnames: [DiffSideKindSnapshot, DiffSideKindLive]
+      enum: [snapshot, live, reference]
+      x-enum-varnames: [DiffSideKindSnapshot, DiffSideKindLive, DiffSideKindReference]
 
     DiffSideSummary:
       type: object
       required: [kind, base, scope, filter, operationalAttributes, entryCount]
       properties:
         kind: { $ref: "#/components/schemas/DiffSideKind" }
+        server:
+          type: string
+          description: For a `live` or `reference` side, the host and port it was read from (1.39).
         vendor: { type: string }
         base: { type: string }
         scope: { $ref: "#/components/schemas/SnapshotScope" }
@@ -5048,6 +5167,11 @@ components:
           description: |
             The single structural class. A difference here explains most of the
             rows below it and should be read first.
+        server:
+          type: string
+          description: |
+            The host and port this entry was read from, when the two entries were
+            read from different servers (`rightOn=reference`, 1.39).
 
     ComparisonCounts:
       type: object
