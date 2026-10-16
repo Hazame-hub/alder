@@ -531,7 +531,9 @@ export function ChangesetView({
           {current
             ? `Apply ${applyBody.changes.length} of ${staged.length} in order`
             : `Apply ${staged.length} change${staged.length === 1 ? "" : "s"} in order`}
-          {origin ? ` to ${safeText(origin.host)}` : ""}
+          {/* A saved plan's host is where it was made; where this applies is
+              the session's, which the heading above already names. */}
+          {origin?.kind === "project" ? ` to ${safeText(origin.host)}` : ""}
         </Button>
       </div>
     </div>
