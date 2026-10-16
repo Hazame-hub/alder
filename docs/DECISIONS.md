@@ -6228,3 +6228,14 @@ configuration capture equal what a session of its own on the consumer reads;
 a comparison against it proposes nothing for it; the allowlist and the
 connection limit hold before dialling; and its password appears in no
 response and nowhere in the log.
+
+### 2026-10-16 — access rules in recovery: proposed, for review
+
+`docs/proposals/access-rules-in-recovery.md` takes up the inconsistency the
+2026-10-13 schema and configuration recovery entry left for its own
+decision: a data-tree `aci` change is compensated, a configuration-tree
+access rule is not, and yet the change path applies both when a reviewed
+change carries them. It recommends option B, write what a reviewed change
+says and never author a rule, which would compensate configuration-tree
+rules like any other setting and correct the charter's sentence to what the
+code does. Nothing is built until it is decided.
