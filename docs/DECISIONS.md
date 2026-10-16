@@ -6275,6 +6275,68 @@ together:
   changes.** A mutation's result outlived the detach, and was shown under
   the next reference's host.
 
+### 2026-10-16 — access rules in recovery: write what a reviewed change says, never author one
+
+Decided on `docs/proposals/access-rules-in-recovery.md`, which took up the
+inconsistency the 2026-10-13 schema and configuration recovery entry left
+for its own decision: the change path applies an access rule a reviewed
+change carries, and the bundle for that change then declined to undo it
+with `access_rule_not_written`. Option B, with the proposal's answers to its
+open questions.
+
+- **A configuration-tree access rule is compensated like any other
+  setting.** `olcAccess`, and `aci` in the configuration tree, are replaced
+  with the values the server stored before, positions (`{n}`) and spelling
+  included, under an expectation of what the change left
+  (`internal/recovery/schemaconfig.go`). On 389 DS `aci` is declared USAGE
+  directoryOperation, which recovery otherwise takes as server-owned; an
+  access rule is exempt from that test, since the change being undone wrote
+  it.
+- **The same warning.** The compensation is planned through `POST /plan`
+  like the change was, so it carries the lockout warning from
+  `internal/api/configwarn.go` without a mechanism of its own.
+- **`access_rule_not_written` stays in the enum and is no longer
+  produced.** Bundles 1.38 wrote keep it and stay `partial`; nothing is
+  migrated. No API shape or format change.
+- **The charter's sentence is corrected, not widened**: Alder does not
+  evaluate, translate or author access rules, and a change or recovery
+  bundle that carries one is applied like any other change, with a
+  warning. The out-of-scope line says "authoring" for the same reason.
+- **An empty read is not taken for no rules.** A bind may be allowed to
+  write rules it cannot read. When none were read before the change, or none
+  after a change that left some, the attribute is not compensated and the
+  step says `hidden_attributes_unknown`, rather than deleting the whole list
+  or applying with no expectation. A list the bind can read only in part
+  cannot be detected, and the compensation puts back what was read.
+- **Put back where its step falls.** A compensation that restores access
+  rules is never merged with another modification of the same entry, so a
+  rule that grants what a compensation in between needs is not revoked
+  first. An expectation compares access rules byte for byte, whatever the
+  attribute's equality rule, so a rule changed in case alone is drift, not
+  something to write over.
+- **A conformance case on both servers**, whose first run is CI's: it puts
+  one inert rule first, applies the bundle, and reads the rules back
+  identical, positions included -- `olcAccess` on OpenLDAP's database entry,
+  `aci` on 389 DS's `cn=config`, named in the suite's server table. 389 DS
+  holds no `aci` on `cn=config` by default, so the harness seeds one inert
+  rule there (`test/compose/ds389/config-access.ldif`), and the case fails
+  rather than skips when it reads none.
+- **The configuration warning no longer says "there is no undo"**: a change
+  there is not a transaction, and a bundle puts it back only through another
+  write the server must accept.
+
+Why: Alder already wrote a reviewed rule on every path but this one, and the
+change a bundle exists for is the one that went wrong. An access rule is the
+change most likely to go wrong in a way that matters, so it should get an
+undo that is checked like every other: refused by its expectation if the
+rules have moved since, and shown in full before anything is written.
+
+Left alone: a data-tree `aci`. The proposal's table says it is compensated
+value by value; read from the code, that holds where the schema declares
+`aci` a user attribute, and 389 DS declares it directoryOperation, so there
+a data-tree `aci` change is reported `server_owned_attribute`. Not changed
+here, and worth its own look.
+
 ### 2026-10-16 — projects in the web interface: a dropped folder, a zip, a project further down
 
 Three of the later slices of the web-projects specification. The fourth, the

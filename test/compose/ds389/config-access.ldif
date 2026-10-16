@@ -1,0 +1,16 @@
+# One access rule on cn=config, on 389 Directory Server.
+#
+# A 389 DS instance carries no aci on cn=config itself -- the template puts
+# them on two entries below cn=features, and dscreate on the suffixes -- while
+# OpenLDAP's database entry carries the olcAccess list from slapd.conf. The
+# conformance suite recovers a change to the configuration tree's access rules
+# on both servers, so this gives 389 DS a rule there to change and put back.
+#
+# It is inert: it denies everything on an entry that does not exist, and
+# cn=Directory Manager, which the suite binds as, is not subject to access
+# control at all.
+
+dn: cn=config
+changetype: modify
+add: aci
+aci: (target = "ldap:///cn=alder-harness-inert,cn=config")(targetattr = "*")(version 3.0; acl "alder harness: an inert rule on cn=config"; deny (all) userdn = "ldap:///anyone";)
