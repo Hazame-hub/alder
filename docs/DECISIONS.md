@@ -6275,6 +6275,35 @@ together:
   changes.** A mutation's result outlived the detach, and was shown under
   the next reference's host.
 
+### 2026-10-16 — projects in the web interface: a dropped folder, a zip, a project further down
+
+Three of the later slices of the web-projects specification. The fourth, the
+environment hint, stays out as the specification recommends: it would be a
+guess that happens to agree.
+
+- **One selection, three ways in.** A dropped folder and a zip are turned
+  into the folder picker's list -- a path starting with the folder's name,
+  and something to read the text from -- and `selectProjectFiles` decides
+  what is sent for all three. A second selection rule would be a project
+  that opens one way and not another.
+- **Nothing is read that would not be sent.** A dropped folder is walked
+  without entering dot-directories, and only `alder.yaml` and `*.ldif` are
+  opened; the walk stops at 20,000 entries, which is a home directory
+  dropped by mistake, not a project. A zip's other members are never
+  inflated, and the members that are stay within the request limit by
+  their declared size and again by their inflated size. A member whose
+  path leaves the zip (`..`, absolute, a drive letter, a backslash) is not
+  listed.
+- **fflate for the zip.** Unpacking in the browser keeps the server's one
+  input, files, unchanged (the specification's reason). A hand-written
+  inflate is code to get wrong for no gain; fflate is small, MIT, and has
+  no dependencies.
+- **`alder.yaml` further down** (open question 3's later step). With none at
+  the top, the one folder below that has one is opened, and its path is in
+  the heading (`repo/directory`); with several, the page lists them and the
+  person picks. A project at the top always wins, and another project's
+  `alder.yaml` below the opened one is never sent.
+
 ### 2026-10-16 — saved plans for any change set: `alder plan --out`, `alder apply --plan`
 
 The saved-plans specification's first "later" item. `alder plan --out`

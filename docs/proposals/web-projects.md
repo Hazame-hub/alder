@@ -2,7 +2,9 @@
 
 **Status: accepted 2026-10-13, all five recommendations as written; the
 first slice is built** (*Open project* on the Import screen,
-`POST /project/plan`, *Stage for review*). What the build settled is recorded
+`POST /project/plan`, *Stage for review*), **and so are the later slices
+but the environment hint** (2026-10-16: dropping a folder, a zip unpacked
+in the browser, `alder.yaml` below the chosen folder). What the build settled is recorded
 in `docs/DECISIONS.md` under the same date. `docs/PROJECT.md` ends its later slices with
 "Opening a project in the browser is not in this specification"; this is
 that specification. The recommendation adds one endpoint to the API, which

@@ -499,7 +499,8 @@ changed. See [`PROJECT.md`](PROJECT.md), and
 [`examples/project/`](../examples/project/) for a project with its CI.
 
 **Open a project in the browser.** *Open project*, on the Import screen,
-takes the folder holding `alder.yaml` and plans it against the directory the
+takes the folder holding `alder.yaml` -- chosen, dropped on the panel, or
+as a `.zip` -- and plans it against the directory the
 session is connected to: the same validation as `alder project validate`,
 with every problem listed by file and line, then the plan and the unmanaged
 entries, under a heading that names the project and the directory it was
@@ -507,7 +508,9 @@ planned against. The environments in `alder.yaml` are not used here; the
 plan is always the session's. *Stage for review* puts the plan into an
 empty changeset, where it is checked again, applied with baselines and can
 be exported as LDIF or an Ansible playbook. Only `alder.yaml` and the
-`*.ldif` files are read from the folder, nothing is stored, and a project
+`*.ldif` files are read from the folder (a repository whose `alder.yaml`
+is one folder down opens that folder; with several, you pick), nothing is
+stored, and a project
 too large for one request (16 MiB, 1,000 files, a 2,000-change changeset)
 is said to be one for `alder project`.
 
