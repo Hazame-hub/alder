@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { FolderGit2, Loader2, RefreshCw, SearchCheck, ShieldAlert, Trash2, X } from "lucide-react";
+import { FileArchive, FolderGit2, Loader2, RefreshCw, SearchCheck, ShieldAlert, Trash2, X } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import { changeset, useChangeset } from "@/lib/changeset";
 import {
@@ -13,6 +13,15 @@ import {
   type ProjectPlan,
   type ProjectStageOutcome,
 } from "@/lib/project";
+import {
+  isZipName,
+  readZip,
+  walkDroppedFolder,
+  zipSizeRefusal,
+  type DroppedDirectoryEntry,
+  type Picked,
+  type SourceResult,
+} from "@/lib/project-sources";
 import { Button } from "@/components/ui/button";
 import { ErrorNote } from "@/components/change-dialog";
 import { PlanSummary } from "@/components/plan-summary";
@@ -22,7 +31,9 @@ import { safeText } from "@/lib/display";
  * Open project: an Alder project (docs/PROJECT.md) planned against the
  * directory this session is connected to.
  *
- * The person chooses a folder. The page reads alder.yaml at its top and every
+ * The person chooses a folder, drops one on the panel, or opens a .zip of
+ * one. The page finds alder.yaml (at the top, or the one folder below that
+ * has it, or the one the person picks among several), reads it and every
  * *.ldif below it outside dot-directories, and sends them to POST
  * /project/plan, which validates them with the code `alder project validate`
  * runs, plans them as `alder project plan` does and reports the entries the
@@ -42,9 +53,14 @@ export function ProjectPanel({
   onReviewChangeset: () => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const zipInput = useRef<HTMLInputElement>(null);
   const [opened, setOpened] = useState<{ folder: string; files: ProjectFile[] } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  // Several projects below the chosen folder and none at its top: the files
+  // as they came, and the folders to pick from.
+  const [choosing, setChoosing] = useState<{ picked: Picked[]; projects: string[] } | null>(null);
   const [reading, setReading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [staging, setStaging] = useState<ProjectStageOutcome | null>(null);
   const staged = useChangeset();
 
@@ -59,17 +75,18 @@ export function ProjectPanel({
   const close = () => {
     setOpened(null);
     setLocalError(null);
+    setChoosing(null);
     setStaging(null);
     plan.reset();
   };
 
-  const open = async (list: FileList) => {
+  // Every way in ends here: the picker's list, a dropped folder's, a zip's.
+  const open = async (picked: Picked[], root?: string) => {
     close();
-    const selection = selectProjectFiles(
-      Array.from(list).map((file) => ({ relativePath: file.webkitRelativePath || file.name, file })),
-    );
+    const selection = selectProjectFiles(picked, root);
     if (!selection.ok) {
       setLocalError(selection.message);
+      if (selection.projects?.length) setChoosing({ picked, projects: selection.projects });
       return;
     }
     setReading(true);
@@ -86,16 +103,77 @@ export function ProjectPanel({
     }
   };
 
+  // A dropped folder or a .zip is read before anything is selected; a
+  // failure there is said the same way as a folder without a project.
+  const openSource = async (source: Promise<SourceResult>) => {
+    close();
+    setReading(true);
+    let result: SourceResult;
+    try {
+      result = await source;
+    } catch (e) {
+      result = { ok: false, message: `The files could not be read: ${e instanceof Error ? e.message : String(e)}` };
+    } finally {
+      setReading(false);
+    }
+    if (!result.ok) {
+      setLocalError(result.message);
+      return;
+    }
+    await open(result.picked);
+  };
+
+  // The size is checked before the file is read: a multi-gigabyte archive
+  // picked by mistake would otherwise be loaded whole before being refused.
+  const openZip = (file: File) => {
+    const tooLarge = zipSizeRefusal(file.size);
+    if (tooLarge !== null) {
+      setLocalError(tooLarge);
+      return;
+    }
+    void openSource(file.arrayBuffer().then((buffer) => readZip(file.name, new Uint8Array(buffer))));
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    if (reading || plan.isPending) return;
+    // Entries must be taken while the drop event is being handled: the
+    // browser empties the list as soon as it returns.
+    const entries = Array.from(e.dataTransfer.items)
+      .map((item) => item.webkitGetAsEntry?.() ?? null)
+      .filter((entry) => entry !== null);
+    const files = Array.from(e.dataTransfer.files);
+    if (entries.length === 1 && entries[0]!.isDirectory) {
+      void openSource(walkDroppedFolder(entries[0] as unknown as DroppedDirectoryEntry));
+    } else if (files.length === 1 && isZipName(files[0]!.name)) {
+      openZip(files[0]!);
+    } else {
+      close();
+      setLocalError("Drop one folder holding an Alder project, or one .zip of it.");
+    }
+  };
+
   const result = plan.data ?? null;
 
   return (
-    <section className="rounded-lg border p-3">
+    <section
+      className={`rounded-lg border p-3 ${dragging ? "border-primary bg-muted/40" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={onDrop}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-medium">Open project</h3>
           <p className="text-xs text-muted-foreground">
-            Choose the folder holding an Alder project&apos;s <code className="font-mono">alder.yaml</code>. It is
-            checked and planned against this session&apos;s directory, the way{" "}
+            Choose or drop the folder holding an Alder project&apos;s <code className="font-mono">alder.yaml</code>,
+            or a .zip of it. It is checked and planned against this session&apos;s directory, the way{" "}
             <code className="font-mono">alder project plan</code> does; nothing is applied, and nothing is kept.
           </p>
         </div>
@@ -124,6 +202,16 @@ export function ProjectPanel({
             {reading ? <Loader2 className="animate-spin" /> : <FolderGit2 />}
             {opened ? "Choose again" : "Open project"}
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={reading || plan.isPending}
+            title="Open a project from a .zip of its folder"
+            onClick={() => zipInput.current?.click()}
+          >
+            <FileArchive />
+            .zip
+          </Button>
           {opened || localError ? (
             <Button variant="ghost" size="icon" title="Close" onClick={close}>
               <X />
@@ -139,13 +227,37 @@ export function ProjectPanel({
           {...{ webkitdirectory: "", directory: "" }}
           onChange={(e) => {
             const list = e.target.files;
-            if (list && list.length > 0) void open(list);
+            if (list && list.length > 0) {
+              void open(
+                Array.from(list).map((file) => ({ relativePath: file.webkitRelativePath || file.name, file })),
+              );
+            }
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={zipInput}
+          type="file"
+          className="hidden"
+          accept=".zip,application/zip"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) openZip(file);
             e.target.value = "";
           }}
         />
       </div>
 
-      {localError ? <p className="mt-2 text-sm text-destructive">{safeText(localError)}</p> : null}
+      {localError ? (
+        // Several projects to pick from is a question, not a failure.
+        <p className={`mt-2 text-sm ${choosing ? "text-muted-foreground" : "text-destructive"}`}>
+          {safeText(localError)}
+        </p>
+      ) : null}
+
+      {choosing ? (
+        <ProjectChoice projects={choosing.projects} onChoose={(root) => void open(choosing.picked, root)} />
+      ) : null}
 
       {plan.isPending && !result ? (
         <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
@@ -190,6 +302,20 @@ export function ProjectPanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** The projects below a chosen folder, when it has several and none at its top. */
+export function ProjectChoice({ projects, onChoose }: { projects: string[]; onChoose: (root: string) => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Projects in this folder">
+      {projects.map((root) => (
+        <Button key={root} variant="outline" size="sm" className="font-mono" onClick={() => onChoose(root)}>
+          <FolderGit2 />
+          {safeText(`${root}/`)}
+        </Button>
+      ))}
+    </div>
   );
 }
 
