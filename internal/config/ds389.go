@@ -80,7 +80,7 @@ var ds389Model = model{
 		structured: set("nsslapd-referral", "nsindexattribute", "nssystemindex", "nsmatchingrule",
 			"nsslapd-allowed-sasl-mechanisms", "nsslapd-anonlimitsdn", "aci", "nsslapd-haproxy-trusted-ip"),
 		sensitive: set("nsslapd-rootpw", "nsds5replicacredentials", "nsds5replicabindcredentials",
-			"nsmultiplexorcredentials", "nsslapd-keypassword"),
+			"nsmultiplexorcredentials", "nsslapd-keypassword", "nsds5replicabootstrapcredentials"),
 		// Replication's running state, which lives on configuration entries
 		// and is not configuration.
 		//

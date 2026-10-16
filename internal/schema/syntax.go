@@ -136,6 +136,17 @@ var sensitiveAttrs = map[string]bool{
 	"nsds5replicabindcredentials": true,
 	"nsmultiplexorcredentials":    true,
 	"nsslapd-keypassword":         true,
+
+	// The binds a proxy back end makes to the server it proxies -- back-ldap,
+	// back-meta and asyncmeta -- and the one a 389 DS agreement falls back
+	// to when it initialises a replica. Each holds the password in the clear:
+	// inside a "credentials=" field for the two bind settings, as the whole
+	// value for the other two. They were missing for the same reason
+	// olcSyncrepl once was, and a recovery bundle copied them as settings.
+	"olcdbidassertbind":                true,
+	"olcdbaclbind":                     true,
+	"olcdbaclpasswd":                   true,
+	"nsds5replicabootstrapcredentials": true,
 }
 
 // sensitiveOIDs maps the numeric OID of each sensitive attribute to its name
@@ -162,7 +173,9 @@ var sensitiveAttrs = map[string]bool{
 // Not listed, because no published OID could be found: nsslapd-rootpw,
 // nsslapd-keypassword, nsds5ReplicaBindCredentials and
 // nsMultiplexorCredentials, which 389 DS's own schema does not define, and
-// olcDbCryptKey, which current OpenLDAP does not define. They are matched by
+// olcDbCryptKey, which current OpenLDAP does not define. The proxy back ends'
+// bind settings and nsDS5ReplicaBootstrapCredentials are matched by name too:
+// their OIDs were not checked against a published source. They are matched by
 // name, as before. A guessed OID would be worse than none: it would claim a
 // coverage nobody verified.
 var sensitiveOIDs = map[string]string{
@@ -287,6 +300,11 @@ var neverReleased = map[string]bool{
 	"nssymmetrickey":              true,
 	"nsds5replicacredentials":     true,
 	"krbprincipalkey":             true,
+
+	"olcdbidassertbind":                true,
+	"olcdbaclbind":                     true,
+	"olcdbaclpasswd":                   true,
+	"nsds5replicabootstrapcredentials": true,
 }
 
 // Releasable reports whether an export that asked for sensitive attributes
