@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/schema"
 )
 
 const (
@@ -105,36 +106,122 @@ func TestConfigNothingStoredDifferentlyIsNothingToDo(t *testing.T) {
 	}
 }
 
-func TestConfigSecretsAndAccessRulesAreNotCompensated(t *testing.T) {
+func TestConfigSecretsAreNotCompensated(t *testing.T) {
+	// Until 1.39 this case also held an access rule back, with
+	// access_rule_not_written. Access rules are compensated now (option B,
+	// docs/proposals/access-rules-in-recovery.md); the secrets still are not.
 	const rootHash = "{SSHA}root-hash"
 	pre := entry(t, configDB, []string{"olcRootPW", rootHash}, []string{"olcSizeLimit", "500"},
-		[]string{"olcAccess", "{0}to * by * read"},
 		[]string{"olcSyncrepl", "{0}rid=001 provider=ldap://a bindmethod=simple credentials=" + secret})
 	post := entry(t, configDB, []string{"olcRootPW", "{SSHA}new"}, []string{"olcSizeLimit", "900"},
-		[]string{"olcAccess", "{0}to * by * none"},
 		[]string{"olcSyncrepl", "{0}rid=001 provider=ldap://b bindmethod=simple credentials=" + secret})
 	record := modify(t, configDB,
 		mod(directory.ModReplace, "olcRootPW", secret),
 		mod(directory.ModReplace, "olcSizeLimit", "900"),
-		mod(directory.ModReplace, "olcAccess", "to * by * none"),
 		mod(directory.ModReplace, "olcSyncrepl", "rid=001 provider=ldap://b bindmethod=simple credentials="+secret))
 
 	step := Derive(0, record, pre, post, configTarget(t))
 	codes := reasonCodes(step)
-	if step.Recoverability != Partial || codes[ReasonSensitiveNotCaptured] == "" || codes[ReasonAccessRuleNotWritten] != "olcAccess" {
+	if step.Recoverability != Partial || codes[ReasonSensitiveNotCaptured] == "" {
 		t.Errorf("step %+v", step)
 	}
 	if mods := step.Compensation[0].Mods; len(mods) != 1 || mods[0].Name != "olcSizeLimit" {
 		t.Errorf("compensation %+v, want olcSizeLimit and nothing else", mods)
 	}
-	if out := jsonOf(t, step); strings.Contains(out, secret) || strings.Contains(out, rootHash) || strings.Contains(out, "by * read") {
-		t.Fatalf("a secret or an access rule reached the step: %s", out)
+	if out := jsonOf(t, step); strings.Contains(out, secret) || strings.Contains(out, rootHash) {
+		t.Fatalf("a secret reached the step: %s", out)
 	}
 
 	// Nothing else touched: nothing to compensate at all.
 	record.Mods = record.Mods[:1]
 	if step := Derive(0, record, pre, post, configTarget(t)); step.Recoverability != Unavailable || len(step.Compensation) != 0 {
 		t.Errorf("secret-only step %+v", step)
+	}
+}
+
+func TestConfigAccessRulesArePutBackWithTheirPositions(t *testing.T) {
+	// A replace that puts a new rule first: the server numbers what it was
+	// given, and every rule after the new one now has a different position.
+	pre := entry(t, configDB, []string{"olcAccess",
+		"{0}to attrs=userPassword by self write by anonymous auth by * none",
+		"{1}to * by self write by users read by * read"})
+	post := entry(t, configDB, []string{"olcAccess",
+		"{0}to dn.exact=\"cn=probe\" by * none",
+		"{1}to attrs=userPassword by self write by anonymous auth by * none",
+		"{2}to * by self write by users read by * read"})
+	record := modify(t, configDB, mod(directory.ModReplace, "olcAccess",
+		"to dn.exact=\"cn=probe\" by * none",
+		"to attrs=userPassword by self write by anonymous auth by * none",
+		"to * by self write by users read by * read"))
+
+	step := Derive(0, record, pre, post, configTarget(t))
+	if step.Recoverability != Exact || len(step.Reasons) != 0 || len(step.Compensation) != 1 {
+		t.Fatalf("step %+v, want exact with one compensation", step)
+	}
+	c := step.Compensation[0]
+	// What the server stored before, positions and spelling included, as one
+	// replace: the only write that puts an ordered list back in its order.
+	if len(c.Mods) != 1 || c.Mods[0].Op != "replace" || c.Mods[0].Name != "olcAccess" ||
+		!equalStrings(texts(t, c.Mods[0].Values), texts(t, encode(pre.Get("olcAccess")))) {
+		t.Errorf("compensation %+v, want olcAccess replaced with the rules held before", c.Mods)
+	}
+	// Under an expectation of what the change left, so a rule somebody has
+	// changed since refuses it.
+	if c.Expect == nil || len(c.Expect.Attributes) != 1 || c.Expect.Attributes[0].Name != "olcAccess" ||
+		!equalStrings(texts(t, c.Expect.Attributes[0].Values), texts(t, encode(post.Get("olcAccess")))) {
+		t.Errorf("expect %+v, want the rules as the change left them", c.Expect)
+	}
+
+	// Rules the change added where there were none are removed.
+	step = Derive(0, modify(t, configDB, mod(directory.ModAdd, "olcAccess", "to * by * read")),
+		entry(t, configDB), entry(t, configDB, []string{"olcAccess", "{0}to * by * read"}), configTarget(t))
+	if step.Recoverability != Exact || len(step.Compensation) != 1 || step.Compensation[0].Mods[0].Op != "delete" {
+		t.Errorf("step %+v, want the added rules removed", step)
+	}
+}
+
+func TestConfigACIIsPutBackAlthoughTheSchemaCallsItOperational(t *testing.T) {
+	// A server that keeps aci declares it USAGE directoryOperation without
+	// NO-USER-MODIFICATION: the server holds it, and expects it to be written.
+	// In the configuration tree it is an access rule, compensated like one,
+	// not a server-owned attribute.
+	sch := schema.Load("cn=schema", map[string][]string{
+		schema.AttrAttributeTypes: {
+			"( 2.16.840.1.113730.3.1.55 NAME 'aci' SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 USAGE directoryOperation )",
+			"( 2.5.18.2 NAME 'modifyTimestamp' SYNTAX 1.3.6.1.4.1.1466.115.121.1.24 " +
+				"NO-USER-MODIFICATION SINGLE-VALUE USAGE directoryOperation )",
+		},
+	})
+	if len(sch.Errors) != 0 {
+		t.Fatalf("the schema does not parse: %v", sch.Errors)
+	}
+	where := Target{Kind: KindConfig, Schema: sch}
+	const (
+		first  = `(targetattr="*")(version 3.0; acl "admins"; allow (all) groupdn="ldap:///cn=admins,cn=config";)`
+		second = `(targetattr!="aci")(version 3.0; acl "anyone"; allow (read,search) userdn="ldap:///anyone";)`
+		probe  = `(target="ldap:///cn=probe,cn=config")(targetattr="*")(version 3.0; acl "probe"; deny (all) userdn="ldap:///anyone";)`
+	)
+	pre := entry(t, "cn=config", []string{"aci", first, second}, []string{"modifyTimestamp", "20261016000000Z"})
+	post := entry(t, "cn=config", []string{"aci", probe, first, second}, []string{"modifyTimestamp", "20261016000100Z"})
+	record := modify(t, "cn=config", mod(directory.ModReplace, "aci", probe, first, second))
+
+	step := Derive(0, record, pre, post, where)
+	if step.Recoverability != Exact || len(step.Reasons) != 0 || len(step.Compensation) != 1 {
+		t.Fatalf("step %+v, want exact", step)
+	}
+	c := step.Compensation[0]
+	if len(c.Mods) != 1 || c.Mods[0].Op != "replace" || !equalStrings(texts(t, c.Mods[0].Values), []string{first, second}) {
+		t.Errorf("compensation %+v, want aci replaced with the rules held before", c.Mods)
+	}
+	if len(c.Expect.Attributes) != 1 || !equalStrings(texts(t, c.Expect.Attributes[0].Values), []string{probe, first, second}) {
+		t.Errorf("expect %+v", c.Expect)
+	}
+
+	// An attribute the server does own is still left alone beside it.
+	record = modify(t, "cn=config", mod(directory.ModReplace, "modifyTimestamp", "20261016000100Z"))
+	if step := Derive(0, record, pre, post, where); step.Recoverability != Unavailable ||
+		reasonCodes(step)[ReasonServerOwnedAttribute] != "modifyTimestamp" {
+		t.Errorf("a server-owned attribute: %+v", step)
 	}
 }
 
@@ -300,7 +387,7 @@ func TestAssessSchemaAndConfig(t *testing.T) {
 			mod(directory.ModReplace, "olcSizeLimit", "900"), mod(directory.ModReplace, "olcRootPW", secret)),
 			configTarget(t), Partial, ReasonSensitiveNotCaptured},
 		{"an access rule", modify(t, configDB, mod(directory.ModAdd, "olcAccess", "to * by * none")),
-			configTarget(t), Unavailable, ReasonAccessRuleNotWritten},
+			configTarget(t), Exact, ""},
 		{"an overlay", directory.ChangeRecord{DN: mustDN(t, "olcOverlay=memberof,"+configDB), Type: directory.ChangeAdd,
 			Attrs: []directory.Attribute{{Name: "objectClass", Values: [][]byte{[]byte("olcOverlayConfig")}}}},
 			configTarget(t), Unavailable, ReasonConfigEntryNotCompensated},
@@ -403,5 +490,42 @@ func TestDecodeRefusesABadExpectedDefinition(t *testing.T) {
 		if _, _, err := Decode([]byte(input)); codeOf(err) != CodeInvalid {
 			t.Errorf("%s: %v, want invalid", name, err)
 		}
+	}
+}
+
+func TestTwoChangesToTheSameAccessRulesGoBackToTheFirstState(t *testing.T) {
+	s0 := []string{"olcAccess", "{0}to * by users read"}
+	s1 := []string{"olcAccess", "{0}to dn.exact=\"cn=a\" by * none", "{1}to * by users read"}
+	s2 := []string{"olcAccess", "{0}to dn.exact=\"cn=b\" by * none", "{1}to dn.exact=\"cn=a\" by * none", "{2}to * by users read"}
+	first := Derive(0, modify(t, configDB, mod(directory.ModAdd, "olcAccess", "{0}to dn.exact=\"cn=a\" by * none")),
+		entry(t, configDB, s0), entry(t, configDB, s1), configTarget(t))
+	second := Derive(1, modify(t, configDB, mod(directory.ModAdd, "olcAccess", "{0}to dn.exact=\"cn=b\" by * none")),
+		entry(t, configDB, s1), entry(t, configDB, s2), configTarget(t))
+	b, err := New(Origin{NamingContexts: []string{"dc=alder,dc=test"}}, []Step{first, second}, fixedTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes := b.Changes()
+	if len(changes) != 1 {
+		t.Fatalf("changes %+v, want one modification of the database entry", changes)
+	}
+	// The last replace is what the entry ends with: the rules before the
+	// first change. The expectation is the rules the second change left.
+	mods := changes[0].Mods
+	if last := mods[len(mods)-1]; last.Op != "replace" || !equalStrings(texts(t, last.Values), s0[1:]) {
+		t.Errorf("mods %+v, want the last to put back %q", mods, s0[1:])
+	}
+	record, expect, err := changes[0].Record()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attr, differs := expect.Differs(nil, entry(t, configDB, s2)); differs {
+		t.Errorf("the expectation does not hold of what the changes left (%s)", attr)
+	}
+	if _, differs := expect.Differs(nil, entry(t, configDB, s1)); !differs {
+		t.Error("the expectation holds of rules somebody else has changed since")
+	}
+	if record.Type != directory.ChangeModify {
+		t.Errorf("record %+v", record)
 	}
 }

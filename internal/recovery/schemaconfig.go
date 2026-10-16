@@ -79,6 +79,13 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 }
 
 // notCompensated says why a configuration attribute is left alone, if it is.
+//
+// An access rule is not left alone. A reviewed change replaced it and Alder
+// applied it, so putting back what the server held before is the same kind of
+// write, planned, warned about and checked against its expectation like the
+// change was (option B of docs/proposals/access-rules-in-recovery.md). Until
+// 1.39 it was held back here with access_rule_not_written, which stays in the
+// enum for the bundles written then.
 func notCompensated(sch *schema.Schema, name string) (ReasonCode, bool) {
 	switch {
 	case schema.IsSensitive(name):
@@ -86,7 +93,11 @@ func notCompensated(sch *schema.Schema, name string) (ReasonCode, bool) {
 		// name is recorded, the value never read into the bundle.
 		return ReasonSensitiveNotCaptured, true
 	case accessRule(name):
-		return ReasonAccessRuleNotWritten, true
+		// Before the server-owned test: a server that keeps aci declares it
+		// USAGE directoryOperation, which reads as server-owned, but it has
+		// no NO-USER-MODIFICATION and the change that is being undone wrote
+		// it.
+		return "", false
 	case serverOwned(sch, name):
 		return ReasonServerOwnedAttribute, true
 	}
@@ -96,9 +107,9 @@ func notCompensated(sch *schema.Schema, name string) (ReasonCode, bool) {
 // accessRule reports whether an attribute carries access rules.
 //
 // By name, which section 3 of the charter otherwise forbids. That rule is
-// about detecting what a server can do; this is what Alder chooses not to
-// write, and the charter names both attributes. The entry editor holds them
-// back the same way.
+// about detecting what a server can do; this is a decision about what an
+// access rule is, and the charter names both attributes. The entry editor
+// holds them back the same way, and the lockout warning names them too.
 func accessRule(name string) bool {
 	switch strings.ToLower(schema.BaseName(name)) {
 	case "aci", "olcaccess":
