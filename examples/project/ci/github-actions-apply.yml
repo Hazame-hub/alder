@@ -156,6 +156,13 @@ jobs:
           export "$PASSWORD_VARIABLE=$BIND_PASSWORD"
           unset BIND_PASSWORD
           status=0
+          # Optional: when the plan a reviewer approves is one they signed
+          # (alder sign; see the README and docs/SIGNING.md), add
+          #   --trusted-keys /etc/alder/reviewers/
+          # holding the reviewers' public keys, on the runner rather than in
+          # files a pull request could change. A file nobody
+          # signed, or someone else signed, is then refused (3), and one
+          # changed after it was signed (8).
           alder project apply --project "$PROJECT" --env "$ENVIRONMENT" \
             --plan saved-plan.json --yes --recovery-out recovery.json || status=$?
           case "$status" in

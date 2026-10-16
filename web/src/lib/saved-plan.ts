@@ -16,6 +16,8 @@ import { safeText } from "@/lib/display";
 
 export const savedPlanFormat = "alder-plan";
 export const savedPlanVersion = 1;
+/** What alder sign wraps a document in (docs/SIGNING.md). */
+const signedFormat = "alder-signed";
 /** The most the server accepts in one request, which a plan is sent as. */
 export const maxSavedPlanBytes = 16 << 20;
 
@@ -160,6 +162,13 @@ export function parseSavedPlan(text: string): Reading {
   }
   if (!isObject(parsed)) return refuse("The file is not a saved plan.");
   const s = parsed;
+  if (s.format === signedFormat) {
+    // Unwrapping it unchecked would apply a plan whose signature someone
+    // relied on without anyone checking it; the command line checks it.
+    return refuse(
+      "This saved plan is signed, and this interface does not check plan signatures. Apply it with alder apply --plan FILE --trusted-keys KEY, which does.",
+    );
+  }
   if (s.format !== savedPlanFormat) {
     return refuse(
       `The file is not a saved plan: its format is ${safeText(String(s.format))}, not ${savedPlanFormat}.`,

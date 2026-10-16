@@ -340,6 +340,41 @@ func TestASavedPlanOutlivesTheAlderThatMadeItOnBothServers(t *testing.T) {
 			}
 		})
 
+		t.Run("signed after review, applied only with the reviewer's key", func(t *testing.T) {
+			seedCLIOU(t, sess)
+			base := startAlder(t)
+			dir := writeHarnessProject(t, s, base)
+			keys := t.TempDir()
+			saved := filepath.Join(keys, "harness.plan.json")
+			signed := filepath.Join(keys, "harness.plan.signed.json")
+			private := filepath.Join(keys, "reviewer.pem")
+			public := filepath.Join(keys, "reviewer.pub.pem")
+
+			r := runProject(t, s, "project", "plan", "--project", dir, "--env", "harness", "--out", saved)
+			wantExit(t, r, cli.ExitOK, "plan --out")
+			wantExit(t, runProject(t, s, "key", "generate", "--output", private), cli.ExitOK, "key generate")
+			wantExit(t, runProject(t, s, "sign", saved, "--key", private, "--signer", "reviewer", "--output", signed),
+				cli.ExitOK, "sign")
+
+			// The unsigned file is refused once a key is named, and writes nothing.
+			r = runProject(t, s, "project", "apply", "--project", dir, "--env", "harness", "--plan", saved,
+				"--trusted-keys", public, "--yes")
+			wantExit(t, r, cli.ExitNotApplicable, "apply --plan of an unsigned plan with --trusted-keys")
+			if got := titleOf(t, sess); got != "Before" {
+				t.Fatalf("the probe's title is %q after a refused apply", got)
+			}
+
+			r = runProject(t, s, "project", "apply", "--project", dir, "--env", "harness", "--plan", signed,
+				"--trusted-keys", public, "--yes")
+			wantExit(t, r, cli.ExitOK, "apply --plan of the signed plan with --trusted-keys")
+			if !strings.Contains(r.stdout, "reviewer") {
+				t.Errorf("the plan shown does not name its signer:\n%s", r.stdout)
+			}
+			if got := titleOf(t, sess); got != "After" {
+				t.Errorf("the probe's title is %q after applying the signed plan, want After", got)
+			}
+		})
+
 		t.Run("overtaken before it was applied", func(t *testing.T) {
 			seedCLIOU(t, sess)
 			base := startAlder(t)

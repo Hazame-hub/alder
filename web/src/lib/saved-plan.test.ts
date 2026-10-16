@@ -83,6 +83,29 @@ describe("parseSavedPlan", () => {
     expect(message).toContain("alder project apply --plan");
   });
 
+  it("refuses a signed plan, whose signature it does not check, naming the command that does", () => {
+    const envelope = {
+      format: "alder-signed",
+      version: 1,
+      payload: file(),
+      signatures: [
+        {
+          algorithm: "ed25519",
+          keyId: "ab".repeat(32),
+          signer: "reviewer",
+          value: "x",
+        },
+      ],
+    };
+    const r = parseSavedPlan(JSON.stringify(envelope));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toContain("signed");
+    expect(r.message).toContain("does not check");
+    expect(r.message).toContain("alder apply --plan");
+    expect(r.message).toContain("--trusted-keys");
+  });
+
   it("refuses what it does not fully understand", () => {
     expect(parseSavedPlan("not json").ok).toBe(false);
     expect(refusal({ format: "alder-recovery" })).toContain("not a saved plan");

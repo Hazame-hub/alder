@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -172,10 +173,26 @@ func readKeyFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A FIFO or a device would block or never end: a key is a plain file.
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s: not a regular file", path)
+	}
 	if info.Size() > maxKeyFile {
 		return nil, fmt.Errorf("%s: larger than a key file is", path)
 	}
 	// The path is an operator's own argument -- a key file they named on the
 	// command line -- and reading it is the whole point of the function.
-	return os.ReadFile(path) //nolint:gosec // the caller names the key file
+	f, err := os.Open(path) //nolint:gosec // the caller names the key file
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxKeyFile+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxKeyFile {
+		return nil, fmt.Errorf("%s: larger than a key file is", path)
+	}
+	return data, nil
 }

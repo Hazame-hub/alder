@@ -146,7 +146,8 @@ they name on that entry, to the values they give it, compared under the
 environment's suffix and the schema's names for each attribute. Every
 modification, of either kind of plan, must also expect each attribute it
 changes. A change set's saved plan has nothing to be bound to: the file is
-the input, and what vouches for it is who could write it, or a signature.
+the input, and what vouches for it is who could write it, or a signature
+(`alder apply --plan FILE --trusted-keys KEY`, since 2026-10-16).
 
 ## The commands
 
@@ -263,7 +264,10 @@ change set, not only projects (*built 2026-10-16*: an LDIF document or
 changes, `--recovery` and `--package` are not saved); loading a saved plan in the web interface
 next to *Load recovery bundle* (*built 2026-10-16*: a change set's plan
 only, refused for another host or bind); a signed plan, wrapped with `alder sign`
-as SIGNING.md wraps any document.
+as SIGNING.md wraps any document (*built 2026-10-16*: both apply commands read
+the envelope, and `--trusted-keys` requires a signature by one of those keys;
+the web interface refuses a signed plan and names the command that checks it.
+See [SIGNING.md](../SIGNING.md#signing-a-saved-plan)).
 
 **Out:** a persistent baseline key; plans stored on the server; applying a
 saved plan that partly holds (it is all or nothing, as every apply's

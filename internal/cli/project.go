@@ -45,6 +45,8 @@ type projectOptions struct {
 	yes         bool
 	recoveryOut string
 	plan        string
+	// trusted are the public keys a --plan must be signed by, when named.
+	trusted []string
 
 	// force replaces an existing --out (plan) or --recovery-out (apply).
 	force bool
@@ -169,11 +171,19 @@ func projectApplyCmd(env *Env) *cobra.Command {
 			"-- and expect what it changes; one that is not is refused before anything is\n" +
 			"planned (3). A saved plan that no longer holds is refused whole (4): plan\n" +
 			"again and review.\n\n" +
-			"--env, --project, --plan and --yes are read from the command line only,\n" +
-			"never from ALDER_*.\n\n" +
-			"Exit status: 0 applied (or nothing to apply), 3 the project is not valid or\n" +
-			"some change cannot be applied as written, 4 the plan went stale, 5 not\n" +
-			"confirmed, 6 stopped partway, 7 usage, 8 failure.",
+			"A --plan file may be signed (alder sign). --trusted-keys PATH, repeatable,\n" +
+			"applies it only if it carries a valid signature by one of those public keys;\n" +
+			"an unsigned plan or one signed by another key is refused (3), and one by a\n" +
+			"named key that does not match the plan (8). Without --trusted-keys no key\n" +
+			"is at hand to check against: a signed plan is applied with its signature\n" +
+			"unchecked (only a malformed signature is refused, 8), and an unsigned one\n" +
+			"as before. All of this is decided before connecting.\n\n" +
+			"--env, --project, --plan, --trusted-keys and --yes are read from the command\n" +
+			"line only, never from ALDER_*.\n\n" +
+			"Exit status: 0 applied (or nothing to apply), 3 the project is not valid,\n" +
+			"some change cannot be applied as written, or the plan is not signed by a\n" +
+			"trusted key, 4 the plan went stale, 5 not confirmed, 6 stopped partway,\n" +
+			"7 usage, 8 failure or a signature that does not match.",
 		Args: argsBetween(0, 0, "no arguments; name the project with --project and the environment with --env"),
 	}, func(ctx context.Context, _ []string) error {
 		return runProjectApply(ctx, env, o)
@@ -185,10 +195,12 @@ func projectApplyCmd(env *Env) *cobra.Command {
 	f.StringVar(&o.recoveryOut, "recovery-out", "", "write a recovery bundle for the changes that were applied to this file")
 	f.BoolVar(&o.force, "force", false, "replace --recovery-out if it already exists")
 	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder project plan --out) instead of planning the project")
+	f.StringArrayVar(&o.trusted, "trusted-keys", nil,
+		"with --plan, apply it only if signed by one of these public keys: a PEM file, a file of several, or a directory of .pem files; repeatable")
 	f.BoolVar(&o.json, "json", false, "write JSON to standard output")
 	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
 	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "give up on the whole command after this long; 0 waits indefinitely")
-	envflags.Exclude(f, "project", "env", "yes", "recovery-out", "force", "plan", "json", "summary")
+	envflags.Exclude(f, "project", "env", "yes", "recovery-out", "force", "plan", "trusted-keys", "json", "summary")
 	return cmd
 }
 
@@ -215,6 +227,8 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 		return usagef("--force replaces the --recovery-out file, and none was given")
 	case o.plan == "-":
 		return usagef("--plan needs a file: standard input may be needed to confirm")
+	case len(o.trusted) > 0 && o.plan == "":
+		return usagef("--trusted-keys is about a --plan file, and none was given")
 	}
 	if err := refuseExisting(o.recoveryOut, o.force); err != nil {
 		return err
@@ -237,7 +251,10 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 	// anyone to confirm it.
 	var saved *savedPlan
 	if o.plan != "" {
-		if saved, err = readSavedPlan(env, o.plan); err != nil {
+		// A signature is checked here too, with the other refusals of the
+		// file: before connecting, and before anyone is asked to confirm.
+		saved, envelope.Signature, err = readSavedPlan(env, o.plan, o.trusted)
+		if err != nil {
 			return err
 		}
 		if err := matchSaved(o.plan, saved, p, o.envName, conn); err != nil {
@@ -514,6 +531,7 @@ func applySaved(ctx context.Context, env *Env, p *project.Project, saved *savedP
 	}
 	if len(saved.Changes) == 0 {
 		renderEnvironment(out, env.Stderr, o.envName, conn.label(), nil)
+		renderSignature(out, envelope.Signature)
 		writeln(out, "Nothing to apply: the saved plan holds no change.")
 		return nil
 	}
@@ -549,6 +567,7 @@ func applySaved(ctx context.Context, env *Env, p *project.Project, saved *savedP
 		return err
 	}
 	renderEnvironment(out, env.Stderr, o.envName, conn.label(), nil)
+	renderSignature(out, envelope.Signature)
 	if why := holds(plan, len(saved.Changes)); why != nil {
 		// Shown, so the changes that moved are named, and never applied:
 		// what was reviewed is not what would happen.
