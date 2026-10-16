@@ -6275,13 +6275,46 @@ together:
   changes.** A mutation's result outlived the detach, and was shown under
   the next reference's host.
 
-### 2026-10-16 — access rules in recovery: proposed, for review
+### 2026-10-16 — access rules in recovery: write what a reviewed change says, never author one
 
-`docs/proposals/access-rules-in-recovery.md` takes up the inconsistency the
-2026-10-13 schema and configuration recovery entry left for its own
-decision: a data-tree `aci` change is compensated, a configuration-tree
-access rule is not, and yet the change path applies both when a reviewed
-change carries them. It recommends option B, write what a reviewed change
-says and never author a rule, which would compensate configuration-tree
-rules like any other setting and correct the charter's sentence to what the
-code does. Nothing is built until it is decided.
+Decided on `docs/proposals/access-rules-in-recovery.md`, which took up the
+inconsistency the 2026-10-13 schema and configuration recovery entry left
+for its own decision: the change path applies an access rule a reviewed
+change carries, and the bundle for that change then declined to undo it
+with `access_rule_not_written`. Option B, with the proposal's answers to its
+open questions.
+
+- **A configuration-tree access rule is compensated like any other
+  setting.** `olcAccess`, and `aci` in the configuration tree, are replaced
+  with the values the server stored before, positions (`{n}`) and spelling
+  included, under an expectation of what the change left
+  (`internal/recovery/schemaconfig.go`). On 389 DS `aci` is declared USAGE
+  directoryOperation, which recovery otherwise takes as server-owned; an
+  access rule is exempt from that test, since the change being undone wrote
+  it.
+- **The same warning.** The compensation is planned through `POST /plan`
+  like the change was, so it carries the lockout warning from
+  `internal/api/configwarn.go` without a mechanism of its own.
+- **`access_rule_not_written` stays in the enum and is no longer
+  produced.** Bundles 1.38 wrote keep it and stay `partial`; nothing is
+  migrated. No API shape or format change.
+- **The charter's sentence is corrected, not widened**: Alder does not
+  evaluate, translate or author access rules, and a change or recovery
+  bundle that carries one is applied like any other change, with a
+  warning. The out-of-scope line says "authoring" for the same reason.
+- **Proved on both servers** by a conformance case that puts one inert rule
+  first, applies the bundle, and reads the rules back identical, positions
+  included -- `olcAccess` on OpenLDAP's database entry, `aci` on 389 DS's
+  `cn=config`, named in the suite's server table.
+
+Why: Alder already wrote a reviewed rule on every path but this one, and the
+change a bundle exists for is the one that went wrong. An access rule is the
+change most likely to go wrong in a way that matters, so it should get an
+undo that is checked like every other: refused by its expectation if the
+rules have moved since, and shown in full before anything is written.
+
+Left alone: a data-tree `aci`. The proposal's table says it is compensated
+value by value; read from the code, that holds where the schema declares
+`aci` a user attribute, and 389 DS declares it directoryOperation, so there
+a data-tree `aci` change is reported `server_owned_attribute`. Not changed
+here, and worth its own look.

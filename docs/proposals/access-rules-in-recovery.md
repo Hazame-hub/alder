@@ -1,6 +1,6 @@
 # Access rules in recovery bundles
 
-**Status: proposed (2026-10-16), for review.** No code until it is decided.
+**Status: accepted (2026-10-16): option B, built in this PR.**
 It settles the inconsistency the schema and configuration recovery entry in
 `docs/DECISIONS.md` (2026-10-13) left open on purpose: "A data-tree `aci`
 modification is still compensated as it has been since 1.9. That is
@@ -91,15 +91,15 @@ configuration-tree `aci` (389 DS) with rules that still grant the test
 bind, applies the bundle, and reads the rules back identical, positions
 included; and a DECISIONS entry. No API shape changes.
 
-## Open questions for review
+## Open questions, decided
 
-1. **Which option.** Recommendation: B.
-2. **If B, the charter wording.** Proposed: "Access rules are read and shown
-   against an entry, each server's in its own words. Alder does not
-   evaluate, translate or author them: the editor shows `aci` and
-   `olcAccess` read-only. A change or recovery bundle that carries one is
-   applied like any other change, with a warning."
-3. **If B, bundles already written.** A bundle made before the change says
-   `access_rule_not_written` for that step and carries no values for it, so
-   it stays `partial`. Recommendation: nothing to migrate; only new bundles
-   compensate.
+1. **Which option.** Decided (2026-10-16): B.
+2. **If B, the charter wording.** Decided (2026-10-16), as proposed:
+   "Access rules are read and shown against an entry, each server's in its
+   own words. Alder does not evaluate, translate or author them: the editor
+   shows `aci` and `olcAccess` read-only. A change or recovery bundle that
+   carries one is applied like any other change, with a warning."
+3. **If B, bundles already written.** Decided (2026-10-16), as recommended:
+   a bundle made before the change says `access_rule_not_written` for that
+   step and carries no values for it, so it stays `partial`. Nothing to
+   migrate; only new bundles compensate.
