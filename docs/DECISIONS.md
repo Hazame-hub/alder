@@ -6228,3 +6228,22 @@ configuration capture equal what a session of its own on the consumer reads;
 a comparison against it proposes nothing for it; the allowlist and the
 connection limit hold before dialling; and its password appears in no
 response and nowhere in the log.
+
+### 2026-10-16 — B6 follow-ups: the connection limit under races and reconnects
+
+A review of the reference server after it merged found three things, fixed
+together:
+
+- **The limit is checked again under the lock that inserts.** `Store.Add`
+  said it did and did not, so requests that were all told there was room
+  could all take a place. Two connects racing went past `--max-sessions`
+  before B6. Since B6, a connect racing an attach could too.
+- **A reconnect does not count the session it replaces.** Connecting again
+  closes the browser's session and its reference once the new one is stored.
+  Counting those two connections against their replacement refused, at the
+  limit, a reconnect that would have freed a place. Only a session ID in
+  the store is subtracted, and it is the request's own cookie, which that
+  request removes anyway.
+- **The replication card forgets a reference's report when the reference
+  changes.** A mutation's result outlived the detach, and was shown under
+  the next reference's host.

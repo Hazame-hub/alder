@@ -194,9 +194,15 @@ func (st *Store) SetLimit(n int) {
 // asked before dialling, so a full server does not open a directory
 // connection only to close it; Add checks again, because two requests can
 // both have been told there was room.
-func (st *Store) Full() bool {
+func (st *Store) Full() bool { return st.FullReplacing("") }
+
+// FullReplacing is Full for a connection that replaces the session with ID
+// replacing, which is closed once the new one is stored: its connections,
+// its reference's included, are about to be freed and do not count against
+// the one replacing them. An empty or unknown ID replaces nothing.
+func (st *Store) FullReplacing(replacing string) bool {
 	st.mu.RLock()
-	full := st.limit > 0 && st.connections() >= st.limit
+	full := st.fullLocked(replacing)
 	st.mu.RUnlock()
 	if !full {
 		return false
@@ -206,21 +212,40 @@ func (st *Store) Full() bool {
 	st.reap()
 	st.mu.RLock()
 	defer st.mu.RUnlock()
-	return st.connections() >= st.limit
+	return st.fullLocked(replacing)
+}
+
+// fullLocked reports whether one more connection would pass the limit, not
+// counting the session replacing names. Called with st.mu held.
+func (st *Store) fullLocked(replacing string) bool {
+	if st.limit <= 0 {
+		return false
+	}
+	n := st.connections()
+	if old, ok := st.sessions[replacing]; ok && replacing != "" {
+		n -= old.connections()
+	}
+	return n >= st.limit
 }
 
 // connections counts the directory connections the store holds: one per
 // session, and one per reference. Called with st.mu held.
 func (st *Store) connections() int {
-	n := len(st.sessions)
+	n := 0
 	for _, s := range st.sessions {
-		s.mu.Lock()
-		if s.reference != nil {
-			n++
-		}
-		s.mu.Unlock()
+		n += s.connections()
 	}
 	return n
+}
+
+// connections is one for the session and one for its reference, if any.
+func (s *Session) connections() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reference != nil {
+		return 2
+	}
+	return 1
 }
 
 // Connections reports how many directory connections the store holds, for
@@ -233,7 +258,14 @@ func (st *Store) Connections() int {
 
 // Add stores a connected session and returns its ID, or ErrFull.
 func (st *Store) Add(conn directory.Session, cfg directory.ConnConfig, readOnly bool) (*Session, error) {
-	if st.Full() {
+	return st.AddReplacing(conn, cfg, readOnly, "")
+}
+
+// AddReplacing is Add for a connection that replaces the session with ID
+// replacing, which the caller removes once this returns: the limit is
+// checked as FullReplacing checks it.
+func (st *Store) AddReplacing(conn directory.Session, cfg directory.ConnConfig, readOnly bool, replacing string) (*Session, error) {
+	if st.FullReplacing(replacing) {
 		return nil, ErrFull
 	}
 	id, err := newID()
@@ -250,6 +282,12 @@ func (st *Store) Add(conn directory.Session, cfg directory.ConnConfig, readOnly 
 		ReadOnly:  readOnly,
 	}
 	st.mu.Lock()
+	// Again under the lock that inserts: two requests can both have been
+	// told there was room, and only one of them may take the last place.
+	if st.fullLocked(replacing) {
+		st.mu.Unlock()
+		return nil, ErrFull
+	}
 	st.sessions[id] = s
 	live := len(st.sessions)
 	st.mu.Unlock()

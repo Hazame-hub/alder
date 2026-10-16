@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowDownToLine, ArrowUpFromLine, Loader2, Radio, TriangleAlert } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
@@ -53,6 +53,14 @@ export function ReplicationCard() {
     mutationFn: async () =>
       unwrap(await api.GET("/replication", { params: { query: { on: "reference" } } })),
   });
+  // A report read from one reference is not the next one's: detaching keeps
+  // this card mounted and a mutation's result outlives the queries the
+  // detach removes, so it would be shown under the new reference's host.
+  const referenceLabel = serverLabel(reference);
+  const resetReferenceReport = referenceReport.reset;
+  useEffect(() => {
+    resetReferenceReport();
+  }, [referenceLabel, resetReferenceReport]);
   const beside = reference !== null && (referenceReport.data || referenceReport.isError);
 
   return (

@@ -2,6 +2,7 @@ package session
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -55,5 +56,65 @@ func TestNoLimitMeansNoLimit(t *testing.T) {
 		if _, err := store.Add(&fakeSession{}, testConfig(), false); err != nil {
 			t.Fatalf("Add %d: %v", i+1, err)
 		}
+	}
+}
+
+// Requests that were all told there was room still take only the places
+// there are: the limit is checked again under the lock that inserts.
+func TestConcurrentAddsDoNotPassTheLimit(t *testing.T) {
+	store := NewStore(testLogger(), time.Minute, time.Hour)
+	defer store.Close()
+	store.SetLimit(3)
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range 64 {
+		wg.Go(func() {
+			<-start
+			_, _ = store.Add(&fakeSession{}, testConfig(), false)
+		})
+	}
+	close(start)
+	wg.Wait()
+	if n := store.Connections(); n != 3 {
+		t.Errorf("%d connections held against a limit of 3", n)
+	}
+}
+
+// Connecting again from the same browser replaces its session, and with it
+// the session's reference: the connections about to be freed do not keep
+// the replacement out.
+func TestAReplacementDoesNotCountTheSessionItReplaces(t *testing.T) {
+	store := NewStore(testLogger(), time.Minute, time.Hour)
+	defer store.Close()
+	store.SetLimit(2)
+	old, err := store.Add(&fakeSession{}, testConfig(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AttachReference(old, &fakeSession{}, testConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Full() {
+		t.Fatal("Full = false with a session and its reference against a limit of two")
+	}
+	if store.FullReplacing(old.ID) {
+		t.Error("FullReplacing(the session being replaced) = true, want room")
+	}
+	if _, err := store.AddReplacing(&fakeSession{}, testConfig(), false, old.ID); err != nil {
+		t.Fatalf("replacing the session = %v, want room", err)
+	}
+	store.Remove(old.ID)
+	if n := store.Connections(); n != 1 {
+		t.Errorf("%d connections after the replacement, want 1", n)
+	}
+	// Someone else's session ID is not a replacement of anything this
+	// request holds; only an ID in the store is subtracted, and an unknown
+	// one changes nothing.
+	if _, err := store.Add(&fakeSession{}, testConfig(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddReplacing(&fakeSession{}, testConfig(), false, "no-such-session"); !errors.Is(err, ErrFull) {
+		t.Errorf("an unknown replaced ID = %v, want ErrFull", err)
 	}
 }
