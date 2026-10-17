@@ -93,7 +93,11 @@ function plural(n: number, one: string, many = `${one}s`) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-export function PlanSummary({ plan }: { plan: Plan }) {
+/**
+ * `whole` is set when the plan is applied whole or not at all, as a loaded
+ * saved plan is: then a conflict means nothing is sent, not that the rest is.
+ */
+export function PlanSummary({ plan, whole = false }: { plan: Plan; whole?: boolean }) {
   const c = plan.counts;
   const invalid = c.invalid ?? 0;
   // Only what is non-zero. A row of zeroes is noise, and the counts a reader is
@@ -140,8 +144,8 @@ export function PlanSummary({ plan }: { plan: Plan }) {
 
       {c.conflict + invalid > 0 ? (
         <p className="text-xs text-warning-tint-foreground">
-          Conflicts and invalid changes are reported, not attempted. Applying
-          the plan sends only the changes that would do something.
+          Conflicts and invalid changes are reported, not attempted.
+          {whole ? null : " Applying the plan sends only the changes that would do something."}
         </p>
       ) : null}
     </div>
