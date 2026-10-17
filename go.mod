@@ -3,7 +3,7 @@ module github.com/hazame-hub/alder
 go 1.27.2
 
 require (
-	github.com/getkin/kin-openapi v0.149.0
+	github.com/getkin/kin-openapi v0.150.0
 	github.com/go-asn1-ber/asn1-ber v1.5.8
 	github.com/go-ldap/ldap/v3 v3.4.15
 	github.com/gofiber/fiber/v2 v2.52.15
@@ -12,7 +12,7 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/valyala/fasthttp v1.70.0
 	go.yaml.in/yaml/v3 v3.0.5
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
