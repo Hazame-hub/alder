@@ -3,8 +3,9 @@ import type { ChangeRequest } from "@/lib/api";
 import { bench } from "./snapshot-bench";
 import type { ProjectOrigin } from "./project";
 import type { SavedPlanOrigin } from "./saved-plan";
+import type { BulkEditOrigin } from "./bulk-edit";
 
-export type ChangesetOrigin = ProjectOrigin | SavedPlanOrigin;
+export type ChangesetOrigin = ProjectOrigin | SavedPlanOrigin | BulkEditOrigin;
 
 /**
  * The staged changeset.
@@ -37,8 +38,9 @@ const listeners = new Set<() => void>();
 /**
  * Where the whole changeset came from, when that is one thing the operator
  * should keep in view while reviewing it: a project's plan, staged on its own,
- * whose heading names the project and the directory it was planned against, or
- * a saved plan, which is applied whole or not at all.
+ * whose heading names the project and the directory it was planned against, a
+ * saved plan, which is applied whole or not at all, or one modification staged
+ * over a table's selection.
  *
  * It is true only while the changeset is exactly what was staged, so any
  * other change to the basket -- adding, removing, reordering, clearing --
