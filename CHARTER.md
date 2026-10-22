@@ -114,7 +114,7 @@ this happens.
 
 Not substituted without a decision on the record.
 
-- **Go** (the floor is the `go` line in `go.mod`, currently 1.27.2), Fiber
+- **Go** (the floor is the `go` line in `go.mod`, currently 1.27.3), Fiber
   for HTTP, `go-ldap/ldap/v3` for the protocol, `slog` for logging, Cobra
   for the command line. No ORM, no database.
 - **Spec-first API.** `api/openapi.yaml` is the source of truth; the Go

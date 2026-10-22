@@ -18,7 +18,7 @@ COPY web/ ./
 RUN npm run build
 
 # --- the binary ---------------------------------------------------------------
-# The line, not the patch. go.mod requires go 1.27.2 and the official image
+# The line, not the patch. go.mod requires go 1.27.3 and the official image
 # sets GOTOOLCHAIN=local, so an image older than the floor fails the build
 # outright instead of quietly compiling against an unpatched standard library.
 FROM golang:1.27-bookworm AS build
