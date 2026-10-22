@@ -1,7 +1,11 @@
 # Saved searches, kept in a project
 
-**Status: proposed (2026-10-21), for review. No code until it is accepted.**
-The first of the next open-source features. Nothing here changes the
+**Status: accepted (2026-10-22), Option B, with every open question
+answered as recommended and one change: there is no `POST /search/file`.**
+*Save as file* renders the YAML in the browser from the URL parameters, and
+`alder project validate` is the check. The decision is in
+`docs/DECISIONS.md` ("2026-10-22 — saved searches: accepted"). The first of
+the next open-source features. Nothing here changes the
 charter; one decision of the project format's review is extended, and the
 client's dependency rule gains one package (see "Does it need a charter
 change?").
@@ -259,8 +263,10 @@ alder project search --env dev locked-accounts --json     # POST /search's respo
 - **Saving goes the other way as a file.** The search page gains *Save as
   file*, which downloads the current search as a `.search.yaml`, for the
   person to commit to the project. Alder never writes into the person's
-  folder, and the file is rendered by the server from the filter it parsed
-  (the reason `SearchResponse.command` is rendered there).
+  folder. *Accepted with a change:* the file is rendered in the browser from
+  the search's URL parameters, as typed, and `alder project validate` is the
+  check of what was written -- the one reader, rather than a second endpoint
+  that would render what the server parsed. No endpoint is added for it.
 - **The project, and its searches, are not kept.** A refresh forgets them,
   as it forgets an opened project today.
 
@@ -286,17 +292,6 @@ on the object views stays per tab.
     type: array
     items: { $ref: SavedSearch }
 
-/search/file:
-  post:
-    operationId: renderSavedSearch
-    summary: The current search as a .search.yaml document
-    requestBody: SavedSearchInput   # base, scope, filter, attributes, columns, limit, title?
-    responses:
-      "200": text/yaml, Content-Disposition: attachment
-      "400": the filter does not parse, a name is not an attribute name,
-             a sensitive attribute, a bound exceeded
-      "401": not connected
-
 /export/ldif:
   # query gains an optional `attributes` (comma-separated). Omitted, the
   # export is every user attribute, as before.
@@ -307,9 +302,7 @@ SavedSearch:
               attributes, columns, limit
 ```
 
-Rendering a file needs no session in principle; it takes one, as
-`/resolve` does, so an unauthenticated caller cannot use the instance as a
-YAML service. `Error.problems` already carries a file and line, so a bad
+`Error.problems` already carries a file and line, so a bad
 search file needs no new error shape. The `.search.yaml` format, version 1,
 is covered from the release that ships it, as `alder-plan` version 1 is.
 

@@ -1,7 +1,11 @@
 # One modification over selected entries
 
-**Status: proposed (2026-10-21), for review. No code until it is accepted.**
-The second of the next open-source features. No charter change and no API
+**Status: accepted (2026-10-22), Option A, with every open question
+answered as recommended. On membership attributes the dialog offers add and
+remove only, and the value comes from the entry picker only.** The decision
+is in `docs/DECISIONS.md` ("2026-10-22 — bulk attribute edit: accepted"),
+and the planner fix ships first as its own change. The second of the next
+open-source features. No charter change and no API
 change; one planner fix is proposed alongside it, as its own change.
 
 ---
@@ -165,7 +169,11 @@ through `stageChanges`.
 - **Replacement is refused on membership attributes** (`member`,
   `uniqueMember`, `memberUid`, `memberURL`), for the reason the membership
   actions exist: it removes whoever was added since the table was read. Add
-  and remove are offered there, one value each. On any other multi-valued
+  and remove are offered there, one value each, and *(accepted 2026-10-22)*
+  the value comes from the entry picker only, never typed: a member added is
+  an entry the directory returned. `memberUid` holds a login name and
+  `memberURL` a search, so neither can be picked and neither is offered in
+  this dialog. On any other multi-valued
   attribute, replacement says above the values *every other value of this
   attribute is removed from each entry*.
 - **Naming attributes**: an entry whose RDN uses the attribute is left out of
@@ -269,4 +277,5 @@ excluded line does not have to infer them.
    tools (`docs/proposals/group-membership-tools.md`) cover them?
    Recommendation: allowed for add and remove only, so "add this group to
    the `seeAlso` of twelve entries" and "add `cn=vpn` to the `member` of
-   these groups" do not need two tools.
+   these groups" do not need two tools. *Accepted, with the value from the
+   entry picker only.*

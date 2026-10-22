@@ -1,8 +1,13 @@
 # Group membership tools: many members at once, and members nobody can find
 
-**Status: proposed (2026-10-21), for review. No code until it is accepted.**
-The third of the next open-source features. No charter change; one new
-read-only endpoint.
+**Status: accepted (2026-10-22) with changes.** Part 1 as proposed, one
+record per group, with the single-value actions kept as the fallback for a
+busy group. Part 2 is accepted with four additions, written into it below
+("Accepted with additions"), and is accepted as built only once they are in
+it. The `GET /members` fix of open question 1 ships first, on its own. The
+decision is in `docs/DECISIONS.md` ("2026-10-22 — group membership tools:
+accepted with changes"). The third of the next open-source features. No
+charter change; one new read-only endpoint.
 
 ---
 
@@ -117,6 +122,10 @@ offers nothing to do about them. Across a directory there is no list at all.
   with nothing written, and planning again shows the new list. That is
   stricter than the single-value actions, which succeed for both
   administrators; it is the honest price of one record, and it fails safe.
+- **The single-value actions stay** *(accepted 2026-10-22)*. *Add member*
+  and *Remove member* are kept as they are, and a many-member record refused
+  as `plan_stale` says so and offers them: on a group busy enough that one
+  record keeps going stale, one value at a time is what still applies.
 - **Bounds.** At most 1,000 values in one record. Both servers accept far
   larger modifications; the limit is the review, and the plan's
   `membership.gained` is what the changeset shows instead of a thousand
@@ -138,12 +147,56 @@ offers nothing to do about them. Across a directory there is no list at all.
   query, and OpenLDAP's `refint` and 389 DS's Referential Integrity plugin
   act on deletes going forward; they do not report what is already there.
 
-### Recommendation: B
+### Recommendation: B, narrowed to what the groups name
 
-It costs one bounded search per naming context however many groups there
-are, it is whole or refused like a capture (a directory past 50,000 entries
+It is whole or refused like a capture (a directory past 50,000 entries read
 is told so, and the report is not made rather than made from part of the
-tree), and it uses the comparison the unmanaged report already uses.
+tree), and it uses the comparison the unmanaged report already uses. As
+accepted, it does not read whole naming contexts; see below.
+
+### Accepted with additions (2026-10-22)
+
+These are conditions of acceptance, and Part 2 is built with all four.
+
+1. **What is read is narrowed to what the groups name.** The DN-valued
+   membership values are collected first, and existence is read only where
+   they are:
+   - **Few names, read directly.** With at most 200 distinct DNs, each is read
+     on its own as a base search for no attributes (`1.1`). *No such object*
+     is *not found*; any other outcome is handled by addition 2 or 3.
+   - **Otherwise, under their deepest common ancestors.** The DNs' parents
+     are collected and a parent at or below another is dropped. While more
+     than 50 bases remain, the deepest are replaced by their own parents,
+     merging those that meet. Each base is searched one level down when it
+     is a parent of the names themselves, and as a subtree otherwise, for
+     names only (`1.1`), paged. A base is never above the naming context it
+     is in, and never in the configuration or schema trees.
+   - **The 50,000 ceiling is on what is actually read**, summed over every
+     search the audit makes. Past it, the audit is refused whole and says
+     how many entries it would have had to read.
+2. **Refused whole on any incomplete search.** `sizeLimitExceeded`,
+   `timeLimitExceeded` and `adminLimitExceeded` refuse the audit, as does a
+   search the driver reports as `Truncated`, the groups' own search
+   included. The driver maps `sizeLimitExceeded` to `Truncated` today
+   (`internal/directory/ldapdriver/ops.go`, the unpaged path), which is the
+   right answer for a search page and the wrong one here: an existence read
+   that stopped early would turn every name after the stop into *not found*.
+   So the audit treats truncation, however it is reported, as a refusal,
+   with the limit and the base named. More groups below the base than the
+   audit reads is a refusal too ("narrow the base"), so the response has no
+   `truncated` field. One test per case.
+3. **A referral makes what is below it "not checked", never "not found".**
+   Any DN at or below the DN of a referral (a search result reference, or a
+   referral result on a direct read) is reported as *not checked* with
+   `below_referral`, naming the referral. A referral whose URL names no DN
+   Alder can parse makes everything under that search's base *not checked*.
+   Referrals are not chased; that would dial a host named in a directory
+   value. A test with a referral object seeded in the harness, identically on
+   both servers.
+4. **The staging confirmation repeats the caveat.** The dialog that stages
+   the clean-up says, above its button, *Not found by `<bind>`; an entry this
+   bind may not see is removed the same way*, with the bind spelled out, not
+   only the report's heading.
 
 ### The report
 
@@ -155,8 +208,9 @@ groups below the view's base, at most 2,000 groups, and shows:
   it: *Not found by `cn=alder,ou=services,…`. An entry this bind may not see
   is reported the same way as one that was deleted.* Never the word
   "deleted".
-- **Values not checked**: values outside every naming context read, and
-  values that are not DNs (`memberUid`, `memberURL`), counted and listed.
+- **Values not checked**: values outside every naming context, values at or
+  below a referral, and values that are not DNs (`memberUid`, `memberURL`),
+  counted and listed with the reason.
 - **Groups that would be left empty** if every value not found were removed,
   counting all their membership attributes. For each it says whether its
   classes **require** a member (`groupOfNames`, `groupOfUniqueNames`: the
@@ -201,22 +255,25 @@ groups below the view's base, at most 2,000 groups, and shows:
       "200": MemberAudit
       "400": bad base; a base under the configuration or schema tree
       "401": not connected
-      # a naming context holding more than 50,000 entries is refused with
-      # the status and code a data capture uses for the same ceiling, and
-      # no report is made: whole or not at all
+      # refused whole, with nothing reported: more than 50,000 entries to
+      # read, more groups than `limit`, or any search that ended in
+      # sizeLimitExceeded, timeLimitExceeded, adminLimitExceeded or was
+      # truncated. The status and code are a data capture's for the ceiling,
+      # and one new Error code, `audit_incomplete`, names the search and the
+      # limit for the rest.
 
 MemberAudit:
-  required: [bind, readAt, groups, truncated, contexts]
+  required: [bind, readAt, groups, read]
   properties:
     bind: string                     # the identity that ran it
     readAt: string (date-time)
-    contexts: [ { dn, entries } ]    # what was read to check against
-    truncated: boolean               # more groups than `limit`
+    read: [ { base, scope, entries } ]   # every search made to check against
+    referrals: [ { url, dn? } ]      # returned, never followed
     groups:
       - dn: string
         classesRequireMember: boolean
         notFound: [ { attribute, value } ]
-        notChecked: [ { attribute, value, reason } ]   # outside_contexts | not_a_dn
+        notChecked: [ { attribute, value, reason } ]   # outside_contexts | below_referral | not_a_dn
         remaining: integer          # values left if every notFound is removed
         noPersonThroughNesting: boolean
     cycles: [ string ]
@@ -225,7 +282,8 @@ MemberAudit:
 Nothing else changes. Adding and removing many members, and the clean-up,
 are `ChangeRequest`s the changeset already takes, and the re-check before
 staging uses `GET /entry` (a `404` is *not found*, anything else keeps the
-value and says so). `GET /members` is unchanged.
+value and says so). `GET /members` changes only by the fix of open question
+1, which ships first.
 
 ### Tests
 
@@ -239,7 +297,17 @@ value and says so). `GET /members` is unchanged.
   driver; the second is left out; the plan of a removal of its last value is
   `invalid` with `missing_required_attribute`. A many-member add where one
   member is already present plans and applies with that one left out.
-- **Unit**: the comparison by `dn.Key` (case, spacing, a multi-valued RDN,
+- **Conformance, for the additions**: a referral object seeded in the
+  harness on both servers, with a group naming a DN below it, reported as
+  `below_referral` and never as not found; an audit whose read is narrowed
+  to the members' parents reads fewer entries than the naming context holds;
+  and one case each for a search ending in `sizeLimitExceeded`,
+  `timeLimitExceeded` and `adminLimitExceeded` and one reported truncated,
+  each refusing the audit whole. Where a server cannot be made to return a
+  limit on demand, the case runs against a driver double that returns it,
+  and says so.
+- **Unit**: the narrowing (few names read directly; parents merged into at
+  most 50 bases; never above a naming context), the comparison by `dn.Key` (case, spacing, a multi-valued RDN,
   `uniqueMember`'s `#'…'B` suffix), the bounds, the cycle refusal on add, and
   the HTTP layer's refusals.
 - **Playwright journeys**: add five people to a group from a search
@@ -277,14 +345,13 @@ report into "deleted members".
    Today a timeout or a refused read is listed as dangling. Recommendation:
    a separate `fix(api)`: only *no such object* is dangling, anything else
    is reported as an error on the walk, because the audit will reuse the
-   wording and should not inherit the gap.
+   wording and should not inherit the gap. *Accepted; it ships first.*
 2. **One record per group for many members (B), or one per member (A)?**
    Recommendation: B, for the review; A only if the stricter concurrency of
    B turns out to bite in practice.
 3. **The 50,000-entry ceiling.** Recommendation: the capture's, so one number
-   means "too large to read whole" everywhere. A directory beyond it can run
-   the audit on a smaller base once the base narrows what is read, which is
-   a later slice.
+   means "too large to read whole" everywhere. *Accepted, on what is actually
+   read, with the reads narrowed as addition 1 says.*
 4. **Report referential integrity's state** (OpenLDAP `refint`, 389 DS's
    plugin) above the audit? Recommendation: not in this slice; it is a
    configuration read with its own vendor-model question (charter, section
