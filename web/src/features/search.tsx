@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
-import type { SearchResponse } from "@/lib/api";
+import type { SearchResponse, SearchResultEntry } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ import {
 } from "@/components/ui";
 import { ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
+import { BulkEditDialog } from "@/features/bulk-edit";
 import { ExportMenu } from "@/components/export-menu";
 import { DownloadButton, LdifBlock } from "@/components/ldif-block";
 import {
@@ -292,6 +293,7 @@ function Results({
 }) {
   const [staging, setStaging] = useState<StageOutcome | null>(null);
   const [showCommand, setShowCommand] = useState(false);
+  const [editing, setEditing] = useState<SearchResultEntry[] | null>(null);
   // The columns are the attributes that were asked for and that something
   // actually returned. A search spans object classes, so a fixed set would show
   // an email column over a page of organizational units.
@@ -412,6 +414,7 @@ function Results({
           onOpen={onOpenEntry}
           onEdit={(dn) => onOpenEntry(dn, true)}
           onStageDeletes={(dns) => setStaging(stageDeletions(dns))}
+          onEditAttribute={setEditing}
           onExport={(dn) => {
             const params = new URLSearchParams({ dn, scope: "base" });
             window.location.href = "/api/v1/export/ldif?" + params.toString();
@@ -429,6 +432,13 @@ function Results({
           }
         />
       </div>
+
+      <BulkEditDialog
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
+        entries={editing ?? []}
+        onStaged={setStaging}
+      />
     </div>
   );
 }

@@ -39,6 +39,7 @@ import { RecoveryLoader } from "@/features/recovery-loader";
 import { SavedPlanHeading, SavedPlanLoader } from "@/features/saved-plan-loader";
 import { savedPlanRefusal, sessionMismatch } from "@/lib/saved-plan";
 import { ProjectHeading } from "@/features/project";
+import { BulkEditHeading } from "@/features/bulk-edit";
 import { safeText } from "@/lib/display";
 
 /**
@@ -286,7 +287,13 @@ export function ChangesetView({
 
       {origin ? (
         <div className="mb-4">
-          {origin.kind === "project" ? <ProjectHeading origin={origin} /> : <SavedPlanHeading origin={origin} />}
+          {origin.kind === "project" ? (
+            <ProjectHeading origin={origin} />
+          ) : origin.kind === "bulk-edit" ? (
+            <BulkEditHeading origin={origin} />
+          ) : (
+            <SavedPlanHeading origin={origin} />
+          )}
         </div>
       ) : null}
 

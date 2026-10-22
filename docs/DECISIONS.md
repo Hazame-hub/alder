@@ -6678,6 +6678,39 @@ with a name spelled in capitals and with spaces), the add the planner calls
 `unchanged` is refused by the server as `attributeOrValueExists`, and the
 delete it calls `modify` removes the stored value.
 
+### 2026-10-22 — bulk attribute edit, as built
+
+`docs/proposals/bulk-attribute-edit.md`, Option A, with every open question
+answered as recommended and membership values from the entry picker only. The
+browser composes one `ChangeRequest` per selected DN (`web/src/lib/bulk-edit.ts`)
+and stages them through `stageChanges`; there is no API change. It stays on the
+allowed side of the excluded bulk provisioning for the four reasons the
+proposal gives: the DNs are ones the directory returned, every record is a
+`modify`, the value is the operator's and the same for every entry, and the
+set is fixed when it is staged.
+
+- **An add and a removal carry one value.** The proposal's table says "values".
+  The plan-equality decision above records why one is right: an add of two
+  values of which an entry holds one is refused by the directory whole, and the
+  planner reports it rather than rewriting it. With one value per record the
+  plan's `unchanged` is exact, and a second value is a second edit. A
+  replacement takes the whole list, which is what it means.
+- **Offered attributes come from the rows' own `objectClass`**, one
+  `GET /schema/requirements` per distinct set of classes, at most 20 sets.
+  Never offered: a sensitive, operational, `NO-USER-MODIFICATION`, obsolete,
+  undefined or `elsewhere` attribute, a password, binary, certificate or image
+  value, `objectClass`, `memberUid` and `memberURL`. `member` and
+  `uniqueMember` take add or remove, one picked entry.
+- **The naming exclusion reads the leftmost RDN's types in the browser.** The
+  server is still the authority on the DN; a type this misses is refused by the
+  directory at apply as `notAllowedOnRDN`, as it was before.
+- **The configuration tree and the schema entry are refused as a selection**,
+  from the locations the session announces (`config.dn`, `subschemaSubentry`),
+  as `configPlace` decides elsewhere.
+- **The heading** ("One modification over N entries: …") is set only when the
+  changeset was empty, and dropped on any other change to the basket, as a
+  project's is.
+
 ### 2026-10-22 — saved searches, as built
 
 Saved searches as accepted (`docs/proposals/saved-searches.md`): one
