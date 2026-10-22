@@ -175,8 +175,34 @@ func TestTheMembershipAuditOnBothServers(t *testing.T) {
 			}
 		})
 
+		// Whether this server answers this bind with a referral at all, asked
+		// of the server rather than assumed: a plain search, without the
+		// control, at the referral object and below it.
+		refers := false
+		for _, target := range []string{auditDN("ou=remote"), remote} {
+			res, err := raw.Search(ldap.NewSearchRequest(target, ldap.ScopeBaseObject, ldap.NeverDerefAliases,
+				0, 0, false, "(objectClass=*)", []string{"1.1"}, nil))
+			got := 0
+			if res != nil {
+				got = len(res.Entries)
+				refers = refers || len(res.Referrals) > 0
+			}
+			refers = refers || ldap.IsErrorWithCode(err, ldap.LDAPResultReferral)
+			t.Logf("%s answers a base search of %s with error %v and %d entries", s.name, target, err, got)
+		}
+
 		t.Run("a value below a referral is not checked, never not found", func(t *testing.T) {
 			g := auditGroup(t, audit, "cn=ma-remote")
+			if !refers {
+				// The server sends this bind no referral for the object, so
+				// there is none to report, and the value is not found by this
+				// bind -- which is what the audit has to say.
+				t.Logf("%s returns no referral to %s for the referral object", s.name, s.bindDN)
+				if len(audit.Referrals) != 0 || len(g.NotFound) != 1 {
+					t.Errorf("ma-remote = %s, referrals %s", mustEncode(t, g), mustEncode(t, audit.Referrals))
+				}
+				return
+			}
 			if len(g.NotFound) != 0 || len(g.NotChecked) != 1 || g.NotChecked[0].Reason != api.UncheckedBelowReferral {
 				t.Errorf("ma-remote = %s", mustEncode(t, g))
 			}
@@ -219,10 +245,16 @@ func TestTheMembershipAuditOnBothServers(t *testing.T) {
 			}
 			// The groups' own search, then the names' common parent, one level
 			// down: a handful of entries, not the 320 the suffix holds.
+			// One level down where every name is a child of the ou; a subtree
+			// where one is deeper, which ma-x is when no referral stood for it.
+			want := api.MemberAuditReadScopeOne
+			if !refers {
+				want = api.MemberAuditReadScopeSub
+			}
 			read := 0
 			for _, r := range again.Read[1:] {
-				if !strings.EqualFold(r.Base, auditOU) || r.Scope != api.MemberAuditReadScopeOne {
-					t.Errorf("existence read %+v, want one level under %s", r, auditOU)
+				if !strings.EqualFold(r.Base, auditOU) || r.Scope != want {
+					t.Errorf("existence read %+v, want %s under %s", r, want, auditOU)
 				}
 				read += r.Entries
 			}
