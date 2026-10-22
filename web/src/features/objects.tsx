@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Info, Loader2, RefreshCw } from "lucide-react";
+import { Info, Loader2, RefreshCw, UserSearch } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
 import type {
   ApiFailure,
@@ -27,6 +27,7 @@ import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
 import { BulkEditDialog } from "@/features/bulk-edit";
 import { GroupMembersDialog, pickedFromRows } from "@/features/group-members";
+import { MemberAuditDialog } from "@/features/member-audit";
 import type { MembersOperation } from "@/lib/group-members";
 import { ExportMenu } from "@/components/export-menu";
 import { InventoryButton } from "@/features/inventory";
@@ -107,6 +108,7 @@ export function ObjectListPanel({
   const [membership, setMembership] = useState<{ rows: SearchResultEntry[]; op: MembersOperation } | null>(null);
   const [membersChange, setMembersChange] = useState<ChangeRequest | null>(null);
   const [narrow, setNarrow] = useState("");
+  const [auditing, setAuditing] = useState(false);
 
   // A connection change can leave the old base selected, which would search a
   // suffix this server does not hold.
@@ -264,6 +266,12 @@ export function ObjectListPanel({
                   : undefined
               }
             />
+            {viewId === "groups" ? (
+              <Button variant="outline" size="sm" onClick={() => setAuditing(true)}>
+                <UserSearch />
+                Check membership
+              </Button>
+            ) : null}
             <InventoryButton base={base} />
             <ExportMenu
               dn={base}
@@ -377,6 +385,18 @@ export function ObjectListPanel({
         title="Delete this entry"
         destructive
         onApplied={() => void results.refetch()}
+      />
+
+      <MemberAuditDialog
+        open={auditing}
+        onOpenChange={setAuditing}
+        base={base}
+        readOnly={readOnly}
+        onOpenEntry={(dn) => {
+          setAuditing(false);
+          onOpenEntry(dn);
+        }}
+        onStaged={setStaging}
       />
 
       <BulkEditDialog

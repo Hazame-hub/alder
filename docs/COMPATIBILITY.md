@@ -750,6 +750,19 @@ A recovery bundle compensates a configuration-tree access rule
   expectation, as for any other setting, so a 1.38 release reads a bundle
   1.39 wrote.
 
+A membership audit reports the values groups name that the bind cannot find
+([proposals/group-membership-tools.md](proposals/group-membership-tools.md)).
+Only additions:
+
+- **`POST /members/audit`**, a new read-only endpoint, and its response
+  schema `MemberAudit`.
+- **`Error.error` gains `audit_incomplete`**, for an audit refused because a
+  search stopped early. Its ceiling refusal reuses `snapshot_too_large`. A
+  client that does not know the code sees a 400 with a message.
+- **A modify that leaves a required attribute with no value plans as
+  `invalid` with `missing_required_attribute`**, an existing code, where it
+  planned as `modify` and the directory then refused it.
+
 ---
 
 ## Not covered

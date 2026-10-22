@@ -245,6 +245,21 @@ between the plan and the apply, the change is refused with nothing written;
 busy. [proposals/group-membership-tools.md](proposals/group-membership-tools.md)
 is the design.
 
+**Find members nobody can find.** On the Groups view, *Check membership* reads
+every group below the base (at most 2,000) and whether each DN its `member`
+and `uniqueMember` values name exists. The report is headed, always, by the
+identity that ran it: *not found by* that bind, because a directory answers
+the same way for an entry that was deleted and one the bind may not see. It
+lists the values not found, the values it could not check (outside every
+naming context, below a referral it does not follow, or not DNs at all), the
+groups a clean-up would leave empty and whether their classes require a
+member, the groups left with no person through nesting, and cycles. It is whole
+or refused: a server limit, a truncated search, more groups than the limit or
+more than 50,000 entries to read refuses it with nothing reported. The clean-up
+is chosen value by value, read once more before it is staged, and becomes one
+change per group and attribute in the changeset; a group whose classes require
+a member is never emptied by it.
+
 **Prepare a recovery before you apply.** A plan says how recoverable each change
 is -- exact, partial or unavailable -- and why. Exact is about the ordinary
 directory data the change touches, not timestamps, server-generated identifiers

@@ -619,6 +619,7 @@ func (e ErrorCause) Valid() bool {
 
 // Defines values for ErrorError.
 const (
+	ErrorErrorAuditIncomplete              ErrorError = "audit_incomplete"
 	ErrorErrorBadRequest                   ErrorError = "bad_request"
 	ErrorErrorConfigModelUnavailable       ErrorError = "config_model_unavailable"
 	ErrorErrorConflict                     ErrorError = "conflict"
@@ -654,6 +655,8 @@ const (
 // Valid indicates whether the value is a known member of the ErrorError enum.
 func (e ErrorError) Valid() bool {
 	switch e {
+	case ErrorErrorAuditIncomplete:
+		return true
 	case ErrorErrorBadRequest:
 		return true
 	case ErrorErrorConfigModelUnavailable:
@@ -734,6 +737,48 @@ func (e InventoryRequestScope) Valid() bool {
 	case InventoryRequestScopeOne:
 		return true
 	case InventoryRequestScopeSub:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemberAuditReadScope.
+const (
+	MemberAuditReadScopeBase MemberAuditReadScope = "base"
+	MemberAuditReadScopeOne  MemberAuditReadScope = "one"
+	MemberAuditReadScopeSub  MemberAuditReadScope = "sub"
+)
+
+// Valid indicates whether the value is a known member of the MemberAuditReadScope enum.
+func (e MemberAuditReadScope) Valid() bool {
+	switch e {
+	case MemberAuditReadScopeBase:
+		return true
+	case MemberAuditReadScopeOne:
+		return true
+	case MemberAuditReadScopeSub:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemberAuditUncheckedReason.
+const (
+	UncheckedBelowReferral   MemberAuditUncheckedReason = "below_referral"
+	UncheckedNotADn          MemberAuditUncheckedReason = "not_a_dn"
+	UncheckedOutsideContexts MemberAuditUncheckedReason = "outside_contexts"
+)
+
+// Valid indicates whether the value is a known member of the MemberAuditUncheckedReason enum.
+func (e MemberAuditUncheckedReason) Valid() bool {
+	switch e {
+	case UncheckedBelowReferral:
+		return true
+	case UncheckedNotADn:
+		return true
+	case UncheckedOutsideContexts:
 		return true
 	default:
 		return false
@@ -4023,6 +4068,92 @@ type MatchingRuleSummary struct {
 	Syntax   *string `json:"syntax,omitempty"`
 }
 
+// MemberAudit defines model for MemberAudit.
+type MemberAudit struct {
+	// Bind The identity that ran the audit, empty for an anonymous bind.
+	// Everything reported as not found was not found by this identity.
+	Bind string `json:"bind"`
+
+	// Cycles Groups among those read that contain themselves, directly or through others.
+	Cycles []string `json:"cycles"`
+
+	// Groups Every group read, in the order the server returned them.
+	Groups []MemberAuditGroup `json:"groups"`
+
+	// Read Every search made to check against, with how many entries each returned.
+	Read   []MemberAuditRead `json:"read"`
+	ReadAt time.Time         `json:"readAt"`
+
+	// Referrals Referrals the server returned instead of entries. Never followed.
+	Referrals []MemberAuditReferral `json:"referrals"`
+}
+
+// MemberAuditGroup defines model for MemberAuditGroup.
+type MemberAuditGroup struct {
+	// ClassesRequireMember Whether the group's classes require a membership attribute
+	// (`groupOfNames`, `groupOfUniqueNames`). Removing its last value is
+	// then refused by the plan; the group can only be deleted.
+	ClassesRequireMember bool   `json:"classesRequireMember"`
+	Dn                   string `json:"dn"`
+
+	// NoPersonThroughNesting The group's remaining members are only groups among those read
+	// that would themselves be left empty or hold no person. Computed
+	// from the same read, not from a fresh walk.
+	NoPersonThroughNesting bool                   `json:"noPersonThroughNesting"`
+	NotChecked             []MemberAuditUnchecked `json:"notChecked"`
+	NotFound               []MemberAuditValue     `json:"notFound"`
+
+	// Remaining Membership values left, over every membership attribute, if every value not found were removed.
+	Remaining int `json:"remaining"`
+}
+
+// MemberAuditRead defines model for MemberAuditRead.
+type MemberAuditRead struct {
+	Base    string               `json:"base"`
+	Entries int                  `json:"entries"`
+	Scope   MemberAuditReadScope `json:"scope"`
+}
+
+// MemberAuditReadScope defines model for MemberAuditRead.Scope.
+type MemberAuditReadScope string
+
+// MemberAuditReferral defines model for MemberAuditReferral.
+type MemberAuditReferral struct {
+	// Dn The DN the referral stands for, when its URL names one Alder can parse.
+	Dn  *string `json:"dn,omitempty"`
+	Url string  `json:"url"`
+}
+
+// MemberAuditRequest defines model for MemberAuditRequest.
+type MemberAuditRequest struct {
+	// Base Where the groups are. Directory data, never the configuration or schema tree.
+	Base string `json:"base"`
+
+	// Limit The most groups to audit. More below the base refuses the audit.
+	Limit *int `json:"limit,omitempty"`
+}
+
+// MemberAuditUnchecked defines model for MemberAuditUnchecked.
+type MemberAuditUnchecked struct {
+	Attribute string                     `json:"attribute"`
+	Reason    MemberAuditUncheckedReason `json:"reason"`
+
+	// Referral For below_referral, the referral's URL, or its DN when the server sent no URL.
+	Referral *string `json:"referral,omitempty"`
+	Value    string  `json:"value"`
+}
+
+// MemberAuditUncheckedReason defines model for MemberAuditUnchecked.Reason.
+type MemberAuditUncheckedReason string
+
+// MemberAuditValue defines model for MemberAuditValue.
+type MemberAuditValue struct {
+	Attribute string `json:"attribute"`
+
+	// Value The value exactly as the group stores it, so a removal names it as stored.
+	Value string `json:"value"`
+}
+
 // MemberList defines model for MemberList.
 type MemberList struct {
 	// Cycles Groups that contain themselves, directly or through others. A
@@ -6525,6 +6656,9 @@ type ParseLdifJSONRequestBody = ImportRequest
 // InventoryValuesJSONRequestBody defines body for InventoryValues for application/json ContentType.
 type InventoryValuesJSONRequestBody = InventoryRequest
 
+// AuditMembersJSONRequestBody defines body for AuditMembers for application/json ContentType.
+type AuditMembersJSONRequestBody = MemberAuditRequest
+
 // BuildPackageJSONRequestBody defines body for BuildPackage for application/json ContentType.
 type BuildPackageJSONRequestBody = PackageBuildRequest
 
@@ -7538,6 +7672,62 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /members (the `ExpandMembers` operationId).
 	ExpandMembers(ctx context.Context, params *ExpandMembersParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuditMembersWithBody Membership values that name no entry this bind can find, and the groups a clean-up would empty
+	//
+	// Reads the groups below `base` and their DN-valued membership values
+	// (`member`, `uniqueMember`), then reads whether each named entry exists
+	// -- one base read per name when there are at most 200, otherwise a
+	// paged, names-only search under at most 50 of their common ancestors.
+	// Nothing is written.
+	//
+	// **"Not found" is never "deleted".** A server answers *no such object*
+	// both for an entry that was deleted and for one this bind may not see,
+	// so every value reported is reported as not found *by `bind`*.
+	//
+	// **Whole or refused.** More groups than `limit`, more than 50,000
+	// entries to read, or any search that ended in `sizeLimitExceeded`,
+	// `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+	// the audit with nothing reported: a read that stopped early would turn
+	// every name after the stop into *not found*. The ceiling answers as a
+	// data capture's does (`snapshot_too_large`); the rest answer
+	// `audit_incomplete`, naming the search and the limit.
+	//
+	// **Referrals are reported, never followed.** A value at or below a
+	// referral is *not checked*, not *not found*. Added in 1.39.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /members/audit (the `AuditMembers` operationId).
+	AuditMembersWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuditMembers Membership values that name no entry this bind can find, and the groups a clean-up would empty
+	//
+	// Reads the groups below `base` and their DN-valued membership values
+	// (`member`, `uniqueMember`), then reads whether each named entry exists
+	// -- one base read per name when there are at most 200, otherwise a
+	// paged, names-only search under at most 50 of their common ancestors.
+	// Nothing is written.
+	//
+	// **"Not found" is never "deleted".** A server answers *no such object*
+	// both for an entry that was deleted and for one this bind may not see,
+	// so every value reported is reported as not found *by `bind`*.
+	//
+	// **Whole or refused.** More groups than `limit`, more than 50,000
+	// entries to read, or any search that ended in `sizeLimitExceeded`,
+	// `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+	// the audit with nothing reported: a read that stopped early would turn
+	// every name after the stop into *not found*. The ceiling answers as a
+	// data capture's does (`snapshot_too_large`); the rest answer
+	// `audit_incomplete`, naming the search and the limit.
+	//
+	// **Referrals are reported, never followed.** A value at or below a
+	// referral is *not checked*, not *not found*. Added in 1.39.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /members/audit (the `AuditMembers` operationId).
+	AuditMembers(ctx context.Context, body AuditMembersJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// BuildPackageWithBody Build a change package from changes
 	//
@@ -9522,6 +9712,82 @@ func (c *Client) InventoryValues(ctx context.Context, body InventoryValuesJSONRe
 // Corresponds with GET /members (the `ExpandMembers` operationId).
 func (c *Client) ExpandMembers(ctx context.Context, params *ExpandMembersParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewExpandMembersRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuditMembersWithBody Membership values that name no entry this bind can find, and the groups a clean-up would empty
+//
+// Reads the groups below `base` and their DN-valued membership values
+// (`member`, `uniqueMember`), then reads whether each named entry exists
+// -- one base read per name when there are at most 200, otherwise a
+// paged, names-only search under at most 50 of their common ancestors.
+// Nothing is written.
+//
+// **"Not found" is never "deleted".** A server answers *no such object*
+// both for an entry that was deleted and for one this bind may not see,
+// so every value reported is reported as not found *by `bind`*.
+//
+// **Whole or refused.** More groups than `limit`, more than 50,000
+// entries to read, or any search that ended in `sizeLimitExceeded`,
+// `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+// the audit with nothing reported: a read that stopped early would turn
+// every name after the stop into *not found*. The ceiling answers as a
+// data capture's does (`snapshot_too_large`); the rest answer
+// `audit_incomplete`, naming the search and the limit.
+//
+// **Referrals are reported, never followed.** A value at or below a
+// referral is *not checked*, not *not found*. Added in 1.39.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /members/audit (the `AuditMembers` operationId).
+func (c *Client) AuditMembersWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuditMembersRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuditMembers Membership values that name no entry this bind can find, and the groups a clean-up would empty
+//
+// Reads the groups below `base` and their DN-valued membership values
+// (`member`, `uniqueMember`), then reads whether each named entry exists
+// -- one base read per name when there are at most 200, otherwise a
+// paged, names-only search under at most 50 of their common ancestors.
+// Nothing is written.
+//
+// **"Not found" is never "deleted".** A server answers *no such object*
+// both for an entry that was deleted and for one this bind may not see,
+// so every value reported is reported as not found *by `bind`*.
+//
+// **Whole or refused.** More groups than `limit`, more than 50,000
+// entries to read, or any search that ended in `sizeLimitExceeded`,
+// `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+// the audit with nothing reported: a read that stopped early would turn
+// every name after the stop into *not found*. The ceiling answers as a
+// data capture's does (`snapshot_too_large`); the rest answer
+// `audit_incomplete`, naming the search and the limit.
+//
+// **Referrals are reported, never followed.** A value at or below a
+// referral is *not checked*, not *not found*. Added in 1.39.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /members/audit (the `AuditMembers` operationId).
+func (c *Client) AuditMembers(ctx context.Context, body AuditMembersJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuditMembersRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -12224,6 +12490,46 @@ func NewExpandMembersRequest(server string, params *ExpandMembersParams) (*http.
 	return req, nil
 }
 
+// NewAuditMembersRequest calls the generic AuditMembers builder with application/json body
+func NewAuditMembersRequest(server string, body AuditMembersJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuditMembersRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuditMembersRequestWithBody constructs an http.Request for the AuditMembers method, with any body, and a specified content type
+func NewAuditMembersRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/members/audit")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewBuildPackageRequest calls the generic BuildPackage builder with application/json body
 func NewBuildPackageRequest(server string, body BuildPackageJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -14241,6 +14547,62 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /members (the `ExpandMembers` operationId).
 	ExpandMembersWithResponse(ctx context.Context, params *ExpandMembersParams, reqEditors ...RequestEditorFn) (*ExpandMembersReply, error)
+
+	// AuditMembersWithBodyWithResponse Membership values that name no entry this bind can find, and the groups a clean-up would empty
+	//
+	// Reads the groups below `base` and their DN-valued membership values
+	// (`member`, `uniqueMember`), then reads whether each named entry exists
+	// -- one base read per name when there are at most 200, otherwise a
+	// paged, names-only search under at most 50 of their common ancestors.
+	// Nothing is written.
+	//
+	// **"Not found" is never "deleted".** A server answers *no such object*
+	// both for an entry that was deleted and for one this bind may not see,
+	// so every value reported is reported as not found *by `bind`*.
+	//
+	// **Whole or refused.** More groups than `limit`, more than 50,000
+	// entries to read, or any search that ended in `sizeLimitExceeded`,
+	// `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+	// the audit with nothing reported: a read that stopped early would turn
+	// every name after the stop into *not found*. The ceiling answers as a
+	// data capture's does (`snapshot_too_large`); the rest answer
+	// `audit_incomplete`, naming the search and the limit.
+	//
+	// **Referrals are reported, never followed.** A value at or below a
+	// referral is *not checked*, not *not found*. Added in 1.39.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /members/audit (the `AuditMembers` operationId).
+	AuditMembersWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuditMembersReply, error)
+
+	// AuditMembersWithResponse Membership values that name no entry this bind can find, and the groups a clean-up would empty
+	//
+	// Reads the groups below `base` and their DN-valued membership values
+	// (`member`, `uniqueMember`), then reads whether each named entry exists
+	// -- one base read per name when there are at most 200, otherwise a
+	// paged, names-only search under at most 50 of their common ancestors.
+	// Nothing is written.
+	//
+	// **"Not found" is never "deleted".** A server answers *no such object*
+	// both for an entry that was deleted and for one this bind may not see,
+	// so every value reported is reported as not found *by `bind`*.
+	//
+	// **Whole or refused.** More groups than `limit`, more than 50,000
+	// entries to read, or any search that ended in `sizeLimitExceeded`,
+	// `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+	// the audit with nothing reported: a read that stopped early would turn
+	// every name after the stop into *not found*. The ceiling answers as a
+	// data capture's does (`snapshot_too_large`); the rest answer
+	// `audit_incomplete`, naming the search and the limit.
+	//
+	// **Referrals are reported, never followed.** A value at or below a
+	// referral is *not checked*, not *not found*. Added in 1.39.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /members/audit (the `AuditMembers` operationId).
+	AuditMembersWithResponse(ctx context.Context, body AuditMembersJSONRequestBody, reqEditors ...RequestEditorFn) (*AuditMembersReply, error)
 
 	// BuildPackageWithBodyWithResponse Build a change package from changes
 	//
@@ -16548,6 +16910,68 @@ func (r ExpandMembersReply) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ExpandMembersReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AuditMembersReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MemberAudit
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuditMembersReply) GetJSON200() *MemberAudit {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AuditMembersReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AuditMembersReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AuditMembersReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r AuditMembersReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuditMembersReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuditMembersReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuditMembersReply) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -19170,6 +19594,74 @@ func (c *ClientWithResponses) ExpandMembersWithResponse(ctx context.Context, par
 	return ParseExpandMembersReply(rsp)
 }
 
+// AuditMembersWithBodyWithResponse Membership values that name no entry this bind can find, and the groups a clean-up would empty
+//
+// Reads the groups below `base` and their DN-valued membership values
+// (`member`, `uniqueMember`), then reads whether each named entry exists
+// -- one base read per name when there are at most 200, otherwise a
+// paged, names-only search under at most 50 of their common ancestors.
+// Nothing is written.
+//
+// **"Not found" is never "deleted".** A server answers *no such object*
+// both for an entry that was deleted and for one this bind may not see,
+// so every value reported is reported as not found *by `bind`*.
+//
+// **Whole or refused.** More groups than `limit`, more than 50,000
+// entries to read, or any search that ended in `sizeLimitExceeded`,
+// `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+// the audit with nothing reported: a read that stopped early would turn
+// every name after the stop into *not found*. The ceiling answers as a
+// data capture's does (`snapshot_too_large`); the rest answer
+// `audit_incomplete`, naming the search and the limit.
+//
+// **Referrals are reported, never followed.** A value at or below a
+// referral is *not checked*, not *not found*. Added in 1.39.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /members/audit (the `AuditMembers` operationId).
+func (c *ClientWithResponses) AuditMembersWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuditMembersReply, error) {
+	rsp, err := c.AuditMembersWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuditMembersReply(rsp)
+}
+
+// AuditMembersWithResponse Membership values that name no entry this bind can find, and the groups a clean-up would empty
+//
+// Reads the groups below `base` and their DN-valued membership values
+// (`member`, `uniqueMember`), then reads whether each named entry exists
+// -- one base read per name when there are at most 200, otherwise a
+// paged, names-only search under at most 50 of their common ancestors.
+// Nothing is written.
+//
+// **"Not found" is never "deleted".** A server answers *no such object*
+// both for an entry that was deleted and for one this bind may not see,
+// so every value reported is reported as not found *by `bind`*.
+//
+// **Whole or refused.** More groups than `limit`, more than 50,000
+// entries to read, or any search that ended in `sizeLimitExceeded`,
+// `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+// the audit with nothing reported: a read that stopped early would turn
+// every name after the stop into *not found*. The ceiling answers as a
+// data capture's does (`snapshot_too_large`); the rest answer
+// `audit_incomplete`, naming the search and the limit.
+//
+// **Referrals are reported, never followed.** A value at or below a
+// referral is *not checked*, not *not found*. Added in 1.39.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /members/audit (the `AuditMembers` operationId).
+func (c *ClientWithResponses) AuditMembersWithResponse(ctx context.Context, body AuditMembersJSONRequestBody, reqEditors ...RequestEditorFn) (*AuditMembersReply, error) {
+	rsp, err := c.AuditMembers(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuditMembersReply(rsp)
+}
+
 // BuildPackageWithBodyWithResponse Build a change package from changes
 //
 // Turns changes into an `alder-change-package` document (1.11): a portable
@@ -21420,6 +21912,53 @@ func ParseExpandMembersReply(rsp *http.Response) (*ExpandMembersReply, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest MemberList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuditMembersReply parses an HTTP response from a AuditMembersWithResponse call
+func ParseAuditMembersReply(rsp *http.Response) (*AuditMembersReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuditMembersReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MemberAudit
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
