@@ -8,6 +8,7 @@ import {
   FileDown,
   MoreVertical,
   Pencil,
+  PenLine,
   Trash2,
 } from "lucide-react";
 import type { SearchResultEntry } from "@/lib/api";
@@ -62,6 +63,11 @@ export type EntryTableProps = {
   onExport?: (dn: string) => void;
   /** Offered only when given; receives every selected DN. */
   onStageDeletes?: (dns: string[]) => void;
+  /**
+   * Offered only when given; receives every selected row as the table holds
+   * it, since the rows' object classes decide which attributes are offered.
+   */
+  onEditAttribute?: (entries: SearchResultEntry[]) => void;
 };
 
 type Sort = { key: string; dir: "asc" | "desc" } | null;
@@ -85,6 +91,7 @@ export function EntryTable({
   onDelete,
   onExport,
   onStageDeletes,
+  onEditAttribute,
 }: EntryTableProps) {
   const [sort, setSort] = useState<Sort>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -118,7 +125,8 @@ export function EntryTable({
       return next;
     });
 
-  const selectable = onStageDeletes !== undefined && readOnly !== true;
+  const selectable =
+    (onStageDeletes !== undefined || onEditAttribute !== undefined) && readOnly !== true;
 
   if (entries.length === 0) {
     return <div className="p-6 text-sm text-muted-foreground">{empty}</div>;
@@ -135,22 +143,38 @@ export function EntryTable({
           <span className="font-medium tabular-nums">
             {selected.size} selected
           </span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              onStageDeletes?.([...selected]);
-              setSelected(new Set());
-            }}
-          >
-            <Trash2 />
-            Stage {selected.size === 1 ? "deletion" : "deletions"}
-          </Button>
+          {onEditAttribute ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                // In the table's order, which is the order they are staged in.
+                onEditAttribute(rows.filter((e) => selected.has(e.dn)));
+                setSelected(new Set());
+              }}
+            >
+              <PenLine />
+              Edit an attribute…
+            </Button>
+          ) : null}
+          {onStageDeletes ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                onStageDeletes([...selected]);
+                setSelected(new Set());
+              }}
+            >
+              <Trash2 />
+              Stage {selected.size === 1 ? "deletion" : "deletions"}
+            </Button>
+          ) : null}
           <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
             Clear
           </Button>
           <span className="text-xs text-muted-foreground">
-            Staged, not applied. The changeset shows every deletion as one LDIF
+            Staged, not applied. The changeset shows every change as one LDIF
             document before anything is sent.
           </span>
         </div>
