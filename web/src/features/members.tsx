@@ -143,12 +143,32 @@ function MembersDialog({ dn, onClose, onNavigate }: {
                   group. */}
               {query.data.dangling?.length ? (
                 <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
-                  Named as members, but their entries could not be read — either
-                  they were deleted while this group went on naming them, or they
-                  exist and this session may not see them. The directory answers
-                  the same way to both:{" "}
+                  Named as members, but the directory says there is no such
+                  entry — either they were deleted while this group went on
+                  naming them, or they exist and this session may not see them.
+                  The directory answers the same way to both:{" "}
                   <span className="font-dn">{safeText(query.data.dangling.join(", "))}</span>
                 </p>
+              ) : null}
+
+              {/* Kept apart from the list above: a read that was refused, timed
+                  out or lost its connection says nothing about the entry, not
+                  even "no such object". */}
+              {query.data.errors?.length ? (
+                <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-tint-foreground">
+                  <p>
+                    These members could not be read, so nothing is known about
+                    them — they are neither counted nor followed:
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {query.data.errors.map((e) => (
+                      <li key={e.dn}>
+                        <span className="font-dn">{safeText(e.dn)}</span> — {safeText(e.message)}
+                        {e.ldapCode !== undefined ? ` (result ${e.ldapCode})` : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
 
               {query.data.unresolvable?.length ? (
