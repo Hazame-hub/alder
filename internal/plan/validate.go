@@ -109,6 +109,21 @@ func validate(sch *schema.Schema, op directory.ChangeRecord, live *directory.Ent
 			if p := check(name, count); p != nil {
 				return p
 			}
+			// A modify that leaves a required attribute with no value -- a
+			// delete naming every value the entry holds, or the whole
+			// attribute -- is refused by both servers as an object class
+			// violation. Only judged against values actually read: with the
+			// live entry unreadable, or the attribute not visible in it, the
+			// count of nothing left is not knowledge.
+			if judgeClasses && count == 0 && live != nil && len(live.Get(name)) > 0 {
+				if at := sch.AttributeType(schema.BaseName(name)); at != nil {
+					for _, must := range req.Must {
+						if strings.EqualFold(must, at.Name()) {
+							return &Problem{Code: ProblemMissingRequired, Attribute: must}
+						}
+					}
+				}
+			}
 		}
 	}
 	return nil
@@ -232,7 +247,7 @@ func problemReason(p Problem) string {
 	case ProblemSingleValue:
 		return fmt.Sprintf("%s is single-valued, and this change would leave it with more than one value.", p.Attribute)
 	case ProblemMissingRequired:
-		return fmt.Sprintf("The entry's object classes require %s, and this change does not supply it.", p.Attribute)
+		return fmt.Sprintf("The entry's object classes require %s, and this change would leave it without a value.", p.Attribute)
 	}
 	return "The schema does not permit this change."
 }

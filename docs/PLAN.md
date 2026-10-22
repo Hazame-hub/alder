@@ -124,7 +124,7 @@ Schema violations (`invalid`), which will not resolve by waiting:
 | `attribute_undefined` | an attribute type the schema does not define |
 | `attribute_not_permitted` | no object class on the entry permits the attribute |
 | `single_value_violation` | a single-valued attribute would hold more than one value |
-| `missing_required_attribute` | an add omits an attribute its classes require |
+| `missing_required_attribute` | an add omits an attribute its classes require, or a modify leaves one with no value |
 
 Only rules the schema states outright are checked, and they are checked against
 the operation that would actually run. A false positive here would withhold a

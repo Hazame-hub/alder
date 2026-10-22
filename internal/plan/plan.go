@@ -134,7 +134,8 @@ const (
 	ProblemAttributeNotPermitted ProblemCode = "attribute_not_permitted"
 	// ProblemSingleValue: more than one value for a single-valued attribute.
 	ProblemSingleValue ProblemCode = "single_value_violation"
-	// ProblemMissingRequired: an add that omits an attribute a class requires.
+	// ProblemMissingRequired: an add that omits an attribute a class requires,
+	// or a modify that leaves one with no value.
 	ProblemMissingRequired ProblemCode = "missing_required_attribute"
 )
 
