@@ -6710,3 +6710,30 @@ set is fixed when it is staged.
 - **The heading** ("One modification over N entries: …") is set only when the
   changeset was empty, and dropped on any other change to the basket, as a
   project's is.
+
+### 2026-10-22 — many members at once, as built
+
+Part 1 of `docs/proposals/group-membership-tools.md`, Option B, with the
+single-value actions kept as the fallback for a busy group. No API change: the
+browser composes the record (`web/src/lib/group-members.ts`) and it is planned,
+reviewed and applied through the ordinary change dialog.
+
+- **One record per group, only values that change anything.** The group is
+  read when the dialog opens; an add carries the picked DNs it does not hold,
+  a removal the ones it does, each as the group stores it. The browser's
+  comparison folds case and spaces and orders a multi-valued RDN; it errs
+  towards "different", and the plan compares again under
+  `distinguishedNameMatch`. At most 1,000 values.
+- **Only `member` and `uniqueMember`.** `memberUid` and `memberURL` cannot
+  come from a search, and keep their single-value actions.
+- **Members come from searches**, several ticked in one picker. There is no
+  box to paste DNs into.
+- **Nesting.** A picked group whose expansion (`GET /members`, 2,000) reaches
+  the target is refused with the chain; one whose expansion stopped early is
+  refused as unchecked. A person the group already reaches through another
+  group is told so, and still allowed.
+- **Stale is the price, and it is said.** The baseline binds the attribute, so
+  any member change by somebody else refuses the record as `plan_stale` with
+  nothing written. The refusal, in the change dialog and the changeset, says
+  so and names *Add member* and *Remove*, which change one value and still
+  apply.

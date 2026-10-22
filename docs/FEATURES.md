@@ -231,6 +231,20 @@ for those. The set of entries is fixed when it is staged: nothing re-runs the
 search. [proposals/bulk-attribute-edit.md](proposals/bulk-attribute-edit.md)
 is the design.
 
+**Add or remove many members at once.** On a group, *Add members…* collects
+entries from searches and *Remove members…* ticks the group's own values; on
+the search results and the object views, *Add to a group…* and *Remove from a
+group…* take the selected rows to one group. Either way the result is one
+change to that group, holding only the members that change anything: one
+already present is left out of an add, since the directory refuses an add
+naming a held value whole. A group that already contains the target is refused
+with the chain that would make a cycle, and a person the group already reaches
+through another group is told so. If somebody changes the group's members
+between the plan and the apply, the change is refused with nothing written;
+*Add member* and *Remove* still change one value at a time on a group that
+busy. [proposals/group-membership-tools.md](proposals/group-membership-tools.md)
+is the design.
+
 **Prepare a recovery before you apply.** A plan says how recoverable each change
 is -- exact, partial or unavailable -- and why. Exact is about the ordinary
 directory data the change touches, not timestamps, server-generated identifiers

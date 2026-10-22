@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
-import type { SearchResponse, SearchResultEntry } from "@/lib/api";
+import type { ChangeRequest, SearchResponse, SearchResultEntry } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -24,9 +24,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui";
-import { ErrorNote } from "@/components/change-dialog";
+import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
 import { BulkEditDialog } from "@/features/bulk-edit";
+import { GroupMembersDialog, pickedFromRows } from "@/features/group-members";
+import type { MembersOperation } from "@/lib/group-members";
 import { ExportMenu } from "@/components/export-menu";
 import { LdifBlock } from "@/components/ldif-block";
 import {
@@ -244,6 +246,8 @@ function Results({
   const [staging, setStaging] = useState<StageOutcome | null>(null);
   const [showCommand, setShowCommand] = useState(false);
   const [editing, setEditing] = useState<SearchResultEntry[] | null>(null);
+  const [membership, setMembership] = useState<{ rows: SearchResultEntry[]; op: MembersOperation } | null>(null);
+  const [membersChange, setMembersChange] = useState<ChangeRequest | null>(null);
   // The columns are the attributes that were asked for and that something
   // actually returned. A search spans object classes, so a fixed set would show
   // an email column over a page of organizational units.
@@ -351,6 +355,7 @@ function Results({
           onEdit={(dn) => onOpenEntry(dn, true)}
           onStageDeletes={(dns) => setStaging(stageDeletions(dns))}
           onEditAttribute={setEditing}
+          onGroupMembership={(rows, op) => setMembership({ rows, op })}
           onExport={(dn) => {
             const params = new URLSearchParams({ dn, scope: "base" });
             window.location.href = "/api/v1/export/ldif?" + params.toString();
@@ -374,6 +379,20 @@ function Results({
         onOpenChange={(open) => !open && setEditing(null)}
         entries={editing ?? []}
         onStaged={setStaging}
+      />
+
+      <GroupMembersDialog
+        open={membership !== null}
+        onOpenChange={(open) => !open && setMembership(null)}
+        op={membership?.op ?? "add"}
+        preset={membership ? pickedFromRows(membership.rows) : undefined}
+        onReview={setMembersChange}
+      />
+      <ChangeDialog
+        change={membersChange}
+        open={membersChange !== null}
+        onOpenChange={(open) => !open && setMembersChange(null)}
+        title={membersChange?.mods?.[0]?.op === "delete" ? "Remove from the group" : "Add to the group"}
       />
     </div>
   );

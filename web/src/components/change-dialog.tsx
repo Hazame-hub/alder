@@ -26,6 +26,7 @@ import { safeText } from "@/lib/display";
 import { UnknownOutcome } from "@/components/unknown-outcome";
 import { bench } from "@/lib/snapshot-bench";
 import { AppliesTo } from "@/components/applies-to";
+import { ManyMembersStaleNote } from "@/components/many-members-note";
 
 /**
  * ChangeDialog is the confirmation step every single change goes through.
@@ -340,6 +341,7 @@ export function ChangeDialog({
                     ))}
                   </ul>
                 ) : null}
+                {stale.code !== "plan_mismatch" ? <ManyMembersStaleNote change={change} /> : null}
                 <div className="mt-3 flex items-center gap-2">
                   <Button
                     size="sm"

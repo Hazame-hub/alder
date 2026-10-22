@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Minus, UserMinus, UserPlus } from "lucide-react";
+import { Minus, UserMinus, UserPlus, Users } from "lucide-react";
 import type { ChangeRequest, EntryView } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChangeDialog } from "@/components/change-dialog";
 import { DnPicker } from "@/components/dn-picker";
+import { GroupMembersDialog } from "@/features/group-members";
+import {
+  dnMembershipAttributes,
+  isManyMembersRecord,
+  type MembersOperation,
+} from "@/lib/group-members";
 import { displayText, rdnOf } from "@/lib/values";
 import { safeText } from "@/lib/display";
 
@@ -58,8 +64,11 @@ export function MembershipActions({
   const [picking, setPicking] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [change, setChange] = useState<ChangeRequest | null>(null);
+  // Several at once, as one record (docs/proposals/group-membership-tools.md).
+  const [many, setMany] = useState<MembersOperation | null>(null);
 
   if (attributes.length === 0 || readOnly) return null;
+  const pickable = dnMembershipAttributes(attributes).length > 0;
 
   const chosen = attributes.includes(attribute) ? attribute : (attributes[0] as string);
   const current = valuesOf(entry, chosen);
@@ -82,6 +91,30 @@ export function MembershipActions({
         <UserMinus />
         Remove
       </Button>
+      {pickable ? (
+        <>
+          <Button variant="outline" size="sm" onClick={() => setMany("add")}>
+            <Users />
+            Add members…
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={current.length === 0}
+            onClick={() => setMany("remove")}
+          >
+            <UserMinus />
+            Remove members…
+          </Button>
+          <GroupMembersDialog
+            open={many !== null}
+            onOpenChange={(open) => !open && setMany(null)}
+            op={many ?? "add"}
+            groupDn={entry.dn}
+            onReview={setChange}
+          />
+        </>
+      ) : null}
 
       {picking ? (
         <AddMemberDialog
@@ -116,7 +149,15 @@ export function MembershipActions({
         change={change}
         open={change !== null}
         onOpenChange={(open) => !open && setChange(null)}
-        title={change?.mods?.[0]?.op === "delete" ? "Remove this member" : "Add this member"}
+        title={
+          isManyMembersRecord(change)
+            ? change?.mods?.[0]?.op === "delete"
+              ? "Remove these members"
+              : "Add these members"
+            : change?.mods?.[0]?.op === "delete"
+              ? "Remove this member"
+              : "Add this member"
+        }
         onApplied={() => {
           setChange(null);
           onChanged();

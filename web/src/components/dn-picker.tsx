@@ -58,7 +58,7 @@ export function DnPicker({
           body: {
             baseDn,
             scope: "sub",
-            filter: buildFilter(filter, term),
+            filter: nameFilter(filter, term),
             attributes: ["cn", "uid", "objectClass"],
             limit: 50,
             pageSize: 50,
@@ -168,13 +168,13 @@ export function DnPicker({
 }
 
 /**
- * buildFilter combines the restriction with the typed name.
+ * nameFilter combines the restriction with the typed name.
  *
  * The typed value is escaped here so the filter shown to the user is one they
  * can read and trust. The server parses and re-escapes it regardless, so this
  * is the readable layer rather than the security boundary.
  */
-function buildFilter(restriction: string, term: string): string {
+export function nameFilter(restriction: string, term: string): string {
   const trimmed = term.trim();
   if (!trimmed) return restriction || "(objectClass=*)";
   const v = escapeFilterValue(trimmed);
