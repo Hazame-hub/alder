@@ -43,6 +43,7 @@ import (
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/schema"
+	"github.com/hazame-hub/alder/internal/snapshot"
 )
 
 // Action is what a change would do. It is a stable identifier: a client
@@ -428,7 +429,7 @@ func (pl *Planner) classify(
 	case directory.ChangeAdd:
 		item = planAdd(item, live, sch, proposal.Intent)
 	case directory.ChangeModify:
-		item = planModify(item, live)
+		item = planModify(item, live, sch)
 	case directory.ChangeDelete:
 		item = planDelete(ctx, r, item)
 	case directory.ChangeModRDN:
@@ -529,11 +530,11 @@ func planAdd(item Item, live *directory.Entry, sch *schema.Schema, intent Intent
 	return item
 }
 
-func planModify(item Item, live *directory.Entry) Item {
+func planModify(item Item, live *directory.Entry, sch *schema.Schema) Item {
 	if !item.Exists {
 		return refuse(item, ActionConflict, ProblemEntryMissing, "", "There is no such entry to modify.")
 	}
-	if satisfied(item.Record.Mods, live) {
+	if satisfied(item.Record.Mods, live, sch) {
 		item.Action = ActionUnchanged
 		item.Reason = "The entry already holds what this change would set."
 		item.Record = directory.ChangeRecord{}
@@ -600,23 +601,33 @@ func (pl *Planner) planRename(ctx context.Context, r Reader, item Item) (Item, e
 // group of a hundred thousand is a map lookup rather than a scan per value --
 // the compare endpoint taught that lesson in 1.4 and this path would otherwise
 // have had to learn it again.
-func satisfied(mods []directory.Mod, live *directory.Entry) bool {
+//
+// An add or a delete asks whether the entry holds a value under the
+// attribute's equality rule, where Alder models it beyond doubt (valueKey);
+// a replacement compares bytes.
+func satisfied(mods []directory.Mod, live *directory.Entry, sch *schema.Schema) bool {
 	if len(mods) == 0 {
 		return false
 	}
-	indexes := map[string]map[string]bool{}
-	valuesOf := func(name string) map[string]bool {
-		key := strings.ToLower(name)
-		if set, ok := indexes[key]; ok {
-			return set
+	type index struct {
+		key  snapshot.Keyer
+		have map[string]bool
+	}
+	indexes := map[string]index{}
+	valuesOf := func(name string) index {
+		folded := strings.ToLower(name)
+		if ix, ok := indexes[folded]; ok {
+			return ix
 		}
+		key := valueKey(sch, name)
 		current := live.Get(name)
-		set := make(map[string]bool, len(current))
+		have := make(map[string]bool, len(current))
 		for _, v := range current {
-			set[string(v)] = true
+			have[key(v)] = true
 		}
-		indexes[key] = set
-		return set
+		ix := index{key: key, have: have}
+		indexes[folded] = ix
+		return ix
 	}
 
 	for _, m := range mods {
@@ -626,23 +637,23 @@ func satisfied(mods []directory.Mod, live *directory.Entry) bool {
 				return false
 			}
 		case directory.ModAdd:
-			have := valuesOf(m.Name)
+			ix := valuesOf(m.Name)
 			for _, v := range m.Values {
-				if !have[string(v)] {
+				if !ix.have[ix.key(v)] {
 					return false
 				}
 			}
 		case directory.ModDelete:
-			have := valuesOf(m.Name)
+			ix := valuesOf(m.Name)
 			if len(m.Values) == 0 {
 				// Removing the whole attribute. Already gone means nothing to do.
-				if len(have) > 0 {
+				if len(ix.have) > 0 {
 					return false
 				}
 				continue
 			}
 			for _, v := range m.Values {
-				if have[string(v)] {
+				if ix.have[ix.key(v)] {
 					return false
 				}
 			}

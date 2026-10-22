@@ -6638,6 +6638,46 @@ were compared pairwise, an hour of CPU in 16 MiB.
   8 s. NewFS lists a file's directories by slicing its path and stops at the
   first already listed, so a deep path is linear too.
 
+### 2026-10-22 — a plan asks whether a value is held under its equality rule
+
+A modification's `add` and `delete` were compared with the entry byte for byte
+(`satisfied`). Two wrong answers followed, both on the attributes people edit
+most. An add of `Platform` to an entry holding `platform` in a
+`caseIgnoreMatch` attribute planned as `modify`; the directory then refused it
+as `attributeOrValueExists`, and a changeset stopped at that entry. A delete of
+`Platform` from the same entry planned as `unchanged` -- the plan said nothing
+would happen, and the directory would have removed `platform`. The first is a
+nuisance; the second is the plan lying, which the function's own comment says
+it must never do. Open question 1 of `docs/proposals/bulk-attribute-edit.md`,
+accepted to ship before the bulk edit, which is where a byte comparison stops
+a run halfway.
+
+- **Four rules, and only four.** `distinguishedNameMatch`, `caseIgnoreMatch`,
+  `caseIgnoreIA5Match` and `caseIgnoreListMatch`, by name or OID, resolved
+  through `SUP` as the schema browser resolves them. Keys are
+  `snapshot.KeyerForRule`'s, so a drift comparison and a plan agree on what
+  "the same value" is.
+- **Anything else is bytes, never a guess**: another rule Alder knows
+  (`caseExactMatch`, `integerMatch` and the rest stay out of this change), a
+  rule it does not, an attribute the schema does not define, and no schema.
+  An unknown rule keeps the old answers in both directions, the delete case
+  included; that is the cost of not guessing, and the directory is still the
+  authority at apply.
+- **A replacement is not changed.** It is satisfied only when the bytes already
+  match, because replacing `platform` with `Platform` is a correction the
+  directory accepts and somebody meant. Desired state's reconcile (`SameValues`)
+  is byte-exact for the same reason, and unchanged.
+- **Not narrowed.** An add naming two values of which one is held is still one
+  `modify`, which the directory refuses whole; the planner reports and does not
+  rewrite what it was given. The bulk edit composes one value per entry, where
+  this does not arise.
+
+A conformance case on both servers holds the planner to the directory, not to
+RFC 4517: for one pair per rule (`description`, `mail`, `seeAlso`, the last
+with a name spelled in capitals and with spaces), the add the planner calls
+`unchanged` is refused by the server as `attributeOrValueExists`, and the
+delete it calls `modify` removes the stored value.
+
 ### 2026-10-22 — saved searches: accepted
 
 `docs/proposals/saved-searches.md` was reviewed and accepted: Option B, one
