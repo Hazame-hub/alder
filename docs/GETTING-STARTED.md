@@ -64,7 +64,7 @@ replicas, the configuration identities, and how to reset it.
 
 ## 2. Start Alder
 
-Either build it from the checkout (Go 1.27.2 or newer and Node 22 or newer):
+Either build it from the checkout (Go 1.27.3 or newer and Node 22 or newer):
 
 ```sh
 task build
