@@ -219,6 +219,20 @@ that order, and hands you the list to review as one changeset — rather than
 refusing because the entry has children, which is what it used to do while
 offering no way to do the thing it was suggesting.
 
+**Make one modification over the entries you selected.** On the search results
+and the object views, *Edit an attribute…* beside *Stage deletions* takes one
+attribute, one operation (add a value, remove a value, remove the attribute, or
+replace with) and the same value for every selected entry, and stages one
+`modify` per entry. Only the attributes every selected entry's classes permit
+are offered, unless you widen the list; passwords, attributes the server owns
+and `objectClass` never are. A membership attribute takes add or remove only,
+one member picked from the directory, and an entry named by the attribute is
+left out of a removal and named. The plan then says which entries already
+match, which are gone and which do not permit the attribute, and sends nothing
+for those. The set of entries is fixed when it is staged: nothing re-runs the
+search. [proposals/bulk-attribute-edit.md](proposals/bulk-attribute-edit.md)
+is the design.
+
 **Prepare a recovery before you apply.** A plan says how recoverable each change
 is -- exact, partial or unavailable -- and why. Exact is about the ordinary
 directory data the change touches, not timestamps, server-generated identifiers

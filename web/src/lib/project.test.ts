@@ -139,7 +139,8 @@ describe("staging a project's plan", () => {
     expect(outcome.ok).toBe(true);
     expect(changeset.all()).toHaveLength(1);
     expect(changeset.all()[0]!.change.baseline).toBeUndefined();
-    expect(changeset.origin()?.host).toBe("ldap.example.com:636");
+    const origin = changeset.origin();
+    expect(origin?.kind === "project" ? origin.host : undefined).toBe("ldap.example.com:636");
   });
 
   it("refuses a changeset that already holds something, with the count, and replaces nothing", () => {
