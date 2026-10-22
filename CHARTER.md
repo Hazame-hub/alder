@@ -51,8 +51,9 @@ Added since, each on the record in `docs/DECISIONS.md`:
 - Snapshots, drift comparison and recovery bundles, all of them expressed
   as ordinary reviewed changes.
 - In the configuration tree beyond the schema: the settings a comparison
-  has proved, creating OpenLDAP overlays whose module is already loaded,
-  and switching 389 DS plugins on or off. Nothing else.
+  has proved, adding an index on one attribute of a database that serves a
+  naming context (1.32), creating OpenLDAP overlays whose module is already
+  loaded, and switching 389 DS plugins on or off. Nothing else.
 - Access rules are **read** and shown against an entry, each server's in
   its own words. Alder does not evaluate, translate or author them: the
   editor shows `aci` and `olcAccess` read-only. A change or recovery bundle
