@@ -257,7 +257,7 @@ jobs:
 
       - name: show the logs on failure
         if: failure()
-        run: docker compose -f test/compose/docker-compose.yml logs
+        run: docker compose -f test/compose/docker-compose.yml logs --tail=20
       - name: tear down
         if: always()
         run: task compose:down
