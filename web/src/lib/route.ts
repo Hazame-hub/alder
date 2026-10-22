@@ -13,6 +13,8 @@
  * the only place this lives, which keeps it consistent with a stateless v1.
  */
 
+import { parseAttributeList } from "./saved-search";
+
 export type AppView =
   | "overview"
   | "browse"
@@ -59,6 +61,12 @@ export type AppSearch = {
   scope?: SearchScope;
   filter?: string;
   limit?: number;
+  /**
+   * The search page's attributes and columns, comma-separated, so a saved
+   * search (or any search) that asks for pwdAccountLockedTime shows it.
+   */
+  attrs?: string;
+  cols?: string;
 };
 
 /**
@@ -94,6 +102,10 @@ export function validateAppSearch(raw: Record<string, unknown>): AppSearch {
   if (Number.isFinite(limit) && limit > 0) {
     out.limit = Math.min(Math.trunc(limit), 10000);
   }
+  const attrs = asAttributeList(raw.attrs);
+  if (attrs) out.attrs = attrs;
+  const cols = asAttributeList(raw.cols);
+  if (cols) out.cols = cols;
   return out;
 }
 
@@ -101,6 +113,12 @@ function asView(v: unknown): AppView {
   return typeof v === "string" && (views as string[]).includes(v)
     ? (v as AppView)
     : "overview";
+}
+
+/** Names that are not attribute names are dropped, as anything unrecognised is. */
+function asAttributeList(v: unknown): string | undefined {
+  const names = parseAttributeList(Array.isArray(v) ? v.filter((x) => typeof x === "string").join(",") : asText(v));
+  return names.length ? names.join(",") : undefined;
 }
 
 function asText(v: unknown): string | undefined {

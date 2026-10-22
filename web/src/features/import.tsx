@@ -20,6 +20,7 @@ import { PlanSummary } from "@/components/plan-summary";
 import { stageChanges, type StageOutcome } from "@/lib/stage-deletes";
 import { safeText } from "@/lib/display";
 import { ProjectPanel } from "@/features/project";
+import type { SavedSearch } from "@/lib/saved-search";
 
 /**
  * ImportPanel parses an LDIF document and offers two ways to act on it: one
@@ -41,9 +42,11 @@ import { ProjectPanel } from "@/features/project";
 export function ImportPanel({
   onReviewChangeset,
   onBrowse,
+  onOpenSearch,
 }: {
   onReviewChangeset: () => void;
   onBrowse: (dn: string) => void;
+  onOpenSearch?: (search: SavedSearch, folder: string) => void;
 }) {
   const [text, setText] = useState("");
   const [applied, setApplied] = useState<Set<number>>(new Set());
@@ -117,7 +120,7 @@ export function ImportPanel({
         </p>
       </header>
 
-      <ProjectPanel onBrowse={onBrowse} onReviewChangeset={onReviewChangeset} />
+      <ProjectPanel onBrowse={onBrowse} onReviewChangeset={onReviewChangeset} onOpenSearch={onOpenSearch} />
 
       <div
         onDragOver={(e) => e.preventDefault()}

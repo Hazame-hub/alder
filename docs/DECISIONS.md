@@ -6677,3 +6677,45 @@ RFC 4517: for one pair per rule (`description`, `mail`, `seeAlso`, the last
 with a name spelled in capitals and with spaces), the add the planner calls
 `unchanged` is refused by the server as `attributeOrValueExists`, and the
 delete it calls `modify` removes the stored value.
+
+### 2026-10-22 — saved searches, as built
+
+Saved searches as accepted (`docs/proposals/saved-searches.md`): one
+`NAME.search.yaml` per search below `alder.yaml`, read by `internal/project`,
+listed and run by `alder project search`, returned beside a project's plan by
+`POST /project/plan`, and opened in the browser as a link. No
+`POST /search/file`. What building it settled that the proposal left open:
+
+- **The suffix is matched exactly**, in the client, the server and the
+  browser. `.ldif` is matched without regard to case in the browser; a
+  search file is not, because the server's reader is the one that decides,
+  and a file one checkout sees and another does not is worse than a file
+  ignored on both.
+- **With neither `attributes` nor `columns`, a search asks for every user
+  attribute**, as a search naming none does, and the table keeps choosing its
+  own columns. The web page then asks for its own six, as it always has; the
+  file says nothing it does not mean.
+- **The heading over an opened search is held in memory, not the URL.** The
+  URL carries the search (`attrs` and `cols` join base, scope, filter and
+  limit), and a link anyone can write must not be able to say "from
+  directory/". The heading comes down once any part of the search differs
+  from the file's.
+- **"Nothing matched" exits 0.** The export answers an empty match with 400,
+  because an empty file is not an export. `project search` asks `POST
+  /search` for one entry when it gets that answer, and only an empty answer
+  there is "matched nothing"; anything else is the directory's refusal (8).
+- **`--json` is one request.** `POST /search` pages the directory itself up
+  to the search's limit, at most 10,000 entries, so the client's array is that
+  response's `entries`, and a truncation is said on standard error.
+- **`GET /export/ldif` gains `attributes`**, the one API change a saved
+  search needs to export what it asks for. Naming a secret there does not
+  include it: the writer still withholds it unless `includeSensitive` is set.
+- **The client links `internal/filter`**, through `internal/project`, to
+  check a filter offline. It holds no LDAP code; the dependency test that
+  forbids go-ldap, the driver and the API server still passes.
+
+Conformance on both servers holds a search's link (`POST /search` with the
+file's values) and `alder project search` to the same entries, its LDIF to
+`GET /export/ldif`'s byte for byte, and an environment's suffix to moving the
+base. A journey opens examples/project's `people/engineers` from the Import
+screen and checks its rows against `ldapsearch` in each server's container.

@@ -75,6 +75,10 @@ type Project struct {
 
 	Managed      []Subtree
 	Environments map[string]Environment
+
+	// Searches are the project's *.search.yaml files, in path order. They
+	// are not state: nothing plans them, and Document leaves them out.
+	Searches []Search
 }
 
 // Subtree is one managed subtree and the entries its files describe.
@@ -412,6 +416,13 @@ func loadFrom(src source, name, display string) (*Project, error) {
 	}
 
 	problems = append(problems, p.checkSuffixEntry(name)...)
+
+	searches, searchProblems, err := loadSearches(src, p.Suffix)
+	if err != nil {
+		return nil, err
+	}
+	p.Searches = searches
+	problems = append(problems, searchProblems...)
 
 	if len(problems) > 0 {
 		return nil, invalid(problems)

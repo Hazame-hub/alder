@@ -26,7 +26,7 @@ func projectCmd(env *Env) *cobra.Command {
 			"deleted, and nothing about a project is stored anywhere: every plan is made\n" +
 			"against the directory as it is.",
 	}
-	cmd.AddCommand(projectValidateCmd(env), projectPlanCmd(env), projectApplyCmd(env), projectFmtCmd(env))
+	cmd.AddCommand(projectValidateCmd(env), projectPlanCmd(env), projectApplyCmd(env), projectFmtCmd(env), projectSearchCmd(env))
 	return cmd
 }
 
@@ -69,6 +69,11 @@ func projectValidateCmd(env *Env) *cobra.Command {
 			"environment names where its password comes from and never the password.\n" +
 			"With a suffix, every managed base lies below it, and an environment's own\n" +
 			"suffix is a DN that replaces it; each such environment is listed.\n\n" +
+			"Every NAME.search.yaml file below alder.yaml, outside dot-directories, is\n" +
+			"a saved search and is checked too: version 1 with no unknown keys, a base\n" +
+			"that is a DN, an RFC 4515 filter, attribute names and no secret among\n" +
+			"them, every column among the attributes, a limit from 1 to 10000. The\n" +
+			"number found is said.\n\n" +
 			"Every problem is listed, not only the first. The schema is not checked: it\n" +
 			"belongs to a directory, which is what alder project plan is for.\n\n" +
 			"Exit status: 0 valid, 3 not valid, 7 usage, 8 a file could not be read.",
@@ -82,6 +87,10 @@ func projectValidateCmd(env *Env) *cobra.Command {
 			safe(p.File), plural(p.Entries(), "entry", "entries"),
 			plural(len(p.Managed), "managed subtree", "managed subtrees"),
 			safe(strings.Join(p.EnvironmentNames(), ", ")))
+		if len(p.Searches) > 0 {
+			writef(env.Stdout, "  %s: %s\n", plural(len(p.Searches), "saved search", "saved searches"),
+				safe(strings.Join(p.SearchNames(), ", ")))
+		}
 		// Said here too, so a review of the project sees which environments
 		// will not hold the names the files are written with.
 		for _, name := range p.EnvironmentNames() {

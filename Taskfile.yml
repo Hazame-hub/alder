@@ -108,6 +108,7 @@ tasks:
       - go test ./internal/schema -run FuzzParseObjectClass -fuzz FuzzParseObjectClass -fuzztime 30s
       - go test ./internal/schema -run FuzzParseAttributeType -fuzz FuzzParseAttributeType -fuzztime 30s
       - go test ./internal/ldif -run FuzzUnmarshal -fuzz FuzzUnmarshal -fuzztime 30s
+      - go test ./internal/project -run FuzzParseSearch -fuzz FuzzParseSearch -fuzztime 30s
 
   vet:
     desc: Run go vet
