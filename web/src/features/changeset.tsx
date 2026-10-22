@@ -396,7 +396,7 @@ export function ChangesetView({
         </div>
       ) : null}
 
-      {current ? <PlanSummary plan={current} /> : null}
+      {current ? <PlanSummary plan={current} whole={origin?.kind === "saved-plan"} /> : null}
       {wholePlan ? <p className="mb-4 text-xs text-warning-tint-foreground">{wholePlan}</p> : null}
       {needsPlan && !current ? (
         <p className="mb-4 text-xs text-warning-tint-foreground">
