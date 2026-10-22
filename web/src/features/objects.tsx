@@ -8,6 +8,7 @@ import type {
   ObjectView,
   ObjectViewColumn,
   ObjectViewId,
+  SearchResultEntry,
 } from "@/lib/api";
 import { stageDeletions, type StageOutcome } from "@/lib/stage-deletes";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui";
 import { ChangeDialog, ErrorNote } from "@/components/change-dialog";
 import { EntryTable } from "@/components/entry-table";
+import { BulkEditDialog } from "@/features/bulk-edit";
 import { ExportMenu } from "@/components/export-menu";
 import { InventoryButton } from "@/features/inventory";
 import { ColumnPicker } from "@/components/column-picker";
@@ -99,6 +101,7 @@ export function ObjectListPanel({
   const [chosen, setChosen] = useState<Record<string, ObjectViewColumn[]>>({});
   const [deleteChange, setDeleteChange] = useState<ChangeRequest | null>(null);
   const [staging, setStaging] = useState<StageOutcome | null>(null);
+  const [editing, setEditing] = useState<SearchResultEntry[] | null>(null);
   const [narrow, setNarrow] = useState("");
 
   // A connection change can leave the old base selected, which would search a
@@ -341,6 +344,7 @@ export function ObjectListPanel({
                 }}
                 onDelete={(dn) => setDeleteChange({ dn, type: "delete" })}
                 onStageDeletes={stageDeletes}
+                onEditAttribute={setEditing}
                 empty={
                   // "No users under this suffix" is a false statement when a
                   // filter is what emptied the table. The search found some;
@@ -368,6 +372,13 @@ export function ObjectListPanel({
         title="Delete this entry"
         destructive
         onApplied={() => void results.refetch()}
+      />
+
+      <BulkEditDialog
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
+        entries={editing ?? []}
+        onStaged={setStaging}
       />
     </div>
   );
