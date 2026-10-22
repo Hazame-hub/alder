@@ -170,12 +170,27 @@ func TestManyMembersAreOneRecordPerGroupOnBothServers(t *testing.T) {
 			}
 		})
 
-		t.Run("removing every member of a groupOfNames is invalid", func(t *testing.T) {
+		t.Run("removing every member is invalid where the class requires one", func(t *testing.T) {
+			// Asked of the schema, not assumed: RFC 4519 makes member a MUST
+			// of groupOfNames, and a server may publish it as a MAY (389 DS
+			// does), in which case emptying the group is a valid modify.
+			sch, err := sess.Schema(ctx(t))
+			if err != nil {
+				t.Fatalf("reading the schema: %v", err)
+			}
+			required := slices.ContainsFunc(sch.Requirements([]string{"top", "groupOfNames"}).Must,
+				func(name string) bool { return strings.EqualFold(name, "member") })
+
 			p := bulkPlan(t, client, base, []string{membersChange(group, "delete", a, e)})
 			item := p.Items[0]
-			if item.Action != api.PlanActionInvalid || item.Problem == nil ||
-				item.Problem.Code != api.PlanProblemMissingRequiredAttribute {
-				t.Errorf("planned as %s, want invalid with missing_required_attribute", mustEncode(t, item))
+			if required {
+				if item.Action != api.PlanActionInvalid || item.Problem == nil ||
+					item.Problem.Code != api.PlanProblemMissingRequiredAttribute {
+					t.Errorf("planned as %s, want invalid with missing_required_attribute", mustEncode(t, item))
+				}
+			} else if item.Action != api.PlanActionModify {
+				t.Errorf("%s publishes member as optional in groupOfNames, so removing every member "+
+					"is a modify; planned as %s", s.name, mustEncode(t, item))
 			}
 		})
 	})
