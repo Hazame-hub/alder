@@ -6833,6 +6833,36 @@ dangling and reports no errors. A refused or timed-out read cannot be produced
 on demand from either harness server, so those are held by unit tests against
 a reader that returns them.
 
+### 2026-10-23 — `uniqueMember` is compared under `uniqueMemberMatch` too
+
+The planner's add and delete compared four rules under the attribute's
+equality rule and everything else as bytes (2026-10-22, above). `uniqueMember`
+was in the second group, and it is the membership attribute of every
+`groupOfUniqueNames`: adding `UID=Bob,…` to a group holding `uid=bob,…` planned
+as a change the directory then refused, which stops a changeset or a bulk edit
+at that entry, and deleting it planned as nothing to do while the directory
+would remove the member. The group tools add and remove these values, so the
+second case is the one that lies.
+
+- **A fifth rule, `uniqueMemberMatch`**, by name or OID, keyed by
+  `snapshot.KeyerForRule` as drift already is: the name compared as
+  `distinguishedNameMatch` compares it, then the optional `#'…'B` UID exactly
+  as written.
+- **The UID is never folded.** RFC 4517 makes a bare name and the name with a
+  UID two values, and a server may still differ on the edges (a missing UID
+  in an assertion, how a bit string is normalised). Keeping the UID as written
+  means the planner only ever calls two values the same when the names match
+  and the UIDs are character for character equal, which no server can read as
+  different. Every other pair is planned as before, bytes' answer in both
+  directions.
+
+A conformance case on both servers holds the two "same value" pairs (a bare
+name, and a name with a UID, each spelled in other case and spacing) to each
+server as the 2026-10-22 case does: the add is refused as
+`attributeOrValueExists` and the delete removes the stored value. The pairs it
+calls different are checked against the planner and only logged against the
+server, since the planner does not depend on that answer.
+
 ### 2026-10-22 — the charter names the index path 1.32 built
 
 Section 2 of the charter lists what Alder writes in the configuration tree

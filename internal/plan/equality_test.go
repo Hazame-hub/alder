@@ -19,6 +19,7 @@ func equalitySchema(t *testing.T) *schema.Schema {
 			"( 0.9.2342.19200300.100.1.3 NAME 'mail' EQUALITY caseIgnoreIA5Match SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )",
 			"( 2.5.4.16 NAME 'postalAddress' EQUALITY caseIgnoreListMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.41 )",
 			"( 2.5.4.34 NAME 'seeAlso' EQUALITY distinguishedNameMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.12 )",
+			"( 2.5.4.50 NAME 'uniqueMember' EQUALITY uniqueMemberMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.34 )",
 			// Named by OID rather than by name: caseIgnoreMatch.
 			"( 2.5.4.13 NAME 'description' EQUALITY 2.5.13.2 SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )",
 			// A rule Alder knows but that is not one add and delete fold under.
@@ -49,6 +50,7 @@ func TestAddAndDeleteCompareUnderKnownEqualityRules(t *testing.T) {
 	set("mail", "Ana@Example.com")
 	set("postalAddress", "1 Main St$Springfield")
 	set("seeAlso", "cn=Platform,ou=Groups,dc=alder,dc=test")
+	set("uniqueMember", "uid=ana,ou=people,dc=alder,dc=test", "uid=bea,ou=people,dc=alder,dc=test#'0101'B")
 	set("description", "platform")
 	set("exactCode", "abc")
 	set("sitePolicy", "strict")
@@ -64,11 +66,19 @@ func TestAddAndDeleteCompareUnderKnownEqualityRules(t *testing.T) {
 		{"caseIgnoreIA5Match", add("mail", "ana@example.COM"), true},
 		{"caseIgnoreListMatch", add("postalAddress", "1 MAIN ST$springfield"), true},
 		{"distinguishedNameMatch", add("seeAlso", "CN=platform, OU=groups,DC=alder,DC=test"), true},
+		{"uniqueMemberMatch, a bare name", add("uniqueMember", "UID=ana, OU=People,DC=alder,DC=test"), true},
+		{"uniqueMemberMatch, a name with the same UID", add("uniqueMember", "UID=Bea,ou=people,dc=alder,dc=test#'0101'B"), true},
 		{"a rule named by its OID", add("description", "PLATFORM"), true},
 		// ...and deleting it is a change, because the directory would remove it.
 		{"delete under caseIgnoreMatch", del("cn", "ANA LIMA"), false},
 		{"delete under distinguishedNameMatch", del("seeAlso", "cn=platform,ou=groups,dc=alder,dc=test"), false},
-		// Bytes wherever the rule is not one of the four, or is not known.
+		{"delete under uniqueMemberMatch", del("uniqueMember", "uid=ANA,ou=people,dc=alder,dc=test"), false},
+		// The UID is never folded away: a bare name is not the name with a UID,
+		// and two UIDs are two values, whichever way the server reads them.
+		{"uniqueMemberMatch, the name without its UID", add("uniqueMember", "uid=bea,ou=people,dc=alder,dc=test"), false},
+		{"uniqueMemberMatch, the name with a UID it does not hold", add("uniqueMember", "uid=ana,ou=people,dc=alder,dc=test#'1'B"), false},
+		{"uniqueMemberMatch, another UID", add("uniqueMember", "uid=bea,ou=people,dc=alder,dc=test#'0110'B"), false},
+		// Bytes wherever the rule is not one of the five, or is not known.
 		{"caseExactMatch stays bytes", add("exactCode", "ABC"), false},
 		{"an unknown rule stays bytes", add("sitePolicy", "STRICT"), false},
 		{"no rule stays bytes", add("noRule", "VALUE"), false},
