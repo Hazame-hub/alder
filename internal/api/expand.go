@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/schema"
@@ -24,7 +26,8 @@ import (
 // itself, a member DN pointing at an entry that was deleted, a membership
 // attribute that holds a login name rather than a DN — and each of those is
 // reported rather than quietly dropped, because each is something a directory
-// owner wants to know about.
+// owner wants to know about -- and a member that could not be read for some
+// other reason is reported as that, not as one of these.
 
 const (
 	// maxExpandDepth bounds the nesting walked. Ten levels is far past any
@@ -55,7 +58,8 @@ type expansion struct {
 	// A cycle is a configuration error somebody should hear about rather than
 	// a condition to silently survive.
 	Cycles []string
-	// Dangling names member values whose entry could not be read.
+	// Dangling names member values the directory answered "no such object"
+	// for.
 	//
 	// Either the entry was deleted and the reference outlived it, or it is
 	// there and this bind may not see it. Nothing tells those apart: a server
@@ -64,7 +68,13 @@ type expansion struct {
 	// built on it must not say "deleted" -- an operator asking who can reach
 	// something would be told a member is gone while they are still in the
 	// group.
+	//
+	// That answer and no other. A read refused, timed out or cut off says
+	// nothing about the entry at all, and listing it here would make the
+	// list mean "the directory said it is not there" only some of the time.
 	Dangling []string
+	// Errors names member values whose read failed some other way.
+	Errors []MemberReadError
 	// Unresolvable names membership values that are not DNs at all, and so
 	// cannot be followed: memberUid holds a login name, memberURL a search.
 	Unresolvable []string
@@ -145,8 +155,25 @@ func (e *expansion) walk(
 
 			e.reads++
 			member, readErr := read(ctx, target, expandAttrs)
-			if readErr != nil || member == nil {
+			if readErr == nil && member == nil {
+				// The driver answers a missing entry with an error; a reader
+				// that returns neither has found nothing.
 				e.Dangling = plan.AppendNew(e.Dangling, []string{target.String()})
+				continue
+			}
+			if readErr != nil {
+				if isNoSuchObject(readErr) {
+					e.Dangling = plan.AppendNew(e.Dangling, []string{target.String()})
+					continue
+				}
+				e.Errors = append(e.Errors, memberReadError(target, readErr))
+				// A walk whose request has ended would record every member
+				// after this one as an error of its own, each saying the same
+				// thing. It stops, and says it stopped.
+				if ctx.Err() != nil {
+					e.Truncated = true
+					return
+				}
 				continue
 			}
 
@@ -170,6 +197,35 @@ func (e *expansion) walk(
 			}
 		}
 	}
+}
+
+// memberReadError describes a read that failed without saying the entry is
+// absent, in the words fail() uses for the same result.
+func memberReadError(target dn.DN, err error) MemberReadError {
+	out := MemberReadError{Dn: target.String(), Message: "The read did not complete."}
+	var ldapErr *ldapdriver.Error
+	if !errors.As(err, &ldapErr) {
+		return out
+	}
+	switch {
+	case ldapErr.IsClientSide():
+		out.Message = "The directory did not answer."
+		return out
+	case ldapErr.IsInsufficientAccess():
+		out.Message = "The directory refused this read for the account you are bound as."
+	default:
+		out.Message = "The directory returned an error."
+	}
+	code := int(ldapErr.Code)
+	out.LdapCode = &code
+	return out
+}
+
+func readErrorsIfAny(v []MemberReadError) *[]MemberReadError {
+	if len(v) == 0 {
+		return nil
+	}
+	return &v
 }
 
 // isGroup reports whether this entry is one whose membership can be expanded.
@@ -247,6 +303,7 @@ func (s *Server) ExpandMembers(c *fiber.Ctx, params ExpandMembersParams) error {
 		Truncated:    got.Truncated,
 		Cycles:       ptrIfAny(got.Cycles),
 		Dangling:     ptrIfAny(got.Dangling),
+		Errors:       readErrorsIfAny(got.Errors),
 		Unresolvable: ptrIfAny(got.Unresolvable),
 	})
 }

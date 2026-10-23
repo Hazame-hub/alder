@@ -736,6 +736,18 @@ A session can hold a read-only reference server
 - **`--max-sessions` counts directory connections**, so a reference takes a
   place. A deployment that attaches no reference sees no difference.
 
+`GET /members` says why a member could not be read
+([proposals/group-membership-tools.md](proposals/group-membership-tools.md),
+open question 1):
+
+- **`MemberList` gains an optional `errors`**, one `MemberReadError` (`dn`,
+  `message`, and `ldapCode` when the directory sent one) per member whose read
+  failed for a reason other than "no such object".
+- **`dangling` narrows to "no such object".** A read refused, timed out or cut
+  off was listed there and is now in `errors`. A client that reads only
+  `dangling` sees fewer values, never different ones: each was already
+  "status unknown", and what moved is the part that was not even that.
+
 A recovery bundle compensates a configuration-tree access rule
 ([proposals/access-rules-in-recovery.md](proposals/access-rules-in-recovery.md)):
 

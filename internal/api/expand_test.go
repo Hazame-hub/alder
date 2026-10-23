@@ -6,9 +6,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-ldap/ldap/v3"
+
 	"github.com/hazame-hub/alder/internal/directory"
+	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
 )
+
+// errNoSuchEntry is what the driver returns for an entry that is not there, or
+// that this bind may not see.
+var errNoSuchEntry = &ldapdriver.Error{Code: ldap.LDAPResultNoSuchObject, Message: "No Such Object"}
 
 // fakeDirectory is a set of entries a traversal can read.
 type fakeDirectory map[string]*directory.Entry
@@ -19,7 +26,7 @@ type fakeDirectory map[string]*directory.Entry
 func (f fakeDirectory) read(_ context.Context, target dn.DN, attrs []string) (*directory.Entry, error) {
 	full, ok := f[foldName(target.String())]
 	if !ok {
-		return nil, errors.New("no such object")
+		return nil, errNoSuchEntry
 	}
 	out := directory.NewEntry(full.DN)
 	for _, name := range full.Order {
@@ -152,6 +159,82 @@ func TestADanglingMemberIsReported(t *testing.T) {
 	// The one that does resolve still comes back.
 	if len(leafDNs(got)) != 1 {
 		t.Errorf("a dangling member cost the live one: %v", leafDNs(got))
+	}
+}
+
+// A read that failed for any reason other than "no such object" says nothing
+// about the entry, so it is not dangling: it is an error on the walk, with the
+// result code where the directory sent one.
+func TestAReadFailureIsAnErrorNotDangling(t *testing.T) {
+	f := fakeDirectory{}
+	alice := person(t, f, "alice")
+	refused := "uid=hidden," + peopleOU
+	lost := "uid=far," + peopleOU
+	timedOut := "uid=slow," + peopleOU
+	group := f.add(t, "cn=team,"+groupsOU, []string{"top", "groupOfNames"},
+		alice, refused, lost, timedOut, "uid=ghost,"+peopleOU)
+
+	failures := map[string]error{
+		foldName(refused):  &ldapdriver.Error{Code: ldap.LDAPResultInsufficientAccessRights, Message: "Insufficient Access Rights"},
+		foldName(lost):     &ldapdriver.Error{Code: ldap.ErrorNetwork, Message: "Network Error"},
+		foldName(timedOut): errors.New("i/o timeout"),
+	}
+	read := func(ctx context.Context, target dn.DN, attrs []string) (*directory.Entry, error) {
+		if err, ok := failures[foldName(target.String())]; ok {
+			return nil, err
+		}
+		return f.read(ctx, target, attrs)
+	}
+
+	got := expandGroup(context.Background(), read, testSchema(t), group, 100)
+
+	if len(got.Dangling) != 1 || !strings.Contains(got.Dangling[0], "ghost") {
+		t.Errorf("dangling is %v, want only the entry the directory said is not there", got.Dangling)
+	}
+	if len(got.Errors) != 3 {
+		t.Fatalf("errors are %+v, want the three failed reads", got.Errors)
+	}
+	byDN := map[string]MemberReadError{}
+	for _, e := range got.Errors {
+		byDN[foldName(e.Dn)] = e
+	}
+	if e := byDN[foldName(refused)]; e.LdapCode == nil || *e.LdapCode != int(ldap.LDAPResultInsufficientAccessRights) {
+		t.Errorf("a refused read is %+v, want its result code", e)
+	}
+	// Neither a lost connection nor a timeout carries a code the directory sent.
+	for _, d := range []string{lost, timedOut} {
+		if e := byDN[foldName(d)]; e.LdapCode != nil || e.Message == "" {
+			t.Errorf("%s is %+v, want a message and no result code", d, e)
+		}
+	}
+	if got.Truncated {
+		t.Error("the walk stopped, but its request had not ended")
+	}
+	if len(leafDNs(got)) != 1 {
+		t.Errorf("the failures cost the member that reads: %v", leafDNs(got))
+	}
+}
+
+// Once the request has ended, every read after it fails the same way. The walk
+// stops and says so, rather than listing each remaining member as an error.
+func TestAnEndedRequestStopsTheWalk(t *testing.T) {
+	f := fakeDirectory{}
+	group := f.add(t, "cn=team,"+groupsOU, []string{"top", "groupOfNames"},
+		person(t, f, "a"), person(t, f, "b"), person(t, f, "c"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	read := func(ctx context.Context, target dn.DN, attrs []string) (*directory.Entry, error) {
+		cancel()
+		return nil, ctx.Err()
+	}
+
+	got := expandGroup(ctx, read, testSchema(t), group, 100)
+
+	if !got.Truncated {
+		t.Error("the walk did not say it stopped")
+	}
+	if len(got.Errors) != 1 || len(got.Dangling) != 0 {
+		t.Errorf("errors %+v, dangling %v: want the one read that failed, and nothing called dangling", got.Errors, got.Dangling)
 	}
 }
 

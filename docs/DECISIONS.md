@@ -6805,6 +6805,34 @@ Decided at the same review, before any of them is proposed:
 - **Entry templates are shelved** unless a shape appears that does not
   template: the 2026-09-05 decision that creation is generated stands.
 
+### 2026-10-22 — a member is dangling only when the directory says there is no such entry
+
+`GET /members` listed as `dangling` every member whose read failed: a refusal,
+a timeout and a lost connection beside the answer "no such object". The first
+of those says the bind may not read the entry, the others say nothing about it
+at all, and the list was documented as the directory's own answer -- deleted,
+or not visible to this bind, which a server deliberately does not tell apart.
+Open question 1 of `docs/proposals/group-membership-tools.md`, accepted to ship
+before the membership audit reuses the wording.
+
+- **`dangling` is "no such object", and only that.** The driver's own test
+  (`ldapdriver.Error.IsNoSuchObject`), the one `isNoSuchObject` already applies
+  for the plan and the outcome check.
+- **Anything else is `errors`**, a new optional list: the member, a sentence in
+  the words a failed request gets elsewhere, and the result code when the
+  directory sent one (none for a timeout or a lost connection). Such a member is
+  neither counted nor followed, as before.
+- **A walk whose request has ended stops**, marked truncated, rather than
+  recording every remaining member as the same error.
+- **FEATURES.md no longer says "a member DN whose entry was deleted"**, which
+  is the wording the API has said since 2026-09-07 it must not use.
+
+A conformance case on both servers: a group naming one entry that exists and
+two that never did, one under a parent that is not there either, lists both as
+dangling and reports no errors. A refused or timed-out read cannot be produced
+on demand from either harness server, so those are held by unit tests against
+a reader that returns them.
+
 ### 2026-10-22 — the charter names the index path 1.32 built
 
 Section 2 of the charter lists what Alder writes in the configuration tree
