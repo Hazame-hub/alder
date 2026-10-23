@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -125,7 +126,12 @@ func auditMembers(ctx context.Context, r directory.Reader, base dn.DN, limit int
 			}
 		}
 	}
-	// Below a referral the groups' own search came back with: not read at all.
+	// The referral objects where the names are. A server need not answer a
+	// read below one with a referral -- 389 DS answers no such object -- so
+	// they are asked for first, and nothing below one is read at all.
+	if err := a.findReferrals(ctx, names, order); err != nil {
+		return nil, err
+	}
 	for _, key := range order {
 		a.markBelow(names[key])
 	}
@@ -383,6 +389,51 @@ func parsedDN(s string) (dn.DN, bool) {
 		return nil, false
 	}
 	return d, true
+}
+
+// findReferrals searches each naming context the names are in for referral
+// objects, for names only. A referral object comes back as a search result
+// reference, which is recorded like any other; an entry that comes back
+// instead (a server that returns the object itself) says nothing about what is
+// below it, and is not counted.
+func (a *memberAuditor) findReferrals(ctx context.Context, names map[string]*auditName, order []string) error {
+	if a.sch.ObjectClass("referral") == nil {
+		return nil
+	}
+	var contexts []dn.DN
+	for _, key := range order {
+		c, ok := a.contextOf(names[key].dn)
+		if ok && !slices.ContainsFunc(contexts, c.Equal) {
+			contexts = append(contexts, c)
+		}
+	}
+	for _, c := range contexts {
+		var cookie []byte
+		for {
+			res, err := a.r.Search(ctx, directory.SearchRequest{
+				BaseDN: c, Scope: directory.ScopeSubtree, Filter: filter.Equal("objectClass", "referral"),
+				Attributes: []string{"1.1"}, Limit: directory.MaxPageSize, PageSize: directory.MaxPageSize, Cookie: cookie,
+			})
+			if err != nil {
+				if limit, ok := auditLimit(err); ok {
+					return incomplete(c, directory.ScopeSubtree, limit)
+				}
+				return err
+			}
+			for _, ref := range res.Referrals {
+				a.referral(ref, "", c)
+			}
+			if res.Truncated && len(res.Cookie) == 0 {
+				return incomplete(c, directory.ScopeSubtree, "sizeLimitExceeded, or a truncated result")
+			}
+			if len(res.Cookie) == 0 {
+				break
+			}
+			cookie = res.Cookie
+		}
+		a.read = append(a.read, MemberAuditRead{Base: c.String(), Scope: MemberAuditReadScopeSub, Entries: 0})
+	}
+	return nil
 }
 
 func (a *memberAuditor) markBelow(n *auditName) {

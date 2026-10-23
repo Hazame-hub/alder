@@ -30,6 +30,7 @@ const auditSuffix = "dc=alder,dc=test"
 var auditClasses = []string{
 	"( 2.5.6.17 NAME 'groupOfUniqueNames' SUP top STRUCTURAL MUST ( uniqueMember $ cn ) MAY description )",
 	"( 1.3.6.1.1.1.2.2 NAME 'posixGroup' SUP top STRUCTURAL MUST ( cn $ gidNumber ) MAY ( memberUid $ description ) )",
+	"( 2.16.840.1.113730.3.2.6 NAME 'referral' SUP top STRUCTURAL MUST ref )",
 }
 
 // auditTree is a directory.Reader over entries the test adds.
@@ -43,6 +44,8 @@ type auditTree struct {
 	searchErr map[string]error
 	readErr   map[string]error
 	referrals map[string][]string
+	// referralObjects answers the search for referral objects at that base.
+	referralObjects map[string][]string
 	// truncated answers a search at that base with a truncation and no
 	// cookie, which is how the driver reports a server size limit.
 	truncated map[string]bool
@@ -57,6 +60,7 @@ func newAuditTree(t *testing.T) *auditTree {
 		sch: testSchema(t, auditClasses...), caps: defaultCaps(),
 		searchErr: map[string]error{}, readErr: map[string]error{},
 		referrals: map[string][]string{}, truncated: map[string]bool{},
+		referralObjects: map[string][]string{},
 	}
 	tree.add(t, auditSuffix, "top", "domain")
 	tree.add(t, "ou=people,"+auditSuffix, "top", "organizationalUnit")
@@ -123,6 +127,10 @@ func (a *auditTree) Search(_ context.Context, req directory.SearchRequest) (*dir
 	}
 	if a.truncated[key] {
 		return &directory.SearchResult{Truncated: true}, nil
+	}
+	// The referral objects, which a server returns as references.
+	if rendered, _ := req.Filter.Render(); rendered == "(objectClass=referral)" {
+		return &directory.SearchResult{Referrals: a.referralObjects[key]}, nil
 	}
 	namesOnly := slices.Contains(req.Attributes, "1.1")
 	var matched []*directory.Entry
@@ -234,9 +242,9 @@ func TestTheAuditReportsValuesNotFoundAndTheGroupsTheyWouldEmpty(t *testing.T) {
 	if tree.reads != 3 {
 		t.Errorf("%d reads, want 3: one per distinct name", tree.reads)
 	}
-	for _, r := range audit.Read[1:] {
+	for _, r := range audit.Read[2:] { // after the groups and the referral objects
 		if r.Scope != MemberAuditReadScopeBase {
-			t.Errorf("read %+v, want base reads after the groups' search", r)
+			t.Errorf("read %+v, want base reads after the groups' and referrals' searches", r)
 		}
 	}
 }
@@ -428,6 +436,19 @@ func TestAReferralMakesWhatIsBelowItNotCheckedNeverNotFound(t *testing.T) {
 		g := groupNamed(t, runAudit(t, tree), "g")
 		if len(g.NotChecked) != 1 || g.NotChecked[0].Reason != UncheckedBelowReferral || len(g.NotFound) != 0 {
 			t.Errorf("g = %+v", g)
+		}
+	})
+	t.Run("found by asking for referral objects, where a read below one is no such object", func(t *testing.T) {
+		tree := newAuditTree(t)
+		target := "uid=x,ou=remote," + auditSuffix
+		tree.group(t, "g", "groupOfNames", "member", target)
+		tree.referralObjects[dn.MustParse(auditSuffix).Key()] = []string{"ldap://elsewhere.test/ou=remote," + auditSuffix}
+		g := groupNamed(t, runAudit(t, tree), "g")
+		if len(g.NotChecked) != 1 || g.NotChecked[0].Reason != UncheckedBelowReferral || len(g.NotFound) != 0 {
+			t.Errorf("g = %+v", g)
+		}
+		if tree.reads != 0 {
+			t.Errorf("%d reads below a referral", tree.reads)
 		}
 	})
 	t.Run("whose URL names no DN", func(t *testing.T) {

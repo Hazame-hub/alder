@@ -6766,7 +6766,11 @@ new error code, `audit_incomplete`.
   -- a search result reference, or a referral result on a direct read, whose
   URLs and matched DN the driver now keeps (`ldapdriver.Error.Referrals`,
   `ReferralDN`) -- is *not checked*, with `below_referral`. A URL naming no DN
-  makes everything under that search's base not checked.
+  makes everything under that search's base not checked. Because a server
+  need not answer a read *below* a referral object with a referral -- 389 DS
+  answers *no such object* -- the audit first searches each naming context the
+  names are in for `(objectClass=referral)`, names only, where the schema
+  defines the class, and reads nothing below a reference it returns.
 - **The clean-up.** Nothing is chosen to begin with; the choice is read again
   by `GET /entry` before staging (a 404 is still not found; anything else
   leaves the value in place and says so) and staged as one `delete` per group

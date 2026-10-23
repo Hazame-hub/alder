@@ -243,8 +243,8 @@ func TestTheMembershipAuditOnBothServers(t *testing.T) {
 			if len(mixed.NotFound) != 210 || mixed.Remaining != 1 {
 				t.Errorf("ma-mixed: %d not found, %d remaining; want 210 and 1", len(mixed.NotFound), mixed.Remaining)
 			}
-			// The groups' own search, then the names' common parent, one level
-			// down: a handful of entries, not the 320 the suffix holds.
+			// The names' common parent, one level down: a handful of entries,
+			// not the 320 the suffix holds.
 			// One level down where every name is a child of the ou; a subtree
 			// where one is deeper, which ma-x is when no referral stood for it.
 			want := api.MemberAuditReadScopeOne
@@ -252,7 +252,9 @@ func TestTheMembershipAuditOnBothServers(t *testing.T) {
 				want = api.MemberAuditReadScopeSub
 			}
 			read := 0
-			for _, r := range again.Read[1:] {
+			// After the groups' search and the search for referral objects,
+			// which reads no entry.
+			for _, r := range again.Read[2:] {
 				if !strings.EqualFold(r.Base, auditOU) || r.Scope != want {
 					t.Errorf("existence read %+v, want %s under %s", r, want, auditOU)
 				}
