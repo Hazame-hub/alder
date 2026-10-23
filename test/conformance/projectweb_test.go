@@ -65,6 +65,13 @@ func seedWebProject(t *testing.T, sess directory.Session) {
 // and the server, given the same alder.yaml, validates and ignores.
 func writeExampleProject(t *testing.T, s server, base string) string {
 	t.Helper()
+	return writeExampleProjectUnder(t, s, base, webProjectBase)
+}
+
+// writeExampleProjectUnder is writeExampleProject with the example's suffix
+// moved to under instead.
+func writeExampleProjectUnder(t *testing.T, s server, base, under string) string {
+	t.Helper()
 	src := filepath.Join("..", "..", "examples", "project", "directory")
 	ca, err := filepath.Abs(filepath.Join("..", "compose", "certs", "ca.crt"))
 	if err != nil {
@@ -83,7 +90,7 @@ func writeExampleProject(t *testing.T, s server, base string) string {
 		if err != nil {
 			return err
 		}
-		text := strings.ReplaceAll(string(raw), "dc=example,dc=com", webProjectBase)
+		text := strings.ReplaceAll(string(raw), "dc=example,dc=com", under)
 		if filepath.ToSlash(rel) == "alder.yaml" {
 			at := strings.Index(text, "\nenvironments:")
 			if at < 0 {
@@ -110,7 +117,8 @@ func writeExampleProject(t *testing.T, s server, base string) string {
 }
 
 // browserFiles is what the web interface sends for a chosen folder:
-// alder.yaml at its top and every *.ldif below it outside dot-directories.
+// alder.yaml at its top and every *.ldif and *.search.yaml below it outside
+// dot-directories.
 func browserFiles(t *testing.T, dir string) string {
 	t.Helper()
 	type file struct {
@@ -133,7 +141,7 @@ func browserFiles(t *testing.T, dir string) string {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if rel != "alder.yaml" && !strings.HasSuffix(strings.ToLower(rel), ".ldif") {
+		if rel != "alder.yaml" && !strings.HasSuffix(strings.ToLower(rel), ".ldif") && !strings.HasSuffix(rel, ".search.yaml") {
 			return nil
 		}
 		raw, err := os.ReadFile(path)

@@ -34,6 +34,22 @@ describe("which of a chosen folder's files are sent", () => {
     expect(s.send.map((f) => f.path)).toEqual(["CAPS.LDIF", "alder.yaml", "groups.ldif", "people/engineering.ldif"]);
   });
 
+  it("sends every saved search, in that spelling only, outside dot-directories", () => {
+    const s = selectProjectFiles(
+      picked(
+        "directory/alder.yaml",
+        "directory/people/locked.search.yaml",
+        "directory/all.search.yaml",
+        "directory/LOUD.SEARCH.YAML",
+        "directory/notes.yaml",
+        "directory/.github/x.search.yaml",
+      ),
+    );
+    expect(s.ok).toBe(true);
+    if (!s.ok) return;
+    expect(s.send.map((f) => f.path)).toEqual(["alder.yaml", "all.search.yaml", "people/locked.search.yaml"]);
+  });
+
   it("opens the one project below the chosen folder when there is none at its top", () => {
     const s = selectProjectFiles(
       picked("repo/README.md", "repo/directory/alder.yaml", "repo/directory/a.ldif", "repo/other.ldif"),

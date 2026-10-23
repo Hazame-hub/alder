@@ -122,7 +122,37 @@ func (s *Server) PlanProject(c *fiber.Ctx) error {
 		}
 		out.Unmanaged = append(out.Unmanaged, view)
 	}
+	if len(p.Searches) > 0 {
+		searches := savedSearches(p.Searches)
+		out.Searches = &searches
+	}
 	return c.JSON(out)
+}
+
+// savedSearches are a project's searches as the files write them. The plan
+// beside them is under the files' own names, and so are these.
+func savedSearches(in []project.Search) []SavedSearch {
+	out := make([]SavedSearch, 0, len(in))
+	for _, s := range in {
+		view := SavedSearch{
+			Name:       s.Name,
+			File:       s.File,
+			Base:       s.Base.String(),
+			Scope:      SavedSearchScope(s.Scope),
+			Filter:     s.Filter,
+			Attributes: append([]string{}, s.Attributes...),
+			Columns:    append([]string{}, s.Columns...),
+			Limit:      s.Limit,
+		}
+		if s.Title != "" {
+			view.Title = ptr(s.Title)
+		}
+		if s.Description != "" {
+			view.Description = ptr(s.Description)
+		}
+		out = append(out, view)
+	}
+	return out
 }
 
 // projectInvalid answers with every problem, in the words alder project

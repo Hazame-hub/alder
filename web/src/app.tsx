@@ -33,6 +33,7 @@ import { Tree } from "@/features/tree";
 import { EntryPanel } from "@/features/entry";
 import { SchemaBrowser } from "@/features/schema";
 import { SearchPanel } from "@/features/search";
+import { parseAttributeList, searchLocation, type SavedSearchOrigin } from "@/lib/saved-search";
 import { ImportPanel } from "@/features/import";
 import { SnapshotsPanel } from "@/features/snapshots";
 import { PackagesPanel } from "@/features/packages";
@@ -80,6 +81,11 @@ export function App() {
   // loading spinner both return before that point, and a hook below an early
   // return is a hook count that changes between renders.
   const [jumpOpen, setJumpOpen] = useState(false);
+
+  // The saved search the search page was opened from, for the heading over
+  // it. Held here, in memory, and never in the URL: a link anybody can write
+  // must not be able to say it is a reviewed file. A refresh forgets it.
+  const [savedOrigin, setSavedOrigin] = useState<SavedSearchOrigin | null>(null);
 
   const session = useQuery({
     queryKey: ["session"],
@@ -148,7 +154,7 @@ export function App() {
           onOpenChange={setJumpOpen}
           onEntry={openEntry}
           onSearch={(filter, base) =>
-            go({ view: "search", filter, base, scope: "sub" })
+            go({ view: "search", filter, base, scope: "sub", attrs: undefined, cols: undefined })
           }
         />
 
@@ -224,6 +230,9 @@ export function App() {
                 scope={search.scope ?? "sub"}
                 filter={search.filter ?? "(objectClass=*)"}
                 limit={search.limit ?? 100}
+                attrs={parseAttributeList(search.attrs)}
+                cols={parseAttributeList(search.cols)}
+                origin={savedOrigin}
                 readOnly={info.readOnly === true}
                 onChange={(next) => go(next)}
                 onOpenEntry={openEntry}
@@ -254,6 +263,10 @@ export function App() {
               <ImportPanel
                 onReviewChangeset={() => go({ view: "changeset" })}
                 onBrowse={(dn) => openEntry(dn)}
+                onOpenSearch={(saved, folder) => {
+                  setSavedOrigin({ search: saved, folder });
+                  go({ dn: undefined, ...searchLocation(saved) });
+                }}
               />
             </main>
           )}

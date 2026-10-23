@@ -1,0 +1,12 @@
+# A saved search: written down once, reviewed like code, opened by name.
+# alder project search lists it; alder project search people/engineers
+# --env staging runs it. It is not state: nothing is planned from it.
+version: 1
+title: Engineers
+description: Everyone in the engineering department, with what they do.
+base: ou=people,dc=example,dc=com
+scope: one
+filter: (&(objectClass=inetOrgPerson)(departmentNumber=engineering))
+attributes: [uid, cn, mail, title]
+columns: [uid, cn, title]
+limit: 500

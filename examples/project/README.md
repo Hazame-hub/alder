@@ -10,8 +10,10 @@ examples/project/
 ├── directory/             the project: copy this into your repository
 │   ├── alder.yaml
 │   ├── groups.ldif
+│   ├── groups-without-description.search.yaml
 │   └── people/
 │       ├── engineering.ldif
+│       ├── engineers.search.yaml
 │       └── operations.ldif
 └── ci/
     ├── github-actions.yml        copy to .github/workflows/directory.yml
@@ -29,6 +31,11 @@ alder project validate --project examples/project/directory
 `validate` reads the files and connects to nothing: it checks that every
 entry is whole, sits under its subtree, appears once and carries no secret.
 Exit 0 is valid, 3 is not, with every problem listed.
+
+The two `.search.yaml` files are saved searches: `alder project search`
+lists them without connecting to anything, and `alder project search
+people/engineers --env staging` runs one and writes its entries as LDIF.
+They are not state; nothing is planned from them.
 
 `alder project fmt` rewrites the LDIF in the form Alder's own exports take,
 so a diff shows what changed rather than how it was wrapped; `fmt --check`
