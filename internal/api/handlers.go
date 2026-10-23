@@ -20,6 +20,7 @@ import (
 	"github.com/hazame-hub/alder/internal/filter"
 	"github.com/hazame-hub/alder/internal/ldif"
 	"github.com/hazame-hub/alder/internal/plan"
+	"github.com/hazame-hub/alder/internal/project"
 	"github.com/hazame-hub/alder/internal/schema"
 	"github.com/hazame-hub/alder/internal/session"
 )
@@ -1300,6 +1301,13 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 	}
 
 	attrs := []string{"*"}
+	if raw := strings.TrimSpace(deref(params.Attributes)); raw != "" {
+		named, nameErr := exportAttributes(raw)
+		if nameErr != nil {
+			return badRequest(c, "The export's attributes are not a list of attribute names.", nameErr.Error())
+		}
+		attrs = named
+	}
 	if params.IncludeOperational != nil && *params.IncludeOperational {
 		attrs = append(attrs, "+")
 	}
@@ -1480,6 +1488,29 @@ func (s *Server) ExportLdif(c *fiber.Ctx, params ExportLdifParams) error {
 		}
 	})
 	return nil
+}
+
+// maxExportAttributes is how many attributes an export may name, a saved
+// search's bound.
+const maxExportAttributes = 100
+
+// exportAttributes reads the comma-separated attribute names an export was
+// asked for. A sensitive one is still left out by the writer unless the
+// export includes them: naming it is not a way around that.
+func exportAttributes(raw string) ([]string, error) {
+	parts := strings.Split(raw, ",")
+	if len(parts) > maxExportAttributes {
+		return nil, fmt.Errorf("%d attributes, and an export names at most %d", len(parts), maxExportAttributes)
+	}
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if !project.IsAttributeDescription(p) {
+			return nil, fmt.Errorf("%q is not an attribute name", p)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // exportFilename builds a filename from the RDN, keeping only characters that

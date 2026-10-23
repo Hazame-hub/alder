@@ -570,7 +570,10 @@ applies exactly that file, through any Alder, or refuses it whole if the
 directory has moved. There is no state file, and an entry the files do not
 mention is never deleted: the plan lists it as unmanaged.
 `alder project fmt` keeps the LDIF in one canonical form so a diff shows what
-changed. See [`PROJECT.md`](PROJECT.md), and
+changed. A question asked every week -- who is locked, which groups have no
+description -- is a saved search: a `NAME.search.yaml` file beside the LDIF,
+reviewed like code, that `alder project search NAME --env prod` runs and
+writes as LDIF to commit or diff. See [`PROJECT.md`](PROJECT.md), and
 [`examples/project/`](../examples/project/) for a project with its CI: validate
 on every pull request, a scheduled plan for drift, and an optional apply that
 saves the plan in one job and applies that file in a second, only once someone
@@ -585,8 +588,11 @@ entries, under a heading that names the project and the directory it was
 planned against. The environments in `alder.yaml` are not used here; the
 plan is always the session's. *Stage for review* puts the plan into an
 empty changeset, where it is checked again, applied with baselines and can
-be exported as LDIF or an Ansible playbook. Only `alder.yaml` and the
-`*.ldif` files are read from the folder (a repository whose `alder.yaml`
+be exported as LDIF or an Ansible playbook. The project's saved
+searches are listed under the plan, and each opens the search page with its
+attributes and columns, as a link; *Save as file* on the search page
+downloads any search as a `.search.yaml` to commit. Only `alder.yaml`, the
+`*.ldif` and the `*.search.yaml` files are read from the folder (a repository whose `alder.yaml`
 is one folder down opens that folder; with several, you pick), nothing is
 stored, and a project
 too large for one request (16 MiB, 1,000 files, a 2,000-change changeset)

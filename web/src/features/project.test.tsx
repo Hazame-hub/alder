@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ApiFailure } from "@/lib/api";
 import type { ProjectPlan } from "@/lib/project";
-import { ProjectFailure, ProjectResult, UnmanagedList } from "./project";
+import { ProjectFailure, ProjectResult, SavedSearchList, UnmanagedList } from "./project";
 
 // What Open project shows. Picking a folder is a browser's business; what is
 // pinned here is the wording, that the heading is the session's directory,
@@ -70,6 +70,40 @@ describe("the unmanaged entries", () => {
       renderToStaticMarkup(<UnmanagedList unmanaged={[{ base: "ou=people,dc=example,dc=com", entries: [] }]} onBrowse={() => {}} />),
     );
     expect(text).toContain("Unmanaged: none. Every entry in the managed subtrees is one the project describes.");
+  });
+});
+
+describe("the saved searches", () => {
+  const searches = [
+    {
+      name: `people/lock${RLO}ed`,
+      file: "people/locked.search.yaml",
+      title: "Locked accounts",
+      base: "ou=people,dc=example,dc=com",
+      scope: "sub" as const,
+      filter: "(pwdAccountLockedTime=*)",
+      attributes: [],
+      columns: [],
+      limit: 100,
+    },
+  ];
+
+  it("lists each by name and title, escaped, with what it searches", () => {
+    const html = renderToStaticMarkup(<SavedSearchList searches={searches} onOpen={() => {}} />);
+    const text = textOf(html);
+    expect(text).toContain("Saved searches: 1, from the project's *.search.yaml files");
+    expect(html).not.toContain(RLO);
+    expect(text).toContain("people/lock\\u202eed — Locked accounts");
+    expect(text).toContain("(pwdAccountLockedTime=*) under ou=people,dc=example,dc=com");
+  });
+
+  it("appear under the plan only when the project has some", () => {
+    const without = textOf(renderToStaticMarkup(<ProjectResult folder="directory" result={result} onBrowse={() => {}} />));
+    expect(without).not.toContain("Saved searches");
+    const withSome = textOf(
+      renderToStaticMarkup(<ProjectResult folder="directory" result={{ ...result, searches }} onBrowse={() => {}} />),
+    );
+    expect(withSome).toContain("Saved searches: 1");
   });
 });
 

@@ -838,6 +838,12 @@ export interface paths {
          *     read whole as a snapshot capture reads it or reported with `error`.
          *     Reported, never planned: a project is not a deleter.
          *
+         *     Files named `*.search.yaml` are the project's saved searches
+         *     (docs/PROJECT.md, "Saved searches"). They are validated with the
+         *     rest, a problem in one makes the project invalid with its file and
+         *     line, and they are returned as `searches`. A search is not state: it
+         *     is never planned and does not change the plan.
+         *
          *     Nothing is written, so this is allowed on an Alder started with
          *     `--read-only`.
          */
@@ -4780,6 +4786,33 @@ export interface components {
             bindDn: string;
             plan: components["schemas"]["Plan"];
             unmanaged: components["schemas"]["ProjectUnmanaged"][];
+            /**
+             * @description The project's `*.search.yaml` files, in path order, as the files
+             *     write them: an environment's `suffix` is not applied here, as it
+             *     is not to the plan. Absent from an older server.
+             */
+            searches?: components["schemas"]["SavedSearch"][];
+        };
+        /**
+         * @description One saved search, read and checked by the code `alder project
+         *     validate` runs. Running it is `POST /search` with these values; the
+         *     filter is the text as written, which that request parses again.
+         */
+        SavedSearch: {
+            /** @description The file's path below the project without `.search.yaml`, such as `people/locked-accounts`. */
+            name: string;
+            file: string;
+            title?: string;
+            description?: string;
+            base: string;
+            /** @enum {string} */
+            scope: "base" | "one" | "sub";
+            filter: string;
+            /** @description What to ask for. Empty asks for every user attribute. */
+            attributes: string[];
+            /** @description Which of `attributes` a table shows, in order. Empty leaves it to the reader. */
+            columns: string[];
+            limit: number;
         };
         ChangePreview: {
             /**
@@ -6740,6 +6773,14 @@ export interface operations {
                  *     bounds how long the export runs rather than how much it holds.
                  */
                 limit?: number;
+                /**
+                 * @description Comma-separated attribute names to export, such as `uid,cn,mail`.
+                 *     Omitted, every user attribute is, as before. A sensitive attribute
+                 *     named here is still left out unless `includeSensitive` is set, and
+                 *     `includeOperational` still adds the operational ones. At most 100
+                 *     names.
+                 */
+                attributes?: string;
             };
             header?: never;
             path?: never;

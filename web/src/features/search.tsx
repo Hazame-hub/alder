@@ -30,7 +30,7 @@ import { BulkEditDialog } from "@/features/bulk-edit";
 import { GroupMembersDialog, pickedFromRows } from "@/features/group-members";
 import type { MembersOperation } from "@/lib/group-members";
 import { ExportMenu } from "@/components/export-menu";
-import { LdifBlock } from "@/components/ldif-block";
+import { DownloadButton, LdifBlock } from "@/components/ldif-block";
 import {
   buildFilter,
   isAttributeName,
@@ -38,6 +38,14 @@ import {
   type Clause,
 } from "@/lib/filter-builder";
 import { stageDeletions, type StageOutcome } from "@/lib/stage-deletes";
+import {
+  savedSearchFile,
+  savedSearchFileName,
+  showsOrigin,
+  type CurrentSearch,
+  type SavedSearchOrigin,
+} from "@/lib/saved-search";
+import { safeText } from "@/lib/display";
 import { cn } from "@/lib/utils";
 
 type Scope = "base" | "one" | "sub";
@@ -55,6 +63,9 @@ export function SearchPanel({
   scope,
   filter,
   limit,
+  attrs = [],
+  cols = [],
+  origin = null,
   readOnly,
   onChange,
   onOpenEntry,
@@ -64,6 +75,12 @@ export function SearchPanel({
   scope: Scope;
   filter: string;
   limit: number;
+  /** What to ask for, from the URL; empty asks for the page's own six. */
+  attrs?: string[];
+  /** Which columns to show, from the URL; empty lets the page choose. */
+  cols?: string[];
+  /** The saved search the page was opened from, if any. */
+  origin?: SavedSearchOrigin | null;
   readOnly: boolean;
   /** Writes the search back into the URL, which is what makes it shareable. */
   onChange: (next: {
@@ -89,8 +106,12 @@ export function SearchPanel({
   useEffect(() => setDraftFilter(filter), [filter]);
   useEffect(() => setDraftLimit(limit), [limit]);
 
+  const current: CurrentSearch = { base, scope, filter, limit, attrs, cols };
+  const fromFile = showsOrigin(origin, current) ? origin : null;
+  const asked = attrs.length > 0 ? attrs : defaultAttributes;
+
   const search = useQuery<SearchResponse, ApiFailure>({
-    queryKey: ["search", base, scope, filter, limit],
+    queryKey: ["search", base, scope, filter, limit, asked.join(",")],
     // Nothing runs without a base: an empty one searches the root DSE, which is
     // never what was meant.
     enabled: base !== "",
@@ -104,7 +125,7 @@ export function SearchPanel({
             limit,
             // The page size is a wire detail; the limit is what the user chose.
             pageSize: Math.min(limit, 200),
-            attributes: ["cn", "objectClass", "uid", "mail", "ou", "description"],
+            attributes: asked,
           },
         }),
       ),
@@ -117,6 +138,22 @@ export function SearchPanel({
     <div className="screen-shell flex h-full min-h-0 flex-col">
       <div className="shrink-0 space-y-3 border-b border-border p-5">
         <p className="screen-kicker">Directory intelligence</p>
+        {fromFile ? (
+          // From the session's memory, never from the URL: a link cannot
+          // claim to be a reviewed file. Edited, the search is an ordinary one.
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <span className="font-medium">
+              Saved search <span className="font-dn">{safeText(fromFile.search.name)}</span>
+            </span>
+            {fromFile.search.title ? <span> — {safeText(fromFile.search.title)}</span> : null}
+            <span className="text-muted-foreground">
+              , from <span className="font-dn">{safeText(fromFile.folder)}/</span>
+            </span>
+            {fromFile.search.description ? (
+              <p className="text-xs text-muted-foreground">{safeText(fromFile.search.description)}</p>
+            ) : null}
+          </div>
+        ) : null}
         <div className="grid gap-3 md:grid-cols-[1fr_10rem_7rem]">
           <div className="space-y-1.5">
             <Label htmlFor="base">Search base</Label>
@@ -205,6 +242,12 @@ export function SearchPanel({
             scope={scope}
             filter={filter}
             limit={limit}
+            attrs={attrs}
+            cols={cols}
+            saveAs={{
+              text: savedSearchFile(current, fromFile?.search.title),
+              filename: savedSearchFileName(fromFile),
+            }}
             readOnly={readOnly}
             onOpenEntry={onOpenEntry}
             onReviewChangeset={onReviewChangeset}
@@ -230,6 +273,9 @@ function Results({
   scope,
   filter,
   limit,
+  attrs,
+  cols,
+  saveAs,
   readOnly,
   onOpenEntry,
   onReviewChangeset,
@@ -239,6 +285,10 @@ function Results({
   scope: Scope;
   filter: string;
   limit: number;
+  attrs: string[];
+  cols: string[];
+  /** The search as a .search.yaml file, for Save as file. */
+  saveAs: { text: string; filename: string };
   readOnly: boolean;
   onOpenEntry: (dn: string, forEdit?: boolean) => void;
   onReviewChangeset: () => void;
@@ -252,6 +302,12 @@ function Results({
   // actually returned. A search spans object classes, so a fixed set would show
   // an email column over a page of organizational units.
   const columns = useMemo(() => {
+    // Columns somebody chose, by the URL or a saved search, are shown as
+    // chosen, filled or not: an empty column is an answer too.
+    const chosen = cols.length > 0 ? cols : attrs.filter((a) => a.toLowerCase() !== "objectclass");
+    if (chosen.length > 0) {
+      return chosen.map((n) => ({ attribute: n, label: labels[n.toLowerCase()] ?? n }));
+    }
     const present = new Set<string>();
     for (const entry of data.entries) {
       for (const a of entry.attributes ?? []) {
@@ -262,7 +318,7 @@ function Results({
     return ["cn", "uid", "mail", "ou", "description"]
       .filter((n) => present.has(n))
       .map((n) => ({ attribute: n, label: labels[n] ?? n }));
-  }, [data.entries]);
+  }, [data.entries, attrs, cols]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -305,7 +361,15 @@ function Results({
           on screen rather than a subtree that happens to contain it. The
           export applies its own limit and says so in its header.
         */}
-        <span className={data.command ? undefined : "ml-auto"}>
+        {/*
+          The search as a file for a project, rendered from what the page is
+          running. Alder writes nothing into a project: the person commits
+          it, and alder project validate checks it.
+        */}
+        <span className={data.command ? undefined : "ml-auto"} title="Download this search as a .search.yaml file for an Alder project">
+          <DownloadButton text={saveAs.text} filename={saveAs.filename} label="Save as file" mime="application/yaml" />
+        </span>
+        <span>
           <ExportMenu
             dn={base}
             scope={scope}
@@ -397,6 +461,9 @@ function Results({
     </div>
   );
 }
+
+/** What the page asks for when nothing says otherwise. */
+const defaultAttributes = ["cn", "objectClass", "uid", "mail", "ou", "description"];
 
 /** Headings for the attributes the results table asks for. */
 const labels: Record<string, string> = {

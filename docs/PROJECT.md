@@ -305,6 +305,100 @@ than one project with conditions in it.
 
 ---
 
+## Saved searches
+
+A team asks the same few questions of a directory every week: which accounts
+are locked, who has no manager, which groups have no description. A saved
+search writes one down once, beside the LDIF, to be reviewed like code and
+opened by name from a shell or the browser
+([proposals/saved-searches.md](proposals/saved-searches.md), accepted
+2026-10-22).
+
+```
+directory/
+├── alder.yaml
+├── groups.ldif
+├── groups-without-description.search.yaml
+└── people/
+    ├── engineering.ldif
+    └── engineers.search.yaml
+```
+
+```yaml
+# people/engineers.search.yaml
+version: 1
+title: Engineers
+description: Everyone in the engineering department, with what they do.
+base: ou=people,dc=example,dc=com
+scope: one
+filter: (&(objectClass=inetOrgPerson)(departmentNumber=engineering))
+attributes: [uid, cn, mail, title]
+columns: [uid, cn, title]
+limit: 500
+```
+
+**A search is a file of its own**, named `NAME.search.yaml` anywhere below
+`alder.yaml` outside dot-directories, and found by that suffix -- spelled
+exactly so, since a suffix matched without regard to case on one filesystem
+and not another is a search that comes and goes with the checkout. Its name
+is its path without the suffix: `people/engineers`. `alder.yaml` does not
+list searches and does not change, so a release before saved searches reads,
+plans and applies a project holding them exactly as before: it never opens
+them.
+
+**A search is not state.** It writes nothing and nothing plans it. It is not
+part of the document a plan is made from, so adding one never changes a plan
+or the digest a saved plan binds.
+
+| Key | | Meaning |
+|---|---|---|
+| `version` | required | `1`. Any other is refused, not guessed at. |
+| `base` | required | A DN. With a project `suffix`, at or below it, so an environment's own suffix moves it. |
+| `filter` | required | An RFC 4515 filter, at most 8 KiB. Refused if it does not parse; sent as written, and parsed again by the server. |
+| `scope` | optional | `base`, `one` or `sub` (default `sub`). |
+| `attributes` | optional | Attribute names to ask for. Omitted, the columns and `objectClass`; with neither, every user attribute. |
+| `columns` | optional | Which of the attributes a table shows, in order. Omitted, the attributes. Each must be among them. |
+| `limit` | optional | 1 to 10,000, default 100: `POST /search`'s. |
+| `title`, `description` | optional | Text for a person, shown escaped as every string Alder did not write is. |
+
+The reader is as strict as `alder.yaml`'s: an unknown key is refused, a key
+given twice is refused, keys are read exactly as written, and a file holds
+one YAML document. **No secret is named**: `userPassword` or any other
+attribute Alder withholds is refused in `attributes` or `columns`, as the
+server would withhold its values anyway and a file that asks for one reads as
+if it could have it. An attribute name is a descriptor or a numeric OID, with
+options; whether the directory defines it is the search's to answer. **No
+variables**: `(uid={user})` matches a `uid` of `{user}`. A filter with a hole
+in it is a filter built from text at run time, which is the thing the
+filter package exists to prevent.
+
+Bounds: a search file of at most 64 KiB, at most 200 of them in a project,
+at most 100 attributes, and names unique without regard to case
+(`People/Locked` beside `people/locked` is one file on a filesystem that
+folds case). `validate` refuses a project past any of them, as it refuses a
+file a symlink takes outside the project.
+
+**In an environment with its own suffix** the base is moved, as every managed
+base is. **The filter is not rewritten**: the search the reviewer read is the
+search that runs. A filter that names a DN below the project's suffix --
+`(manager=uid=ana,ou=people,dc=example,dc=com)` -- is sent as written and
+said on standard error with the `contains_dn` reason, as a value a rebase
+leaves is.
+
+**In the browser**, *Open project* sends the `*.search.yaml` files with the
+rest, and lists the searches under the plan. Each opens the search page with
+its base, scope, filter, limit, attributes and columns in the URL: a search
+somebody could have typed, and can send on as a link. A heading names the
+file it came from until any of those is edited; it is held in the page's
+memory, never in the URL, so a link cannot claim to be a reviewed file. *Save
+as file*, on any search, downloads it as a `.search.yaml` rendered from what
+the page is running, for the person to commit; Alder never writes into a
+project, and `alder project validate` is the check of what was saved.
+Nothing about a project or its searches is kept, in the browser or on the
+server.
+
+---
+
 ## Commands
 
 ### `alder project validate`
@@ -318,7 +412,9 @@ Checks the project without connecting to anything:
 - every environment names a password source and no password;
 - `suffix` and every environment's `suffix` are DNs, an environment has one
   only when the project does, every managed base lies below the project's,
-  and no environment would rename the suffix entry the project describes.
+  and no environment would rename the suffix entry the project describes;
+- every `*.search.yaml` is a valid saved search (see "Saved searches"), and
+  how many there are is said.
 
 It does not check the schema, because the schema belongs to a directory. That is
 what `plan` is for.
@@ -327,6 +423,26 @@ Exit codes follow the existing table: 0 valid; 3 for a project that is not
 valid, which is that code's existing meaning ("cannot be applied as written;
 nothing was written"); 7 for a wrong command line; 8 for a file that cannot be
 read.
+
+### `alder project search [NAME --env ENV]`
+
+Without a name it lists the project's saved searches, each with its base,
+scope, limit, filter and attributes, and connects to nothing (`--json`: one
+array, the fields of the file).
+
+With a name and `--env`, it runs that search against the environment,
+connecting as `plan` does, and writes its entries to standard output as LDIF:
+exactly what `GET /export/ldif` writes for the same base, scope, filter,
+limit and attributes, so a result can be committed and compared. `--json`
+writes the entries `POST /search` returns, as one array, instead. A search
+that stopped at its limit says so on standard error.
+
+Exit codes from the existing table: 0 the search ran, whether or not it
+matched anything (nothing matched is said on standard error); 3 the project,
+a search file included, is not valid; 7 a name the project does not have, or
+any other wrong command line; 8 the directory refused the search, or the
+export did not complete. `--detailed-exitcode` is not offered: a search is
+not a plan.
 
 ### `alder project plan --env NAME`
 

@@ -1715,6 +1715,27 @@ func (e ReplicationRole) Valid() bool {
 	}
 }
 
+// Defines values for SavedSearchScope.
+const (
+	SavedSearchScopeBase SavedSearchScope = "base"
+	SavedSearchScopeOne  SavedSearchScope = "one"
+	SavedSearchScopeSub  SavedSearchScope = "sub"
+)
+
+// Valid indicates whether the value is a known member of the SavedSearchScope enum.
+func (e SavedSearchScope) Valid() bool {
+	switch e {
+	case SavedSearchScopeBase:
+		return true
+	case SavedSearchScopeOne:
+		return true
+	case SavedSearchScopeSub:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SchemaChangeRequestKind.
 const (
 	AttributeType SchemaChangeRequestKind = "attributeType"
@@ -5195,9 +5216,14 @@ type ProjectPlan struct {
 
 	// Host The directory the plan was made against, `host:port`, as this
 	// session reports it in `GET /session`. Never a value from the files.
-	Host      string             `json:"host"`
-	Plan      Plan               `json:"plan"`
-	Project   ProjectSummary     `json:"project"`
+	Host    string         `json:"host"`
+	Plan    Plan           `json:"plan"`
+	Project ProjectSummary `json:"project"`
+
+	// Searches The project's `*.search.yaml` files, in path order, as the files
+	// write them: an environment's `suffix` is not applied here, as it
+	// is not to the plan. Absent from an older server.
+	Searches  *[]SavedSearch     `json:"searches,omitempty"`
 	Unmanaged []ProjectUnmanaged `json:"unmanaged"`
 }
 
@@ -5776,6 +5802,30 @@ type ResolveResult struct {
 	Destinations []Destination `json:"destinations"`
 	Query        string        `json:"query"`
 }
+
+// SavedSearch One saved search, read and checked by the code `alder project
+// validate` runs. Running it is `POST /search` with these values; the
+// filter is the text as written, which that request parses again.
+type SavedSearch struct {
+	// Attributes What to ask for. Empty asks for every user attribute.
+	Attributes []string `json:"attributes"`
+	Base       string   `json:"base"`
+
+	// Columns Which of `attributes` a table shows, in order. Empty leaves it to the reader.
+	Columns     []string `json:"columns"`
+	Description *string  `json:"description,omitempty"`
+	File        string   `json:"file"`
+	Filter      string   `json:"filter"`
+	Limit       int      `json:"limit"`
+
+	// Name The file's path below the project without `.search.yaml`, such as `people/locked-accounts`.
+	Name  string           `json:"name"`
+	Scope SavedSearchScope `json:"scope"`
+	Title *string          `json:"title,omitempty"`
+}
+
+// SavedSearchScope defines model for SavedSearch.Scope.
+type SavedSearchScope string
 
 // SchemaAttributeTypeDefinition defines model for SchemaAttributeTypeDefinition.
 type SchemaAttributeTypeDefinition struct {
@@ -6540,6 +6590,13 @@ type ExportLdifParams struct {
 	// Limit The document is streamed and rendered a page at a time, so this
 	// bounds how long the export runs rather than how much it holds.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Attributes Comma-separated attribute names to export, such as `uid,cn,mail`.
+	// Omitted, every user attribute is, as before. A sensitive attribute
+	// named here is still left out unless `includeSensitive` is set, and
+	// `includeOperational` still adds the operational ones. At most 100
+	// names.
+	Attributes *string `form:"attributes,omitempty" json:"attributes,omitempty"`
 }
 
 // ExportLdifParamsScope defines parameters for ExportLdif.
@@ -8119,6 +8176,12 @@ type ClientInterface interface {
 	// read whole as a snapshot capture reads it or reported with `error`.
 	// Reported, never planned: a project is not a deleter.
 	//
+	// Files named `*.search.yaml` are the project's saved searches
+	// (docs/PROJECT.md, "Saved searches"). They are validated with the
+	// rest, a problem in one makes the project invalid with its file and
+	// line, and they are returned as `searches`. A search is not state: it
+	// is never planned and does not change the plan.
+	//
 	// Nothing is written, so this is allowed on an Alder started with
 	// `--read-only`.
 	//
@@ -8159,6 +8222,12 @@ type ClientInterface interface {
 	// order, the entries the directory holds there that no file describes,
 	// read whole as a snapshot capture reads it or reported with `error`.
 	// Reported, never planned: a project is not a deleter.
+	//
+	// Files named `*.search.yaml` are the project's saved searches
+	// (docs/PROJECT.md, "Saved searches"). They are validated with the
+	// rest, a problem in one makes the project invalid with its file and
+	// line, and they are returned as `searches`. A search is not state: it
+	// is never planned and does not change the plan.
 	//
 	// Nothing is written, so this is allowed on an Alder started with
 	// `--read-only`.
@@ -10298,6 +10367,12 @@ func (c *Client) Preflight(ctx context.Context, body PreflightJSONRequestBody, r
 // read whole as a snapshot capture reads it or reported with `error`.
 // Reported, never planned: a project is not a deleter.
 //
+// Files named `*.search.yaml` are the project's saved searches
+// (docs/PROJECT.md, "Saved searches"). They are validated with the
+// rest, a problem in one makes the project invalid with its file and
+// line, and they are returned as `searches`. A search is not state: it
+// is never planned and does not change the plan.
+//
 // Nothing is written, so this is allowed on an Alder started with
 // `--read-only`.
 //
@@ -10348,6 +10423,12 @@ func (c *Client) PlanProjectWithBody(ctx context.Context, contentType string, bo
 // order, the entries the directory holds there that no file describes,
 // read whole as a snapshot capture reads it or reported with `error`.
 // Reported, never planned: a project is not a deleter.
+//
+// Files named `*.search.yaml` are the project's saved searches
+// (docs/PROJECT.md, "Saved searches"). They are validated with the
+// rest, a problem in one makes the project invalid with its file and
+// line, and they are returned as `searches`. A search is not state: it
+// is never planned and does not change the plan.
 //
 // Nothing is written, so this is allowed on an Alder started with
 // `--read-only`.
@@ -12152,6 +12233,18 @@ func NewExportLdifRequest(server string, params *ExportLdifParams) (*http.Reques
 		if params.Limit != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Attributes != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "attributes", *params.Attributes, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -14996,6 +15089,12 @@ type ClientWithResponsesInterface interface {
 	// read whole as a snapshot capture reads it or reported with `error`.
 	// Reported, never planned: a project is not a deleter.
 	//
+	// Files named `*.search.yaml` are the project's saved searches
+	// (docs/PROJECT.md, "Saved searches"). They are validated with the
+	// rest, a problem in one makes the project invalid with its file and
+	// line, and they are returned as `searches`. A search is not state: it
+	// is never planned and does not change the plan.
+	//
 	// Nothing is written, so this is allowed on an Alder started with
 	// `--read-only`.
 	//
@@ -15036,6 +15135,12 @@ type ClientWithResponsesInterface interface {
 	// order, the entries the directory holds there that no file describes,
 	// read whole as a snapshot capture reads it or reported with `error`.
 	// Reported, never planned: a project is not a deleter.
+	//
+	// Files named `*.search.yaml` are the project's saved searches
+	// (docs/PROJECT.md, "Saved searches"). They are validated with the
+	// rest, a problem in one makes the project invalid with its file and
+	// line, and they are returned as `searches`. A search is not state: it
+	// is never planned and does not change the plan.
 	//
 	// Nothing is written, so this is allowed on an Alder started with
 	// `--read-only`.
@@ -20120,6 +20225,12 @@ func (c *ClientWithResponses) PreflightWithResponse(ctx context.Context, body Pr
 // read whole as a snapshot capture reads it or reported with `error`.
 // Reported, never planned: a project is not a deleter.
 //
+// Files named `*.search.yaml` are the project's saved searches
+// (docs/PROJECT.md, "Saved searches"). They are validated with the
+// rest, a problem in one makes the project invalid with its file and
+// line, and they are returned as `searches`. A search is not state: it
+// is never planned and does not change the plan.
+//
 // Nothing is written, so this is allowed on an Alder started with
 // `--read-only`.
 //
@@ -20166,6 +20277,12 @@ func (c *ClientWithResponses) PlanProjectWithBodyWithResponse(ctx context.Contex
 // order, the entries the directory holds there that no file describes,
 // read whole as a snapshot capture reads it or reported with `error`.
 // Reported, never planned: a project is not a deleter.
+//
+// Files named `*.search.yaml` are the project's saved searches
+// (docs/PROJECT.md, "Saved searches"). They are validated with the
+// rest, a problem in one makes the project invalid with its file and
+// line, and they are returned as `searches`. A search is not state: it
+// is never planned and does not change the plan.
 //
 // Nothing is written, so this is allowed on an Alder started with
 // `--read-only`.

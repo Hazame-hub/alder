@@ -101,3 +101,23 @@ export function parseEntry(ldif: string): Attributes {
   }
   return out;
 }
+
+/**
+ * The DNs a search returns, as the server's own ldapsearch finds them, in
+ * the order it returned them. A DN the server base64-encoded is decoded.
+ */
+export function search(
+  server: DirectoryServer,
+  base: string,
+  scope: "base" | "one" | "sub",
+  filter: string,
+): string[] {
+  const { code, out, err } = run(server, "ldapsearch", ["-LLL", "-o", "ldif-wrap=no", "-b", base, "-s", scope, filter, "1.1"]);
+  if (code !== 0) throw new Error(`ldapsearch ${filter} under ${base} on ${server.name} exited ${code}: ${err.trim()}`);
+  const dns: string[] = [];
+  for (const line of out.split(/\r?\n/)) {
+    if (line.startsWith("dn:: ")) dns.push(Buffer.from(line.slice(5), "base64").toString("utf8"));
+    else if (line.startsWith("dn: ")) dns.push(line.slice(4));
+  }
+  return dns;
+}

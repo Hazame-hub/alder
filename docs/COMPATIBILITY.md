@@ -756,6 +756,30 @@ refuse it as a value it holds), and the delete `modify` (the directory would
 remove the stored value). A UID suffix is compared exactly as written, so every
 other pair plans as it did. No API or format change.
 
+A project can hold saved searches
+([PROJECT.md](PROJECT.md), "Saved searches"). Only additions:
+
+- **The `.search.yaml` format, version 1**, a file of its own beside the
+  LDIF, found by its suffix. Covered from this release, as `alder-plan`
+  version 1 is: later 1.x releases read it, and its reader is strict, so a
+  file using a later addition is refused rather than half read.
+  `alder.yaml` does not change, so an older release plans and applies a
+  project holding search files exactly as before. A search file never
+  changes a plan or a saved plan's digest.
+- **`alder project search`**, a new subcommand, with the existing exit codes
+  (0, 3, 7, 8). Its LDIF is `GET /export/ldif`'s and its `--json` is an
+  array of `POST /search` entries, so both follow those rules.
+  `alder project validate` also checks search files, and says how many it
+  found; a project whose search file does not validate is not valid
+  anywhere, `plan` and `apply` included (exit 3).
+- **`ProjectPlan` gains an optional `searches`**, of the new
+  `SavedSearch` schema, and *Open project* sends `*.search.yaml` files to
+  `POST /project/plan`. A problem in one is a `project_invalid` problem with
+  its file and line, as an LDIF file's is.
+- **`GET /export/ldif` gains an optional `attributes`**, comma-separated.
+  Omitted, the export is every user attribute, as before; a sensitive
+  attribute named in it is still left out unless `includeSensitive` is set.
+
 A recovery bundle compensates a configuration-tree access rule
 ([proposals/access-rules-in-recovery.md](proposals/access-rules-in-recovery.md)):
 
