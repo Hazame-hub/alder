@@ -501,6 +501,47 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /members/audit:
+    post:
+      tags: [browse]
+      operationId: auditMembers
+      summary: Membership values that name no entry this bind can find, and the groups a clean-up would empty
+      description: |
+        Reads the groups below `base` and their DN-valued membership values
+        (`member`, `uniqueMember`), then reads whether each named entry exists
+        -- one base read per name when there are at most 200, otherwise a
+        paged, names-only search under at most 50 of their common ancestors.
+        Nothing is written.
+
+        **"Not found" is never "deleted".** A server answers *no such object*
+        both for an entry that was deleted and for one this bind may not see,
+        so every value reported is reported as not found *by `bind`*.
+
+        **Whole or refused.** More groups than `limit`, more than 50,000
+        entries to read, or any search that ended in `sizeLimitExceeded`,
+        `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+        the audit with nothing reported: a read that stopped early would turn
+        every name after the stop into *not found*. The ceiling answers as a
+        data capture's does (`snapshot_too_large`); the rest answer
+        `audit_incomplete`, naming the search and the limit.
+
+        **Referrals are reported, never followed.** A value at or below a
+        referral is *not checked*, not *not found*. Added in 1.39.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemberAuditRequest" }
+      responses:
+        "200":
+          description: The audit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MemberAudit" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /references:
     get:
       tags: [browse]
@@ -2173,6 +2214,7 @@ components:
             - snapshot_checksum_mismatch
             - snapshot_too_large
             - snapshot_scope_unsupported
+            - audit_incomplete
             - recovery_invalid
             - recovery_unsupported_version
             - recovery_checksum_mismatch
@@ -5434,6 +5476,116 @@ components:
           description: |
             Membership values that are not DNs, and so cannot be followed to an
             entry: `memberUid` holds a login name, `memberURL` a search.
+
+    MemberAuditRequest:
+      type: object
+      required: [base]
+      properties:
+        base:
+          type: string
+          description: Where the groups are. Directory data, never the configuration or schema tree.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 2000
+          default: 500
+          description: The most groups to audit. More below the base refuses the audit.
+
+    MemberAudit:
+      type: object
+      required: [bind, readAt, read, referrals, groups, cycles]
+      properties:
+        bind:
+          type: string
+          description: |
+            The identity that ran the audit, empty for an anonymous bind.
+            Everything reported as not found was not found by this identity.
+        readAt:
+          type: string
+          format: date-time
+        read:
+          type: array
+          description: Every search made to check against, with how many entries each returned.
+          items: { $ref: "#/components/schemas/MemberAuditRead" }
+        referrals:
+          type: array
+          description: Referrals the server returned instead of entries. Never followed.
+          items: { $ref: "#/components/schemas/MemberAuditReferral" }
+        groups:
+          type: array
+          description: Every group read, in the order the server returned them.
+          items: { $ref: "#/components/schemas/MemberAuditGroup" }
+        cycles:
+          type: array
+          items: { type: string }
+          description: Groups among those read that contain themselves, directly or through others.
+
+    MemberAuditRead:
+      type: object
+      required: [base, scope, entries]
+      properties:
+        base: { type: string }
+        scope: { type: string, enum: [base, one, sub] }
+        entries: { type: integer }
+
+    MemberAuditReferral:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string }
+        dn:
+          type: string
+          description: The DN the referral stands for, when its URL names one Alder can parse.
+
+    MemberAuditGroup:
+      type: object
+      required: [dn, classesRequireMember, notFound, notChecked, remaining, noPersonThroughNesting]
+      properties:
+        dn: { type: string }
+        classesRequireMember:
+          type: boolean
+          description: |
+            Whether the group's classes require a membership attribute
+            (`groupOfNames`, `groupOfUniqueNames`). Removing its last value is
+            then refused by the plan; the group can only be deleted.
+        notFound:
+          type: array
+          items: { $ref: "#/components/schemas/MemberAuditValue" }
+        notChecked:
+          type: array
+          items: { $ref: "#/components/schemas/MemberAuditUnchecked" }
+        remaining:
+          type: integer
+          description: Membership values left, over every membership attribute, if every value not found were removed.
+        noPersonThroughNesting:
+          type: boolean
+          description: |
+            The group's remaining members are only groups among those read
+            that would themselves be left empty or hold no person. Computed
+            from the same read, not from a fresh walk.
+
+    MemberAuditValue:
+      type: object
+      required: [attribute, value]
+      properties:
+        attribute: { type: string }
+        value:
+          type: string
+          description: The value exactly as the group stores it, so a removal names it as stored.
+
+    MemberAuditUnchecked:
+      type: object
+      required: [attribute, value, reason]
+      properties:
+        attribute: { type: string }
+        value: { type: string }
+        reason:
+          type: string
+          enum: [outside_contexts, below_referral, not_a_dn]
+          x-enum-varnames: [UncheckedOutsideContexts, UncheckedBelowReferral, UncheckedNotADn]
+        referral:
+          type: string
+          description: For below_referral, the referral's URL, or its DN when the server sent no URL.
 
     ExpandedMember:
       type: object

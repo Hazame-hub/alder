@@ -299,6 +299,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/members/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Membership values that name no entry this bind can find, and the groups a clean-up would empty
+         * @description Reads the groups below `base` and their DN-valued membership values
+         *     (`member`, `uniqueMember`), then reads whether each named entry exists
+         *     -- one base read per name when there are at most 200, otherwise a
+         *     paged, names-only search under at most 50 of their common ancestors.
+         *     Nothing is written.
+         *
+         *     **"Not found" is never "deleted".** A server answers *no such object*
+         *     both for an entry that was deleted and for one this bind may not see,
+         *     so every value reported is reported as not found *by `bind`*.
+         *
+         *     **Whole or refused.** More groups than `limit`, more than 50,000
+         *     entries to read, or any search that ended in `sizeLimitExceeded`,
+         *     `timeLimitExceeded` or `adminLimitExceeded` or was truncated refuses
+         *     the audit with nothing reported: a read that stopped early would turn
+         *     every name after the stop into *not found*. The ceiling answers as a
+         *     data capture's does (`snapshot_too_large`); the rest answer
+         *     `audit_incomplete`, naming the search and the limit.
+         *
+         *     **Referrals are reported, never followed.** A value at or below a
+         *     referral is *not checked*, not *not found*. Added in 1.39.
+         */
+        post: operations["auditMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/references": {
         parameters: {
             query?: never;
@@ -1648,7 +1687,7 @@ export interface components {
              * @description A stable machine-readable code.
              * @enum {string}
              */
-            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "project_invalid" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "write_outcome_unknown" | "upstream" | "internal";
+            error: "bad_request" | "unauthorized" | "forbidden" | "target_not_allowed" | "plan_mismatch" | "ldif_mode_mismatch" | "project_invalid" | "snapshot_invalid" | "snapshot_unsupported_version" | "snapshot_checksum_mismatch" | "snapshot_too_large" | "snapshot_scope_unsupported" | "audit_incomplete" | "recovery_invalid" | "recovery_unsupported_version" | "recovery_checksum_mismatch" | "recovery_too_large" | "package_invalid" | "package_unsupported_version" | "package_checksum_mismatch" | "package_too_large" | "preflight_artifact_unsupported" | "config_model_unavailable" | "signature_invalid" | "signature_required" | "not_found" | "conflict" | "constraint_violation" | "write_outcome_unknown" | "upstream" | "internal";
             /** @description A human-readable explanation. Never contains a credential. */
             message: string;
             /**
@@ -4053,6 +4092,75 @@ export interface components {
              */
             unresolvable?: string[];
         };
+        MemberAuditRequest: {
+            /** @description Where the groups are. Directory data, never the configuration or schema tree. */
+            base: string;
+            /**
+             * @description The most groups to audit. More below the base refuses the audit.
+             * @default 500
+             */
+            limit: number;
+        };
+        MemberAudit: {
+            /**
+             * @description The identity that ran the audit, empty for an anonymous bind.
+             *     Everything reported as not found was not found by this identity.
+             */
+            bind: string;
+            /** Format: date-time */
+            readAt: string;
+            /** @description Every search made to check against, with how many entries each returned. */
+            read: components["schemas"]["MemberAuditRead"][];
+            /** @description Referrals the server returned instead of entries. Never followed. */
+            referrals: components["schemas"]["MemberAuditReferral"][];
+            /** @description Every group read, in the order the server returned them. */
+            groups: components["schemas"]["MemberAuditGroup"][];
+            /** @description Groups among those read that contain themselves, directly or through others. */
+            cycles: string[];
+        };
+        MemberAuditRead: {
+            base: string;
+            /** @enum {string} */
+            scope: "base" | "one" | "sub";
+            entries: number;
+        };
+        MemberAuditReferral: {
+            url: string;
+            /** @description The DN the referral stands for, when its URL names one Alder can parse. */
+            dn?: string;
+        };
+        MemberAuditGroup: {
+            dn: string;
+            /**
+             * @description Whether the group's classes require a membership attribute
+             *     (`groupOfNames`, `groupOfUniqueNames`). Removing its last value is
+             *     then refused by the plan; the group can only be deleted.
+             */
+            classesRequireMember: boolean;
+            notFound: components["schemas"]["MemberAuditValue"][];
+            notChecked: components["schemas"]["MemberAuditUnchecked"][];
+            /** @description Membership values left, over every membership attribute, if every value not found were removed. */
+            remaining: number;
+            /**
+             * @description The group's remaining members are only groups among those read
+             *     that would themselves be left empty or hold no person. Computed
+             *     from the same read, not from a fresh walk.
+             */
+            noPersonThroughNesting: boolean;
+        };
+        MemberAuditValue: {
+            attribute: string;
+            /** @description The value exactly as the group stores it, so a removal names it as stored. */
+            value: string;
+        };
+        MemberAuditUnchecked: {
+            attribute: string;
+            value: string;
+            /** @enum {string} */
+            reason: "outside_contexts" | "below_referral" | "not_a_dn";
+            /** @description For below_referral, the referral's URL, or its DN when the server sent no URL. */
+            referral?: string;
+        };
         ExpandedMember: {
             dn: string;
             rdn?: string;
@@ -5540,6 +5648,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    auditMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberAuditRequest"];
+            };
+        };
+        responses: {
+            /** @description The audit. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberAudit"];
                 };
             };
             400: components["responses"]["BadRequest"];
