@@ -17,7 +17,8 @@ import (
 // directory, on both servers.
 //
 // The planner compares an add or a delete under the attribute's equality rule
-// for distinguishedNameMatch and the caseIgnore family, and bytes otherwise.
+// for distinguishedNameMatch, uniqueMemberMatch and the caseIgnore family, and
+// bytes otherwise.
 // The point of running it here is the other half: for every pair the planner
 // calls the same value, each server is asked too -- an add of the variant is
 // refused with attributeOrValueExists, and a delete of it removes the stored
@@ -146,6 +147,123 @@ func restoreAttribute(t *testing.T, sess directory.Session, target, attr string)
 				return // there was none, and there is none
 			}
 			t.Logf("restoring %s of %s: %v", attr, target, err)
+		}
+	})
+}
+
+// uniqueMember, matched by uniqueMemberMatch: the name compared as a name, and
+// the optional #'...'B UID exactly as written.
+//
+// The pairs the planner calls the same value -- a bare name spelled in other
+// case and spacing, and a name with the same UID spelled likewise -- are held
+// to each server as above. The pairs it calls different, a bare name against
+// the name with a UID and two different UIDs, are planned as before: an add
+// is a change and a delete is nothing to do. What each server does with those
+// is logged rather than asserted, because the planner does not lean on it --
+// keeping the UID as written is what lets it not care.
+const uniqueMemberGroup = "cn=alder-uniquemember-equality,ou=groups," + suffix
+
+func TestPlanComparesUniqueMemberUnderUniqueMemberMatch(t *testing.T) {
+	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
+		d := mustDN(t, uniqueMemberGroup)
+		_ = sess.Apply(ctx(t), directory.ChangeRecord{DN: d, Type: directory.ChangeDelete})
+		t.Cleanup(func() { _ = sess.Apply(ctx(t), directory.ChangeRecord{DN: d, Type: directory.ChangeDelete}) })
+
+		bare := "uid=user0001,ou=people," + suffix
+		withUID := "uid=user0002,ou=people," + suffix + "#'0101'B"
+		// A third member, so no case here leaves the group without the
+		// uniqueMember its class requires.
+		other := "uid=user0003,ou=people," + suffix
+		mustApply(t, sess, directory.ChangeRecord{DN: d, Type: directory.ChangeAdd, Attrs: []directory.Attribute{
+			{Name: "objectClass", Values: [][]byte{[]byte("top"), []byte("groupOfUniqueNames")}},
+			{Name: "cn", Values: [][]byte{[]byte("alder-uniquemember-equality")}},
+			{Name: "uniqueMember", Values: [][]byte{[]byte(bare), []byte(withUID), []byte(other)}},
+		}})
+
+		sch, err := sess.Schema(ctx(t))
+		if err != nil {
+			t.Fatalf("reading the schema: %v", err)
+		}
+		modify := func(op directory.ModOp, value string) directory.ChangeRecord {
+			return directory.ChangeRecord{DN: d, Type: directory.ChangeModify, Mods: []directory.Mod{
+				{Op: op, Name: "uniqueMember", Values: [][]byte{[]byte(value)}}}}
+		}
+		planOne := func(rec directory.ChangeRecord) plan.Action {
+			t.Helper()
+			computed, err := planner(t).Compute(ctx(t), planReader{sess}, sch, []directory.ChangeRecord{rec}, plan.Options{})
+			if err != nil {
+				t.Fatalf("planning: %v", err)
+			}
+			return computed.Items[0].Action
+		}
+		holds := func(value string) bool {
+			t.Helper()
+			for _, v := range readAll(t, sess, uniqueMemberGroup, "uniqueMember") {
+				if v == value {
+					return true
+				}
+			}
+			return false
+		}
+
+		same := []struct{ name, stored, variant string }{
+			{"a bare name", bare, "UID=user0001, OU=People," + suffixUpper()},
+			{"a name with a UID", withUID, "UID=USER0002,OU=people," + suffixUpper() + "#'0101'B"},
+		}
+		for _, c := range same {
+			t.Run(c.name, func(t *testing.T) {
+				addVariant := modify(directory.ModAdd, c.variant)
+				if got := planOne(addVariant); got != plan.ActionUnchanged {
+					t.Errorf("adding %q to a group holding %q planned as %q, want unchanged", c.variant, c.stored, got)
+				}
+				err := sess.Apply(ctx(t), addVariant)
+				var ldapErr *ldapdriver.Error
+				if !errors.As(err, &ldapErr) || ldapErr.Code != ldap.LDAPResultAttributeOrValueExists {
+					t.Errorf("%s refused the add with %v, want attributeOrValueExists: the planner and the server disagree", s.name, err)
+				}
+
+				delVariant := modify(directory.ModDelete, c.variant)
+				if got := planOne(delVariant); got != plan.ActionModify {
+					t.Errorf("deleting %q from a group holding %q planned as %q, want modify", c.variant, c.stored, got)
+				}
+				mustApply(t, sess, delVariant)
+				if holds(c.stored) {
+					t.Errorf("after deleting %q, %s still holds %q", c.variant, s.name, c.stored)
+				}
+				mustApply(t, sess, modify(directory.ModAdd, c.stored))
+			})
+		}
+
+		different := []struct{ name, stored, variant string }{
+			{"the name without its UID", withUID, "uid=user0002,ou=people," + suffix},
+			{"the name with a UID it was not given", bare, bare + "#'1'B"},
+			{"another UID", withUID, "uid=user0002,ou=people," + suffix + "#'0110'B"},
+		}
+		for _, c := range different {
+			t.Run(c.name, func(t *testing.T) {
+				addVariant := modify(directory.ModAdd, c.variant)
+				if got := planOne(addVariant); got != plan.ActionModify {
+					t.Errorf("adding %q to a group holding %q planned as %q, want modify", c.variant, c.stored, got)
+				}
+				delVariant := modify(directory.ModDelete, c.variant)
+				if got := planOne(delVariant); got != plan.ActionUnchanged {
+					t.Errorf("deleting %q from a group holding %q planned as %q, want unchanged", c.variant, c.stored, got)
+				}
+
+				// What the server makes of the pair, for the record.
+				addErr := sess.Apply(ctx(t), addVariant)
+				added := addErr == nil && holds(c.variant)
+				if added {
+					mustApply(t, sess, delVariant)
+				}
+				delErr := sess.Apply(ctx(t), delVariant)
+				removed := !holds(c.stored)
+				if removed {
+					mustApply(t, sess, modify(directory.ModAdd, c.stored))
+				}
+				t.Logf("%s: add of %q beside %q: err=%v, added=%v; delete: err=%v, removed the stored value=%v",
+					s.name, c.variant, c.stored, addErr, added, delErr, removed)
+			})
 		}
 	})
 }
