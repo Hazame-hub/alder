@@ -29,19 +29,19 @@ import (
 // apply refuses the record as plan_stale with nothing written, while a
 // single-value add still applies.
 
-const membersOU = "ou=alder-groupmembers," + suffix
+const groupMembersOU = "ou=alder-groupmembers," + suffix
 
-func membersDN(rdn string) string { return rdn + "," + membersOU }
+func membersDN(rdn string) string { return rdn + "," + groupMembersOU }
 
 var membersPeople = []string{"uid=gm-a", "uid=gm-b", "uid=gm-c", "uid=gm-d", "uid=gm-e", "uid=gm-f"}
 
-func clearMembersOU(t *testing.T, sess directory.Session) {
+func clearGroupMembersOU(t *testing.T, sess directory.Session) {
 	t.Helper()
 	deleteQuietly(t, sess, membersDN("cn=gm-group"))
 	for _, rdn := range membersPeople {
 		deleteQuietly(t, sess, membersDN(rdn))
 	}
-	deleteQuietly(t, sess, membersOU)
+	deleteQuietly(t, sess, groupMembersOU)
 }
 
 // membersChange is one record as the composer writes it.
@@ -79,10 +79,10 @@ func lowerSorted(dns ...string) []string {
 func TestManyMembersAreOneRecordPerGroupOnBothServers(t *testing.T) {
 	eachServer(t, func(t *testing.T, s server, sess directory.Session) {
 		client, base := alder(t, s)
-		clearMembersOU(t, sess)
-		t.Cleanup(func() { clearMembersOU(t, sess) })
+		clearGroupMembersOU(t, sess)
+		t.Cleanup(func() { clearGroupMembersOU(t, sess) })
 
-		mustApply(t, sess, directory.ChangeRecord{DN: mustDN(t, membersOU), Type: directory.ChangeAdd, Attrs: []directory.Attribute{
+		mustApply(t, sess, directory.ChangeRecord{DN: mustDN(t, groupMembersOU), Type: directory.ChangeAdd, Attrs: []directory.Attribute{
 			{Name: "objectClass", Values: [][]byte{[]byte("top"), []byte("organizationalUnit")}},
 			{Name: "ou", Values: [][]byte{[]byte("alder-groupmembers")}},
 		}})

@@ -4074,23 +4074,45 @@ export interface components {
              */
             cycles?: string[];
             /**
-             * @description Member values whose entry could not be read. Two things produce
-             *     this and nothing distinguishes them: the entry was deleted while the
-             *     group went on naming it, or it exists and this bind may not see it.
-             *     A server answers "no such object" either way, deliberately, so that
-             *     refusing access does not disclose what is there.
+             * @description Member values whose entry the directory answered "no such object"
+             *     for. Two things produce that answer and nothing distinguishes them:
+             *     the entry was deleted while the group went on naming it, or it
+             *     exists and this bind may not see it. A server answers "no such
+             *     object" either way, deliberately, so that refusing access does not
+             *     disclose what is there.
              *
              *     So this is a list of members whose status is unknown, not a list of
              *     broken references. Reporting it as the latter tells an operator
              *     auditing who can reach something that a member is gone when they may
              *     still be in the group.
+             *
+             *     Only that answer puts a value here. A read that failed any other
+             *     way -- refused, timed out, the connection lost -- is in `errors`.
              */
             dangling?: string[];
+            /**
+             * @description Member values whose read failed for a reason other than "no such
+             *     object", so nothing is known about them: not that they exist, and
+             *     not that they do not. Before this field existed, these were listed
+             *     in `dangling`.
+             */
+            errors?: components["schemas"]["MemberReadError"][];
             /**
              * @description Membership values that are not DNs, and so cannot be followed to an
              *     entry: `memberUid` holds a login name, `memberURL` a search.
              */
             unresolvable?: string[];
+        };
+        MemberReadError: {
+            /** @description The member value whose entry could not be read. */
+            dn: string;
+            /** @description What went wrong, in a sentence. Not stable across releases. */
+            message: string;
+            /**
+             * @description The LDAP result code, when the directory sent one. Absent when no
+             *     result arrived: a timeout, or a connection that was lost.
+             */
+            ldapCode?: number;
         };
         MemberAuditRequest: {
             /** @description Where the groups are. Directory data, never the configuration or schema tree. */

@@ -4161,18 +4161,28 @@ type MemberList struct {
 	// survive silently.
 	Cycles *[]string `json:"cycles,omitempty"`
 
-	// Dangling Member values whose entry could not be read. Two things produce
-	// this and nothing distinguishes them: the entry was deleted while the
-	// group went on naming it, or it exists and this bind may not see it.
-	// A server answers "no such object" either way, deliberately, so that
-	// refusing access does not disclose what is there.
+	// Dangling Member values whose entry the directory answered "no such object"
+	// for. Two things produce that answer and nothing distinguishes them:
+	// the entry was deleted while the group went on naming it, or it
+	// exists and this bind may not see it. A server answers "no such
+	// object" either way, deliberately, so that refusing access does not
+	// disclose what is there.
 	//
 	// So this is a list of members whose status is unknown, not a list of
 	// broken references. Reporting it as the latter tells an operator
 	// auditing who can reach something that a member is gone when they may
 	// still be in the group.
-	Dangling *[]string        `json:"dangling,omitempty"`
-	Members  []ExpandedMember `json:"members"`
+	//
+	// Only that answer puts a value here. A read that failed any other
+	// way -- refused, timed out, the connection lost -- is in `errors`.
+	Dangling *[]string `json:"dangling,omitempty"`
+
+	// Errors Member values whose read failed for a reason other than "no such
+	// object", so nothing is known about them: not that they exist, and
+	// not that they do not. Before this field existed, these were listed
+	// in `dangling`.
+	Errors  *[]MemberReadError `json:"errors,omitempty"`
+	Members []ExpandedMember   `json:"members"`
 
 	// Truncated True when the walk stopped at its bound. A membership list that
 	// quietly omits people is worse than none, since the question being
@@ -4182,6 +4192,19 @@ type MemberList struct {
 	// Unresolvable Membership values that are not DNs, and so cannot be followed to an
 	// entry: `memberUid` holds a login name, `memberURL` a search.
 	Unresolvable *[]string `json:"unresolvable,omitempty"`
+}
+
+// MemberReadError defines model for MemberReadError.
+type MemberReadError struct {
+	// Dn The member value whose entry could not be read.
+	Dn string `json:"dn"`
+
+	// LdapCode The LDAP result code, when the directory sent one. Absent when no
+	// result arrived: a timeout, or a connection that was lost.
+	LdapCode *int `json:"ldapCode,omitempty"`
+
+	// Message What went wrong, in a sentence. Not stable across releases.
+	Message string `json:"message"`
 }
 
 // MonitorAccess A server's monitoring entry, where it publishes one this session can
