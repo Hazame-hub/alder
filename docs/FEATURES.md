@@ -78,8 +78,10 @@ contains no people at all, because every one of the five is a group — and thre
 hundred people are in it. Expanding walks that structure and says, for each
 person, the chain of groups that reached them, which is what you need in order
 to remove somebody from the right group rather than the outermost one. A group
-that contains itself, a member DN whose entry was deleted, and a `memberUid`
-that holds a login name rather than a DN are each reported rather than dropped.
+that contains itself, a member DN the directory says there is no such entry for
+(deleted, or not visible to this bind: the answer is the same), a member that
+could not be read at all, and a `memberUid` that holds a login name rather than
+a DN are each reported rather than dropped, and each as what it is.
 
 ![Everyone in a group, through nested groups](screenshots/members.png)
 
