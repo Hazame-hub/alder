@@ -748,6 +748,14 @@ open question 1):
   `dangling` sees fewer values, never different ones: each was already
   "status unknown", and what moved is the part that was not even that.
 
+A plan compares `uniqueMember` under `uniqueMemberMatch`
+([PLAN.md](PLAN.md)). **This changes two plan actions**, for a modification's
+`add` or `delete` of a `uniqueMember` value that differs from a stored one only
+in the spelling of its name: the add is now `unchanged` (the directory would
+refuse it as a value it holds), and the delete `modify` (the directory would
+remove the stored value). A UID suffix is compared exactly as written, so every
+other pair plans as it did. No API or format change.
+
 A project can hold saved searches
 ([PROJECT.md](PROJECT.md), "Saved searches"). Only additions:
 
