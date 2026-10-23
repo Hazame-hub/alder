@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { FileArchive, FolderGit2, Loader2, RefreshCw, SearchCheck, ShieldAlert, Trash2, X } from "lucide-react";
+import { FileArchive, FolderGit2, Loader2, RefreshCw, Search, SearchCheck, ShieldAlert, Trash2, X } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import { changeset, useChangeset } from "@/lib/changeset";
 import {
@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { ErrorNote } from "@/components/change-dialog";
 import { PlanSummary } from "@/components/plan-summary";
 import { safeText } from "@/lib/display";
+import type { SavedSearch } from "@/lib/saved-search";
 
 /**
  * Open project: an Alder project (docs/PROJECT.md) planned against the
@@ -44,13 +45,18 @@ import { safeText } from "@/lib/display";
  * The environments in alder.yaml are never used here. The plan is the
  * session's, and the heading above it says which directory that is, from
  * the session and never from the files.
+ *
+ * The project's saved searches (*.search.yaml) are sent with it, checked by
+ * the server and listed under the plan; each opens the search page.
  */
 export function ProjectPanel({
   onBrowse,
   onReviewChangeset,
+  onOpenSearch,
 }: {
   onBrowse: (dn: string) => void;
   onReviewChangeset: () => void;
+  onOpenSearch?: (search: SavedSearch, folder: string) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const zipInput = useRef<HTMLInputElement>(null);
@@ -274,7 +280,12 @@ export function ProjectPanel({
 
       {result && opened ? (
         <div className="mt-3 space-y-3">
-          <ProjectResult folder={opened.folder} result={result} onBrowse={onBrowse} />
+          <ProjectResult
+            folder={opened.folder}
+            result={result}
+            onBrowse={onBrowse}
+            onOpenSearch={onOpenSearch ? (s) => onOpenSearch(s, opened.folder) : undefined}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
@@ -395,16 +406,58 @@ export function ProjectResult({
   folder,
   result,
   onBrowse,
+  onOpenSearch,
 }: {
   folder: string;
   result: ProjectPlan;
   onBrowse: (dn: string) => void;
+  onOpenSearch?: (search: SavedSearch) => void;
 }) {
   return (
     <div className="space-y-3">
       <ProjectHeading origin={originOf(folder, result)} />
       <PlanSummary plan={result.plan} />
       <UnmanagedList unmanaged={result.unmanaged} onBrowse={onBrowse} />
+      {result.searches?.length ? <SavedSearchList searches={result.searches} onOpen={onOpenSearch} /> : null}
+    </div>
+  );
+}
+
+/**
+ * The project's saved searches. Each is a link to the search page with its
+ * values: a search somebody could have typed, and can send on as a link.
+ */
+export function SavedSearchList({
+  searches,
+  onOpen,
+}: {
+  searches: SavedSearch[];
+  onOpen?: (search: SavedSearch) => void;
+}) {
+  return (
+    <div className="rounded-md border p-3 text-sm">
+      <div className="font-medium">
+        Saved searches: {searches.length}, from the project&apos;s <code className="font-mono">*.search.yaml</code> files
+      </div>
+      <ul className="mt-2 space-y-1.5">
+        {searches.map((s) => (
+          <li key={s.name} className="min-w-0">
+            <button
+              className="flex items-center gap-1.5 text-left hover:underline disabled:no-underline"
+              disabled={!onOpen}
+              title={`Search ${safeText(s.base)} for ${safeText(s.filter)}`}
+              onClick={() => onOpen?.(s)}
+            >
+              <Search className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="font-dn">{safeText(s.name)}</span>
+              {s.title ? <span className="text-muted-foreground">— {safeText(s.title)}</span> : null}
+            </button>
+            <div className="truncate pl-5 font-dn text-xs text-muted-foreground">
+              {safeText(s.filter)} under {safeText(s.base)}
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

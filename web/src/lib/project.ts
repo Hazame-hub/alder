@@ -57,9 +57,16 @@ function isLdif(name: string): boolean {
   return name.toLowerCase().endsWith(".ldif");
 }
 
-/** Whether a file of this name is ever read: alder.yaml or an LDIF file. */
+/**
+ * A saved search's file. Only this spelling, as the server reads it: a
+ * suffix matched without regard to case on one filesystem and not on
+ * another is a search that comes and goes with the checkout.
+ */
+export const searchFileSuffix = ".search.yaml";
+
+/** Whether a file of this name is ever read: alder.yaml, an LDIF file, or a saved search. */
 export function isProjectFileName(name: string): boolean {
-  return name === projectFileName || isLdif(name);
+  return name === projectFileName || isLdif(name) || name.endsWith(searchFileSuffix);
 }
 
 /**
@@ -69,8 +76,8 @@ export function isProjectFileName(name: string): boolean {
  * or, when it has none at its top, the one folder below it that does (a
  * repository root chosen instead of `directory/`). With several below and
  * none at the top, the person picks one and it comes back as `root`. Below
- * the project's folder, `alder.yaml` and every `*.ldif` outside
- * dot-directories are sent, by path relative to it. Nothing else is read:
+ * the project's folder, `alder.yaml`, every `*.ldif` and every
+ * `*.search.yaml` outside dot-directories are sent, by path relative to it. Nothing else is read:
  * not `.git`, not a README, not a key file somebody left beside the project.
  * Names are all the page sees of the rest, and they are not sent.
  */

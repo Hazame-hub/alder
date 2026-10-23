@@ -1,0 +1,5 @@
+version: 1
+title: Groups without a description
+base: ou=groups,dc=example,dc=com
+filter: (&(objectClass=groupOfNames)(!(description=*)))
+columns: [cn, member]

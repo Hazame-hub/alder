@@ -474,6 +474,9 @@ alder project apply --env dev
 alder project apply --env prod --yes --recovery-out prod-recovery.json
 alder project fmt
 alder project fmt --check
+alder project search
+alder project search people/engineers --env dev
+alder project search people/engineers --env prod --json
 ```
 
 An Alder project is an `alder.yaml` naming the subtrees a repository is
@@ -646,6 +649,21 @@ Exit codes are `alder apply`'s, and 3 also when the project is not valid; with
 `--json`, standard output is `alder apply`'s document with `environment` and
 `host` beside it, and `rebase` for an environment with its own suffix, as for
 `project plan`.
+
+**`search`** is the project's saved searches: the `NAME.search.yaml` files
+below `alder.yaml`, outside dot-directories, each a base, scope, filter,
+attributes and limit ([PROJECT.md](PROJECT.md), "Saved searches"). Without a
+name it lists them and connects to nothing; `validate` checks them with the
+rest of the project and says how many it found. `search NAME --env ENV` runs
+one against that environment and writes its entries as LDIF, exactly what
+`GET /export/ldif` writes for the same search, so a result can be committed
+and diffed; `--json` writes the entries `POST /search` returns, as one
+array. An environment with its own suffix moves the search's base onto it;
+the filter is sent as written, and a DN below the project's suffix inside it
+is said on standard error (`contains_dn`). A search that stopped at its limit
+says so on standard error. Exit 0 the search ran, matched or not; 3 the
+project is not valid; 7 usage or a name the project does not have; 8 the
+directory refused it or the export did not complete.
 
 **`fmt`** rewrites the project's LDIF files in the form Alder's own exports
 take, so that a diff of one shows what changed and not how it was wrapped.
@@ -1113,8 +1131,9 @@ everything the commands in it call.
 | `preflight` | `/preflight` | 1.12 or later; a configuration snapshot as its source needs 1.14 |
 | `snapshot --kind config`, configuration in `diff` | config kind on `/snapshots/capture` and `/diff` | 1.13 or later |
 | `project plan`, `project apply`, the unmanaged-entries report | `/plan`, `/changeset/apply`, `/snapshots/capture`, and `/schema` for an environment with its own suffix | 1.7 or later |
+| `project search NAME` | `/export/ldif` with `attributes`, and `/search` | `/export/ldif` and `/search` are in every 1.x; a server before saved searches ignores `attributes` and exports every user attribute |
 
-`project validate`, `project fmt`, `key`, `sign` and `verify` call no server.
+`project validate`, `project fmt`, `project search` without a name, `key`, `sign` and `verify` call no server.
 
 So a server of 1.14 or later provides everything this client calls. A server
 without an endpoint the client needs is reported by name and version
