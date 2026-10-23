@@ -21,6 +21,9 @@ import (
 // way for these purposes:
 //
 //   - distinguishedNameMatch, as dn.Equal compares names;
+//   - uniqueMemberMatch, the same comparison of the name, with the optional
+//     #'...'B UID compared exactly as written: a bare name and a name with a
+//     UID, or two different UIDs, stay different;
 //   - caseIgnoreMatch, caseIgnoreIA5Match and caseIgnoreListMatch: case folded,
 //     leading and trailing spaces dropped and runs of spaces collapsed, the
 //     insignificant-space handling of RFC 4518.
@@ -41,6 +44,8 @@ import (
 var ruleEqualityFor = map[string]bool{
 	"distinguishednamematch":     true,
 	"2.5.13.1":                   true,
+	"uniquemembermatch":          true,
+	"2.5.13.23":                  true,
 	"caseignorematch":            true,
 	"2.5.13.2":                   true,
 	"caseignoreia5match":         true,

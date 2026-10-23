@@ -94,9 +94,12 @@ person and may be reworded in any release.
 **"Already holds" is asked the way the directory asks it.** For a
 modification's `add` and `delete`, a value is held when the entry has one equal
 to it under the attribute's equality rule, for the rules Alder models beyond
-doubt: `distinguishedNameMatch`, `caseIgnoreMatch`, `caseIgnoreIA5Match` and
-`caseIgnoreListMatch` (case folded; leading, trailing and repeated spaces not
-significant). So adding `Platform` where `platform` is stored is `unchanged`,
+doubt: `distinguishedNameMatch`, `uniqueMemberMatch`, `caseIgnoreMatch`,
+`caseIgnoreIA5Match` and `caseIgnoreListMatch` (names compared as names; case
+folded; leading, trailing and repeated spaces not significant). For
+`uniqueMemberMatch` the optional `#'…'B` UID is compared exactly as written, so
+a bare name and the same name with a UID, or with another UID, stay different
+values. So adding `Platform` where `platform` is stored is `unchanged`,
 as the directory would refuse it as a value it holds, and deleting `Platform`
 is a `modify`, as the directory would remove `platform`. Every other rule, an
 attribute the schema does not define, and a `replace` compare bytes: a
