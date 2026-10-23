@@ -6711,6 +6711,100 @@ set is fixed when it is staged.
   changeset was empty, and dropped on any other change to the basket, as a
   project's is.
 
+### 2026-10-22 — saved searches: accepted
+
+`docs/proposals/saved-searches.md` was reviewed and accepted: Option B, one
+search per `*.search.yaml` file anywhere below `alder.yaml` outside
+dot-directories, found by its suffix, and every open question answered as
+recommended, with one change.
+
+- **No `POST /search/file`.** *Save as file* renders the YAML in the browser
+  from the search's URL parameters, and `alder project validate` is the
+  check of what was written. One reader of the format, and no endpoint that
+  exists to render a file the reader then checks again.
+- **`alder.yaml` is unchanged**, so an older release plans and applies a
+  project holding search files exactly as before: it never reads them.
+- **The project format gains a second file kind.** A saved search is not
+  intended state; PROJECT.md says so rather than leaving it implied. A
+  search file never changes the digest a saved plan binds.
+- **The browser sends `*.search.yaml`** beside `alder.yaml` and `*.ldif`
+  (amending the 2026-10-13 rule), and `POST /project/plan` returns the
+  searches beside the plan.
+- **The client links `internal/filter`** to validate offline. It has no LDAP
+  code, and the dependency test's list of allowed server packages grows by
+  one.
+- **Never in browser storage.** The file is the source of truth; the URL is
+  the per-browser form.
+- **Settled questions:** discovery by suffix, not a list in `alder.yaml`; a
+  project still needs a managed subtree; the search page takes `attrs` and
+  `cols` from any link; `--json` is one array; `GET /export/ldif` gains
+  `attributes` and the Ansible export does not.
+
+### 2026-10-22 — bulk attribute edit: accepted
+
+`docs/proposals/bulk-attribute-edit.md` was reviewed and accepted: Option A,
+the browser composes one `modify` per selected entry and stages them through
+the existing changeset, with every open question answered as recommended.
+No API change.
+
+- **Why it is not bulk provisioning**, restated so the excluded line is never
+  read by count: the targets are DNs the directory returned and the person
+  selected; nothing is created, and an entry gone by the plan is a conflict,
+  never an add; the modification is authored once, with no per-row value;
+  the set of DNs is fixed when it is staged, and no filter is run again at
+  apply.
+- **Membership attributes: add and remove only, the value from the entry
+  picker only.** A member added is an entry the directory returned. Neither
+  `memberUid` nor `memberURL` can be picked, so neither is offered.
+- **The planner's equality fix ships first**, as its own change.
+- **Attributes permitted by every selected entry** are offered, with a toggle
+  to widen; the changeset gains a heading for a single bulk edit, dropped on
+  any other change to the basket.
+
+### 2026-10-22 — group membership tools: accepted with changes
+
+`docs/proposals/group-membership-tools.md` was reviewed. Part 1 is accepted
+as proposed, one record per group. Part 2 is accepted with four additions,
+now written into the proposal, and counts as accepted only when it is built
+with them.
+
+- **Part 1 keeps the single-value actions** as the fallback when a busy
+  group's one record goes `plan_stale`.
+- **`GET /members`'s `dangling` holds only *no such object*** (open question
+  1); any other failed read is an error on the walk. Ships first, on its
+  own.
+- **Part 2, the additions.** What is read is narrowed to what the groups
+  name: few names are read directly, and otherwise the deepest common
+  ancestors of their parents are searched, with the 50,000 ceiling on what
+  is actually read. The audit is refused whole on `sizeLimitExceeded`,
+  `timeLimitExceeded`, `adminLimitExceeded` or a search reported truncated,
+  because the driver maps `sizeLimitExceeded` to truncation and an existence
+  read that stopped early would turn every later name into "not found". A
+  DN at or below a referral is "not checked", never "not found", and
+  referrals are not chased. The staging confirmation repeats *not found by
+  `<bind>`; an entry this bind may not see is removed the same way*.
+- **The wording is a rule:** no screen calls a value the audit did not find
+  "deleted".
+
+### 2026-10-22 — the later features of the same batch
+
+Decided at the same review, before any of them is proposed:
+
+- **No password policy check.** 1.21 settled that Alder reports the policy
+  and the state and decides nothing, and the server-side quality modules
+  (OpenLDAP's `pwdCheckModule`, 389 DS's dictionary check) cannot be
+  evaluated locally. A check that said "accepted" while one of them would
+  refuse would be the confident wrong answer 1.21 exists to avoid.
+- **Replication health gives its verdict in time only.** A change sequence
+  number says when, per origin, not how many; "behind by N changes" would
+  need a changelog Alder does not read.
+- **The index advisor reads a log the operator uploads or pipes in, and
+  nothing else.** No accesslog read over LDAP: that would be Alder fetching a
+  log. Separately, the charter's configuration-tree list is to record the
+  index path 1.32 built, since the code already does it.
+- **Entry templates are shelved** unless a shape appears that does not
+  template: the 2026-09-05 decision that creation is generated stands.
+
 ### 2026-10-22 — a member is dangling only when the directory says there is no such entry
 
 `GET /members` listed as `dangling` every member whose read failed: a refusal,
