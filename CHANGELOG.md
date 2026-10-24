@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.39.0](https://github.com/Hazame-hub/alder/compare/v1.38.0...v1.39.0) (2026-10-24)
+
+
+### Features
+
+* a second, read-only server inside one session (B6) ([#238](https://github.com/Hazame-hub/alder/issues/238)) ([38479bd](https://github.com/Hazame-hub/alder/commit/38479bd469bd163f4e68bbfcebab791e90943d00))
+* **cli:** apply a signed saved plan, and require one with --trusted-keys ([#248](https://github.com/Hazame-hub/alder/issues/248)) ([fd2bfe8](https://github.com/Hazame-hub/alder/commit/fd2bfe8c9cc0483f7ddf3a849a4360eb688c78b1))
+* **cli:** save a project's plan and apply exactly it later ([#236](https://github.com/Hazame-hub/alder/issues/236)) ([a5dcb89](https://github.com/Hazame-hub/alder/commit/a5dcb891a0d93da001387fb76bd5eb258e0ea2b1))
+* **cli:** save the plan of any change set, and apply exactly it later ([#243](https://github.com/Hazame-hub/alder/issues/243)) ([4c3720c](https://github.com/Hazame-hub/alder/commit/4c3720cea473e84976269cec317452bcae51c87f))
+* **project:** saved searches, kept in a project as *.search.yaml ([#261](https://github.com/Hazame-hub/alder/issues/261)) ([649bec1](https://github.com/Hazame-hub/alder/commit/649bec17a80a6e8f8a83421a1a9c4f760b85d90c))
+* **recovery:** compensate configuration-tree access rules (option B) ([#241](https://github.com/Hazame-hub/alder/issues/241)) ([a885c94](https://github.com/Hazame-hub/alder/commit/a885c94308549d435d66a01263fb5e75bc82c526))
+* **web:** edit one attribute over the entries selected in a table ([#262](https://github.com/Hazame-hub/alder/issues/262)) ([7edaba2](https://github.com/Hazame-hub/alder/commit/7edaba2af57e73ca659ac0d32f561ee6a4e8f92e))
+* **web:** group membership tools: many members at once, and an audit of members not found ([#263](https://github.com/Hazame-hub/alder/issues/263)) ([26324bb](https://github.com/Hazame-hub/alder/commit/26324bb3b55a996a8d1b8a58fe249fba222594ca))
+* **web:** load a saved plan next to a recovery bundle ([#244](https://github.com/Hazame-hub/alder/issues/244)) ([b6f0af6](https://github.com/Hazame-hub/alder/commit/b6f0af65cc73a1988ff4b077d63b350a17eae502))
+* **web:** open a project from a dropped folder, a .zip, or a folder below the one chosen ([#242](https://github.com/Hazame-hub/alder/issues/242)) ([a97d5d0](https://github.com/Hazame-hub/alder/commit/a97d5d01c3e15df1abd06d165bd3bc2172481945))
+
+
+### Fixes
+
+* **api:** a member is dangling only when the directory says there is no such entry ([#257](https://github.com/Hazame-hub/alder/issues/257)) ([296fe10](https://github.com/Hazame-hub/alder/commit/296fe1069d900443645b57db38a3d1da1d694c32))
+* **cli:** bind saved plans to the project, to the plan shown, and to exact keys ([#245](https://github.com/Hazame-hub/alder/issues/245)) ([af4dfcd](https://github.com/Hazame-hub/alder/commit/af4dfcd83bf45764186f765f026c8afb176fd795))
+* **plan:** ask whether a value is held under its equality rule ([#258](https://github.com/Hazame-hub/alder/issues/258)) ([a431c62](https://github.com/Hazame-hub/alder/commit/a431c62077636fd8e7a5797e612cf3755b32eeea))
+* **plan:** compare uniqueMember under uniqueMemberMatch ([#265](https://github.com/Hazame-hub/alder/issues/265)) ([979770d](https://github.com/Hazame-hub/alder/commit/979770d2297eb8b329ee402b6598dc3d1c4b038a))
+* **project:** bound what reading a project costs by its size ([#246](https://github.com/Hazame-hub/alder/issues/246)) ([c6e4be2](https://github.com/Hazame-hub/alder/commit/c6e4be2eba1e3998d91834c05b421d029ea3cef1))
+* **project:** say which DNs an environment suffix leaves inside values ([#251](https://github.com/Hazame-hub/alder/issues/251)) ([76ddfcc](https://github.com/Hazame-hub/alder/commit/76ddfcc2e00ff9a46e52cc7c803f91877955b21e))
+* **recovery:** keep proxy and replication credentials out of bundles; never restore definitions as settings ([#250](https://github.com/Hazame-hub/alder/issues/250)) ([3764c43](https://github.com/Hazame-hub/alder/commit/3764c4326b868c874df191ad1fb49b77fa1390ad))
+* **session:** hold --max-sessions under races and reconnects; forget a detached reference's report ([#240](https://github.com/Hazame-hub/alder/issues/240)) ([a2c4336](https://github.com/Hazame-hub/alder/commit/a2c4336f9e6c83245163ace1ad948c7a0f81c645))
+* **web:** check each zip member's CRC-32 before planning it ([#247](https://github.com/Hazame-hub/alder/issues/247)) ([7748fad](https://github.com/Hazame-hub/alder/commit/7748fada7beec1eba42e09603b3c34dd7324dd90))
+* **web:** don't promise the rest of a saved plan is sent when one change conflicts ([#252](https://github.com/Hazame-hub/alder/issues/252)) ([4cecc1a](https://github.com/Hazame-hub/alder/commit/4cecc1a89a7831220a3ad30362e96f7ec12933b9))
+
+
+### Documentation
+
+* **charter:** name the index path 1.32 built in the configuration-tree list ([#259](https://github.com/Hazame-hub/alder/issues/259)) ([c388e94](https://github.com/Hazame-hub/alder/commit/c388e949db9b74d818e92b2dbffff60e267d3d39))
+* describe the reference server, saved plans and web projects for 1.39 ([#249](https://github.com/Hazame-hub/alder/issues/249)) ([81a485e](https://github.com/Hazame-hub/alder/commit/81a485ed5e68764dbe8fc38c9d8020df442aa09c))
+* **examples:** apply a saved plan from CI, behind an approval ([#239](https://github.com/Hazame-hub/alder/issues/239)) ([9393b4e](https://github.com/Hazame-hub/alder/commit/9393b4e6d821af0c2377ac9c02c3a1656198bfc5))
+* **proposals:** saved searches, bulk attribute edit, group membership tools (accepted) ([#256](https://github.com/Hazame-hub/alder/issues/256)) ([cfa5c46](https://github.com/Hazame-hub/alder/commit/cfa5c462ff6d80db4b35fc83d924477dccc76854))
+* **readme:** keep the install snippet on the latest release ([#266](https://github.com/Hazame-hub/alder/issues/266)) ([cf761e9](https://github.com/Hazame-hub/alder/commit/cf761e9f65e1402fa56d374bf9fc7400767662b9))
+
 ## [1.38.0](https://github.com/Hazame-hub/alder/compare/v1.37.1...v1.38.0) (2026-10-14)
 
 
