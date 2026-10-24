@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	ber "github.com/go-asn1-ber/asn1-ber"
 	"github.com/go-ldap/ldap/v3"
 
 	"github.com/hazame-hub/alder/internal/directory"
@@ -421,16 +422,52 @@ func cleanLDAPError(err error) error {
 	if !errors.As(err, &le) {
 		return err
 	}
-	return &Error{
+	out := &Error{
 		Code:    le.ResultCode,
 		Message: ldap.LDAPResultCodeMap[le.ResultCode],
 	}
+	if le.ResultCode == ldap.LDAPResultReferral {
+		out.ReferralDN = le.MatchedDN
+		out.Referrals = referralURLs(le.Packet)
+	}
+	return out
+}
+
+// referralURLs reads the referral field of an LDAPResult: the URLs a server
+// sends with a referral result, which go-ldap leaves in the packet. Context tag
+// 3, after resultCode, matchedDN and diagnosticMessage (RFC 4511, 4.1.9).
+func referralURLs(packet *ber.Packet) []string {
+	if packet == nil || len(packet.Children) < 2 {
+		return nil
+	}
+	var out []string
+	for _, child := range packet.Children[1].Children {
+		if child.ClassType != ber.ClassContext || child.Tag != 3 {
+			continue
+		}
+		for _, uri := range child.Children {
+			if v, ok := uri.Value.(string); ok {
+				out = append(out, v)
+			} else if uri.Data != nil {
+				out = append(out, uri.Data.String())
+			}
+		}
+	}
+	return out
 }
 
 // Error is an LDAP result code with its standard description.
 type Error struct {
 	Code    uint16
 	Message string
+
+	// ReferralDN and Referrals are set for a referral result only: the entry
+	// the server matched, which is the referral object it stopped at, and the
+	// URLs it sent instead of an answer. Alder never follows them -- that would
+	// be dialling a host a directory value names -- but a caller deciding what
+	// it could not check has to know where the referral was.
+	ReferralDN string
+	Referrals  []string
 }
 
 func (e *Error) Error() string {

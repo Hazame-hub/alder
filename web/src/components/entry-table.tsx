@@ -10,6 +10,8 @@ import {
   Pencil,
   PenLine,
   Trash2,
+  UserMinus,
+  UserPlus,
 } from "lucide-react";
 import type { SearchResultEntry } from "@/lib/api";
 import { displayText, rdnOf } from "@/lib/values";
@@ -68,6 +70,11 @@ export type EntryTableProps = {
    * it, since the rows' object classes decide which attributes are offered.
    */
   onEditAttribute?: (entries: SearchResultEntry[]) => void;
+  /**
+   * Offered only when given: adds the selected rows to one group, or removes
+   * them from it, as one change to that group.
+   */
+  onGroupMembership?: (entries: SearchResultEntry[], op: "add" | "remove") => void;
 };
 
 type Sort = { key: string; dir: "asc" | "desc" } | null;
@@ -92,6 +99,7 @@ export function EntryTable({
   onExport,
   onStageDeletes,
   onEditAttribute,
+  onGroupMembership,
 }: EntryTableProps) {
   const [sort, setSort] = useState<Sort>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -126,7 +134,8 @@ export function EntryTable({
     });
 
   const selectable =
-    (onStageDeletes !== undefined || onEditAttribute !== undefined) && readOnly !== true;
+    (onStageDeletes !== undefined || onEditAttribute !== undefined || onGroupMembership !== undefined) &&
+    readOnly !== true;
 
   if (entries.length === 0) {
     return <div className="p-6 text-sm text-muted-foreground">{empty}</div>;
@@ -156,6 +165,32 @@ export function EntryTable({
               <PenLine />
               Edit an attribute…
             </Button>
+          ) : null}
+          {onGroupMembership ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  onGroupMembership(rows.filter((e) => selected.has(e.dn)), "add");
+                  setSelected(new Set());
+                }}
+              >
+                <UserPlus />
+                Add to a group…
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  onGroupMembership(rows.filter((e) => selected.has(e.dn)), "remove");
+                  setSelected(new Set());
+                }}
+              >
+                <UserMinus />
+                Remove from a group…
+              </Button>
+            </>
           ) : null}
           {onStageDeletes ? (
             <Button

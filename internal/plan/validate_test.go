@@ -47,3 +47,50 @@ func TestAnAttributeTheEntryHoldsAndTheSchemaDoesNotDefineIsLeftToTheServer(t *t
 		t.Fatalf("an undefined attribute on a new entry was accepted: %+v", p)
 	}
 }
+
+// A modify that empties a required attribute is refused by both servers, so
+// the plan says so -- but only from values it read, never from an entry it
+// could not see.
+func TestAModifyThatLeavesARequiredAttributeEmptyIsInvalid(t *testing.T) {
+	sch := testSchema(t)
+	target, err := dn.Parse("uid=ana,ou=people,dc=alder,dc=test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := directory.NewEntry(target)
+	live.Set("objectClass", [][]byte{[]byte("top"), []byte("person")})
+	live.Set("cn", [][]byte{[]byte("Ana")})
+	live.Set("sn", [][]byte{[]byte("One"), []byte("Two")})
+
+	modify := func(mods ...directory.Mod) directory.ChangeRecord {
+		return directory.ChangeRecord{DN: target, Type: directory.ChangeModify, Mods: mods}
+	}
+	cases := []struct {
+		name    string
+		op      directory.ChangeRecord
+		live    *directory.Entry
+		invalid bool
+	}{
+		{"deleting every value", modify(directory.Mod{Op: directory.ModDelete, Name: "sn",
+			Values: [][]byte{[]byte("One"), []byte("Two")}}), live, true},
+		{"deleting the attribute", modify(directory.Mod{Op: directory.ModDelete, Name: "SN"}), live, true},
+		{"replacing with nothing", modify(directory.Mod{Op: directory.ModReplace, Name: "sn"}), live, true},
+		{"deleting one of two", modify(directory.Mod{Op: directory.ModDelete, Name: "sn",
+			Values: [][]byte{[]byte("One")}}), live, false},
+		{"deleting all, then adding one", modify(
+			directory.Mod{Op: directory.ModDelete, Name: "sn"},
+			directory.Mod{Op: directory.ModAdd, Name: "sn", Values: [][]byte{[]byte("Three")}}), live, false},
+		{"an optional attribute", modify(directory.Mod{Op: directory.ModDelete, Name: "description"}), live, false},
+		{"no live entry read", modify(directory.Mod{Op: directory.ModDelete, Name: "sn",
+			Values: [][]byte{[]byte("One")}}), nil, false},
+	}
+	for _, c := range cases {
+		p := validate(sch, c.op, c.live)
+		switch {
+		case c.invalid && (p == nil || p.Code != ProblemMissingRequired || p.Attribute != "sn"):
+			t.Errorf("%s: got %+v, want missing_required_attribute on sn", c.name, p)
+		case !c.invalid && p != nil && p.Code == ProblemMissingRequired:
+			t.Errorf("%s: refused as %+v", c.name, p)
+		}
+	}
+}

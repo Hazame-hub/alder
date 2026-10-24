@@ -6925,3 +6925,71 @@ removing or rewriting one stays where 1.32 left it, refused with
 Recorded now because the index advisor, when it is proposed, stages its
 changes through this path, and it should rest on a line the charter states
 rather than on one it contradicts.
+
+### 2026-10-22 — many members at once, as built
+
+Part 1 of `docs/proposals/group-membership-tools.md`, Option B, with the
+single-value actions kept as the fallback for a busy group. No API change: the
+browser composes the record (`web/src/lib/group-members.ts`) and it is planned,
+reviewed and applied through the ordinary change dialog.
+
+- **One record per group, only values that change anything.** The group is
+  read when the dialog opens; an add carries the picked DNs it does not hold,
+  a removal the ones it does, each as the group stores it. The browser's
+  comparison folds case and spaces and orders a multi-valued RDN; it errs
+  towards "different", and the plan compares again under
+  `distinguishedNameMatch`. At most 1,000 values.
+- **Only `member` and `uniqueMember`.** `memberUid` and `memberURL` cannot
+  come from a search, and keep their single-value actions.
+- **Members come from searches**, several ticked in one picker. There is no
+  box to paste DNs into.
+- **Nesting.** A picked group whose expansion (`GET /members`, 2,000) reaches
+  the target is refused with the chain; one whose expansion stopped early is
+  refused as unchecked. A person the group already reaches through another
+  group is told so, and still allowed.
+- **Stale is the price, and it is said.** The baseline binds the attribute, so
+  any member change by somebody else refuses the record as `plan_stale` with
+  nothing written. The refusal, in the change dialog and the changeset, says
+  so and names *Add member* and *Remove*, which change one value and still
+  apply.
+
+### 2026-10-22 — members nobody can find, as built
+
+Part 2 of `docs/proposals/group-membership-tools.md`, with the four additions
+of its acceptance. One new read-only endpoint, `POST /members/audit`, and one
+new error code, `audit_incomplete`.
+
+- **"Not found by this bind" is a rule.** Every screen that reports a value
+  the audit did not find names the identity that did not find it, and none says
+  "deleted": a server answers *no such object* for a deleted entry and for one
+  the bind may not see alike. The staging confirmation repeats it, with the
+  bind spelled out, above its button.
+- **Reads narrowed to what the groups name.** At most 200 distinct DNs are
+  read one by one as base searches for no attributes; more are checked by a
+  names-only, paged search under their parents, a parent below another dropped,
+  and the deepest lifted while more than 50 bases remain, never above their
+  naming context. One level down where every name is a child of the base, a
+  subtree otherwise. The 50,000 ceiling is on what is read, summed over every
+  search, and answers as a data capture's does.
+- **Whole or refused.** `sizeLimitExceeded`, `timeLimitExceeded`,
+  `adminLimitExceeded`, a truncated result (the driver's report of a size limit
+  on an unpaged search) and more groups than the limit each refuse the audit
+  with `audit_incomplete`, naming the search and the limit. The harness cannot
+  return a limit on demand without configuring one for the bind, so those cases
+  run against a driver double, one each; the rest are conformance cases.
+- **Referrals are reported, never followed.** A value at or below a referral
+  -- a search result reference, or a referral result on a direct read, whose
+  URLs and matched DN the driver now keeps (`ldapdriver.Error.Referrals`,
+  `ReferralDN`) -- is *not checked*, with `below_referral`. A URL naming no DN
+  makes everything under that search's base not checked. Because a server
+  need not answer a read *below* a referral object with a referral -- 389 DS
+  answers *no such object* -- the audit first searches each naming context the
+  names are in for `(objectClass=referral)`, names only, where the schema
+  defines the class, and reads nothing below a reference it returns.
+- **The clean-up.** Nothing is chosen to begin with; the choice is read again
+  by `GET /entry` before staging (a 404 is still not found; anything else
+  leaves the value in place and says so) and staged as one `delete` per group
+  and attribute through `stageChanges`. A group the removal would empty is left
+  out when its classes require a member, with the reason; one whose classes do
+  not is emptied, and the confirmation says so. Read-only shows the report and
+  no clean-up.

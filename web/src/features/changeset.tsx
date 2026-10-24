@@ -40,6 +40,7 @@ import { SavedPlanHeading, SavedPlanLoader } from "@/features/saved-plan-loader"
 import { savedPlanRefusal, sessionMismatch } from "@/lib/saved-plan";
 import { ProjectHeading } from "@/features/project";
 import { BulkEditHeading } from "@/features/bulk-edit";
+import { ManyMembersStaleNote } from "@/components/many-members-note";
 import { safeText } from "@/lib/display";
 
 /**
@@ -465,6 +466,9 @@ export function ChangesetView({
               {stalePlan.affected.map((a) => (
                 <li key={a.index}>
                   Change {a.index + 1}: <span className="font-dn">{safeText(a.dn)}</span>
+                  {stalePlan.code !== "plan_mismatch" ? (
+                    <ManyMembersStaleNote change={applyBody.changes[a.index]} />
+                  ) : null}
                 </li>
               ))}
             </ul>
