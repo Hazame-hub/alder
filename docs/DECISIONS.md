@@ -6905,6 +6905,27 @@ file's values) and `alder project search` to the same entries, its LDIF to
 base. A journey opens examples/project's `people/engineers` from the Import
 screen and checks its rows against `ldapsearch` in each server's container.
 
+### 2026-10-22 — the charter names the index path 1.32 built
+
+Section 2 of the charter lists what Alder writes in the configuration tree
+beyond the schema -- the settings a comparison has proved, OpenLDAP overlays
+whose module is loaded, 389 DS plugins on or off -- and ends "Nothing else".
+Since 1.32 ("indexes get a door") `POST /config/indexes/candidate` has also
+derived the change that adds an index on one attribute, with no comparison
+behind it: a value on the database entry for OpenLDAP, an entry of its own
+under the backend for 389 DS. The 1.32 entry did not touch the charter, so the
+list has described less than the code does for a month.
+
+The line is corrected, not widened, as with the 2026-09-06 and 2026-10-13
+corrections: it now names adding an index on one attribute of a database that
+serves a naming context. Nothing in the code changes. Indexes are still added
+only through the derived candidate, planned and reviewed like any change;
+removing or rewriting one stays where 1.32 left it, refused with
+`index_value_shared` or as an index the server maintains for itself.
+Recorded now because the index advisor, when it is proposed, stages its
+changes through this path, and it should rest on a line the charter states
+rather than on one it contradicts.
+
 ### 2026-10-22 — many members at once, as built
 
 Part 1 of `docs/proposals/group-membership-tools.md`, Option B, with the
