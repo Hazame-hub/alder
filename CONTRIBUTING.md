@@ -176,8 +176,9 @@ on the record; see the decisions log. It waited for the conformance harness to
 be green because it is the most vendor-divergent write in LDAP.
 
 In the configuration tree, the entry editor writes the settings a comparison
-has proved, creates OpenLDAP overlays whose module is loaded, and switches 389
-DS plugins on or off, warning before anything that cannot be undone. Access
+has proved, the index panel adds an index on one attribute, the editor creates
+OpenLDAP overlays whose module is loaded, and switches 389 DS plugins on or
+off, warning before anything that cannot be undone. Access
 rules are read and shown, never written: the editor shows `aci` and
 `olcAccess` read-only. See the decisions log for why.
 
