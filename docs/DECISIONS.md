@@ -7041,3 +7041,25 @@ answering a request.
   `Proxy-Authorization`, `Cookie`, `Set-Cookie`, any name containing
   `token`, `secret`, `password` or `key`, and anything that is not an HTTP
   field name, are refused with the flag named.
+
+### 2026-10-30 — several signers on a saved plan
+
+The owner asked for it ("build S2"): `--min-signers N` on `alder apply
+--plan` and `alder project apply --plan`, a two-person rule in plain CI. Two
+reviewers sign the saved plan, each with their own key (`alder sign` already
+adds a signature to a signed file), and the apply job refuses fewer.
+
+- **It extends `--trusted-keys` and nothing else.** It counts valid
+  signatures by distinct keys `--trusted-keys` names. A key nobody named was
+  never checked, so it never counts; one key's signature counts once,
+  however often an edited file carries it.
+- **Refused before connecting**, with the other signature refusals: exit 3,
+  `signatures_too_few`, the same code family as `signature_untrusted`. The
+  plan shown, and `--json`'s `signature`, already list every signer.
+- **A usage error (7)** without `--trusted-keys`, when negative, above the
+  envelope's limit of 8 signatures, or above the number of keys named: none
+  of those could ever be met, and saying so beats refusing every plan.
+- **Command line only**, like `--plan` and `--trusted-keys`: an environment
+  variable that lowers it would be a way round the rule nobody sees.
+- **Not on `alder serve`.** The server reads signed documents to show them;
+  it does not apply saved plans, so there is nothing to count there.

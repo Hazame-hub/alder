@@ -554,10 +554,23 @@ func holds(p apiclient.Plan, n int) error {
 // Without them, an envelope is unwrapped and its signature reported as
 // unchecked, and an unsigned plan reads as it always has.
 //
+// minSigners above one asks for that many valid signatures by distinct
+// trusted keys: a two-person rule in plain CI. Fewer is refused (3) like an
+// untrusted signature. It needs trusted keys, and no more than were named,
+// or no plan could ever meet it.
+//
 // The signature reported is what the apply's output carries: nil for an
 // unsigned plan that nobody asked to be signed. It is returned beside a
 // refusal too, so the refusal's JSON says what the signature amounted to.
-func readSavedPlan(env *Env, path string, trustedPaths []string) (*savedPlan, *verifyEnvelope, error) {
+func readSavedPlan(env *Env, path string, trustedPaths []string, minSigners int) (*savedPlan, *verifyEnvelope, error) {
+	switch {
+	case minSigners < 0:
+		return nil, nil, usagef("--min-signers is a number of keys, and cannot be negative")
+	case minSigners > 0 && len(trustedPaths) == 0:
+		return nil, nil, usagef("--min-signers counts signatures by --trusted-keys, and none was given")
+	case minSigners > signing.MaxSignatures:
+		return nil, nil, usagef("--min-signers %d: a signed plan carries at most %d signatures", minSigners, signing.MaxSignatures)
+	}
 	var trusted signing.TrustedKeys
 	if len(trustedPaths) > 0 {
 		var err error
@@ -568,6 +581,10 @@ func readSavedPlan(env *Env, path string, trustedPaths []string) (*savedPlan, *v
 			// Only blank paths: refusing everything would be the answer, and
 			// a confusing one.
 			return nil, nil, usagef("--trusted-keys names no key")
+		}
+		if minSigners > len(trusted) {
+			return nil, nil, usagef("--min-signers %d, but --trusted-keys names %s: no plan could meet it",
+				minSigners, plural(len(trusted), "key", "keys"))
 		}
 	}
 	// An envelope indents the plan inside it, so it may be a little larger
@@ -612,6 +629,10 @@ func readSavedPlan(env *Env, path string, trustedPaths []string) (*savedPlan, *v
 	case result.Status != signing.Verified:
 		return nil, report, notApplicable("signature_untrusted",
 			"not applied: %s is signed by no key --trusted-keys names", safe(path))
+	case trustedSigners(result) < minSigners:
+		return nil, report, notApplicable("signatures_too_few",
+			"not applied: %s is signed by %s --trusted-keys names, and --min-signers asks for %d",
+			safe(path), plural(trustedSigners(result), "key", "keys"), minSigners)
 	}
 	// The envelope's own keys are read as exactly as the plan's: a key
 	// twice there, such as a second payload, would be one more way for the
@@ -631,6 +652,19 @@ func readSavedPlan(env *Env, path string, trustedPaths []string) (*savedPlan, *v
 		return nil, report, invalid(fmt.Errorf("the signed document is not a saved plan: %w", err))
 	}
 	return saved, report, nil
+}
+
+// trustedSigners counts the distinct trusted keys whose signatures verified.
+// alder sign will not add a key's signature twice, but a file can be edited
+// to carry one twice, so the count is by key id: one reviewer is never two.
+func trustedSigners(r signing.Result) int {
+	seen := map[string]bool{}
+	for _, s := range r.Signers {
+		if s.Trusted {
+			seen[strings.ToLower(s.KeyID)] = true
+		}
+	}
+	return len(seen)
 }
 
 // describeFormat names a document's format for a refusal, bounded.
@@ -847,7 +881,7 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 	// The file is read and matched first, so a file that is not this
 	// directory's plan is refused as such (exit 3) whether or not there is
 	// anyone to confirm it.
-	saved, sig, err := readSavedPlan(env, o.plan, o.trusted)
+	saved, sig, err := readSavedPlan(env, o.plan, o.trusted, o.minSigners)
 	envelope.Signature = sig
 	if err != nil {
 		return err
