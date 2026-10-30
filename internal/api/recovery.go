@@ -11,6 +11,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/hazame-hub/alder/internal/config"
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/plan"
@@ -289,8 +290,16 @@ func recoveryAssessment(record directory.ChangeRecord, where recovery.Target) *R
 // targetKind finds, and on a schema entry the attributes the server announced
 // it writes definitions to -- the same two the schema editor writes, one
 // definition at a time.
-func recoveryTarget(caps directory.Capabilities, sch *schema.Schema, target dn.DN) recovery.Target {
+//
+// restart is what the server says about which settings it applies only when it
+// starts, as restartSettings reads it; nil where nothing has been read.
+func recoveryTarget(caps directory.Capabilities, sch *schema.Schema, target dn.DN, restart map[string]bool) recovery.Target {
 	where := recovery.Target{Kind: string(targetKind(caps, target)), Schema: sch}
+	if where.Kind == recovery.KindConfig && len(restart) > 0 {
+		where.RestartRequired = func(attribute string) bool {
+			return restart[strings.ToLower(schema.BaseName(attribute))]
+		}
+	}
 	if where.Kind == recovery.KindSchema {
 		w := caps.SchemaWrite
 		where.Definitions = func(attribute string) bool {
@@ -311,6 +320,9 @@ type recoveryRecorder struct {
 	sch   *schema.Schema
 	caps  directory.Capabilities
 	steps []recovery.Step
+	// restart is read the first time a configuration change is recorded,
+	// once per request.
+	restart *restartSettings
 	// touched holds the folded DNs of the changes that have run. An entry read
 	// while checking the plan is still the entry a later change meets unless an
 	// earlier change was that entry or one above it.
@@ -327,7 +339,28 @@ type recoveryRecorder struct {
 
 func newRecoveryRecorder(ctx context.Context, conn directory.Session) *recoveryRecorder {
 	sch, _ := conn.Schema(ctx)
-	return &recoveryRecorder{conn: conn, sch: sch, caps: conn.Capabilities(), touched: map[string]bool{}}
+	return &recoveryRecorder{conn: conn, sch: sch, caps: conn.Capabilities(), touched: map[string]bool{},
+		restart: &restartSettings{conn: conn}}
+}
+
+// restartSettings reads, at most once and only when asked, which settings the
+// server says it applies only when it starts. A request that changes nothing
+// in the configuration tree never reads it.
+type restartSettings struct {
+	conn  config.Reader
+	read  bool
+	names map[string]bool
+}
+
+func (r *restartSettings) get(ctx context.Context) map[string]bool {
+	if r == nil {
+		return nil
+	}
+	if !r.read {
+		r.read = true
+		r.names = config.RestartRequired(ctx, r.conn)
+	}
+	return r.names
 }
 
 // readAttributes is what the plan check should read beyond its own needs.
@@ -390,7 +423,10 @@ func (r *recoveryRecorder) after(ctx context.Context, index int, record director
 	for _, d := range recovery.Touched(record) {
 		r.touched[strings.ToLower(d.String())] = true
 	}
-	where := recoveryTarget(r.caps, r.sch, record.DN)
+	where := recoveryTarget(r.caps, r.sch, record.DN, nil)
+	if where.Kind == recovery.KindConfig {
+		where = recoveryTarget(r.caps, r.sch, record.DN, r.restart.get(ctx))
+	}
 	var post *directory.Entry
 	if where.Kind != recovery.KindData && record.Type == directory.ChangeModify && pre != nil {
 		if entry, err := r.conn.Read(ctx, record.DN, recovery.ReadAttributes(record)); err == nil {

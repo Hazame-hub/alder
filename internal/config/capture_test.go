@@ -580,6 +580,31 @@ func TestReadOnlyModeIsChangeableOnlyWhereItCannotLockTheConfigurationAway(t *te
 	}
 }
 
+func TestRestartRequiredReadsTheRootAlone(t *testing.T) {
+	d := ds389Reader(t)
+	d.entries[0].Set("nsslapd-requiresrestart", [][]byte{
+		[]byte("cn=config:nsslapd-port"),
+		[]byte("cn=config,cn=ldbm:nsslapd-dbcachesize"),
+	})
+	got := RestartRequired(context.Background(), d)
+	if len(got) != 2 || !got["nsslapd-port"] || !got["nsslapd-dbcachesize"] {
+		t.Errorf("restart %v, want nsslapd-port and nsslapd-dbcachesize", got)
+	}
+	if d.searches != 1 {
+		t.Errorf("%d searches, want one read of the root", d.searches)
+	}
+
+	// A server that names none, and a tree that cannot be read, name none.
+	if got := RestartRequired(context.Background(), ds389Reader(t)); len(got) != 0 {
+		t.Errorf("restart %v with no list, want none", got)
+	}
+	broken := ds389Reader(t)
+	broken.err = errors.New("insufficient access")
+	if got := RestartRequired(context.Background(), broken); got != nil {
+		t.Errorf("restart %v from an unreadable root, want nil", got)
+	}
+}
+
 func TestASettingTheServerSaysNeedsARestartIsNeverOffered(t *testing.T) {
 	// 389 DS publishes which settings take effect only at start. That list is
 	// the server's own statement, and it wins over the model's.

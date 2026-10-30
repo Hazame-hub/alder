@@ -369,3 +369,43 @@ func WritableKeys(provider string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// RestartRequired reads which settings the server says take effect only after
+// a restart, by attribute name, folded. It reads the root of the
+// configuration tree alone -- where a server that publishes such a list
+// publishes it -- rather than the whole tree, so that it is cheap enough to ask
+// whenever a change to the configuration is planned or applied.
+//
+// Nil when the root cannot be read, when Alder has no model for the server,
+// and when the model reads no such list: the caller then knows of no setting
+// that needs a restart, which is what it knew before asking.
+func RestartRequired(ctx context.Context, r Reader) map[string]bool {
+	caps := r.Capabilities()
+	root := caps.Config.DN
+	if root == "" {
+		root = caps.ConfigContext
+	}
+	base, err := dn.Parse(root)
+	if err != nil || base.IsEmpty() {
+		return nil
+	}
+	all, err := filter.Parse("(objectClass=*)")
+	if err != nil {
+		return nil
+	}
+	res, err := r.Search(ctx, directory.SearchRequest{
+		BaseDN: base, Scope: directory.ScopeBase, Filter: all, Attributes: []string{"*"}, Limit: 1,
+	})
+	if err != nil || res == nil || len(res.Entries) == 0 {
+		return nil
+	}
+	provider := ProviderFromTree(res.Entries)
+	if provider == "" {
+		provider = ProviderFor(caps)
+	}
+	m, ok := modelFor(provider)
+	if !ok || m.restartRequired == nil {
+		return nil
+	}
+	return m.restartRequired(res.Entries)
+}

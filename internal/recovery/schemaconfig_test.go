@@ -106,6 +106,70 @@ func TestConfigNothingStoredDifferentlyIsNothingToDo(t *testing.T) {
 	}
 }
 
+func TestConfigSettingTheBindCannotReadIsNotGuessedAt(t *testing.T) {
+	// The bind may write the setting and not read it: nothing is read either
+	// side of a change that succeeded. Unset and unreadable look alike, so
+	// neither a delete nor "nothing to do" is recorded as exact.
+	const db389 = "cn=userRoot,cn=ldbm database,cn=plugins,cn=config"
+	cases := []struct {
+		name   string
+		d      string
+		record directory.ChangeRecord
+	}{
+		{"a value added", configDB, modify(t, configDB, mod(directory.ModAdd, "olcTimeLimit", "3600"))},
+		{"a value replaced", db389, modify(t, db389, mod(directory.ModReplace, "nsslapd-cachememsize", "209715200"))},
+		{"a value removed", configDB, modify(t, configDB, mod(directory.ModDelete, "olcTimeLimit", "3600"))},
+	}
+	for _, tc := range cases {
+		blank := entry(t, tc.d, []string{"objectClass", "top"})
+		step := Derive(0, tc.record, blank, blank, configTarget(t))
+		if step.Recoverability != Unavailable || len(step.Compensation) != 0 {
+			t.Errorf("%s: step %+v, want unavailable with no compensation", tc.name, step)
+		}
+		if _, ok := reasonCodes(step)[ReasonHiddenAttributesUnknown]; !ok {
+			t.Errorf("%s: reasons %v, want hidden_attributes_unknown", tc.name, step.Reasons)
+		}
+	}
+
+	// Beside a setting it could read, the step is partial and the readable
+	// one is still put back.
+	pre := entry(t, configDB, []string{"olcSizeLimit", "500"})
+	post := entry(t, configDB, []string{"olcSizeLimit", "900"})
+	record := modify(t, configDB, mod(directory.ModReplace, "olcSizeLimit", "900"), mod(directory.ModAdd, "olcTimeLimit", "3600"))
+	step := Derive(0, record, pre, post, configTarget(t))
+	if step.Recoverability != Partial || reasonCodes(step)[ReasonHiddenAttributesUnknown] != "olcTimeLimit" ||
+		len(step.Compensation) != 1 || len(step.Compensation[0].Mods) != 1 || step.Compensation[0].Mods[0].Name != "olcSizeLimit" {
+		t.Errorf("step %+v, want olcSizeLimit put back and olcTimeLimit reported", step)
+	}
+}
+
+func TestConfigSettingAppliedAtStartIsPutBackButNotExact(t *testing.T) {
+	const global = "cn=config"
+	where := configTarget(t)
+	where.RestartRequired = func(attribute string) bool { return strings.EqualFold(attribute, "nsslapd-maxdescriptors") }
+
+	pre := entry(t, global, []string{"nsslapd-maxdescriptors", "20000"}, []string{"nsslapd-sizelimit", "2000"})
+	post := entry(t, global, []string{"nsslapd-maxdescriptors", "4000"}, []string{"nsslapd-sizelimit", "500"})
+	record := modify(t, global,
+		mod(directory.ModReplace, "nsslapd-maxdescriptors", "4000"), mod(directory.ModReplace, "nsslapd-sizelimit", "500"))
+
+	step := Derive(0, record, pre, post, where)
+	if step.Recoverability != Partial || reasonCodes(step)[ReasonRestartRequired] != "nsslapd-maxdescriptors" || len(step.Reasons) != 1 {
+		t.Fatalf("step %+v, want partial with restart_required on nsslapd-maxdescriptors alone", step)
+	}
+	// The stored value still goes back: it is what the next start reads.
+	if mods := step.Compensation[0].Mods; len(mods) != 2 || mods[0].Name != "nsslapd-maxdescriptors" ||
+		!equalStrings(texts(t, mods[0].Values), []string{"20000"}) {
+		t.Errorf("compensation %+v, want both settings put back", mods)
+	}
+
+	// Nothing stored differently: nothing written, and nothing to restart.
+	same := Derive(0, modify(t, global, mod(directory.ModReplace, "nsslapd-maxdescriptors", "20000")), pre, pre, where)
+	if same.Recoverability != Exact || len(same.Reasons) != 0 {
+		t.Errorf("step %+v, want exact with nothing to do", same)
+	}
+}
+
 func TestConfigSecretsAreNotCompensated(t *testing.T) {
 	// Until 1.39 this case also held an access rule back, with
 	// access_rule_not_written. Access rules are compensated now (option B,
@@ -390,6 +454,10 @@ func TestAssessSchemaAndConfig(t *testing.T) {
 			configTarget(t), Partial, ReasonSensitiveNotCaptured},
 		{"an access rule", modify(t, configDB, mod(directory.ModAdd, "olcAccess", "to * by * none")),
 			configTarget(t), Exact, ""},
+		{"a setting removed", modify(t, configDB, mod(directory.ModDelete, "olcTimeLimit")), configTarget(t), Exact, ""},
+		{"a setting applied at start", modify(t, "cn=config", mod(directory.ModReplace, "nsslapd-maxdescriptors", "4000")),
+			Target{Kind: KindConfig, Schema: testSchema(t), RestartRequired: func(string) bool { return true }},
+			Partial, ReasonRestartRequired},
 		{"an overlay", directory.ChangeRecord{DN: mustDN(t, "olcOverlay=memberof,"+configDB), Type: directory.ChangeAdd,
 			Attrs: []directory.Attribute{{Name: "objectClass", Values: [][]byte{[]byte("olcOverlayConfig")}}}},
 			configTarget(t), Unavailable, ReasonConfigEntryNotCompensated},

@@ -37,6 +37,7 @@ export const REASON: Record<RecoveryReasonCode, string> = {
   definition_may_be_in_use: "entries may now use this schema definition, and are not recovered",
   config_entry_not_compensated: "creating, removing or renaming a configuration entry is not recovered",
   access_rule_not_written: "the Alder version that wrote this bundle did not recover access rules",
+  restart_required: "the server applies this setting only when it restarts",
 };
 
 export const DRIFT: Record<RecoveryDriftState, string> = {

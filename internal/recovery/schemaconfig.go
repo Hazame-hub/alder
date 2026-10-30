@@ -41,7 +41,14 @@ import (
 // old value and the new one between a delete and an add; and an ordered one
 // is only put back in its order by writing the whole set, which the server
 // takes as a true round trip.
-func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory.Entry, sch *schema.Schema) Step {
+//
+// Two things keep a step that writes every setting back from being exact. A
+// setting read as having no value either side of a change that succeeded may
+// be one the bind can write and not read: "unset" and "unreadable" look alike,
+// and an undo built from the first reading would delete, or leave in place,
+// whatever the server really held. And a setting the server says it applies
+// only when it starts is put back as stored, not as running.
+func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory.Entry, where Target) Step {
 	if record.Type != directory.ChangeModify {
 		return step.unavailable(ReasonConfigEntryNotCompensated, "")
 	}
@@ -54,8 +61,9 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 	order := touchedAttributes(record)
 	change := Change{DN: record.DN.String(), Type: string(directory.ChangeModify), Expect: &Expect{}}
 	skipped := 0
+	var restart []Reason
 	for _, t := range order {
-		if code, owned := notCompensated(sch, t, pre, post); owned {
+		if code, owned := notCompensated(where.Schema, t, pre, post); owned {
 			step.Reasons = append(step.Reasons, Reason{Code: code, Attribute: t.name})
 			skipped++
 			continue
@@ -73,10 +81,28 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 			skipped++
 			continue
 		}
+		if len(before) == 0 && len(after) == 0 {
+			// The change succeeded and nothing was read on either side of
+			// it. A setting that was unset and stayed unset is what a
+			// change that does nothing leaves; a setting the bind may write
+			// and not read looks the same. Taking it for the first would
+			// record an undo that deletes, or leaves alone, values Alder
+			// never saw. Neither is guessed at.
+			step.Reasons = append(step.Reasons, Reason{Code: ReasonHiddenAttributesUnknown, Attribute: t.name})
+			skipped++
+			continue
+		}
 		// Byte for byte: a value the server re-spelled is put back as it was,
 		// and an ordered value's position is part of the value.
 		if sameSet(before, after, snapshot.ExactKey) {
 			continue
+		}
+		if where.RestartRequired != nil && where.RestartRequired(t.name) {
+			// Written back all the same: the stored value is what the next
+			// start reads, and the change being undone stored its own the
+			// same way. What runs until then is not something a write
+			// changes.
+			restart = append(restart, Reason{Code: ReasonRestartRequired, Attribute: t.name})
 		}
 		if len(before) == 0 {
 			change.Mods = append(change.Mods, Mod{Op: string(directory.ModDelete), Name: t.name})
@@ -86,6 +112,12 @@ func deriveConfig(step Step, record directory.ChangeRecord, pre, post *directory
 		change.Expect.Attributes = append(change.Expect.Attributes, Attribute{Name: t.name, Values: encode(after)})
 	}
 	step.Recoverability = level(skipped, len(order))
+	if len(restart) > 0 {
+		step.Reasons = append(step.Reasons, restart...)
+		if step.Recoverability == Exact {
+			step.Recoverability = Partial
+		}
+	}
 	if len(change.Mods) > 0 {
 		step.Compensation = []Change{change}
 	}
@@ -361,21 +393,19 @@ func storedDefinition(values [][]byte, oid string) ([]byte, bool) {
 // say how recoverable a schema or configuration change will be from the change
 // alone. Its values are the change's own: what a schema change removes is
 // taken as held before it, what it adds as held after. For a configuration
-// change both are empty but for access rules: which settings are compensated
-// depends on their names alone, and whether one had a value before is
-// something the bundle made at apply says.
+// change each setting holds a stand-in either side: which settings are
+// compensated depends on their names alone, and whether one had a value
+// before is something the bundle made at apply says.
 func assessState(record directory.ChangeRecord, kind string) (pre, post *directory.Entry) {
 	pre, post = directory.NewEntry(record.DN), directory.NewEntry(record.DN)
 	if kind != KindSchema {
-		// An access rule is assessed as one that was read before and after:
-		// an empty read of one is reported as unread rather than as no rules,
-		// and whether the bind could read them is what the bundle made at
-		// apply says. These values never leave Assess.
+		// Every setting is assessed as one that was read before and after:
+		// an empty read either side is reported as unread rather than as no
+		// value, and whether the bind could read it is what the bundle made
+		// at apply says. These values never leave Assess.
 		for _, t := range touchedAttributes(record) {
-			if accessRule(t.name) {
-				pre.Set(t.name, [][]byte{[]byte("before")})
-				post.Set(t.name, [][]byte{[]byte("after")})
-			}
+			pre.Set(t.name, [][]byte{[]byte("before")})
+			post.Set(t.name, [][]byte{[]byte("after")})
 		}
 		return pre, post
 	}

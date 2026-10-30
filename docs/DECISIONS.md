@@ -7063,3 +7063,34 @@ adds a signature to a signed file), and the apply job refuses fewer.
   variable that lowers it would be a way round the rule nobody sees.
 - **Not on `alder serve`.** The server reads signed documents to show them;
   it does not apply saved plans, so there is nothing to count there.
+
+### 2026-10-30 — two configuration undos that were not exact
+
+Two gaps the 16 October recovery audit left open, both steps a bundle called
+`exact` when they were not.
+
+- **A setting the bind cannot read.** A configuration bind may be allowed to
+  write a setting it may not read. The entry was read before and after the
+  change, found no value either side, and the step was `exact` with nothing to
+  undo: whatever the server held before was lost without a word. Checked on
+  389 DS with a bind that has `write` and no `read` on one attribute. A
+  setting read empty before *and* after a change that succeeded is now
+  reported with `hidden_attributes_unknown` and not compensated, as access
+  rules already were. Empty on one side only is still read as unset there:
+  the same bind read a value on the other, so it can read the attribute. A
+  plan cannot know what the bind may read, so its assessment still says
+  `exact`; the bundle made at apply is what says otherwise.
+- **A setting applied only at start.** 389 DS stores a new
+  `nsslapd-maxdescriptors` at once and runs with the old one until it is
+  restarted, and the undo does the same. The step was `exact`. It is now
+  `partial` with a new reason, `restart_required`, and the compensation is
+  still written: the stored value is what the next start reads. Which
+  settings those are comes from the server, as the configuration editor
+  already reads it (`nsslapd-requiresrestart` on `cn=config`, matched by
+  attribute name, the cautious reading), through a new
+  `config.RestartRequired` that reads the root entry alone, once per plan or
+  apply, and only when a change lands in the configuration tree. A server
+  that publishes no such list -- OpenLDAP -- has no step marked this way.
+- **Format.** `restart_required` is the fifth reason code added to version 1,
+  the same way as the four in 1.38: an older release refuses a bundle that
+  carries it rather than half-reading it.

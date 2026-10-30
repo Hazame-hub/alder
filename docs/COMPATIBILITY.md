@@ -826,6 +826,19 @@ A saved plan can require several signers. Only additions:
 - **A local error code, `signatures_too_few`** (exit 3), for a plan with
   fewer valid signatures by distinct trusted keys than asked.
 
+Two configuration recovery steps that were called `exact` no longer are
+([RECOVERY.md](RECOVERY.md#per-operation)). Only additions:
+
+- **`RecoveryReasonCode` gains `restart_required`**: a setting the server
+  says takes effect only when it starts. Its compensation is written as
+  before; the step is `partial`. A bundle that carries it is refused by an
+  earlier release as `recovery_invalid`; one that does not reads as before.
+- **A configuration step may say `hidden_attributes_unknown`**, an existing
+  code, for a setting the bind read no value of either side of the change.
+  The step is `partial` or `unavailable` and carries no compensation for it,
+  where it was `exact` with nothing to undo. A plan's assessment cannot know
+  what the bind may read, so it still says `exact` for such a setting.
+
 ---
 
 ## Not covered

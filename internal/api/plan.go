@@ -14,6 +14,7 @@ import (
 	"github.com/hazame-hub/alder/internal/filter"
 	"github.com/hazame-hub/alder/internal/ldif"
 	"github.com/hazame-hub/alder/internal/plan"
+	"github.com/hazame-hub/alder/internal/recovery"
 	"github.com/hazame-hub/alder/internal/schema"
 	"github.com/hazame-hub/alder/internal/session"
 )
@@ -113,8 +114,9 @@ func (s *Server) planProposals(ctx context.Context, sess *session.Session, propo
 		Impact: &PlanImpact{References: refSummary},
 	}
 	groups := map[string]bool{}
+	restart := &restartSettings{conn: sess.Conn}
 	for _, item := range computed.Items {
-		view, viewErr := s.planItem(item, sch, caps)
+		view, viewErr := s.planItem(ctx, item, sch, caps, restart)
 		if viewErr != nil {
 			return Plan{}, viewErr
 		}
@@ -210,7 +212,7 @@ func parseLdifForPlan(c *fiber.Ctx, text string, mode *PlanLdifMode) ([]plan.Pro
 	return proposals, true
 }
 
-func (s *Server) planItem(item plan.Item, sch *schema.Schema, caps directory.Capabilities) (PlanItem, error) {
+func (s *Server) planItem(ctx context.Context, item plan.Item, sch *schema.Schema, caps directory.Capabilities, restart *restartSettings) (PlanItem, error) {
 	view := PlanItem{
 		Index:  item.Index,
 		Dn:     item.DN.String(),
@@ -263,7 +265,11 @@ func (s *Server) planItem(item plan.Item, sch *schema.Schema, caps directory.Cap
 	view.Record = &request
 	view.Preview = &preview
 	view.Baseline = ptr(string(item.Baseline))
-	view.Recovery = recoveryAssessment(item.Record, recoveryTarget(caps, sch, item.DN))
+	where := recoveryTarget(caps, sch, item.DN, nil)
+	if where.Kind == recovery.KindConfig {
+		where = recoveryTarget(caps, sch, item.DN, restart.get(ctx))
+	}
+	view.Recovery = recoveryAssessment(item.Record, where)
 	return view, nil
 }
 
