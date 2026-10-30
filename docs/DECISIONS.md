@@ -6993,3 +6993,24 @@ new error code, `audit_incomplete`.
   out when its classes require a member, with the reason; one whose classes do
   not is emptied, and the confirmation says so. Read-only shows the report and
   no clean-up.
+
+### 2026-10-30 — the name is a trademark, and the CLA can follow Alder
+
+The owner asked for the safest licensing position that needs neither a
+company nor money yet.
+
+- **The AGPL stays.** It already keeps the code from being taken closed.
+- **CLA 1.1** lets the Maintainer transfer the agreement, and the licences in
+  it, to whoever takes over Alder: a company set up later, or a buyer. Without
+  it, every contributor would have to sign again before a transfer. Nobody had
+  signed 1.0 (`signatures/v1.json` is empty), so nobody is affected, and the
+  signature file is kept.
+- **TRADEMARKS.md** says the name and logo are the Maintainer's and are not
+  licensed by the AGPL (its section 7(e)): an unmodified Alder keeps the name,
+  a modified one or a fork takes another, and a hosted service under the name
+  needs permission. The marks are unregistered for now; registering one
+  (EUIPO or a national office) is the step that costs money, and is left for
+  later.
+- **Not done, on purpose:** a source-available licence (BUSL, FSL) for future
+  releases. It would stop a hosted competitor, but at the cost of being open
+  source. The CLA keeps it possible if one appears.
