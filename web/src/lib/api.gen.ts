@@ -5052,7 +5052,7 @@ export interface components {
          * @description Why a change is not exactly recoverable. Stable identifiers; see `docs/RECOVERY.md`.
          * @enum {string}
          */
-        RecoveryReasonCode: "password_not_captured" | "sensitive_value_not_captured" | "server_owned_attribute" | "identity_regenerated" | "hidden_attributes_unknown" | "sensitive_values_not_restored" | "schema_or_config_not_supported" | "pre_state_unavailable" | "post_state_unavailable" | "definition_may_be_in_use" | "config_entry_not_compensated" | "access_rule_not_written";
+        RecoveryReasonCode: "password_not_captured" | "sensitive_value_not_captured" | "server_owned_attribute" | "identity_regenerated" | "hidden_attributes_unknown" | "sensitive_values_not_restored" | "schema_or_config_not_supported" | "pre_state_unavailable" | "post_state_unavailable" | "definition_may_be_in_use" | "config_entry_not_compensated" | "access_rule_not_written" | "restart_required";
         RecoveryReason: {
             code: components["schemas"]["RecoveryReasonCode"];
             attribute?: string;

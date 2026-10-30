@@ -105,6 +105,12 @@ const (
 	// It stays known so that a bundle 1.38 wrote still decodes, and it is
 	// never produced.
 	ReasonAccessRuleNotWritten ReasonCode = "access_rule_not_written"
+	// ReasonRestartRequired: a setting the server itself says takes effect
+	// only when it starts. The compensation puts back the value the server
+	// stored, and the server goes on running with whatever it started with
+	// until it is restarted -- which is equally true of the change being
+	// undone. Since 1.40.
+	ReasonRestartRequired ReasonCode = "restart_required"
 )
 
 var knownReasons = map[ReasonCode]bool{
@@ -112,6 +118,7 @@ var knownReasons = map[ReasonCode]bool{
 	ReasonIdentityRegenerated: true, ReasonHiddenAttributesUnknown: true, ReasonSensitiveNotRestored: true,
 	ReasonSchemaOrConfig: true, ReasonPreStateUnavailable: true, ReasonPostStateUnavailable: true,
 	ReasonDefinitionMayBeInUse: true, ReasonConfigEntryNotCompensated: true, ReasonAccessRuleNotWritten: true,
+	ReasonRestartRequired: true,
 }
 
 // Reason is one limitation of a step.
@@ -210,6 +217,10 @@ type Target struct {
 	// definitions: the attributes Alder's schema editor writes one definition
 	// at a time, as the server announced them. Nil means none does.
 	Definitions func(attribute string) bool
+	// RestartRequired reports whether the server says a configuration
+	// setting takes effect only when it starts. Read from the server, as the
+	// configuration editor reads it; nil means the server named none.
+	RestartRequired func(attribute string) bool
 }
 
 // Derive works out the compensation of one change from the entry as it was
@@ -234,7 +245,7 @@ func Derive(index int, record directory.ChangeRecord, pre, post *directory.Entry
 	case KindSchema:
 		return deriveSchema(step, record, pre, post, where.Definitions)
 	case KindConfig:
-		return deriveConfig(step, record, pre, post, where.Schema)
+		return deriveConfig(step, record, pre, post, where)
 	}
 	sch := where.Schema
 	switch record.Type {

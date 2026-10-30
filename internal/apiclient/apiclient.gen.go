@@ -1542,6 +1542,7 @@ const (
 	RecoveryReasonPasswordNotCaptured        RecoveryReasonCode = "password_not_captured"
 	RecoveryReasonPostStateUnavailable       RecoveryReasonCode = "post_state_unavailable"
 	RecoveryReasonPreStateUnavailable        RecoveryReasonCode = "pre_state_unavailable"
+	RecoveryReasonRestartRequired            RecoveryReasonCode = "restart_required"
 	RecoveryReasonSchemaOrConfigNotSupported RecoveryReasonCode = "schema_or_config_not_supported"
 	RecoveryReasonSensitiveValueNotCaptured  RecoveryReasonCode = "sensitive_value_not_captured"
 	RecoveryReasonSensitiveValuesNotRestored RecoveryReasonCode = "sensitive_values_not_restored"
@@ -1566,6 +1567,8 @@ func (e RecoveryReasonCode) Valid() bool {
 	case RecoveryReasonPostStateUnavailable:
 		return true
 	case RecoveryReasonPreStateUnavailable:
+		return true
+	case RecoveryReasonRestartRequired:
 		return true
 	case RecoveryReasonSchemaOrConfigNotSupported:
 		return true
