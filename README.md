@@ -243,6 +243,10 @@ Contributions are covered by a [Contributor Licence Agreement](CLA.md), which
 keeps the option of licensing Alder on other terms open. Contributors keep the
 copyright in their work.
 
+The name and logo are not covered by the AGPL: a modified version or a fork
+takes its own name. [TRADEMARKS.md](TRADEMARKS.md) says what you may do with
+them.
+
 *Alder wood hardens instead of rotting when submerged. Venice stands on alder
 piles that have held for centuries. It seemed a fitting name for the directory
 everything else authenticates against.*
