@@ -807,6 +807,15 @@ Only additions:
   `invalid` with `missing_required_attribute`**, an existing code, where it
   planned as `modify` and the directory then refused it.
 
+### 1.40
+
+A saved plan can require several signers. Only additions:
+
+- **`--min-signers N`** on `alder apply --plan` and `alder project apply
+  --plan`, never read from the environment. Without it nothing changes.
+- **A local error code, `signatures_too_few`** (exit 3), for a plan with
+  fewer valid signatures by distinct trusted keys than asked.
+
 ---
 
 ## Not covered

@@ -976,9 +976,22 @@ strictly as a bare one, and every check above still runs on it.
   `signature` object shaped like `alder verify --json`'s (`status`,
   `signers`, `detail`, `payload`). `--trusted-keys` is never read from
   `ALDER_*`.
+- **`--min-signers N`** asks for valid signatures by N distinct keys
+  `--trusted-keys` names, and refuses fewer (exit 3, `signatures_too_few`):
+  a two-person rule with no product in between. A signature by a key you did
+  not name does not count, and one key's signature counts once however often
+  the file carries it. It needs `--trusted-keys`, and no more keys than they
+  name (exit 7 otherwise). Without it, one trusted signature is enough, as in
+  1.39. Never read from `ALDER_*`.
 
 ```sh
 alder apply --plan change.plan.signed.json --trusted-keys /etc/alder/reviewers/ --yes
+
+# Two reviewers each sign the same file, in turn:
+alder sign change.plan.json --key alice.pem --signer alice --output change.plan.signed.json
+alder sign change.plan.signed.json --key bob.pem --signer bob --output change.plan.signed.json
+alder apply --plan change.plan.signed.json --trusted-keys /etc/alder/reviewers/ \
+  --min-signers 2 --yes
 ```
 
 ### When the directory moves
