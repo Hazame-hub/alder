@@ -1,6 +1,8 @@
 # Replication health across two servers
 
-**Status: proposal, for review. No code until it is accepted.** Feature 5
+**Status: accepted (2026-10-30), every open question as recommended, and
+built in 1.41.** What the build settled is in `docs/DECISIONS.md` under the
+same date. Feature 5
 of the 2026-10-21 batch. The 2026-10-22 review already settled its one
 hard limit (`docs/DECISIONS.md`, "the later features of the same batch"):
 **the verdict is in time only.** A change sequence number says *when*, per

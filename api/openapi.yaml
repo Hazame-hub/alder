@@ -1351,6 +1351,38 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /replication/compare:
+    get:
+      tags: [access]
+      operationId: compareReplication
+      summary: The session's replication record compared with the reference's
+      description: |
+        Reads what the session's server and the reference server (1.39) each
+        record about their own replication, and compares them per suffix and
+        per origin. Added in 1.41. Read-only.
+
+        For each origin, the two servers' latest changes from it are compared
+        by change sequence, and the span between them is measured by that
+        origin's own clock, so the answer does not depend on the two servers'
+        clocks agreeing. It is never a count of changes: a change sequence
+        says when, not how many.
+
+        No peer named in an agreement is contacted: both servers here are
+        ones the operator connected to. 409 when no reference is attached.
+      responses:
+        "200":
+          description: The two records, compared.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationComparison" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: No reference server is attached to this session (`conflict`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /replication/entry:
     get:
       tags: [access]
@@ -3529,6 +3561,11 @@ components:
       properties:
         dn: { type: string }
         role: { $ref: "#/components/schemas/ReplicationRole" }
+        generation:
+          type: string
+          description: |
+            389 DS's replica generation (1.41). Two vectors from different
+            generations are not compared. Absent on OpenLDAP.
         serverId:
           type: string
           description: |
@@ -3565,6 +3602,80 @@ components:
         raw:
           type: string
           description: The value as the server wrote it, because a change sequence is what operators paste to each other.
+        csn:
+          type: string
+          description: |
+            The change sequence itself, without what surrounds it (1.41): the
+            whole value on OpenLDAP, the last of the two on a 389 DS vector,
+            whose first one is where this server started with that origin.
+            It is what two servers are compared on.
+
+    ReplicationComparison:
+      type: object
+      required: [verdict, why, suffixes, caveat, a, b]
+      description: |
+        Two servers' own records of their replication, compared per suffix
+        and per origin (1.41). `a` is the session's server and `b` the
+        reference. The verdict is in time only: a change sequence says when a
+        change was made, never how many lie between two of them.
+      properties:
+        verdict: { $ref: "#/components/schemas/ReplicationVerdict" }
+        why: { type: string }
+        a: { type: string, description: "The server read as `a`, as host:port." }
+        b: { type: string, description: "The server read as `b`, as host:port." }
+        suffixes:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationSuffixComparison" }
+        caveat:
+          type: string
+          description: What "in step" never appears without.
+
+    ReplicationVerdict:
+      type: string
+      enum: [in_step, a_behind, b_behind, diverged, not_comparable, incomplete]
+      x-enum-varnames: [ReplicationInStep, ReplicationABehind, ReplicationBBehind, ReplicationDiverged, ReplicationNotComparable, ReplicationIncomplete]
+      description: |
+        `in_step`: both hold the same latest change. `a_behind` / `b_behind`:
+        that side lacks changes the other holds, including every change from
+        an origin it holds nothing from. `diverged`: each holds changes the
+        other lacks, from different origins. `not_comparable`: the two
+        records are not positions on one history (different replication
+        models, different 389 DS replica generations, a suffix replicated on
+        one side only). `incomplete`: something needed could not be read.
+
+    ReplicationSuffixComparison:
+      type: object
+      required: [dn, verdict, origins]
+      properties:
+        dn: { type: string }
+        verdict: { $ref: "#/components/schemas/ReplicationVerdict" }
+        why:
+          type: string
+          description: Set when there is no verdict to give.
+        origins:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationOriginComparison" }
+
+    ReplicationOriginComparison:
+      type: object
+      required: [origin, verdict, spanSeconds]
+      properties:
+        origin: { type: string, description: The server id the changes came from. }
+        verdict: { $ref: "#/components/schemas/ReplicationVerdict" }
+        a: { $ref: "#/components/schemas/ReplicationCursor" }
+        b: { $ref: "#/components/schemas/ReplicationCursor" }
+        spanSeconds:
+          type: number
+          format: double
+          description: |
+            How much later the ahead side's latest change from this origin
+            was made, by that origin's own clock, so skew between the two
+            servers does not enter into it. Zero when in step, and also for
+            two changes in the same second on a server that stamps whole
+            seconds; `verdict` tells those apart.
+        tolerated:
+          type: boolean
+          description: Behind by no more than the tolerance asked for, and counted as in step.
 
     ReplicationLink:
       type: object

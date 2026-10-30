@@ -995,6 +995,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/replication/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The session's replication record compared with the reference's
+         * @description Reads what the session's server and the reference server (1.39) each
+         *     record about their own replication, and compares them per suffix and
+         *     per origin. Added in 1.41. Read-only.
+         *
+         *     For each origin, the two servers' latest changes from it are compared
+         *     by change sequence, and the span between them is measured by that
+         *     origin's own clock, so the answer does not depend on the two servers'
+         *     clocks agreeing. It is never a count of changes: a change sequence
+         *     says when, not how many.
+         *
+         *     No peer named in an agreement is contacted: both servers here are
+         *     ones the operator connected to. 409 when no reference is attached.
+         */
+        get: operations["compareReplication"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/replication/entry": {
         parameters: {
             query?: never;
@@ -2617,6 +2648,11 @@ export interface components {
             dn: string;
             role: components["schemas"]["ReplicationRole"];
             /**
+             * @description 389 DS's replica generation (1.41). Two vectors from different
+             *     generations are not compared. Absent on OpenLDAP.
+             */
+            generation?: string;
+            /**
              * @description This server's identity in the topology -- OpenLDAP's `serverID`,
              *     389 DS's replica id. It is what appears inside a change's sequence
              *     number, which is how a change's origin is legible at all.
@@ -2642,6 +2678,66 @@ export interface components {
             at: string;
             /** @description The value as the server wrote it, because a change sequence is what operators paste to each other. */
             raw: string;
+            /**
+             * @description The change sequence itself, without what surrounds it (1.41): the
+             *     whole value on OpenLDAP, the last of the two on a 389 DS vector,
+             *     whose first one is where this server started with that origin.
+             *     It is what two servers are compared on.
+             */
+            csn?: string;
+        };
+        /**
+         * @description Two servers' own records of their replication, compared per suffix
+         *     and per origin (1.41). `a` is the session's server and `b` the
+         *     reference. The verdict is in time only: a change sequence says when a
+         *     change was made, never how many lie between two of them.
+         */
+        ReplicationComparison: {
+            verdict: components["schemas"]["ReplicationVerdict"];
+            why: string;
+            /** @description The server read as `a`, as host:port. */
+            a: string;
+            /** @description The server read as `b`, as host:port. */
+            b: string;
+            suffixes: components["schemas"]["ReplicationSuffixComparison"][];
+            /** @description What "in step" never appears without. */
+            caveat: string;
+        };
+        /**
+         * @description `in_step`: both hold the same latest change. `a_behind` / `b_behind`:
+         *     that side lacks changes the other holds, including every change from
+         *     an origin it holds nothing from. `diverged`: each holds changes the
+         *     other lacks, from different origins. `not_comparable`: the two
+         *     records are not positions on one history (different replication
+         *     models, different 389 DS replica generations, a suffix replicated on
+         *     one side only). `incomplete`: something needed could not be read.
+         * @enum {string}
+         */
+        ReplicationVerdict: "in_step" | "a_behind" | "b_behind" | "diverged" | "not_comparable" | "incomplete";
+        ReplicationSuffixComparison: {
+            dn: string;
+            verdict: components["schemas"]["ReplicationVerdict"];
+            /** @description Set when there is no verdict to give. */
+            why?: string;
+            origins: components["schemas"]["ReplicationOriginComparison"][];
+        };
+        ReplicationOriginComparison: {
+            /** @description The server id the changes came from. */
+            origin: string;
+            verdict: components["schemas"]["ReplicationVerdict"];
+            a?: components["schemas"]["ReplicationCursor"];
+            b?: components["schemas"]["ReplicationCursor"];
+            /**
+             * Format: double
+             * @description How much later the ahead side's latest change from this origin
+             *     was made, by that origin's own clock, so skew between the two
+             *     servers does not enter into it. Zero when in step, and also for
+             *     two changes in the same second on a server that stamps whole
+             *     seconds; `verdict` tells those apart.
+             */
+            spanSeconds: number;
+            /** @description Behind by no more than the tolerance asked for, and counted as in step. */
+            tolerated?: boolean;
         };
         /** @description One replication agreement, from this server's side of it. */
         ReplicationLink: {
@@ -6350,6 +6446,37 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    compareReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The two records, compared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationComparison"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description No reference server is attached to this session (`conflict`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getEntryReplication: {

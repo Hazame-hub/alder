@@ -65,6 +65,52 @@ A peer whose clock runs ahead produces a change stamped in the reader's
 future. Alder says so rather than counting backwards: "-40s ago" reads as a
 bug in Alder, and the disagreement between the clocks is the actual fact.
 
+## Two servers compared (1.41)
+
+With a reference server attached (**Add a reference server** in the
+header), **Show the reference beside it** reads the reference's own record
+too, and puts the answer above the two columns: per suffix, then per origin.
+
+| What the two say about one origin | The answer |
+|---|---|
+| The same latest change | **in step**, with that change's age |
+| Both have changes from it, one later | **the other is behind**, by a span |
+| One has nothing from it | **the other holds nothing from it** |
+
+The span is between two stamps **made by the same origin's clock**, so it
+does not depend on whether the two servers' clocks agree:
+
+> the reference lacks server 2's changes made in the 40s before 14:02:11
+
+It is never a number of changes. A change sequence says when a change was
+made, not how many lie between two of them; that would need a changelog Alder
+does not read. 389 DS stamps whole seconds, so two changes in the same second
+are ordered by their sequence number and the span reads "less than a second".
+
+A suffix where each server is ahead on a different origin is said in those
+words, not as two contradictory "behinds": on a pair that both accept writes,
+it is what replication looks like for a moment.
+
+**No verdict is given** when the two records are not positions on one
+history: an OpenLDAP and a 389 DS (they cannot replicate to each other, and
+origin 1 on one is not origin 1 on the other), two 389 DS replicas of
+different generations (one was initialised from a different history; the
+`{replicageneration}` line of the vector says which), or a suffix only one
+of them replicates. Something either could not read makes the answer
+incomplete, never "in step".
+
+> In step means both servers hold the same latest change from each origin.
+> If an origin has made no change since, a link that stopped working looks
+> the same. The age of the latest change is shown so you can tell.
+
+Alder does not write a probe entry to prove a link moves: that would be
+Alder writing to a directory nobody asked it to change.
+
+The same comparison is `GET /replication/compare`, and on the command line
+`alder replication` and `alder replication compare` (see
+[CLI.md](CLI.md#alder-replication)), with an exit status a monitoring job can
+branch on.
+
 ---
 
 ## The two mechanisms

@@ -7094,3 +7094,33 @@ Two gaps the 16 October recovery audit left open, both steps a bundle called
 - **Format.** `restart_required` is the fifth reason code added to version 1,
   the same way as the four in 1.38: an older release refuses a bundle that
   carries it rather than half-reading it.
+
+### 2026-10-30 — replication health, as built
+
+`docs/proposals/replication-health.md`, accepted with every open question as
+recommended ("go ahead"). Feature 5 of the 2026-10-21 batch.
+
+- **Compared on the change sequence, not the raw value.** A 389 DS vector
+  value carries two CSNs, and the first is where that server started with
+  the origin: two replicas holding exactly the same changes write different
+  values. `Cursor.CSN` is the last one on 389 DS and the whole value on
+  OpenLDAP, and two cursors from one origin are ordered by it as text, which
+  both forms allow (fixed width, the time first). That also orders two
+  changes in the same 389 DS second, whose span is zero.
+- **The span is the origin's clock against itself.** It is the difference
+  between the two stamps, both made by the origin; the reader's clock enters
+  only the age shown beside "in step".
+- **The generation is read now** (`Suffix.Generation`, from the
+  `{replicageneration}` line `parseRUV` skipped), and two different ones are
+  `not_comparable`.
+- **An unread part of a report that names no compared suffix makes the
+  whole answer incomplete**, since the suffix it belonged to may be missing
+  from that report altogether.
+- **The command line compares files.** `alder replication` writes an
+  `alder-replication` document with the server and when it was read;
+  `alder replication compare` reads two and contacts nothing, so the CLI keeps
+  one connection per command. Reports read more than a minute apart are said
+  to be. Exit codes follow `alder diff`; `--tolerate` defaults to exact.
+- **The card asks the API**, `GET /replication/compare`, with the reference's
+  report, so the interface and the command line share one comparison.
+

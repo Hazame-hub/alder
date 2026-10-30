@@ -24,6 +24,9 @@ type ReplicationLink = components["schemas"]["ReplicationLink"];
 type ReplicationCursor = components["schemas"]["ReplicationCursor"];
 type ReplicationConflicts = components["schemas"]["ReplicationConflicts"];
 type EntryReplication = components["schemas"]["EntryReplication"];
+type ReplicationComparison = components["schemas"]["ReplicationComparison"];
+type ReplicationVerdict = components["schemas"]["ReplicationVerdict"];
+type ReplicationOriginComparison = components["schemas"]["ReplicationOriginComparison"];
 
 /**
  * What this server records about its own replication.
@@ -57,10 +60,18 @@ export function ReplicationCard() {
   // this card mounted and a mutation's result outlives the queries the
   // detach removes, so it would be shown under the new reference's host.
   const referenceLabel = serverLabel(reference);
+  // The two records compared per origin (1.41), by the API so the command
+  // line and this card cannot disagree. Asked for with the reference's
+  // report, and forgotten with it.
+  const comparison = useMutation<ReplicationComparison, ApiFailure>({
+    mutationFn: async () => unwrap(await api.GET("/replication/compare", {})),
+  });
   const resetReferenceReport = referenceReport.reset;
+  const resetComparison = comparison.reset;
   useEffect(() => {
     resetReferenceReport();
-  }, [referenceLabel, resetReferenceReport]);
+    resetComparison();
+  }, [referenceLabel, resetReferenceReport, resetComparison]);
   const beside = reference !== null && (referenceReport.data || referenceReport.isError);
 
   return (
@@ -75,7 +86,10 @@ export function ReplicationCard() {
             variant="outline"
             size="sm"
             className="ml-auto"
-            onClick={() => referenceReport.mutate()}
+            onClick={() => {
+              referenceReport.mutate();
+              comparison.mutate();
+            }}
             disabled={referenceReport.isPending}
           >
             {referenceReport.isPending ? <Loader2 className="animate-spin" /> : null}
@@ -108,6 +122,16 @@ export function ReplicationCard() {
         </div>
       ) : null}
 
+      {report.data && beside && (comparison.data || comparison.isError) ? (
+        <div className="border-b border-border px-4 py-3">
+          {comparison.isError ? (
+            <ErrorNote title="The two records could not be compared" error={comparison.error} />
+          ) : comparison.data ? (
+            <ComparisonBody comparison={comparison.data} />
+          ) : null}
+        </div>
+      ) : null}
+
       {report.data && beside ? (
         // Two columns, each headed by the server it was read from: two
         // reports that do not say which is which are worse than one.
@@ -136,6 +160,101 @@ export function ReplicationCard() {
       ) : null}
     </section>
   );
+}
+
+/**
+ * The two records compared, per suffix and per origin. Above the columns
+ * because it is the answer; the columns stay, with the raw values, because
+ * a change sequence is what operators paste to each other.
+ */
+function ComparisonBody({ comparison }: { comparison: ReplicationComparison }) {
+  return (
+    <div className="space-y-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">Compared with the reference</span>
+        <VerdictBadge verdict={comparison.verdict} />
+      </div>
+      <p className="text-xs text-muted-foreground">{safeText(comparison.why)}</p>
+      {comparison.suffixes.map((suffix) => (
+        <div key={suffix.dn} className="rounded-md border px-2.5 py-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-dn [overflow-wrap:anywhere]">{safeText(suffix.dn)}</span>
+            <VerdictBadge verdict={suffix.verdict} />
+          </div>
+          {suffix.why ? (
+            <div className="mt-0.5 text-xs text-muted-foreground">{safeText(suffix.why)}</div>
+          ) : null}
+          <ul className="mt-1 space-y-0.5">
+            {suffix.origins.map((origin) => (
+              <li key={origin.origin} className="text-xs">
+                {describeOrigin(origin)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {comparison.verdict === "in_step" || comparison.suffixes.some((s) => s.verdict === "in_step") ? (
+        <p className="text-xs text-muted-foreground">{safeText(comparison.caveat)}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: ReplicationVerdict }) {
+  switch (verdict) {
+    case "in_step":
+      return <Badge variant="success">in step</Badge>;
+    case "a_behind":
+      return <Badge variant="warning">this server is behind</Badge>;
+    case "b_behind":
+      return <Badge variant="warning">the reference is behind</Badge>;
+    case "diverged":
+      return <Badge variant="warning">each holds changes the other lacks</Badge>;
+    case "not_comparable":
+      return <Badge variant="outline">not comparable</Badge>;
+    default:
+      return <Badge variant="outline">incomplete</Badge>;
+  }
+}
+
+/** A span in the words a person uses. Under a second is said as such: on a
+ * server that stamps whole seconds, two changes in the same one are ordered
+ * by sequence and have no span. */
+export function formatSpan(seconds: number): string {
+  if (seconds < 1) return "less than a second";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+/** One origin's line. Never a count of changes: a change sequence says when,
+ * not how many. In step carries the age of the latest change, because a link
+ * that stopped looks the same as one with nothing to send. */
+export function describeOrigin(origin: ReplicationOriginComparison, now: Date = new Date()): string {
+  const who = `server ${safeText(origin.origin)}`;
+  switch (origin.verdict) {
+    case "in_step": {
+      const at = origin.a?.at ?? origin.b?.at;
+      const age = at ? ` (latest change ${ago(at, now)})` : "";
+      if (origin.tolerated) {
+        return `${who}: within tolerance, ${formatSpan(origin.spanSeconds)} apart${age}`;
+      }
+      return `${who}: in step${age}`;
+    }
+    case "a_behind":
+      return origin.a
+        ? `${who}: this server lacks its changes made in the ${formatSpan(origin.spanSeconds)} before ${formatMoment(origin.b?.at ?? "")}`
+        : `${who}: this server holds nothing from it`;
+    case "b_behind":
+      return origin.b
+        ? `${who}: the reference lacks its changes made in the ${formatSpan(origin.spanSeconds)} before ${formatMoment(origin.a?.at ?? "")}`
+        : `${who}: the reference holds nothing from it`;
+    default:
+      return `${who}: ${safeText(origin.verdict)}`;
+  }
 }
 
 function ColumnHead({

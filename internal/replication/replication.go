@@ -92,6 +92,10 @@ type Suffix struct {
 	// suffix, 389 DS as the replica update vector, and both mean "I have
 	// everything from server N up to this moment".
 	Cursors []Cursor
+	// Generation is 389 DS's replica generation: vectors from two different
+	// generations are not positions on the same history, so two servers are
+	// compared only within one. Empty on OpenLDAP, which has no equivalent.
+	Generation string
 	// Links are the agreements this suffix has.
 	Links []Link
 	// Notes are things worth saying about this suffix that are not a link:
@@ -109,6 +113,12 @@ type Cursor struct {
 	// Raw is the value as the server wrote it, kept because a change sequence
 	// is the thing operators paste to each other.
 	Raw string
+	// CSN is the change sequence itself, without what surrounds it: the
+	// whole value on OpenLDAP, the last of the two on a 389 DS vector, whose
+	// first one is where this server started with that origin and differs
+	// between two servers that are perfectly in step. It is what two servers
+	// are compared on (Compare). Empty for a cursor read before 1.41.
+	CSN string
 }
 
 // Link is one replication agreement, from this server's side of it.
@@ -245,6 +255,7 @@ func parseOpenLDAPCSN(value string) (Cursor, bool) {
 		Origin: strconv.FormatInt(sid, 10),
 		At:     at.UTC(),
 		Raw:    strings.TrimSpace(value),
+		CSN:    strings.ToLower(strings.TrimSpace(value)),
 	}, true
 }
 
@@ -272,7 +283,24 @@ func parse389CSN(value string) (Cursor, bool) {
 		Origin: strconv.FormatInt(origin, 10),
 		At:     time.Unix(seconds, 0).UTC(),
 		Raw:    v,
+		CSN:    strings.ToLower(v),
 	}, true
+}
+
+// parseGeneration reads the generation line of a 389 DS vector,
+//
+//	{replicageneration} 6ab8d208000000010000
+//
+// which names no replica and says which history the rest of the vector
+// belongs to.
+func parseGeneration(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	rest, ok := strings.CutPrefix(strings.ToLower(value), "{replicageneration}")
+	if !ok {
+		return "", false
+	}
+	generation := strings.TrimSpace(rest)
+	return generation, generation != ""
 }
 
 // parseRUV reads one value of 389 DS's replica update vector:
