@@ -808,6 +808,40 @@ for a monitoring job that should not page on a change in flight; the default
 is exact. `--json` prints the comparison. Exit status: 0 in step, 1 behind or
 each holding changes the other lacks, 2 incomplete or not comparable.
 
+## `alder indexes advise`
+
+```sh
+alder snapshot --kind config --output config.json     # once, with the connection flags
+alder indexes advise --log /var/log/dirsrv/slapd-example/access --config config.json
+```
+
+Reads a directory server's log -- 389 Directory Server's access log, or
+OpenLDAP's written with `loglevel stats` -- against the indexes a
+configuration snapshot of the same server holds, and lists the indexes its
+searches lacked, ranked by the time those searches took. Nothing is
+contacted: the log is read as a stream on the machine it is on, so it can be
+any size, and `--log -` reads it from standard input.
+
+- **A search counts** when the server marked it unindexed (389 DS's
+  `notes=U` or `notes=A`) or took at least `--slower-than` (default
+  `100ms`). OpenLDAP's `not indexed` lines name no operation, so they are
+  counted beside a suggestion and never make one.
+- **What it suggests** is an attribute and a kind of match (`eq`, `sub`,
+  `pres`, `approx`) per backend. An attribute already indexed for other kinds
+  only is listed as such: Alder does not change the types of an index that
+  exists, so that one is yours to make. An index Alder would refuse to create
+  is listed with the reason. It never suggests removing an index.
+- **Nothing from the log is printed but attribute names.** Up to three
+  example filters per suggestion have every value replaced by `…`; bind DNs
+  and client addresses are not read.
+- **It adds nothing.** Stage a suggestion like any other change, or from the
+  indexes panel in the web interface, which also takes a log of up to 15 MiB.
+  Adding an index is not building it: run a `reindex` task on 389 DS, or
+  `slapindex` on OpenLDAP, afterwards.
+
+`--json` prints the report. Exit status: 0 nothing suggested, 1 at least one
+suggestion, 2 some counted searches were under no backend in the snapshot.
+
 ## `alder preflight`
 
 Since 1.14 a configuration snapshot is read too. It is evaluated only against a

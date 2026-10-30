@@ -859,6 +859,18 @@ additions:
   each holding changes the other lacks, 2 incomplete or not comparable.
   `--tolerate` and `--json` are never read from the environment.
 
+An index advisor reads a server log the operator supplies
+([proposals/index-advisor.md](proposals/index-advisor.md)). Only additions:
+
+- **`POST /config/indexes/advice`**, which applies nothing, and its schemas
+  `IndexAdviceRequest`, `IndexAdvice` and `IndexSuggestion`. The log
+  formats it recognises may grow; a line it does not recognise is counted,
+  never an error.
+- **`alder indexes advise --log FILE --config SNAPSHOT`**, which contacts
+  nothing. Exit 0 nothing suggested, 1 at least one suggestion, 2 some
+  counted searches were under no backend in the snapshot. Its flags are
+  never read from the environment.
+
 ---
 
 ## Not covered

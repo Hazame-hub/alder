@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gauge, Loader2, Plus, Trash2 } from "lucide-react";
+import { FileSearch, Gauge, Loader2, Plus, Trash2 } from "lucide-react";
 import { api, ApiFailure, unwrap } from "@/lib/api";
 import type { ChangeRequest, SessionInfo } from "@/lib/api";
 import { inConfigTree } from "@/lib/config-tree";
@@ -24,6 +24,8 @@ import { safeText } from "@/lib/display";
 type IndexReport = components["schemas"]["IndexReport"];
 type IndexBackend = components["schemas"]["IndexBackend"];
 type IndexEntry = components["schemas"]["IndexEntry"];
+type IndexAdvice = components["schemas"]["IndexAdvice"];
+type IndexSuggestion = components["schemas"]["IndexSuggestion"];
 
 /**
  * What this backend indexes, and the two things you can do about it.
@@ -161,6 +163,15 @@ function IndexesDialog({
                 </ul>
               )}
             </div>
+
+            <FindMissingIndexes
+              backend={backend}
+              readOnly={readOnly}
+              onDerived={(request, attribute) => {
+                setTitle(`Index ${attribute}`);
+                setChange(request);
+              }}
+            />
 
             {readOnly ? null : (
               <AddIndex
@@ -339,3 +350,162 @@ function AddIndex({
     </div>
   );
 }
+
+/**
+ * The upload the request body can carry. The server takes 16 MiB, and a log
+ * sent as JSON grows a little in escaping; past this the CLI is the answer.
+ */
+export const MAX_ADVICE_LOG_BYTES = 15 * 1024 * 1024;
+
+/** The suggestions that belong to this backend, in the order the server ranked them. */
+export function suggestionsFor(advice: IndexAdvice, backend: IndexBackend): IndexSuggestion[] {
+  const name = backend.name.trim().toLowerCase();
+  return advice.suggestions.filter((s) => s.backend.trim().toLowerCase() === name);
+}
+
+/**
+ * Which indexes a server log says the searches were missing (1.41).
+ *
+ * The log is the operator's: uploaded here, read by the server against the
+ * live index list, and dropped when the answer is written. Nothing comes
+ * back from it but attribute names and masked filters. A suggestion is
+ * staged through the same candidate path as the form below, so it is
+ * reviewed like any other change.
+ */
+function FindMissingIndexes({
+  backend,
+  readOnly,
+  onDerived,
+}: {
+  backend: IndexBackend;
+  readOnly: boolean;
+  onDerived: (change: ChangeRequest, attribute: string) => void;
+}) {
+  const [tooLarge, setTooLarge] = useState(false);
+  const advise = useMutation<IndexAdvice, ApiFailure, string>({
+    mutationKey: ["config-index-advice"],
+    mutationFn: async (log) =>
+      unwrap(await api.POST("/config/indexes/advice", { body: { log } })),
+  });
+  const stage = useMutation({
+    mutationKey: ["config-index-candidate"],
+    mutationFn: async (s: IndexSuggestion) =>
+      unwrap(
+        await api.POST("/config/indexes/candidate", {
+          body: { backend: backend.name, attribute: s.attribute, types: [s.type] },
+        }),
+      ),
+    onSuccess: (candidate, s) => {
+      if (candidate.change) onDerived(candidate.change, s.attribute);
+    },
+  });
+
+  const read = async (file: File | undefined) => {
+    if (!file) return;
+    setTooLarge(file.size > MAX_ADVICE_LOG_BYTES);
+    if (file.size > MAX_ADVICE_LOG_BYTES) return;
+    advise.mutate(await file.text());
+  };
+
+  const mine = advise.data ? suggestionsFor(advise.data, backend) : [];
+  const elsewhere = advise.data ? advise.data.suggestions.length - mine.length : 0;
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+        <FileSearch className="size-4 text-muted-foreground" />
+        Find missing indexes in a server log
+      </div>
+      <p className="text-xs text-muted-foreground">
+        A 389 Directory Server access log, or an OpenLDAP log written with{" "}
+        <code className="font-mono">loglevel stats</code>. It is read for the searches the server
+        marked unindexed or that took 100ms or more, and dropped. Only attribute names come back,
+        and example filters have their values replaced.
+      </p>
+      <Input
+        type="file"
+        aria-label="Server log"
+        className="w-auto"
+        disabled={advise.isPending}
+        onChange={(e) => void read(e.target.files?.[0])}
+      />
+      {tooLarge ? (
+        <p className="text-xs text-warning-tint-foreground">
+          That log is larger than the 15 MiB this page can send. Upload an excerpt, or run{" "}
+          <code className="font-mono">alder indexes advise</code> where the log is, which reads any
+          size and sends it nowhere.
+        </p>
+      ) : null}
+      {advise.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+      {advise.isError ? <ErrorNote title="The log could not be read" error={advise.error} /> : null}
+      {advise.data ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {advise.data.lines} lines, {advise.data.searches} searches, {advise.data.counted} counted
+            {advise.data.format ? ` (${advise.data.format})` : " (no line this advisor knows)"}.
+            {elsewhere > 0 ? ` ${elsewhere} suggestion(s) are for another backend.` : ""}
+          </p>
+          {mine.length === 0 ? (
+            <p className="text-xs">Nothing to suggest for this backend.</p>
+          ) : (
+            <ul className="divide-y divide-border rounded-md border">
+              {mine.map((s) => (
+                <SuggestionRow
+                  key={`${s.attribute}/${s.type}`}
+                  suggestion={s}
+                  canStage={!readOnly && s.status === "candidate"}
+                  staging={stage.isPending && stage.variables === s}
+                  onStage={() => stage.mutate(s)}
+                />
+              ))}
+            </ul>
+          )}
+          {mine.length > 0 ? (
+            <p className="text-xs text-warning-tint-foreground">{safeText(advise.data.caveat)}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {stage.isError ? (
+        <ErrorNote title="The change could not be worked out" error={stage.error as ApiFailure} />
+      ) : null}
+    </div>
+  );
+}
+
+function SuggestionRow({
+  suggestion: s,
+  canStage,
+  staging,
+  onStage,
+}: {
+  suggestion: IndexSuggestion;
+  canStage: boolean;
+  staging: boolean;
+  onStage: () => void;
+}) {
+  return (
+    <li className="space-y-1 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-dn font-medium">{safeText(s.attribute)}</span>
+        <Badge variant="outline">{safeText(s.type)}</Badge>
+        <span className="text-xs text-muted-foreground">
+          {s.searches} searches, {s.totalSeconds.toFixed(2)}s in all
+          {s.markedUnindexed > 0 ? `, ${s.markedUnindexed} marked unindexed by the server` : ""}
+        </span>
+        {canStage ? (
+          <Button size="sm" variant="outline" className="ml-auto" onClick={onStage} disabled={staging}>
+            {staging ? <Loader2 className="animate-spin" /> : <Plus />}
+            Review
+          </Button>
+        ) : null}
+      </div>
+      {s.reason ? <p className="text-xs text-muted-foreground">{safeText(s.reason)}</p> : null}
+      {s.examples.map((e) => (
+        <code key={e} className="block font-mono text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+          {safeText(e)}
+        </code>
+      ))}
+    </li>
+  );
+}
+

@@ -1585,6 +1585,54 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
+  /config/indexes/advice:
+    post:
+      tags: [config]
+      operationId: adviseConfigIndexes
+      summary: The indexes a server log says its searches were missing
+      description: |
+        Reads a log the operator supplies -- 389 Directory Server's access
+        log, or OpenLDAP's with `loglevel stats` -- against this server's
+        live index list, and returns the indexes its searches lacked. Added
+        in Alder 1.41. It applies nothing; staging one goes through
+        `POST /config/indexes/candidate` like any other index.
+
+        A search counts when the server itself marked it unindexed (389 DS's
+        `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+        (default 100). OpenLDAP's "not indexed" lines name no operation, so
+        they corroborate a suggestion and never make one.
+
+        The log is read in memory and dropped when the answer is written.
+        Nothing from it reaches the answer but attribute names and kinds of
+        match: example filters carry every value replaced by "…", and bind
+        DNs and client addresses are not read. The request is bounded by the
+        server's body limit, 16 MiB; for a larger log, `alder indexes
+        advise` reads any size, on the machine the log is on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IndexAdviceRequest" }
+      responses:
+        "200":
+          description: What the log said.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IndexAdvice" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: This server publishes no configuration Alder can read.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: The directory did not answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /snapshots/capture:
     post:
       tags: [snapshots]
@@ -4176,6 +4224,72 @@ components:
           description: |
             What the index should cover. Empty means equality, which is what
             both servers are asked for when nothing is said.
+
+    IndexAdviceRequest:
+      type: object
+      required: [log]
+      properties:
+        log:
+          type: string
+          description: The log, as text. Lines the advisor does not recognise are counted and skipped.
+        slowerThanMs:
+          type: integer
+          minimum: 1
+          description: A search that took at least this long counts whatever the server said about it. Default 100.
+
+    IndexAdvice:
+      type: object
+      required: [lines, unrecognised, searches, counted, withoutResult, unattributed, unparsed, suggestions, caveat]
+      description: What one log said about the indexes its searches needed (1.41).
+      properties:
+        format:
+          type: string
+          enum: [389-access, openldap-stats]
+          x-enum-varnames: [IndexAdviceFormat389, IndexAdviceFormatOpenLDAP]
+          description: What the log was recognised as. Absent when no line was.
+        lines: { type: integer }
+        unrecognised: { type: integer, description: Lines that were neither a search, its result, nor a "not indexed" line. }
+        searches: { type: integer }
+        counted: { type: integer, description: Searches marked unindexed by the server, or slower than the threshold. }
+        withoutResult: { type: integer, description: Searches whose result line was not in the log. }
+        unattributed: { type: integer, description: Counted searches whose base is under no backend that holds indexes. }
+        unparsed: { type: integer, description: Counted searches whose filter is not RFC 4515. }
+        suggestions:
+          type: array
+          items: { $ref: "#/components/schemas/IndexSuggestion" }
+        caveat:
+          type: string
+          description: That adding an index is not building it, and that every index slows writes.
+
+    IndexSuggestion:
+      type: object
+      required: [backend, attribute, type, status, searches, markedUnindexed, serverSaidNotIndexed, totalSeconds, worstSeconds, examples]
+      properties:
+        backend: { type: string, description: The backend, as `IndexBackend.name` gives it. }
+        attribute: { type: string }
+        type: { type: string, description: "eq, sub, pres or approx." }
+        status:
+          type: string
+          enum: [candidate, type_missing, blocked]
+          x-enum-varnames: [IndexSuggestionCandidate, IndexSuggestionTypeMissing, IndexSuggestionBlocked]
+          description: |
+            `candidate`: no index on the attribute; one can be staged.
+            `type_missing`: indexed for other kinds of match only. Alder does
+            not change the types of an index that exists, so this is the
+            operator's own change. `blocked`: creating it would be refused,
+            and `reason` says why.
+        reason: { type: string }
+        searches: { type: integer }
+        markedUnindexed: { type: integer, description: Of those, how many the server itself marked unindexed. }
+        serverSaidNotIndexed: { type: integer, description: How many OpenLDAP "not indexed" lines named this attribute and kind. }
+        totalSeconds: { type: number, format: double }
+        worstSeconds: { type: number, format: double }
+        first: { type: string, format: date-time }
+        last: { type: string, format: date-time }
+        examples:
+          type: array
+          items: { type: string }
+          description: Up to three filters, with every value replaced by "…".
 
     IndexCandidate:
       type: object

@@ -7124,3 +7124,34 @@ recommended ("go ahead"). Feature 5 of the 2026-10-21 batch.
 - **The card asks the API**, `GET /replication/compare`, with the reference's
   report, so the interface and the command line share one comparison.
 
+### 2026-10-30 — the index advisor, as built
+
+`docs/proposals/index-advisor.md`, accepted with every open question as
+recommended. Feature 6 of the 2026-10-21 batch.
+
+- **`internal/indexadvice` reads a stream.** Lines are recognised by what
+  they contain (`conn=N op=M SRCH base=`, `RESULT`, `SEARCH RESULT`, the
+  `_candidates: (attr) not indexed` lines), so whatever syslog or journald
+  put in front does not matter. A line over 1 MiB is counted as
+  unrecognised and the rest is read; at most 200,000 searches wait for
+  their result line at once.
+- **An and is excused by an indexed branch only when the server did not
+  mark the search.** 389 DS's `notes=U` on `(&(objectClass=person)(title=x))`
+  says the index it had was not enough, so every unindexed branch is then a
+  suspect; for a search counted only for its duration, an indexed branch
+  serves the and -- unless it is on `objectClass`, which narrows almost
+  nothing. Nothing under a not is suggested, and an ordering match needs the
+  equality index on both servers.
+- **A backend is one holding an index**, in both the CLI (a snapshot file,
+  which carries no RootDSE) and the API, so the two attribute searches
+  alike. Both servers index `objectClass` on every database they create.
+- **The schema is not checked.** The proposal said an attribute the schema
+  lacks would not be suggested; that needs a schema read the CLI's snapshot
+  does not carry, and a staged index on such an attribute is refused when
+  it is planned anyway.
+- **The web upload is JSON** (`{"log": …}`), like every request body Alder
+  takes, so the same-origin rule needs no exception; the page refuses a file
+  over 15 MiB and names the command line.
+- **`config.RefusalInWords`** moved out of `internal/api`, so the CLI and the
+  API word a blocked index the same way.
+

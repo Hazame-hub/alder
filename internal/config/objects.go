@@ -178,3 +178,27 @@ func IndexTypesOf(want snapshot.ConfigResource, settings []snapshot.ConfigSettin
 	}
 	return []string{"eq"}
 }
+
+// RefusalInWords is the reason a screen prints for a refusal code. The code is what a client
+// branches on and is not a sentence; an audit found `index_value_shared`
+// rendered raw to an operator, which is a code golf answer to "why can I not
+// remove this".
+func RefusalInWords(refusal string) string {
+	switch refusal {
+	case RefusalIndexShared:
+		return "This index shares its value with another attribute, so taking it away would " +
+			"mean rewriting a value that indexes something else too. That is an edit rather " +
+			"than a deletion, and Alder does not make it for you."
+	case RefusalSystemIndex:
+		return "The server maintains this index for itself. Removing it is not Alder's to offer."
+	case RefusalNotPresent:
+		return "This index is not on the server as Alder read it."
+	case RefusalUnnamed:
+		return "Alder could not tell which attribute this index is for."
+	case RefusalNoParent:
+		return "The backend this index would belong to is not in the configuration Alder read."
+	case RefusalNotCreatable:
+		return "This is not a kind of object Alder creates."
+	}
+	return refusal
+}

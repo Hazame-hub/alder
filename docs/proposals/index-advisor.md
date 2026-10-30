@@ -1,6 +1,8 @@
 # Index advisor
 
-**Status: proposal, for review. No code until it is accepted.** Feature 6
+**Status: accepted (2026-10-30), every open question as recommended, and
+built in 1.41.** What the build settled is in `docs/DECISIONS.md` under the
+same date. Feature 6
 of the 2026-10-21 batch. The 2026-10-22 review settled its input
 (`docs/DECISIONS.md`, "the later features of the same batch"): **the advisor
 reads a log the operator uploads or pipes in, and nothing else.** No

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backendAt } from "./indexes";
+import { backendAt, suggestionsFor } from "./indexes";
 import type { components } from "@/lib/api.gen";
 
 type IndexReport = components["schemas"]["IndexReport"];
@@ -79,5 +79,30 @@ describe("when the index report is asked for", () => {
 
   it("is not asked for when the server publishes no configuration tree", () => {
     expect(inConfigTree(undefined, "olcDatabase={1}mdb,cn=config")).toBe(false);
+  });
+});
+
+describe("suggestions from a server log", () => {
+  const backend = { name: "dc=alder,dc=test", dn: "olcDatabase={1}mdb,cn=config", indexes: [] };
+  const suggestion = (b: string) => ({
+    backend: b,
+    attribute: "title",
+    type: "eq",
+    status: "candidate" as const,
+    searches: 1,
+    markedUnindexed: 1,
+    serverSaidNotIndexed: 0,
+    totalSeconds: 0.5,
+    worstSeconds: 0.5,
+    examples: ["(title=…)"],
+  });
+
+  it("keeps the ones for this backend, however the name is cased", () => {
+    const advice = {
+      lines: 2, unrecognised: 0, searches: 2, counted: 2, withoutResult: 0, unattributed: 0, unparsed: 0,
+      caveat: "c",
+      suggestions: [suggestion("DC=alder,DC=test"), suggestion("dc=other,dc=test")],
+    };
+    expect(suggestionsFor(advice, backend)).toHaveLength(1);
   });
 });

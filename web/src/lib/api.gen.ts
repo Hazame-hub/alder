@@ -1200,6 +1200,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/config/indexes/advice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The indexes a server log says its searches were missing
+         * @description Reads a log the operator supplies -- 389 Directory Server's access
+         *     log, or OpenLDAP's with `loglevel stats` -- against this server's
+         *     live index list, and returns the indexes its searches lacked. Added
+         *     in Alder 1.41. It applies nothing; staging one goes through
+         *     `POST /config/indexes/candidate` like any other index.
+         *
+         *     A search counts when the server itself marked it unindexed (389 DS's
+         *     `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+         *     (default 100). OpenLDAP's "not indexed" lines name no operation, so
+         *     they corroborate a suggestion and never make one.
+         *
+         *     The log is read in memory and dropped when the answer is written.
+         *     Nothing from it reaches the answer but attribute names and kinds of
+         *     match: example filters carry every value replaced by "…", and bind
+         *     DNs and client addresses are not read. The request is bounded by the
+         *     server's body limit, 16 MiB; for a larger log, `alder indexes
+         *     advise` reads any size, on the machine the log is on.
+         */
+        post: operations["adviseConfigIndexes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/snapshots/capture": {
         parameters: {
             query?: never;
@@ -3109,6 +3145,67 @@ export interface components {
              *     both servers are asked for when nothing is said.
              */
             types?: string[];
+        };
+        IndexAdviceRequest: {
+            /** @description The log, as text. Lines the advisor does not recognise are counted and skipped. */
+            log: string;
+            /** @description A search that took at least this long counts whatever the server said about it. Default 100. */
+            slowerThanMs?: number;
+        };
+        /** @description What one log said about the indexes its searches needed (1.41). */
+        IndexAdvice: {
+            /**
+             * @description What the log was recognised as. Absent when no line was.
+             * @enum {string}
+             */
+            format?: "389-access" | "openldap-stats";
+            lines: number;
+            /** @description Lines that were neither a search */
+            unrecognised: number;
+            searches: number;
+            /** @description Searches marked unindexed by the server */
+            counted: number;
+            /** @description Searches whose result line was not in the log. */
+            withoutResult: number;
+            /** @description Counted searches whose base is under no backend that holds indexes. */
+            unattributed: number;
+            /** @description Counted searches whose filter is not RFC 4515. */
+            unparsed: number;
+            suggestions: components["schemas"]["IndexSuggestion"][];
+            /** @description That adding an index is not building it, and that every index slows writes. */
+            caveat: string;
+        };
+        IndexSuggestion: {
+            /** @description The backend */
+            backend: string;
+            attribute: string;
+            /** @description eq, sub, pres or approx. */
+            type: string;
+            /**
+             * @description `candidate`: no index on the attribute; one can be staged.
+             *     `type_missing`: indexed for other kinds of match only. Alder does
+             *     not change the types of an index that exists, so this is the
+             *     operator's own change. `blocked`: creating it would be refused,
+             *     and `reason` says why.
+             * @enum {string}
+             */
+            status: "candidate" | "type_missing" | "blocked";
+            reason?: string;
+            searches: number;
+            /** @description Of those */
+            markedUnindexed: number;
+            /** @description How many OpenLDAP "not indexed" lines named this attribute and kind. */
+            serverSaidNotIndexed: number;
+            /** Format: double */
+            totalSeconds: number;
+            /** Format: double */
+            worstSeconds: number;
+            /** Format: date-time */
+            first?: string;
+            /** Format: date-time */
+            last?: string;
+            /** @description Up to three filters, with every value replaced by "…". */
+            examples: string[];
         };
         /** @description The change that would add the index, or the reason there is none. */
         IndexCandidate: {
@@ -6624,6 +6721,51 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description No such backend on this server. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The directory did not answer. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adviseConfigIndexes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IndexAdviceRequest"];
+            };
+        };
+        responses: {
+            /** @description What the log said. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexAdvice"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description This server publishes no configuration Alder can read. */
             404: {
                 headers: {
                     [name: string]: unknown;
