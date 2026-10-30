@@ -209,8 +209,8 @@ apply then refuses the plan (exit 3, `signatures_too_few`) unless two
 distinct keys `--trusted-keys` names have valid signatures on it:
 
 ```sh
-alder sign prod.plan.json --key ~/.alder/alice.pem --signer alice --output prod.plan.signed.json
-alder sign prod.plan.signed.json --key ~/.alder/bob.pem --signer bob --output prod.plan.signed.json
+alder sign prod.plan.json --key ~/.alder/alice.pem --signer alice --output prod.plan.alice.json
+alder sign prod.plan.alice.json --key ~/.alder/bob.pem --signer bob --output prod.plan.signed.json
 
 alder project apply --env prod --plan prod.plan.signed.json \
   --trusted-keys /etc/alder/reviewers/ --min-signers 2 --yes

@@ -988,8 +988,8 @@ strictly as a bare one, and every check above still runs on it.
 alder apply --plan change.plan.signed.json --trusted-keys /etc/alder/reviewers/ --yes
 
 # Two reviewers each sign the same file, in turn:
-alder sign change.plan.json --key alice.pem --signer alice --output change.plan.signed.json
-alder sign change.plan.signed.json --key bob.pem --signer bob --output change.plan.signed.json
+alder sign change.plan.json --key alice.pem --signer alice --output change.plan.alice.json
+alder sign change.plan.alice.json --key bob.pem --signer bob --output change.plan.signed.json
 alder apply --plan change.plan.signed.json --trusted-keys /etc/alder/reviewers/ \
   --min-signers 2 --yes
 ```
