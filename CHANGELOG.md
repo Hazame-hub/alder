@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.40.0](https://github.com/Hazame-hub/alder/compare/v1.39.0...v1.40.0) (2026-10-30)
+
+
+### Features
+
+* **cli:** --min-signers on apply --plan and project apply --plan requires several trusted signers ([#274](https://github.com/Hazame-hub/alder/issues/274)) ([bedd7a0](https://github.com/Hazame-hub/alder/commit/bedd7a01240fdb14a6c55b180308c83c5fc5b969))
+* **recovery:** stop calling two configuration undos exact ([#271](https://github.com/Hazame-hub/alder/issues/271)) ([a31347b](https://github.com/Hazame-hub/alder/commit/a31347b515c3f15585787fd0e48cf99f19ef5f9e))
+* **serve:** --log-request-header puts a request header the operator names on that request's log lines ([#272](https://github.com/Hazame-hub/alder/issues/272)) ([1c5c18e](https://github.com/Hazame-hub/alder/commit/1c5c18e0f2b1c4f3d8393b9b3be9ff255317759c))
+
+
+### Documentation
+
+* CLA 1.1 can be transferred to a successor, and TRADEMARKS.md keeps the name for unmodified Alder ([#273](https://github.com/Hazame-hub/alder/issues/273)) ([5b33fdd](https://github.com/Hazame-hub/alder/commit/5b33fdda01e7c7fd1eab3d36b1747c817e27558d))
+* **launch:** drafts for announcing 1.39.0 ([#267](https://github.com/Hazame-hub/alder/issues/267)) ([72cab5b](https://github.com/Hazame-hub/alder/commit/72cab5b87904d6a4998cea3cdc5f1d29ead4b1d2))
+
 ## [1.39.0](https://github.com/Hazame-hub/alder/compare/v1.38.0...v1.39.0) (2026-10-24)
 
 
