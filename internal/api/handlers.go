@@ -63,7 +63,7 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 			// The target and nothing else. The request body carrying it holds a
 			// bind password, and no part of this line comes from that body
 			// beyond the host and the port.
-			s.logger.Info("refused by the target allowlist",
+			s.logger.InfoContext(c.UserContext(), "refused by the target allowlist",
 				"host", cfg.Host, "port", cfg.Port)
 			return writeError(c, fiber.StatusForbidden, ErrorErrorTargetNotAllowed,
 				"This Alder is not permitted to connect to that directory.",
@@ -87,7 +87,7 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 	if err != nil {
 		// A failed connect is reported as an upstream failure, not a 500: the
 		// fault is with the directory or the settings, not with Alder.
-		s.logger.Info("connection refused",
+		s.logger.InfoContext(c.UserContext(), "connection refused",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
 		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
 			"Could not connect to the directory.", s.connectFailureDetail(cfg, err))
@@ -100,7 +100,7 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 	// named secrets are withheld either way.
 	_, _ = conn.Schema(ctx)
 
-	sess, err := s.sessions.AddReplacing(conn, cfg, s.cfg.ReadOnly, previous)
+	sess, err := s.sessions.AddReplacing(c.UserContext(), conn, cfg, s.cfg.ReadOnly, previous)
 	if err != nil {
 		_ = conn.Close()
 		if errors.Is(err, session.ErrFull) {
@@ -118,7 +118,7 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 
 // sessionsFull refuses a connection because --max-sessions are open.
 func (s *Server) sessionsFull(c *fiber.Ctx) error {
-	s.logger.Warn("refused a connection: the session limit is reached")
+	s.logger.WarnContext(c.UserContext(), "refused a connection: the session limit is reached")
 	return writeError(c, fiber.StatusServiceUnavailable, ErrorErrorUpstream,
 		"This Alder already holds as many directory sessions as it allows.",
 		"Disconnect a session you no longer need, or wait for an idle one to time out. "+
@@ -279,7 +279,7 @@ func (s *Server) namingContextNodes(c *fiber.Ctx, ctx context.Context, sess *ses
 	for _, raw := range contexts {
 		root, err := dn.Parse(raw)
 		if err != nil {
-			s.logger.Warn("the server published a naming context that does not parse",
+			s.logger.WarnContext(ctx, "the server published a naming context that does not parse",
 				"namingContext", raw, "error", err)
 			continue
 		}
@@ -1210,7 +1210,7 @@ func (s *Server) ApplyChange(c *fiber.Ctx, params ApplyChangeParams) error {
 		return s.fail(c, verifyErr)
 	}
 	if refusal != nil {
-		s.logger.Info("change refused before it ran", "reason", string(refusal.Error), "dn", record.DN.String())
+		s.logger.InfoContext(c.UserContext(), "change refused before it ran", "reason", string(refusal.Error), "dn", record.DN.String())
 		return c.Status(status).JSON(refusal)
 	}
 

@@ -40,6 +40,8 @@ type planOptions struct {
 	plan string
 	// trusted are the public keys a --plan must be signed by, when named.
 	trusted []string
+	// minSigners is how many distinct trusted keys must have signed a --plan.
+	minSigners int
 
 	yes                 bool
 	allowDeletes        bool
@@ -173,7 +175,8 @@ func applyCmd(env *Env) *cobra.Command {
 			"signed by another key (3), and one by a named key that does not match the\n" +
 			"plan (8). Without --trusted-keys no key is at hand to check against: a\n" +
 			"signed plan is applied with its signature unchecked (only a malformed\n" +
-			"signature is refused, 8), and an unsigned one as before.\n\n" +
+			"signature is refused, 8), and an unsigned one as before. --min-signers N\n" +
+			"asks for valid signatures by N distinct trusted keys, and refuses fewer (3).\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 some change cannot be applied\n" +
 			"as written, or the plan is not signed by a trusted key, 4 the plan went\n" +
 			"stale, 5 not confirmed, 6 stopped partway, 7 usage, 8 failure or a\n" +
@@ -195,7 +198,9 @@ func applyCmd(env *Env) *cobra.Command {
 	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder plan --out) instead of planning an input")
 	f.StringArrayVar(&o.trusted, "trusted-keys", nil,
 		"with --plan, apply it only if signed by one of these public keys: a PEM file, a file of several, or a directory of .pem files; repeatable")
-	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch", "plan", "trusted-keys")
+	f.IntVar(&o.minSigners, "min-signers", 0,
+		"with --plan and --trusted-keys, apply it only if signed by at least this many distinct trusted keys")
+	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch", "plan", "trusted-keys", "min-signers")
 	return cmd
 }
 
@@ -523,8 +528,8 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 	if o.plan != "" {
 		return applySavedInput(ctx, env, conn, o, flags, args, &envelope)
 	}
-	if len(o.trusted) > 0 {
-		return usagef("--trusted-keys is about a --plan file, and none was given")
+	if len(o.trusted) > 0 || o.minSigners != 0 {
+		return usagef("--trusted-keys and --min-signers are about a --plan file, and none was given")
 	}
 	in, err := o.input(env, flags, args)
 	if err != nil {

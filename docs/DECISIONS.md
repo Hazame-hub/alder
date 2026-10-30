@@ -6994,6 +6994,76 @@ new error code, `audit_incomplete`.
   not is emptied, and the confirmation says so. Read-only shows the report and
   no clean-up.
 
+### 2026-10-30 — the name is a trademark, and the CLA can follow Alder
+
+The owner asked for the safest licensing position that needs neither a
+company nor money yet.
+
+- **The AGPL stays.** It already keeps the code from being taken closed.
+- **CLA 1.1** lets the Maintainer transfer the agreement, and the licences in
+  it, to whoever takes over Alder: a company set up later, or a buyer. Without
+  it, every contributor would have to sign again before a transfer. Nobody had
+  signed 1.0 (`signatures/v1.json` is empty), so nobody is affected, and the
+  signature file is kept.
+- **TRADEMARKS.md** says the name and logo are the Maintainer's and are not
+  licensed by the AGPL (its section 7(e)): an unmodified Alder keeps the name,
+  a modified one or a fork takes another, and a hosted service under the name
+  needs permission. The marks are unregistered for now; registering one
+  (EUIPO or a national office) is the step that costs money, and is left for
+  later.
+- **Not done, on purpose:** a source-available licence (BUSL, FSL) for future
+  releases. It would stop a hosted competitor, but at the cost of being open
+  source. The CLA keeps it possible if one appears.
+
+### 2026-10-30 — logging a request header, as built
+
+The owner accepted [proposals/request-header-logging.md](proposals/request-header-logging.md)
+with every open question as recommended: one header, the fixed attribute
+`request_header`, the refusal list as proposed, every line written while
+answering a request.
+
+- **`internal/reqlog`** holds it: the cleaning (printable ASCII, 128 bytes),
+  the name check, a Fiber middleware that stores the value in the request's
+  `UserContext`, and an `slog.Handler` wrapper that adds the attribute when a
+  record's context carries one. The wrapper is always installed; without the
+  flag no context carries a value and nothing changes.
+- **The call sites take the request's context**, by moving to the
+  `...Context` logging calls: the API handlers' refusals and applies, the
+  driver's `change applied`, `change rejected` and reconnect lines (which
+  already had the request's context), and `session opened`, for which
+  `Store.AddReplacing` and `Store.AttachReference` now take a context.
+  `session closed` is written by the reaper or a close, with no request
+  behind it, and carries nothing.
+- **A line break in the value never reaches the log**: the HTTP layer turns
+  it into a space before Alder sees it, and the cleaning would drop it
+  otherwise. A test sends one.
+- **The name check runs before anything listens.** `Authorization`,
+  `Proxy-Authorization`, `Cookie`, `Set-Cookie`, any name containing
+  `token`, `secret`, `password` or `key`, and anything that is not an HTTP
+  field name, are refused with the flag named.
+
+### 2026-10-30 — several signers on a saved plan
+
+The owner asked for it ("build S2"): `--min-signers N` on `alder apply
+--plan` and `alder project apply --plan`, a two-person rule in plain CI. Two
+reviewers sign the saved plan, each with their own key (`alder sign` already
+adds a signature to a signed file), and the apply job refuses fewer.
+
+- **It extends `--trusted-keys` and nothing else.** It counts valid
+  signatures by distinct keys `--trusted-keys` names. A key nobody named was
+  never checked, so it never counts; one key's signature counts once,
+  however often an edited file carries it.
+- **Refused before connecting**, with the other signature refusals: exit 3,
+  `signatures_too_few`, the same code family as `signature_untrusted`. The
+  plan shown, and `--json`'s `signature`, already list every signer.
+- **A usage error (7)** without `--trusted-keys`, when negative, above the
+  envelope's limit of 8 signatures, or above the number of keys named: none
+  of those could ever be met, and saying so beats refusing every plan.
+- **Command line only**, like `--plan` and `--trusted-keys`: an environment
+  variable that lowers it would be a way round the rule nobody sees.
+- **Not on `alder serve`.** The server reads signed documents to show them;
+  it does not apply saved plans, so there is nothing to count there.
+
 ### 2026-10-30 — two configuration undos that were not exact
 
 Two gaps the 16 October recovery audit left open, both steps a bundle called

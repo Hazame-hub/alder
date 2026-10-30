@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -20,7 +21,7 @@ func TestAReferenceClosesWithItsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AttachReference(sess, refConn, testConfig()); err != nil {
+	if _, err := store.AttachReference(context.Background(), sess, refConn, testConfig()); err != nil {
 		t.Fatalf("attaching: %v", err)
 	}
 	if sess.Reference() == nil {
@@ -43,7 +44,7 @@ func TestAReferenceExpiresWithItsSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AttachReference(sess, refConn, testConfig()); err != nil {
+	if _, err := store.AttachReference(context.Background(), sess, refConn, testConfig()); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(20 * time.Millisecond)
@@ -60,10 +61,10 @@ func TestASessionHoldsOneReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AttachReference(sess, &fakeSession{}, testConfig()); err != nil {
+	if _, err := store.AttachReference(context.Background(), sess, &fakeSession{}, testConfig()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AttachReference(sess, &fakeSession{}, testConfig()); !errors.Is(err, ErrReferenceAttached) {
+	if _, err := store.AttachReference(context.Background(), sess, &fakeSession{}, testConfig()); !errors.Is(err, ErrReferenceAttached) {
 		t.Errorf("a second reference = %v, want ErrReferenceAttached", err)
 	}
 	if !store.DetachReference(sess) {
@@ -82,7 +83,7 @@ func TestAReferenceIsACountedConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AttachReference(sess, &fakeSession{}, testConfig()); err != nil {
+	if _, err := store.AttachReference(context.Background(), sess, &fakeSession{}, testConfig()); err != nil {
 		t.Fatal(err)
 	}
 	if !store.Full() {
@@ -105,7 +106,7 @@ func TestAReferenceToAClosedSessionIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.Remove(sess.ID)
-	if _, err := store.AttachReference(sess, &fakeSession{}, testConfig()); !errors.Is(err, ErrNotFound) {
+	if _, err := store.AttachReference(context.Background(), sess, &fakeSession{}, testConfig()); !errors.Is(err, ErrNotFound) {
 		t.Errorf("attaching to a closed session = %v, want ErrNotFound", err)
 	}
 }
@@ -123,7 +124,7 @@ func TestAReferenceIsLoggedWithoutItsPassword(t *testing.T) {
 	cfg := testConfig()
 	cfg.BindPassword = "reference-secret-91c2"
 	cfg.ConfigBindPassword = "reference-config-secret-0ab4"
-	ref, err := store.AttachReference(sess, &fakeSession{}, cfg)
+	ref, err := store.AttachReference(context.Background(), sess, &fakeSession{}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

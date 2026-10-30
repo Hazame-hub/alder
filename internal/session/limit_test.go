@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -93,7 +94,7 @@ func TestAReplacementDoesNotCountTheSessionItReplaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AttachReference(old, &fakeSession{}, testConfig()); err != nil {
+	if _, err := store.AttachReference(context.Background(), old, &fakeSession{}, testConfig()); err != nil {
 		t.Fatal(err)
 	}
 	if !store.Full() {
@@ -102,7 +103,7 @@ func TestAReplacementDoesNotCountTheSessionItReplaces(t *testing.T) {
 	if store.FullReplacing(old.ID) {
 		t.Error("FullReplacing(the session being replaced) = true, want room")
 	}
-	if _, err := store.AddReplacing(&fakeSession{}, testConfig(), false, old.ID); err != nil {
+	if _, err := store.AddReplacing(context.Background(), &fakeSession{}, testConfig(), false, old.ID); err != nil {
 		t.Fatalf("replacing the session = %v, want room", err)
 	}
 	if n := store.Connections(); n != 1 {
@@ -114,7 +115,7 @@ func TestAReplacementDoesNotCountTheSessionItReplaces(t *testing.T) {
 	if _, err := store.Add(&fakeSession{}, testConfig(), false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddReplacing(&fakeSession{}, testConfig(), false, "no-such-session"); !errors.Is(err, ErrFull) {
+	if _, err := store.AddReplacing(context.Background(), &fakeSession{}, testConfig(), false, "no-such-session"); !errors.Is(err, ErrFull) {
 		t.Errorf("an unknown replaced ID = %v, want ErrFull", err)
 	}
 }
@@ -131,7 +132,7 @@ func TestConcurrentReplacementsOfOneSessionStayWithinTheLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.AttachReference(old, &fakeSession{}, testConfig()); err != nil {
+		if _, err := store.AttachReference(context.Background(), old, &fakeSession{}, testConfig()); err != nil {
 			t.Fatal(err)
 		}
 		var wg sync.WaitGroup
@@ -140,7 +141,7 @@ func TestConcurrentReplacementsOfOneSessionStayWithinTheLimit(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				if _, err := store.AddReplacing(&fakeSession{}, testConfig(), false, old.ID); err == nil {
+				if _, err := store.AddReplacing(context.Background(), &fakeSession{}, testConfig(), false, old.ID); err == nil {
 					added.Add(1)
 				}
 			}()

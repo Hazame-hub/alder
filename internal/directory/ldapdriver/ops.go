@@ -74,7 +74,7 @@ func (s *session) loadSchema(ctx context.Context) (*schema.Schema, error) {
 	}
 	parsed := schema.Load(e.DN, attrs)
 	if len(parsed.Errors) > 0 {
-		s.logger.Warn("some schema definitions did not parse",
+		s.logger.WarnContext(ctx, "some schema definitions did not parse",
 			"subschema", e.DN, "failed", len(parsed.Errors), "loaded", parsed.Counts().ObjectClasses)
 	}
 	return parsed, nil
@@ -345,15 +345,15 @@ func (s *session) Apply(ctx context.Context, ch directory.ChangeRecord) error {
 			// The connection died with the change in flight. It may have been
 			// applied; nothing here can tell. Repeating it is the one thing
 			// this driver will not do on its own.
-			s.logger.Warn("a change was interrupted and its outcome is unknown",
+			s.logger.WarnContext(ctx, "a change was interrupted and its outcome is unknown",
 				"change", ch.Summary(), "connection", l.name, "error", cleaned)
 			return unknownOutcome(ch, cleaned)
 		}
 		// The summary names the DN and the attributes touched, never a value.
-		s.logger.Warn("change rejected", "change", ch.Summary(), "error", cleaned)
+		s.logger.WarnContext(ctx, "change rejected", "change", ch.Summary(), "error", cleaned)
 		return cleaned
 	}
-	s.logger.Info("change applied", "change", ch.Summary())
+	s.logger.InfoContext(ctx, "change applied", "change", ch.Summary())
 	// A change to a schema entry changes what every later read of the schema
 	// should see, including the one the entry editor uses to decide which
 	// attributes an object class permits.

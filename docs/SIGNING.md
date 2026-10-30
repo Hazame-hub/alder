@@ -201,6 +201,27 @@ alder project apply --env prod --plan prod.plan.signed.json \
   signed plan and names the command that does, rather than unwrap one
   unchecked.
 
+### Two reviewers: `--min-signers`
+
+`alder sign` adds a signature to a file that is already signed, so two
+reviewers can each sign the same plan in turn. `--min-signers 2` on either
+apply then refuses the plan (exit 3, `signatures_too_few`) unless two
+distinct keys `--trusted-keys` names have valid signatures on it:
+
+```sh
+alder sign prod.plan.json --key ~/.alder/alice.pem --signer alice --output prod.plan.alice.json
+alder sign prod.plan.alice.json --key ~/.alder/bob.pem --signer bob --output prod.plan.signed.json
+
+alder project apply --env prod --plan prod.plan.signed.json \
+  --trusted-keys /etc/alder/reviewers/ --min-signers 2 --yes
+```
+
+- Only signatures by named keys count, and each key once, however often
+  the file carries it: one reviewer is never two.
+- It needs `--trusted-keys`, and asks for no more keys than they name, or no
+  plan could meet it (exit 7). It is never read from `ALDER_*`.
+- Without it, one trusted signature is enough, as in 1.39.
+
 ## What a signature is not
 
 - **Not authorisation.** A verified document is one Alder knows the origin of.

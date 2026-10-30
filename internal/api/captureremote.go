@@ -62,7 +62,7 @@ func (s *Server) CaptureFromAnotherServer(c *fiber.Ctx) error {
 		if errors.Is(err, allowlist.ErrNotAllowed) {
 			// The target and nothing else: the body it came in carries a
 			// bind password.
-			s.logger.Info("remote capture refused by the target allowlist",
+			s.logger.InfoContext(c.UserContext(), "remote capture refused by the target allowlist",
 				"host", cfg.Host, "port", cfg.Port)
 			return writeError(c, fiber.StatusForbidden, ErrorErrorTargetNotAllowed,
 				"This Alder is not permitted to connect to that directory.",
@@ -77,7 +77,7 @@ func (s *Server) CaptureFromAnotherServer(c *fiber.Ctx) error {
 
 	conn, err := s.driver.Connect(ctx, cfg)
 	if err != nil {
-		s.logger.Info("remote capture could not connect",
+		s.logger.InfoContext(c.UserContext(), "remote capture could not connect",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
 		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
 			"Could not connect to that directory.", s.connectFailureDetail(cfg, err))

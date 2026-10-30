@@ -47,6 +47,8 @@ type projectOptions struct {
 	plan        string
 	// trusted are the public keys a --plan must be signed by, when named.
 	trusted []string
+	// minSigners is how many distinct trusted keys must have signed a --plan.
+	minSigners int
 
 	// force replaces an existing --out (plan) or --recovery-out (apply).
 	force bool
@@ -186,9 +188,11 @@ func projectApplyCmd(env *Env) *cobra.Command {
 			"named key that does not match the plan (8). Without --trusted-keys no key\n" +
 			"is at hand to check against: a signed plan is applied with its signature\n" +
 			"unchecked (only a malformed signature is refused, 8), and an unsigned one\n" +
-			"as before. All of this is decided before connecting.\n\n" +
-			"--env, --project, --plan, --trusted-keys and --yes are read from the command\n" +
-			"line only, never from ALDER_*.\n\n" +
+			"as before. --min-signers N asks for valid signatures by N distinct trusted\n" +
+			"keys, and refuses fewer (3): two reviewers sign, and the apply needs both.\n" +
+			"All of this is decided before connecting.\n\n" +
+			"--env, --project, --plan, --trusted-keys, --min-signers and --yes are read\n" +
+			"from the command line only, never from ALDER_*.\n\n" +
 			"Exit status: 0 applied (or nothing to apply), 3 the project is not valid,\n" +
 			"some change cannot be applied as written, or the plan is not signed by a\n" +
 			"trusted key, 4 the plan went stale, 5 not confirmed, 6 stopped partway,\n" +
@@ -206,10 +210,12 @@ func projectApplyCmd(env *Env) *cobra.Command {
 	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder project plan --out) instead of planning the project")
 	f.StringArrayVar(&o.trusted, "trusted-keys", nil,
 		"with --plan, apply it only if signed by one of these public keys: a PEM file, a file of several, or a directory of .pem files; repeatable")
+	f.IntVar(&o.minSigners, "min-signers", 0,
+		"with --plan and --trusted-keys, apply it only if signed by at least this many distinct trusted keys")
 	f.BoolVar(&o.json, "json", false, "write JSON to standard output")
 	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
 	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "give up on the whole command after this long; 0 waits indefinitely")
-	envflags.Exclude(f, "project", "env", "yes", "recovery-out", "force", "plan", "trusted-keys", "json", "summary")
+	envflags.Exclude(f, "project", "env", "yes", "recovery-out", "force", "plan", "trusted-keys", "min-signers", "json", "summary")
 	return cmd
 }
 
@@ -236,8 +242,8 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 		return usagef("--force replaces the --recovery-out file, and none was given")
 	case o.plan == "-":
 		return usagef("--plan needs a file: standard input may be needed to confirm")
-	case len(o.trusted) > 0 && o.plan == "":
-		return usagef("--trusted-keys is about a --plan file, and none was given")
+	case (len(o.trusted) > 0 || o.minSigners != 0) && o.plan == "":
+		return usagef("--trusted-keys and --min-signers are about a --plan file, and none was given")
 	}
 	if err := refuseExisting(o.recoveryOut, o.force); err != nil {
 		return err
@@ -262,7 +268,7 @@ func runProjectApply(ctx context.Context, env *Env, o projectOptions) (err error
 	if o.plan != "" {
 		// A signature is checked here too, with the other refusals of the
 		// file: before connecting, and before anyone is asked to confirm.
-		saved, envelope.Signature, err = readSavedPlan(env, o.plan, o.trusted)
+		saved, envelope.Signature, err = readSavedPlan(env, o.plan, o.trusted, o.minSigners)
 		if err != nil {
 			return err
 		}

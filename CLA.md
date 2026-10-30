@@ -1,6 +1,6 @@
 # Alder Individual Contributor Licence Agreement
 
-**Version 1.0**
+**Version 1.1**
 
 Thank you for contributing to Alder. This agreement exists for one reason, and
 it is stated plainly rather than buried: it lets the Maintainer distribute Alder
@@ -12,7 +12,9 @@ You keep the copyright in everything you write. Nothing here transfers ownership
 ## 0. The parties
 
 "**Maintainer**" means Hazame-hub, the owner of the Alder project at
-<https://github.com/Hazame-hub/alder>.
+<https://github.com/Hazame-hub/alder>, and any successor to whom the
+Maintainer transfers Alder under section 8, such as a company the Maintainer
+sets up to hold it.
 
 > **Note.** The Maintainer is currently identified by its GitHub account rather
 > than by a registered legal name. A grant made to an account name is weaker
@@ -111,13 +113,26 @@ non-infringement.
 The Maintainer is under no obligation to accept, merge, or keep any
 Contribution.
 
-## 8. Not legal advice
+## 8. Transfer
+
+The Maintainer may transfer this agreement, and the licences you grant in it,
+to anyone who takes over Alder: a company the Maintainer sets up, or a buyer
+of the project. You do not need to sign again, and your licence terms do not
+change. A transfer never takes your own rights in your work (section 3).
+
+## 9. Not legal advice
 
 This document is adapted from the Apache Software Foundation Individual
 Contributor Licence Agreement v2.0, which is widely used and widely understood.
 It has not been reviewed by a lawyer on your behalf or on the Maintainer's. If
 you are signing on behalf of a company, or the answer matters to you, get your
 own advice before signing.
+
+## Versions
+
+- **1.1** (2026-10-30): the Maintainer may transfer the agreement to a
+  successor (section 8). Signed by nobody under 1.0, so nobody is affected.
+- **1.0**: the first version.
 
 ## How to sign
 
