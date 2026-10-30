@@ -20,6 +20,7 @@ package indexadvice
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"sort"
 	"strings"
@@ -155,7 +156,7 @@ func Read(r io.Reader, opts Options) (*Report, error) {
 	sc.Buffer(make([]byte, 0, 64<<10), maxLine)
 	for {
 		if !sc.Scan() {
-			if err := sc.Err(); err == bufio.ErrTooLong {
+			if err := sc.Err(); errors.Is(err, bufio.ErrTooLong) {
 				// One line is too long to be one of ours. Count it and go
 				// on: the rest of the log is still worth reading.
 				report.Lines++
