@@ -161,7 +161,7 @@ func (s *session) revive(ctx context.Context, l *link) error {
 	}
 	l.conn = conn
 	l.broken = false
-	s.logger.Info("reopened a directory connection",
+	s.logger.InfoContext(ctx, "reopened a directory connection",
 		"connection", l.name, "address", s.cfg.Address(), "bind_dn", l.bindDN)
 	return nil
 }

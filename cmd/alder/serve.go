@@ -23,6 +23,7 @@ import (
 	"github.com/hazame-hub/alder/internal/allowlist"
 	"github.com/hazame-hub/alder/internal/api"
 	"github.com/hazame-hub/alder/internal/cli"
+	"github.com/hazame-hub/alder/internal/reqlog"
 	"github.com/hazame-hub/alder/internal/signing"
 	"github.com/hazame-hub/alder/internal/web"
 )
@@ -38,6 +39,7 @@ type serveOptions struct {
 	requireSig  bool
 	logLevel    string
 	logFormat   string
+	logHeader   string
 	sourceURL   string
 	idleTimeout time.Duration
 	maxLifetime time.Duration
@@ -85,6 +87,10 @@ func serveCmd() *cobra.Command {
 		"refuse every write, whatever the directory would have allowed")
 	f.StringVar(&o.logLevel, "log-level", "info", "debug, info, warn or error")
 	f.StringVar(&o.logFormat, "log-format", "text", "text or json")
+	f.StringVar(&o.logHeader, "log-request-header", "",
+		"a request header, such as X-Request-Id, whose value goes on every log line written "+
+			"while answering that request, as request_header. A correlation key for the proxy's "+
+			"access log, trusted for nothing. Headers that carry credentials are refused")
 	// Alder is AGPL-3.0. If you run a modified build and let others use it over
 	// a network, section 13 requires you to offer them its source; this is where
 	// you say where that is.
@@ -116,6 +122,13 @@ func runServe(ctx context.Context, o serveOptions) error {
 	logger, err := newLogger(o.logLevel, o.logFormat)
 	if err != nil {
 		return err
+	}
+	// Checked before anything listens: a name that would log a credential is
+	// refused, not warned about.
+	if o.logHeader != "" {
+		if err := reqlog.CheckName(o.logHeader); err != nil {
+			return err
+		}
 	}
 	slog.SetDefault(logger)
 
@@ -222,6 +235,11 @@ func runServe(ctx context.Context, o serveOptions) error {
 	})
 
 	app.Use(recover.New())
+	if o.logHeader != "" {
+		logger.Info("logging a request header on each request's lines",
+			"header", o.logHeader, "attribute", reqlog.Attribute)
+		app.Use(reqlog.Middleware(o.logHeader))
+	}
 	app.Use(requestLogger(logger))
 	app.Use(helmet.New(helmet.Config{
 		// The SPA is served from this origin and loads nothing from anywhere
@@ -310,7 +328,7 @@ func requestLogger(logger *slog.Logger) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		started := time.Now()
 		err := c.Next()
-		logger.Debug("request",
+		logger.DebugContext(c.UserContext(), "request",
 			"method", c.Method(),
 			"path", c.Path(),
 			"status", c.Response().StatusCode(),
@@ -336,9 +354,9 @@ func newLogger(level, format string) (*slog.Logger, error) {
 	opts := &slog.HandlerOptions{Level: lvl}
 	switch strings.ToLower(format) {
 	case "json":
-		return slog.New(slog.NewJSONHandler(os.Stderr, opts)), nil
+		return slog.New(reqlog.Handler(slog.NewJSONHandler(os.Stderr, opts))), nil
 	case "text":
-		return slog.New(slog.NewTextHandler(os.Stderr, opts)), nil
+		return slog.New(reqlog.Handler(slog.NewTextHandler(os.Stderr, opts))), nil
 	default:
 		return nil, fmt.Errorf("alder: unknown log format %q", format)
 	}

@@ -809,6 +809,16 @@ Only additions:
 
 ### 1.40
 
+`alder serve` can log a request header the operator names
+([proposals/request-header-logging.md](proposals/request-header-logging.md)).
+Only additions:
+
+- **`--log-request-header NAME`** (`ALDER_LOG_REQUEST_HEADER`), off by
+  default. The value goes on log lines as `request_header`; that name is
+  the flag's meaning and keeps it, though log output is otherwise not
+  covered. A name that carries credentials is refused at start, and later
+  releases may refuse more such names, never fewer.
+
 A saved plan can require several signers. Only additions:
 
 - **`--min-signers N`** on `alder apply --plan` and `alder project apply

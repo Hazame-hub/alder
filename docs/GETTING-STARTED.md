@@ -299,6 +299,10 @@ When you are ready to use Alder on a directory that matters:
   [README](../README.md#install).
 - **Limit where it connects.** `--allowed-targets ldap1.example.com:636`
   stops an instance from being used to reach any other directory.
+- **Match Alder's log to your proxy's.** Behind oauth2-proxy, Traefik or
+  nginx, `--log-request-header X-Request-Id` puts each request's ID on the
+  lines Alder writes for it, as `request_header`, so `change applied` can be
+  matched to the access log that names the user.
 - **Bind as a delegated account** where you can. Alder shows the access rules
   that bear on an entry and, on 389 DS, the server's own verdict on what your
   bind may do ([ACCESS-CONTROL.md](ACCESS-CONTROL.md)).

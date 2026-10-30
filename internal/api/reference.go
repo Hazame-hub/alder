@@ -45,7 +45,7 @@ func (s *Server) AttachReference(c *fiber.Ctx) error {
 	// Without it attaching is a way around the allowlist.
 	if err := s.cfg.AllowedTargets.Check(cfg.Host, cfg.Port); err != nil {
 		if errors.Is(err, allowlist.ErrNotAllowed) {
-			s.logger.Info("reference refused by the target allowlist",
+			s.logger.InfoContext(c.UserContext(), "reference refused by the target allowlist",
 				"host", cfg.Host, "port", cfg.Port)
 			return writeError(c, fiber.StatusForbidden, ErrorErrorTargetNotAllowed,
 				"This Alder is not permitted to connect to that directory.",
@@ -67,7 +67,7 @@ func (s *Server) AttachReference(c *fiber.Ctx) error {
 	defer cancel()
 	conn, err := s.driver.Connect(ctx, cfg)
 	if err != nil {
-		s.logger.Info("reference connection refused",
+		s.logger.InfoContext(c.UserContext(), "reference connection refused",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
 		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
 			"Could not connect to that directory.", s.connectFailureDetail(cfg, err))
@@ -77,7 +77,7 @@ func (s *Server) AttachReference(c *fiber.Ctx) error {
 	// inheritance, and the reference's entries are rendered by the same code.
 	_, _ = conn.Schema(ctx)
 
-	ref, err := s.sessions.AttachReference(sess, conn, cfg)
+	ref, err := s.sessions.AttachReference(c.UserContext(), sess, conn, cfg)
 	if err != nil {
 		_ = conn.Close()
 		switch {

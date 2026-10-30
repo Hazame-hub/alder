@@ -103,7 +103,7 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 		return s.fail(c, verifyErr)
 	}
 	if refusal != nil {
-		s.logger.Info("changeset refused before anything ran",
+		s.logger.InfoContext(c.UserContext(), "changeset refused before anything ran",
 			"reason", string(refusal.Error), "changes", len(records),
 			"affected", len(*refusal.Affected))
 		return c.Status(status).JSON(refusal)
@@ -181,14 +181,14 @@ func (s *Server) ApplyChangeset(c *fiber.Ctx) error {
 		// own index -- not last: the changes after it follow as not attempted.
 		if stopped := result.Outcomes[failed]; stopped.State != nil &&
 			*stopped.State == ChangesetOutcomeStateUnknown {
-			s.logger.Warn("changeset stopped at a change whose outcome is unknown",
+			s.logger.WarnContext(c.UserContext(), "changeset stopped at a change whose outcome is unknown",
 				"applied", result.AppliedCount, "unknown_at", failed, "total", len(records))
 		} else {
-			s.logger.Warn("changeset stopped at a failure",
+			s.logger.WarnContext(c.UserContext(), "changeset stopped at a failure",
 				"applied", result.AppliedCount, "failed_at", failed, "total", len(records))
 		}
 	} else {
-		s.logger.Info("changeset applied", "changes", result.AppliedCount)
+		s.logger.InfoContext(c.UserContext(), "changeset applied", "changes", result.AppliedCount)
 	}
 	// A partial run is an outcome, not a transport error. The body says where it
 	// stopped; a non-200 would push callers towards retrying the whole set.
