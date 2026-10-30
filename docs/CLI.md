@@ -203,9 +203,9 @@ compatibility promise.
 
 | Code | Meaning |
 |---|---|
-| 0 | Done. For `diff`, complete with no differences. For `apply`, applied, or nothing to apply. For `plan` and `project plan` with `--detailed-exitcode`, nothing to change. |
-| 1 | `diff`: complete, and there are differences. `preflight`: compatible once the listed prerequisites are done. `project fmt --check`: some file is not in canonical form |
-| 2 | `diff`: incomplete, because something could not be seen. This wins over 1. `preflight`: incomplete. `plan` and `project plan` with `--detailed-exitcode`: changes pending |
+| 0 | Done. For `diff`, complete with no differences. For `replication compare`, in step. For `apply`, applied, or nothing to apply. For `plan` and `project plan` with `--detailed-exitcode`, nothing to change. |
+| 1 | `diff`: complete, and there are differences. `replication compare`: one server is behind, or each holds changes the other lacks. `preflight`: compatible once the listed prerequisites are done. `project fmt --check`: some file is not in canonical form |
+| 2 | `diff`: incomplete, because something could not be seen. This wins over 1. `replication compare`: incomplete, or the two records cannot be compared; this wins over 1 too. `preflight`: incomplete. `plan` and `project plan` with `--detailed-exitcode`: changes pending |
 | 3 | A change cannot be applied as written (a conflict or a schema violation), or a selected difference offers no change. This wins over 1 and 2. `preflight`: incompatible. `project`: the project is not valid. Nothing was written. |
 | 4 | The plan no longer holds: the directory changed after it was made (`plan_stale`), or the operations sent are not the ones planned (`plan_mismatch`). Nothing was written. |
 | 5 | Not confirmed: declined, or no confirmation could be given. Nothing was written. |
@@ -767,6 +767,80 @@ read signed documents only. `alder apply --plan` and `alder project apply
 [SIGNING.md](SIGNING.md).
 
 ---
+
+## `alder replication`
+
+```sh
+alder replication --output supplier.json      # connection flags for the supplier
+alder replication --output replica.json       # ...and for the replica
+alder replication compare supplier.json replica.json
+```
+
+`alder replication --output FILE` reads what one server records about its own
+replication, the same report as the web interface's Replication card, and
+writes it as an `alder-replication` version 1 document with the server's
+address and when it was read. Alder does not contact the peers named in it.
+
+`alder replication compare A B` compares two such documents and contacts
+nothing at all, the way `alder diff` compares two snapshots. Read each server
+from wherever it is reachable, with its own credentials, and compare the files
+anywhere. For each suffix and each origin it says:
+
+- **in step**: both hold the same latest change from that origin, with the
+  age of that change, because a link that stopped working looks the same as
+  one with nothing to send;
+- **A is behind** or **B is behind**: that side lacks the origin's changes
+  made in a span before the other's latest, *measured by that origin's own
+  clock*, so the two servers' clocks need not agree. It is never a count of
+  changes: a change sequence says when, not how many;
+- **each holds changes the other lacks**, from different origins: ordinary
+  for a moment on a pair that both accept writes;
+- **not comparable**: the two follow different replication models, belong to
+  different 389 DS replica generations, or one replicates a suffix the other
+  does not;
+- **incomplete**: something one server's report could not read.
+
+When the two files were read more than a minute apart, it says so: a change
+made in between is on one and not the other.
+
+`--tolerate DURATION` counts an origin behind by no more than that as in step,
+for a monitoring job that should not page on a change in flight; the default
+is exact. `--json` prints the comparison. Exit status: 0 in step, 1 behind or
+each holding changes the other lacks, 2 incomplete or not comparable.
+
+## `alder indexes advise`
+
+```sh
+alder snapshot --kind config --output config.json     # once, with the connection flags
+alder indexes advise --log /var/log/dirsrv/slapd-example/access --config config.json
+```
+
+Reads a directory server's log -- 389 Directory Server's access log, or
+OpenLDAP's written with `loglevel stats` -- against the indexes a
+configuration snapshot of the same server holds, and lists the indexes its
+searches lacked, ranked by the time those searches took. Nothing is
+contacted: the log is read as a stream on the machine it is on, so it can be
+any size, and `--log -` reads it from standard input.
+
+- **A search counts** when the server marked it unindexed (389 DS's
+  `notes=U` or `notes=A`) or took at least `--slower-than` (default
+  `100ms`). OpenLDAP's `not indexed` lines name no operation, so they are
+  counted beside a suggestion and never make one.
+- **What it suggests** is an attribute and a kind of match (`eq`, `sub`,
+  `pres`, `approx`) per backend. An attribute already indexed for other kinds
+  only is listed as such: Alder does not change the types of an index that
+  exists, so that one is yours to make. An index Alder would refuse to create
+  is listed with the reason. It never suggests removing an index.
+- **Nothing from the log is printed but attribute names.** Up to three
+  example filters per suggestion have every value replaced by `…`; bind DNs
+  and client addresses are not read.
+- **It adds nothing.** Stage a suggestion like any other change, or from the
+  indexes panel in the web interface, which also takes a log of up to 15 MiB.
+  Adding an index is not building it: run a `reindex` task on 389 DS, or
+  `slapindex` on OpenLDAP, afterwards.
+
+`--json` prints the report. Exit status: 0 nothing suggested, 1 at least one
+suggestion, 2 some counted searches were under no backend in the snapshot.
 
 ## `alder preflight`
 

@@ -722,6 +722,45 @@ func (e ErrorError) Valid() bool {
 	}
 }
 
+// Defines values for IndexAdviceFormat.
+const (
+	IndexAdviceFormat389      IndexAdviceFormat = "389-access"
+	IndexAdviceFormatOpenLDAP IndexAdviceFormat = "openldap-stats"
+)
+
+// Valid indicates whether the value is a known member of the IndexAdviceFormat enum.
+func (e IndexAdviceFormat) Valid() bool {
+	switch e {
+	case IndexAdviceFormat389:
+		return true
+	case IndexAdviceFormatOpenLDAP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IndexSuggestionStatus.
+const (
+	IndexSuggestionBlocked     IndexSuggestionStatus = "blocked"
+	IndexSuggestionCandidate   IndexSuggestionStatus = "candidate"
+	IndexSuggestionTypeMissing IndexSuggestionStatus = "type_missing"
+)
+
+// Valid indicates whether the value is a known member of the IndexSuggestionStatus enum.
+func (e IndexSuggestionStatus) Valid() bool {
+	switch e {
+	case IndexSuggestionBlocked:
+		return true
+	case IndexSuggestionCandidate:
+		return true
+	case IndexSuggestionTypeMissing:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InventoryRequestScope.
 const (
 	InventoryRequestScopeBase InventoryRequestScope = "base"
@@ -1712,6 +1751,36 @@ func (e ReplicationRole) Valid() bool {
 	case ReplicationRoleNone:
 		return true
 	case ReplicationRoleSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReplicationVerdict.
+const (
+	ReplicationABehind       ReplicationVerdict = "a_behind"
+	ReplicationBBehind       ReplicationVerdict = "b_behind"
+	ReplicationDiverged      ReplicationVerdict = "diverged"
+	ReplicationInStep        ReplicationVerdict = "in_step"
+	ReplicationIncomplete    ReplicationVerdict = "incomplete"
+	ReplicationNotComparable ReplicationVerdict = "not_comparable"
+)
+
+// Valid indicates whether the value is a known member of the ReplicationVerdict enum.
+func (e ReplicationVerdict) Valid() bool {
+	switch e {
+	case ReplicationABehind:
+		return true
+	case ReplicationBBehind:
+		return true
+	case ReplicationDiverged:
+		return true
+	case ReplicationInStep:
+		return true
+	case ReplicationIncomplete:
+		return true
+	case ReplicationNotComparable:
 		return true
 	default:
 		return false
@@ -3941,6 +4010,45 @@ type ImportResult struct {
 	Unchanged *[]string `json:"unchanged,omitempty"`
 }
 
+// IndexAdvice What one log said about the indexes its searches needed (1.41).
+type IndexAdvice struct {
+	// Caveat That adding an index is not building it, and that every index slows writes.
+	Caveat string `json:"caveat"`
+
+	// Counted Searches marked unindexed by the server
+	Counted int `json:"counted"`
+
+	// Format What the log was recognised as. Absent when no line was.
+	Format      *IndexAdviceFormat `json:"format,omitempty"`
+	Lines       int                `json:"lines"`
+	Searches    int                `json:"searches"`
+	Suggestions []IndexSuggestion  `json:"suggestions"`
+
+	// Unattributed Counted searches whose base is under no backend that holds indexes.
+	Unattributed int `json:"unattributed"`
+
+	// Unparsed Counted searches whose filter is not RFC 4515.
+	Unparsed int `json:"unparsed"`
+
+	// Unrecognised Lines that were neither a search
+	Unrecognised int `json:"unrecognised"`
+
+	// WithoutResult Searches whose result line was not in the log.
+	WithoutResult int `json:"withoutResult"`
+}
+
+// IndexAdviceFormat What the log was recognised as. Absent when no line was.
+type IndexAdviceFormat string
+
+// IndexAdviceRequest defines model for IndexAdviceRequest.
+type IndexAdviceRequest struct {
+	// Log The log, as text. Lines the advisor does not recognise are counted and skipped.
+	Log string `json:"log"`
+
+	// SlowerThanMs A search that took at least this long counts whatever the server said about it. Default 100.
+	SlowerThanMs *int `json:"slowerThanMs,omitempty"`
+}
+
 // IndexBackend defines model for IndexBackend.
 type IndexBackend struct {
 	// Dn The configuration entry the backend is, so a caller that is
@@ -4016,6 +4124,46 @@ type IndexRequest struct {
 	// both servers are asked for when nothing is said.
 	Types *[]string `json:"types,omitempty"`
 }
+
+// IndexSuggestion defines model for IndexSuggestion.
+type IndexSuggestion struct {
+	Attribute string `json:"attribute"`
+
+	// Backend The backend
+	Backend string `json:"backend"`
+
+	// Examples Up to three filters, with every value replaced by "…".
+	Examples []string   `json:"examples"`
+	First    *time.Time `json:"first,omitempty"`
+	Last     *time.Time `json:"last,omitempty"`
+
+	// MarkedUnindexed Of those
+	MarkedUnindexed int     `json:"markedUnindexed"`
+	Reason          *string `json:"reason,omitempty"`
+	Searches        int     `json:"searches"`
+
+	// ServerSaidNotIndexed How many OpenLDAP "not indexed" lines named this attribute and kind.
+	ServerSaidNotIndexed int `json:"serverSaidNotIndexed"`
+
+	// Status `candidate`: no index on the attribute; one can be staged.
+	// `type_missing`: indexed for other kinds of match only. Alder does
+	// not change the types of an index that exists, so this is the
+	// operator's own change. `blocked`: creating it would be refused,
+	// and `reason` says why.
+	Status       IndexSuggestionStatus `json:"status"`
+	TotalSeconds float64               `json:"totalSeconds"`
+
+	// Type eq, sub, pres or approx.
+	Type         string  `json:"type"`
+	WorstSeconds float64 `json:"worstSeconds"`
+}
+
+// IndexSuggestionStatus `candidate`: no index on the attribute; one can be staged.
+// `type_missing`: indexed for other kinds of match only. Alder does
+// not change the types of an index that exists, so this is the
+// operator's own change. `blocked`: creating it would be refused,
+// and `reason` says why.
+type IndexSuggestionStatus string
 
 // InventoryRequest defines model for InventoryRequest.
 type InventoryRequest struct {
@@ -5628,7 +5776,11 @@ type ReplicatedSuffix struct {
 	// measure the two servers can be compared on.
 	Cursors []ReplicationCursor `json:"cursors"`
 	Dn      string              `json:"dn"`
-	Links   []ReplicationLink   `json:"links"`
+
+	// Generation 389 DS's replica generation (1.41). Two vectors from different
+	// generations are not compared. Absent on OpenLDAP.
+	Generation *string           `json:"generation,omitempty"`
+	Links      []ReplicationLink `json:"links"`
 
 	// Notes Things worth saying about this suffix that are not a link.
 	Notes *[]string `json:"notes,omitempty"`
@@ -5640,6 +5792,32 @@ type ReplicatedSuffix struct {
 	// 389 DS's replica id. It is what appears inside a change's sequence
 	// number, which is how a change's origin is legible at all.
 	ServerId *string `json:"serverId,omitempty"`
+}
+
+// ReplicationComparison Two servers' own records of their replication, compared per suffix
+// and per origin (1.41). `a` is the session's server and `b` the
+// reference. The verdict is in time only: a change sequence says when a
+// change was made, never how many lie between two of them.
+type ReplicationComparison struct {
+	// A The server read as `a`, as host:port.
+	A string `json:"a"`
+
+	// B The server read as `b`, as host:port.
+	B string `json:"b"`
+
+	// Caveat What "in step" never appears without.
+	Caveat   string                        `json:"caveat"`
+	Suffixes []ReplicationSuffixComparison `json:"suffixes"`
+
+	// Verdict `in_step`: both hold the same latest change. `a_behind` / `b_behind`:
+	// that side lacks changes the other holds, including every change from
+	// an origin it holds nothing from. `diverged`: each holds changes the
+	// other lacks, from different origins. `not_comparable`: the two
+	// records are not positions on one history (different replication
+	// models, different 389 DS replica generations, a suffix replicated on
+	// one side only). `incomplete`: something needed could not be read.
+	Verdict ReplicationVerdict `json:"verdict"`
+	Why     string             `json:"why"`
 }
 
 // ReplicationConflict defines model for ReplicationConflict.
@@ -5678,6 +5856,12 @@ type ReplicationCursor struct {
 	// At When the latest change this server holds from that origin was
 	// made -- by that server's clock, not this one's.
 	At time.Time `json:"at"`
+
+	// Csn The change sequence itself, without what surrounds it (1.41): the
+	// whole value on OpenLDAP, the last of the two on a 389 DS vector,
+	// whose first one is where this server started with that origin.
+	// It is what two servers are compared on.
+	Csn *string `json:"csn,omitempty"`
 
 	// Origin The server id the changes came from.
 	Origin string `json:"origin"`
@@ -5729,6 +5913,34 @@ type ReplicationLinkDirection string
 // about this link.
 type ReplicationLinkState string
 
+// ReplicationOriginComparison defines model for ReplicationOriginComparison.
+type ReplicationOriginComparison struct {
+	A *ReplicationCursor `json:"a,omitempty"`
+	B *ReplicationCursor `json:"b,omitempty"`
+
+	// Origin The server id the changes came from.
+	Origin string `json:"origin"`
+
+	// SpanSeconds How much later the ahead side's latest change from this origin
+	// was made, by that origin's own clock, so skew between the two
+	// servers does not enter into it. Zero when in step, and also for
+	// two changes in the same second on a server that stamps whole
+	// seconds; `verdict` tells those apart.
+	SpanSeconds float64 `json:"spanSeconds"`
+
+	// Tolerated Behind by no more than the tolerance asked for, and counted as in step.
+	Tolerated *bool `json:"tolerated,omitempty"`
+
+	// Verdict `in_step`: both hold the same latest change. `a_behind` / `b_behind`:
+	// that side lacks changes the other holds, including every change from
+	// an origin it holds nothing from. `diverged`: each holds changes the
+	// other lacks, from different origins. `not_comparable`: the two
+	// records are not positions on one history (different replication
+	// models, different 389 DS replica generations, a suffix replicated on
+	// one side only). `incomplete`: something needed could not be read.
+	Verdict ReplicationVerdict `json:"verdict"`
+}
+
 // ReplicationReport What one server records about its own replication. Added in 1.25.
 type ReplicationReport struct {
 	Disclaimer string `json:"disclaimer"`
@@ -5749,6 +5961,33 @@ type ReplicationReport struct {
 
 // ReplicationRole Whether a server sends changes, receives them, does both, or neither.
 type ReplicationRole string
+
+// ReplicationSuffixComparison defines model for ReplicationSuffixComparison.
+type ReplicationSuffixComparison struct {
+	Dn      string                        `json:"dn"`
+	Origins []ReplicationOriginComparison `json:"origins"`
+
+	// Verdict `in_step`: both hold the same latest change. `a_behind` / `b_behind`:
+	// that side lacks changes the other holds, including every change from
+	// an origin it holds nothing from. `diverged`: each holds changes the
+	// other lacks, from different origins. `not_comparable`: the two
+	// records are not positions on one history (different replication
+	// models, different 389 DS replica generations, a suffix replicated on
+	// one side only). `incomplete`: something needed could not be read.
+	Verdict ReplicationVerdict `json:"verdict"`
+
+	// Why Set when there is no verdict to give.
+	Why *string `json:"why,omitempty"`
+}
+
+// ReplicationVerdict `in_step`: both hold the same latest change. `a_behind` / `b_behind`:
+// that side lacks changes the other holds, including every change from
+// an origin it holds nothing from. `diverged`: each holds changes the
+// other lacks, from different origins. `not_comparable`: the two
+// records are not positions on one history (different replication
+// models, different 389 DS replica generations, a suffix replicated on
+// one side only). `incomplete`: something needed could not be read.
+type ReplicationVerdict string
 
 // Requirements defines model for Requirements.
 type Requirements struct {
@@ -6727,6 +6966,9 @@ type ApplyChangesetJSONRequestBody = ChangesetRequest
 // PreviewChangesetJSONRequestBody defines body for PreviewChangeset for application/json ContentType.
 type PreviewChangesetJSONRequestBody = ChangesetRequest
 
+// AdviseConfigIndexesJSONRequestBody defines body for AdviseConfigIndexes for application/json ContentType.
+type AdviseConfigIndexesJSONRequestBody = IndexAdviceRequest
+
 // PlanConfigIndexJSONRequestBody defines body for PlanConfigIndex for application/json ContentType.
 type PlanConfigIndexJSONRequestBody = IndexRequest
 
@@ -7421,6 +7663,56 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /config/indexes (the `GetConfigIndexes` operationId).
 	GetConfigIndexes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AdviseConfigIndexesWithBody The indexes a server log says its searches were missing
+	//
+	// Reads a log the operator supplies -- 389 Directory Server's access
+	// log, or OpenLDAP's with `loglevel stats` -- against this server's
+	// live index list, and returns the indexes its searches lacked. Added
+	// in Alder 1.41. It applies nothing; staging one goes through
+	// `POST /config/indexes/candidate` like any other index.
+	//
+	// A search counts when the server itself marked it unindexed (389 DS's
+	// `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+	// (default 100). OpenLDAP's "not indexed" lines name no operation, so
+	// they corroborate a suggestion and never make one.
+	//
+	// The log is read in memory and dropped when the answer is written.
+	// Nothing from it reaches the answer but attribute names and kinds of
+	// match: example filters carry every value replaced by "…", and bind
+	// DNs and client addresses are not read. The request is bounded by the
+	// server's body limit, 16 MiB; for a larger log, `alder indexes
+	// advise` reads any size, on the machine the log is on.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /config/indexes/advice (the `AdviseConfigIndexes` operationId).
+	AdviseConfigIndexesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AdviseConfigIndexes The indexes a server log says its searches were missing
+	//
+	// Reads a log the operator supplies -- 389 Directory Server's access
+	// log, or OpenLDAP's with `loglevel stats` -- against this server's
+	// live index list, and returns the indexes its searches lacked. Added
+	// in Alder 1.41. It applies nothing; staging one goes through
+	// `POST /config/indexes/candidate` like any other index.
+	//
+	// A search counts when the server itself marked it unindexed (389 DS's
+	// `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+	// (default 100). OpenLDAP's "not indexed" lines name no operation, so
+	// they corroborate a suggestion and never make one.
+	//
+	// The log is read in memory and dropped when the answer is written.
+	// Nothing from it reaches the answer but attribute names and kinds of
+	// match: example filters carry every value replaced by "…", and bind
+	// DNs and client addresses are not read. The request is bounded by the
+	// server's body limit, 16 MiB; for a larger log, `alder indexes
+	// advise` reads any size, on the machine the log is on.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /config/indexes/advice (the `AdviseConfigIndexes` operationId).
+	AdviseConfigIndexes(ctx context.Context, body AdviseConfigIndexesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PlanConfigIndexWithBody The change that would add an index
 	//
@@ -8357,6 +8649,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /replication (the `GetReplication` operationId).
 	GetReplication(ctx context.Context, params *GetReplicationParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CompareReplication The session's replication record compared with the reference's
+	//
+	// Reads what the session's server and the reference server (1.39) each
+	// record about their own replication, and compares them per suffix and
+	// per origin. Added in 1.41. Read-only.
+	//
+	// For each origin, the two servers' latest changes from it are compared
+	// by change sequence, and the span between them is measured by that
+	// origin's own clock, so the answer does not depend on the two servers'
+	// clocks agreeing. It is never a count of changes: a change sequence
+	// says when, not how many.
+	//
+	// No peer named in an agreement is contacted: both servers here are
+	// ones the operator connected to. 409 when no reference is attached.
+	//
+	// Corresponds with GET /replication/compare (the `CompareReplication` operationId).
+	CompareReplication(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetReplicationConflicts Entries this server has marked as conflicting
 	//
@@ -9323,6 +9633,76 @@ func (c *Client) GetConfigEntryModel(ctx context.Context, params *GetConfigEntry
 // Corresponds with GET /config/indexes (the `GetConfigIndexes` operationId).
 func (c *Client) GetConfigIndexes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetConfigIndexesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AdviseConfigIndexesWithBody The indexes a server log says its searches were missing
+//
+// Reads a log the operator supplies -- 389 Directory Server's access
+// log, or OpenLDAP's with `loglevel stats` -- against this server's
+// live index list, and returns the indexes its searches lacked. Added
+// in Alder 1.41. It applies nothing; staging one goes through
+// `POST /config/indexes/candidate` like any other index.
+//
+// A search counts when the server itself marked it unindexed (389 DS's
+// `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+// (default 100). OpenLDAP's "not indexed" lines name no operation, so
+// they corroborate a suggestion and never make one.
+//
+// The log is read in memory and dropped when the answer is written.
+// Nothing from it reaches the answer but attribute names and kinds of
+// match: example filters carry every value replaced by "…", and bind
+// DNs and client addresses are not read. The request is bounded by the
+// server's body limit, 16 MiB; for a larger log, `alder indexes
+// advise` reads any size, on the machine the log is on.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /config/indexes/advice (the `AdviseConfigIndexes` operationId).
+func (c *Client) AdviseConfigIndexesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdviseConfigIndexesRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AdviseConfigIndexes The indexes a server log says its searches were missing
+//
+// Reads a log the operator supplies -- 389 Directory Server's access
+// log, or OpenLDAP's with `loglevel stats` -- against this server's
+// live index list, and returns the indexes its searches lacked. Added
+// in Alder 1.41. It applies nothing; staging one goes through
+// `POST /config/indexes/candidate` like any other index.
+//
+// A search counts when the server itself marked it unindexed (389 DS's
+// `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+// (default 100). OpenLDAP's "not indexed" lines name no operation, so
+// they corroborate a suggestion and never make one.
+//
+// The log is read in memory and dropped when the answer is written.
+// Nothing from it reaches the answer but attribute names and kinds of
+// match: example filters carry every value replaced by "…", and bind
+// DNs and client addresses are not read. The request is bounded by the
+// server's body limit, 16 MiB; for a larger log, `alder indexes
+// advise` reads any size, on the machine the log is on.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /config/indexes/advice (the `AdviseConfigIndexes` operationId).
+func (c *Client) AdviseConfigIndexes(ctx context.Context, body AdviseConfigIndexesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdviseConfigIndexesRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -10609,6 +10989,34 @@ func (c *Client) GetReplication(ctx context.Context, params *GetReplicationParam
 	return c.Client.Do(req)
 }
 
+// CompareReplication The session's replication record compared with the reference's
+//
+// Reads what the session's server and the reference server (1.39) each
+// record about their own replication, and compares them per suffix and
+// per origin. Added in 1.41. Read-only.
+//
+// For each origin, the two servers' latest changes from it are compared
+// by change sequence, and the span between them is measured by that
+// origin's own clock, so the answer does not depend on the two servers'
+// clocks agreeing. It is never a count of changes: a change sequence
+// says when, not how many.
+//
+// No peer named in an agreement is contacted: both servers here are
+// ones the operator connected to. 409 when no reference is attached.
+//
+// Corresponds with GET /replication/compare (the `CompareReplication` operationId).
+func (c *Client) CompareReplication(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompareReplicationRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetReplicationConflicts Entries this server has marked as conflicting
 //
 // Lists the entries a server has marked as the losing side of a
@@ -11859,6 +12267,46 @@ func NewGetConfigIndexesRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewAdviseConfigIndexesRequest calls the generic AdviseConfigIndexes builder with application/json body
+func NewAdviseConfigIndexesRequest(server string, body AdviseConfigIndexesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAdviseConfigIndexesRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAdviseConfigIndexesRequestWithBody constructs an http.Request for the AdviseConfigIndexes method, with any body, and a specified content type
+func NewAdviseConfigIndexesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/config/indexes/advice")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewPlanConfigIndexRequest calls the generic PlanConfigIndex builder with application/json body
 func NewPlanConfigIndexRequest(server string, body PlanConfigIndexJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -13095,6 +13543,33 @@ func NewGetReplicationRequest(server string, params *GetReplicationParams) (*htt
 	return req, nil
 }
 
+// NewCompareReplicationRequest constructs an http.Request for the CompareReplication method
+func NewCompareReplicationRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/replication/compare")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetReplicationConflictsRequest constructs an http.Request for the GetReplicationConflicts method
 func NewGetReplicationConflictsRequest(server string, params *GetReplicationConflictsParams) (*http.Request, error) {
 	var err error
@@ -14319,6 +14794,56 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /config/indexes (the `GetConfigIndexes` operationId).
 	GetConfigIndexesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetConfigIndexesReply, error)
 
+	// AdviseConfigIndexesWithBodyWithResponse The indexes a server log says its searches were missing
+	//
+	// Reads a log the operator supplies -- 389 Directory Server's access
+	// log, or OpenLDAP's with `loglevel stats` -- against this server's
+	// live index list, and returns the indexes its searches lacked. Added
+	// in Alder 1.41. It applies nothing; staging one goes through
+	// `POST /config/indexes/candidate` like any other index.
+	//
+	// A search counts when the server itself marked it unindexed (389 DS's
+	// `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+	// (default 100). OpenLDAP's "not indexed" lines name no operation, so
+	// they corroborate a suggestion and never make one.
+	//
+	// The log is read in memory and dropped when the answer is written.
+	// Nothing from it reaches the answer but attribute names and kinds of
+	// match: example filters carry every value replaced by "…", and bind
+	// DNs and client addresses are not read. The request is bounded by the
+	// server's body limit, 16 MiB; for a larger log, `alder indexes
+	// advise` reads any size, on the machine the log is on.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /config/indexes/advice (the `AdviseConfigIndexes` operationId).
+	AdviseConfigIndexesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdviseConfigIndexesReply, error)
+
+	// AdviseConfigIndexesWithResponse The indexes a server log says its searches were missing
+	//
+	// Reads a log the operator supplies -- 389 Directory Server's access
+	// log, or OpenLDAP's with `loglevel stats` -- against this server's
+	// live index list, and returns the indexes its searches lacked. Added
+	// in Alder 1.41. It applies nothing; staging one goes through
+	// `POST /config/indexes/candidate` like any other index.
+	//
+	// A search counts when the server itself marked it unindexed (389 DS's
+	// `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+	// (default 100). OpenLDAP's "not indexed" lines name no operation, so
+	// they corroborate a suggestion and never make one.
+	//
+	// The log is read in memory and dropped when the answer is written.
+	// Nothing from it reaches the answer but attribute names and kinds of
+	// match: example filters carry every value replaced by "…", and bind
+	// DNs and client addresses are not read. The request is bounded by the
+	// server's body limit, 16 MiB; for a larger log, `alder indexes
+	// advise` reads any size, on the machine the log is on.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /config/indexes/advice (the `AdviseConfigIndexes` operationId).
+	AdviseConfigIndexesWithResponse(ctx context.Context, body AdviseConfigIndexesJSONRequestBody, reqEditors ...RequestEditorFn) (*AdviseConfigIndexesReply, error)
+
 	// PlanConfigIndexWithBodyWithResponse The change that would add an index
 	//
 	// Derives the write this server wants for an index on one attribute,
@@ -15274,6 +15799,26 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /replication (the `GetReplication` operationId).
 	GetReplicationWithResponse(ctx context.Context, params *GetReplicationParams, reqEditors ...RequestEditorFn) (*GetReplicationReply, error)
+
+	// CompareReplicationWithResponse The session's replication record compared with the reference's
+	//
+	// Reads what the session's server and the reference server (1.39) each
+	// record about their own replication, and compares them per suffix and
+	// per origin. Added in 1.41. Read-only.
+	//
+	// For each origin, the two servers' latest changes from it are compared
+	// by change sequence, and the span between them is measured by that
+	// origin's own clock, so the answer does not depend on the two servers'
+	// clocks agreeing. It is never a count of changes: a change sequence
+	// says when, not how many.
+	//
+	// No peer named in an agreement is contacted: both servers here are
+	// ones the operator connected to. 409 when no reference is attached.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /replication/compare (the `CompareReplication` operationId).
+	CompareReplicationWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*CompareReplicationReply, error)
 
 	// GetReplicationConflictsWithResponse Entries this server has marked as conflicting
 	//
@@ -16394,6 +16939,82 @@ func (r GetConfigIndexesReply) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetConfigIndexesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AdviseConfigIndexesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *IndexAdvice
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AdviseConfigIndexesReply) GetJSON200() *IndexAdvice {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AdviseConfigIndexesReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AdviseConfigIndexesReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AdviseConfigIndexesReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AdviseConfigIndexesReply) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r AdviseConfigIndexesReply) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r AdviseConfigIndexesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AdviseConfigIndexesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AdviseConfigIndexesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AdviseConfigIndexesReply) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -17695,6 +18316,68 @@ func (r GetReplicationReply) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetReplicationReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CompareReplicationReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ReplicationComparison
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CompareReplicationReply) GetJSON200() *ReplicationComparison {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CompareReplicationReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CompareReplicationReply) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CompareReplicationReply) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r CompareReplicationReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CompareReplicationReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CompareReplicationReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CompareReplicationReply) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -19287,6 +19970,68 @@ func (c *ClientWithResponses) GetConfigIndexesWithResponse(ctx context.Context, 
 	return ParseGetConfigIndexesReply(rsp)
 }
 
+// AdviseConfigIndexesWithBodyWithResponse The indexes a server log says its searches were missing
+//
+// Reads a log the operator supplies -- 389 Directory Server's access
+// log, or OpenLDAP's with `loglevel stats` -- against this server's
+// live index list, and returns the indexes its searches lacked. Added
+// in Alder 1.41. It applies nothing; staging one goes through
+// `POST /config/indexes/candidate` like any other index.
+//
+// A search counts when the server itself marked it unindexed (389 DS's
+// `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+// (default 100). OpenLDAP's "not indexed" lines name no operation, so
+// they corroborate a suggestion and never make one.
+//
+// The log is read in memory and dropped when the answer is written.
+// Nothing from it reaches the answer but attribute names and kinds of
+// match: example filters carry every value replaced by "…", and bind
+// DNs and client addresses are not read. The request is bounded by the
+// server's body limit, 16 MiB; for a larger log, `alder indexes
+// advise` reads any size, on the machine the log is on.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /config/indexes/advice (the `AdviseConfigIndexes` operationId).
+func (c *ClientWithResponses) AdviseConfigIndexesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdviseConfigIndexesReply, error) {
+	rsp, err := c.AdviseConfigIndexesWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdviseConfigIndexesReply(rsp)
+}
+
+// AdviseConfigIndexesWithResponse The indexes a server log says its searches were missing
+//
+// Reads a log the operator supplies -- 389 Directory Server's access
+// log, or OpenLDAP's with `loglevel stats` -- against this server's
+// live index list, and returns the indexes its searches lacked. Added
+// in Alder 1.41. It applies nothing; staging one goes through
+// `POST /config/indexes/candidate` like any other index.
+//
+// A search counts when the server itself marked it unindexed (389 DS's
+// `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+// (default 100). OpenLDAP's "not indexed" lines name no operation, so
+// they corroborate a suggestion and never make one.
+//
+// The log is read in memory and dropped when the answer is written.
+// Nothing from it reaches the answer but attribute names and kinds of
+// match: example filters carry every value replaced by "…", and bind
+// DNs and client addresses are not read. The request is bounded by the
+// server's body limit, 16 MiB; for a larger log, `alder indexes
+// advise` reads any size, on the machine the log is on.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /config/indexes/advice (the `AdviseConfigIndexes` operationId).
+func (c *ClientWithResponses) AdviseConfigIndexesWithResponse(ctx context.Context, body AdviseConfigIndexesJSONRequestBody, reqEditors ...RequestEditorFn) (*AdviseConfigIndexesReply, error) {
+	rsp, err := c.AdviseConfigIndexes(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdviseConfigIndexesReply(rsp)
+}
+
 // PlanConfigIndexWithBodyWithResponse The change that would add an index
 //
 // Derives the write this server wants for an index on one attribute,
@@ -20447,6 +21192,32 @@ func (c *ClientWithResponses) GetReplicationWithResponse(ctx context.Context, pa
 	return ParseGetReplicationReply(rsp)
 }
 
+// CompareReplicationWithResponse The session's replication record compared with the reference's
+//
+// Reads what the session's server and the reference server (1.39) each
+// record about their own replication, and compares them per suffix and
+// per origin. Added in 1.41. Read-only.
+//
+// For each origin, the two servers' latest changes from it are compared
+// by change sequence, and the span between them is measured by that
+// origin's own clock, so the answer does not depend on the two servers'
+// clocks agreeing. It is never a count of changes: a change sequence
+// says when, not how many.
+//
+// No peer named in an agreement is contacted: both servers here are
+// ones the operator connected to. 409 when no reference is attached.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /replication/compare (the `CompareReplication` operationId).
+func (c *ClientWithResponses) CompareReplicationWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*CompareReplicationReply, error) {
+	rsp, err := c.CompareReplication(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCompareReplicationReply(rsp)
+}
+
 // GetReplicationConflictsWithResponse Entries this server has marked as conflicting
 //
 // Lists the entries a server has marked as the losing side of a
@@ -21604,6 +22375,67 @@ func ParseGetConfigIndexesReply(rsp *http.Response) (*GetConfigIndexesReply, err
 	return response, nil
 }
 
+// ParseAdviseConfigIndexesReply parses an HTTP response from a AdviseConfigIndexesWithResponse call
+func ParseAdviseConfigIndexesReply(rsp *http.Response) (*AdviseConfigIndexesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AdviseConfigIndexesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest IndexAdvice
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePlanConfigIndexReply parses an HTTP response from a PlanConfigIndexWithResponse call
 func ParsePlanConfigIndexReply(rsp *http.Response) (*PlanConfigIndexReply, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -22569,6 +23401,53 @@ func ParseGetReplicationReply(rsp *http.Response) (*GetReplicationReply, error) 
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCompareReplicationReply parses an HTTP response from a CompareReplicationWithResponse call
+func ParseCompareReplicationReply(rsp *http.Response) (*CompareReplicationReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CompareReplicationReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ReplicationComparison
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 

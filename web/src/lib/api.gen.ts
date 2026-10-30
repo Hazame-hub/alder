@@ -995,6 +995,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/replication/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The session's replication record compared with the reference's
+         * @description Reads what the session's server and the reference server (1.39) each
+         *     record about their own replication, and compares them per suffix and
+         *     per origin. Added in 1.41. Read-only.
+         *
+         *     For each origin, the two servers' latest changes from it are compared
+         *     by change sequence, and the span between them is measured by that
+         *     origin's own clock, so the answer does not depend on the two servers'
+         *     clocks agreeing. It is never a count of changes: a change sequence
+         *     says when, not how many.
+         *
+         *     No peer named in an agreement is contacted: both servers here are
+         *     ones the operator connected to. 409 when no reference is attached.
+         */
+        get: operations["compareReplication"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/replication/entry": {
         parameters: {
             query?: never;
@@ -1163,6 +1194,42 @@ export interface paths {
          *     request.
          */
         post: operations["planConfigIndex"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/indexes/advice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The indexes a server log says its searches were missing
+         * @description Reads a log the operator supplies -- 389 Directory Server's access
+         *     log, or OpenLDAP's with `loglevel stats` -- against this server's
+         *     live index list, and returns the indexes its searches lacked. Added
+         *     in Alder 1.41. It applies nothing; staging one goes through
+         *     `POST /config/indexes/candidate` like any other index.
+         *
+         *     A search counts when the server itself marked it unindexed (389 DS's
+         *     `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+         *     (default 100). OpenLDAP's "not indexed" lines name no operation, so
+         *     they corroborate a suggestion and never make one.
+         *
+         *     The log is read in memory and dropped when the answer is written.
+         *     Nothing from it reaches the answer but attribute names and kinds of
+         *     match: example filters carry every value replaced by "…", and bind
+         *     DNs and client addresses are not read. The request is bounded by the
+         *     server's body limit, 16 MiB; for a larger log, `alder indexes
+         *     advise` reads any size, on the machine the log is on.
+         */
+        post: operations["adviseConfigIndexes"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2617,6 +2684,11 @@ export interface components {
             dn: string;
             role: components["schemas"]["ReplicationRole"];
             /**
+             * @description 389 DS's replica generation (1.41). Two vectors from different
+             *     generations are not compared. Absent on OpenLDAP.
+             */
+            generation?: string;
+            /**
              * @description This server's identity in the topology -- OpenLDAP's `serverID`,
              *     389 DS's replica id. It is what appears inside a change's sequence
              *     number, which is how a change's origin is legible at all.
@@ -2642,6 +2714,66 @@ export interface components {
             at: string;
             /** @description The value as the server wrote it, because a change sequence is what operators paste to each other. */
             raw: string;
+            /**
+             * @description The change sequence itself, without what surrounds it (1.41): the
+             *     whole value on OpenLDAP, the last of the two on a 389 DS vector,
+             *     whose first one is where this server started with that origin.
+             *     It is what two servers are compared on.
+             */
+            csn?: string;
+        };
+        /**
+         * @description Two servers' own records of their replication, compared per suffix
+         *     and per origin (1.41). `a` is the session's server and `b` the
+         *     reference. The verdict is in time only: a change sequence says when a
+         *     change was made, never how many lie between two of them.
+         */
+        ReplicationComparison: {
+            verdict: components["schemas"]["ReplicationVerdict"];
+            why: string;
+            /** @description The server read as `a`, as host:port. */
+            a: string;
+            /** @description The server read as `b`, as host:port. */
+            b: string;
+            suffixes: components["schemas"]["ReplicationSuffixComparison"][];
+            /** @description What "in step" never appears without. */
+            caveat: string;
+        };
+        /**
+         * @description `in_step`: both hold the same latest change. `a_behind` / `b_behind`:
+         *     that side lacks changes the other holds, including every change from
+         *     an origin it holds nothing from. `diverged`: each holds changes the
+         *     other lacks, from different origins. `not_comparable`: the two
+         *     records are not positions on one history (different replication
+         *     models, different 389 DS replica generations, a suffix replicated on
+         *     one side only). `incomplete`: something needed could not be read.
+         * @enum {string}
+         */
+        ReplicationVerdict: "in_step" | "a_behind" | "b_behind" | "diverged" | "not_comparable" | "incomplete";
+        ReplicationSuffixComparison: {
+            dn: string;
+            verdict: components["schemas"]["ReplicationVerdict"];
+            /** @description Set when there is no verdict to give. */
+            why?: string;
+            origins: components["schemas"]["ReplicationOriginComparison"][];
+        };
+        ReplicationOriginComparison: {
+            /** @description The server id the changes came from. */
+            origin: string;
+            verdict: components["schemas"]["ReplicationVerdict"];
+            a?: components["schemas"]["ReplicationCursor"];
+            b?: components["schemas"]["ReplicationCursor"];
+            /**
+             * Format: double
+             * @description How much later the ahead side's latest change from this origin
+             *     was made, by that origin's own clock, so skew between the two
+             *     servers does not enter into it. Zero when in step, and also for
+             *     two changes in the same second on a server that stamps whole
+             *     seconds; `verdict` tells those apart.
+             */
+            spanSeconds: number;
+            /** @description Behind by no more than the tolerance asked for, and counted as in step. */
+            tolerated?: boolean;
         };
         /** @description One replication agreement, from this server's side of it. */
         ReplicationLink: {
@@ -3013,6 +3145,67 @@ export interface components {
              *     both servers are asked for when nothing is said.
              */
             types?: string[];
+        };
+        IndexAdviceRequest: {
+            /** @description The log, as text. Lines the advisor does not recognise are counted and skipped. */
+            log: string;
+            /** @description A search that took at least this long counts whatever the server said about it. Default 100. */
+            slowerThanMs?: number;
+        };
+        /** @description What one log said about the indexes its searches needed (1.41). */
+        IndexAdvice: {
+            /**
+             * @description What the log was recognised as. Absent when no line was.
+             * @enum {string}
+             */
+            format?: "389-access" | "openldap-stats";
+            lines: number;
+            /** @description Lines that were neither a search */
+            unrecognised: number;
+            searches: number;
+            /** @description Searches marked unindexed by the server */
+            counted: number;
+            /** @description Searches whose result line was not in the log. */
+            withoutResult: number;
+            /** @description Counted searches whose base is under no backend that holds indexes. */
+            unattributed: number;
+            /** @description Counted searches whose filter is not RFC 4515. */
+            unparsed: number;
+            suggestions: components["schemas"]["IndexSuggestion"][];
+            /** @description That adding an index is not building it, and that every index slows writes. */
+            caveat: string;
+        };
+        IndexSuggestion: {
+            /** @description The backend */
+            backend: string;
+            attribute: string;
+            /** @description eq, sub, pres or approx. */
+            type: string;
+            /**
+             * @description `candidate`: no index on the attribute; one can be staged.
+             *     `type_missing`: indexed for other kinds of match only. Alder does
+             *     not change the types of an index that exists, so this is the
+             *     operator's own change. `blocked`: creating it would be refused,
+             *     and `reason` says why.
+             * @enum {string}
+             */
+            status: "candidate" | "type_missing" | "blocked";
+            reason?: string;
+            searches: number;
+            /** @description Of those */
+            markedUnindexed: number;
+            /** @description How many OpenLDAP "not indexed" lines named this attribute and kind. */
+            serverSaidNotIndexed: number;
+            /** Format: double */
+            totalSeconds: number;
+            /** Format: double */
+            worstSeconds: number;
+            /** Format: date-time */
+            first?: string;
+            /** Format: date-time */
+            last?: string;
+            /** @description Up to three filters, with every value replaced by "…". */
+            examples: string[];
         };
         /** @description The change that would add the index, or the reason there is none. */
         IndexCandidate: {
@@ -6352,6 +6545,37 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    compareReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The two records, compared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationComparison"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description No reference server is attached to this session (`conflict`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getEntryReplication: {
         parameters: {
             query: {
@@ -6497,6 +6721,51 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description No such backend on this server. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The directory did not answer. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    adviseConfigIndexes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IndexAdviceRequest"];
+            };
+        };
+        responses: {
+            /** @description What the log said. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexAdvice"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description This server publishes no configuration Alder can read. */
             404: {
                 headers: {
                     [name: string]: unknown;

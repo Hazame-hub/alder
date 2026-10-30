@@ -839,6 +839,38 @@ Two configuration recovery steps that were called `exact` no longer are
   where it was `exact` with nothing to undo. A plan's assessment cannot know
   what the bind may read, so it still says `exact` for such a setting.
 
+### 1.41
+
+Two servers' replication records can be compared
+([proposals/replication-health.md](proposals/replication-health.md)). Only
+additions:
+
+- **`GET /replication/compare`**, a new read-only endpoint, and its schemas
+  `ReplicationComparison`, `ReplicationSuffixComparison`,
+  `ReplicationOriginComparison` and `ReplicationVerdict`. 409 `conflict`
+  without a reference.
+- **`csn` on `ReplicationCursor`** and **`generation` on
+  `ReplicatedSuffix`**, optional fields.
+- **`alder replication --output FILE`** writes a new document kind,
+  `alder-replication` version 1, read as strictly as every other: an unknown
+  field or a later version is refused.
+- **`alder replication compare A B`** reads two such documents and contacts
+  nothing. Its exit status follows `alder diff`: 0 in step, 1 one behind or
+  each holding changes the other lacks, 2 incomplete or not comparable.
+  `--tolerate` and `--json` are never read from the environment.
+
+An index advisor reads a server log the operator supplies
+([proposals/index-advisor.md](proposals/index-advisor.md)). Only additions:
+
+- **`POST /config/indexes/advice`**, which applies nothing, and its schemas
+  `IndexAdviceRequest`, `IndexAdvice` and `IndexSuggestion`. The log
+  formats it recognises may grow; a line it does not recognise is counted,
+  never an error.
+- **`alder indexes advise --log FILE --config SNAPSHOT`**, which contacts
+  nothing. Exit 0 nothing suggested, 1 at least one suggestion, 2 some
+  counted searches were under no backend in the snapshot. Its flags are
+  never read from the environment.
+
 ---
 
 ## Not covered

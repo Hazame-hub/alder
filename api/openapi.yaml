@@ -1351,6 +1351,38 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /replication/compare:
+    get:
+      tags: [access]
+      operationId: compareReplication
+      summary: The session's replication record compared with the reference's
+      description: |
+        Reads what the session's server and the reference server (1.39) each
+        record about their own replication, and compares them per suffix and
+        per origin. Added in 1.41. Read-only.
+
+        For each origin, the two servers' latest changes from it are compared
+        by change sequence, and the span between them is measured by that
+        origin's own clock, so the answer does not depend on the two servers'
+        clocks agreeing. It is never a count of changes: a change sequence
+        says when, not how many.
+
+        No peer named in an agreement is contacted: both servers here are
+        ones the operator connected to. 409 when no reference is attached.
+      responses:
+        "200":
+          description: The two records, compared.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationComparison" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: No reference server is attached to this session (`conflict`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /replication/entry:
     get:
       tags: [access]
@@ -1544,6 +1576,54 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404":
           description: No such backend on this server.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: The directory did not answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /config/indexes/advice:
+    post:
+      tags: [config]
+      operationId: adviseConfigIndexes
+      summary: The indexes a server log says its searches were missing
+      description: |
+        Reads a log the operator supplies -- 389 Directory Server's access
+        log, or OpenLDAP's with `loglevel stats` -- against this server's
+        live index list, and returns the indexes its searches lacked. Added
+        in Alder 1.41. It applies nothing; staging one goes through
+        `POST /config/indexes/candidate` like any other index.
+
+        A search counts when the server itself marked it unindexed (389 DS's
+        `notes=U` or `notes=A`) or when it took at least `slowerThanMs`
+        (default 100). OpenLDAP's "not indexed" lines name no operation, so
+        they corroborate a suggestion and never make one.
+
+        The log is read in memory and dropped when the answer is written.
+        Nothing from it reaches the answer but attribute names and kinds of
+        match: example filters carry every value replaced by "…", and bind
+        DNs and client addresses are not read. The request is bounded by the
+        server's body limit, 16 MiB; for a larger log, `alder indexes
+        advise` reads any size, on the machine the log is on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IndexAdviceRequest" }
+      responses:
+        "200":
+          description: What the log said.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IndexAdvice" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: This server publishes no configuration Alder can read.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -3529,6 +3609,11 @@ components:
       properties:
         dn: { type: string }
         role: { $ref: "#/components/schemas/ReplicationRole" }
+        generation:
+          type: string
+          description: |
+            389 DS's replica generation (1.41). Two vectors from different
+            generations are not compared. Absent on OpenLDAP.
         serverId:
           type: string
           description: |
@@ -3565,6 +3650,80 @@ components:
         raw:
           type: string
           description: The value as the server wrote it, because a change sequence is what operators paste to each other.
+        csn:
+          type: string
+          description: |
+            The change sequence itself, without what surrounds it (1.41): the
+            whole value on OpenLDAP, the last of the two on a 389 DS vector,
+            whose first one is where this server started with that origin.
+            It is what two servers are compared on.
+
+    ReplicationComparison:
+      type: object
+      required: [verdict, why, suffixes, caveat, a, b]
+      description: |
+        Two servers' own records of their replication, compared per suffix
+        and per origin (1.41). `a` is the session's server and `b` the
+        reference. The verdict is in time only: a change sequence says when a
+        change was made, never how many lie between two of them.
+      properties:
+        verdict: { $ref: "#/components/schemas/ReplicationVerdict" }
+        why: { type: string }
+        a: { type: string, description: "The server read as `a`, as host:port." }
+        b: { type: string, description: "The server read as `b`, as host:port." }
+        suffixes:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationSuffixComparison" }
+        caveat:
+          type: string
+          description: What "in step" never appears without.
+
+    ReplicationVerdict:
+      type: string
+      enum: [in_step, a_behind, b_behind, diverged, not_comparable, incomplete]
+      x-enum-varnames: [ReplicationInStep, ReplicationABehind, ReplicationBBehind, ReplicationDiverged, ReplicationNotComparable, ReplicationIncomplete]
+      description: |
+        `in_step`: both hold the same latest change. `a_behind` / `b_behind`:
+        that side lacks changes the other holds, including every change from
+        an origin it holds nothing from. `diverged`: each holds changes the
+        other lacks, from different origins. `not_comparable`: the two
+        records are not positions on one history (different replication
+        models, different 389 DS replica generations, a suffix replicated on
+        one side only). `incomplete`: something needed could not be read.
+
+    ReplicationSuffixComparison:
+      type: object
+      required: [dn, verdict, origins]
+      properties:
+        dn: { type: string }
+        verdict: { $ref: "#/components/schemas/ReplicationVerdict" }
+        why:
+          type: string
+          description: Set when there is no verdict to give.
+        origins:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationOriginComparison" }
+
+    ReplicationOriginComparison:
+      type: object
+      required: [origin, verdict, spanSeconds]
+      properties:
+        origin: { type: string, description: The server id the changes came from. }
+        verdict: { $ref: "#/components/schemas/ReplicationVerdict" }
+        a: { $ref: "#/components/schemas/ReplicationCursor" }
+        b: { $ref: "#/components/schemas/ReplicationCursor" }
+        spanSeconds:
+          type: number
+          format: double
+          description: |
+            How much later the ahead side's latest change from this origin
+            was made, by that origin's own clock, so skew between the two
+            servers does not enter into it. Zero when in step, and also for
+            two changes in the same second on a server that stamps whole
+            seconds; `verdict` tells those apart.
+        tolerated:
+          type: boolean
+          description: Behind by no more than the tolerance asked for, and counted as in step.
 
     ReplicationLink:
       type: object
@@ -4065,6 +4224,72 @@ components:
           description: |
             What the index should cover. Empty means equality, which is what
             both servers are asked for when nothing is said.
+
+    IndexAdviceRequest:
+      type: object
+      required: [log]
+      properties:
+        log:
+          type: string
+          description: The log, as text. Lines the advisor does not recognise are counted and skipped.
+        slowerThanMs:
+          type: integer
+          minimum: 1
+          description: A search that took at least this long counts whatever the server said about it. Default 100.
+
+    IndexAdvice:
+      type: object
+      required: [lines, unrecognised, searches, counted, withoutResult, unattributed, unparsed, suggestions, caveat]
+      description: What one log said about the indexes its searches needed (1.41).
+      properties:
+        format:
+          type: string
+          enum: [389-access, openldap-stats]
+          x-enum-varnames: [IndexAdviceFormat389, IndexAdviceFormatOpenLDAP]
+          description: What the log was recognised as. Absent when no line was.
+        lines: { type: integer }
+        unrecognised: { type: integer, description: Lines that were neither a search, its result, nor a "not indexed" line. }
+        searches: { type: integer }
+        counted: { type: integer, description: Searches marked unindexed by the server, or slower than the threshold. }
+        withoutResult: { type: integer, description: Searches whose result line was not in the log. }
+        unattributed: { type: integer, description: Counted searches whose base is under no backend that holds indexes. }
+        unparsed: { type: integer, description: Counted searches whose filter is not RFC 4515. }
+        suggestions:
+          type: array
+          items: { $ref: "#/components/schemas/IndexSuggestion" }
+        caveat:
+          type: string
+          description: That adding an index is not building it, and that every index slows writes.
+
+    IndexSuggestion:
+      type: object
+      required: [backend, attribute, type, status, searches, markedUnindexed, serverSaidNotIndexed, totalSeconds, worstSeconds, examples]
+      properties:
+        backend: { type: string, description: The backend, as `IndexBackend.name` gives it. }
+        attribute: { type: string }
+        type: { type: string, description: "eq, sub, pres or approx." }
+        status:
+          type: string
+          enum: [candidate, type_missing, blocked]
+          x-enum-varnames: [IndexSuggestionCandidate, IndexSuggestionTypeMissing, IndexSuggestionBlocked]
+          description: |
+            `candidate`: no index on the attribute; one can be staged.
+            `type_missing`: indexed for other kinds of match only. Alder does
+            not change the types of an index that exists, so this is the
+            operator's own change. `blocked`: creating it would be refused,
+            and `reason` says why.
+        reason: { type: string }
+        searches: { type: integer }
+        markedUnindexed: { type: integer, description: Of those, how many the server itself marked unindexed. }
+        serverSaidNotIndexed: { type: integer, description: How many OpenLDAP "not indexed" lines named this attribute and kind. }
+        totalSeconds: { type: number, format: double }
+        worstSeconds: { type: number, format: double }
+        first: { type: string, format: date-time }
+        last: { type: string, format: date-time }
+        examples:
+          type: array
+          items: { type: string }
+          description: Up to three filters, with every value replaced by "…".
 
     IndexCandidate:
       type: object

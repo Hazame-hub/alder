@@ -480,6 +480,22 @@ and the setting is there so the difference can be read. Neither server reindexes
 on its own when an index is added, which is a `reindex` task on 389 DS and
 `slapindex` on OpenLDAP, and is outside what Alder does.
 
+### Which index to add (1.41)
+
+The indexes panel's **Find missing indexes in a server log** takes a log you
+upload -- 389 Directory Server's access log, or OpenLDAP's with `loglevel
+stats` -- and lists, for that backend, the indexes its searches lacked: the
+searches the server marked unindexed, or that took 100ms or more, reduced to
+an attribute and a kind of match, ranked by the time they took. Each
+suggestion's **Review** goes through the same candidate and the same LDIF
+review as the form beside it. The log is read in memory and dropped; only
+attribute names and filters with their values replaced come back. Past
+15 MiB, `alder indexes advise` reads any size where the log is (see
+[CLI.md](CLI.md#alder-indexes-advise)).
+
+An attribute indexed for other kinds of match only is reported, not staged:
+as above, Alder does not change the types of an index that exists.
+
 ## In the entry editor (1.18)
 
 An entry of the server's own configuration can be opened in the ordinary entry

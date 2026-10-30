@@ -170,6 +170,8 @@ func Commands(env *Env) []*cobra.Command {
 		keyCmd(env),
 		signCmd(env),
 		verifyCmd(env),
+		replicationCmd(env),
+		indexesCmd(env),
 		planCmd(env),
 		applyCmd(env),
 		versionCmd(env),

@@ -185,6 +185,7 @@ func For(ctx context.Context, r Reader, opts Options) (*Report, error) {
 			s := at(name)
 			s.ServerID = firstValue(entry, "nsDS5ReplicaId")
 			s.Cursors = append(s.Cursors, ruvCursors(entry)...)
+			s.Generation = ruvGeneration(entry)
 			// nsDS5Flags bit 0 means this server writes a changelog, which is
 			// what a server that sends changes has to do. The type says what
 			// it was set up as; the flag says what it can actually do, so the
@@ -487,6 +488,15 @@ func ruvCursors(entry *directory.Entry) []Cursor {
 		}
 	}
 	return out
+}
+
+func ruvGeneration(entry *directory.Entry) string {
+	for _, value := range entry.GetStrings("nsds50ruv") {
+		if generation, ok := parseGeneration(value); ok {
+			return generation
+		}
+	}
+	return ""
 }
 
 // readSuffixOwner reads the database entry an overlay sits on, for the suffix

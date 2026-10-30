@@ -124,29 +124,8 @@ func indexEntry(snap *snapshot.ConfigSnapshot, index snapshot.ConfigResource) In
 	return out
 }
 
-// refusalInWords is the reason a screen prints. The code is what a client
-// branches on and is not a sentence; an audit found `index_value_shared`
-// rendered raw to an operator, which is a code golf answer to "why can I not
-// remove this".
-func refusalInWords(refusal string) string {
-	switch refusal {
-	case config.RefusalIndexShared:
-		return "This index shares its value with another attribute, so taking it away would " +
-			"mean rewriting a value that indexes something else too. That is an edit rather " +
-			"than a deletion, and Alder does not make it for you."
-	case config.RefusalSystemIndex:
-		return "The server maintains this index for itself. Removing it is not Alder's to offer."
-	case config.RefusalNotPresent:
-		return "This index is not on the server as Alder read it."
-	case config.RefusalUnnamed:
-		return "Alder could not tell which attribute this index is for."
-	case config.RefusalNoParent:
-		return "The backend this index would belong to is not in the configuration Alder read."
-	case config.RefusalNotCreatable:
-		return "This is not a kind of object Alder creates."
-	}
-	return refusal
-}
+// refusalInWords is the reason a screen prints (config.RefusalInWords).
+func refusalInWords(refusal string) string { return config.RefusalInWords(refusal) }
 
 // PlanConfigIndex derives the write this server wants for a new index.
 func (s *Server) PlanConfigIndex(c *fiber.Ctx) error {

@@ -36,7 +36,11 @@ func (s *Server) GetReplication(c *fiber.Ctx, params GetReplicationParams) error
 	if err != nil {
 		return s.fail(c, err)
 	}
+	return c.JSON(replicationReportView(report))
+}
 
+// replicationReportView is a report as the API carries it.
+func replicationReportView(report *replication.Report) ReplicationReport {
 	out := ReplicationReport{
 		Role:       ReplicationRole(report.Role),
 		Why:        report.Why,
@@ -51,10 +55,9 @@ func (s *Server) GetReplication(c *fiber.Ctx, params GetReplicationParams) error
 			Links:   make([]ReplicationLink, 0, len(suffix.Links)),
 		}
 		view.ServerId = ptrIfSet(suffix.ServerID)
+		view.Generation = ptrIfSet(suffix.Generation)
 		for _, cursor := range suffix.Cursors {
-			view.Cursors = append(view.Cursors, ReplicationCursor{
-				Origin: cursor.Origin, At: cursor.At, Raw: cursor.Raw,
-			})
+			view.Cursors = append(view.Cursors, replicationCursor(cursor))
 		}
 		for _, link := range suffix.Links {
 			view.Links = append(view.Links, replicationLink(link))
@@ -69,7 +72,81 @@ func (s *Server) GetReplication(c *fiber.Ctx, params GetReplicationParams) error
 		}
 		out.Unread = &unread
 	}
-	return c.JSON(out)
+	return out
+}
+
+func replicationCursor(cursor replication.Cursor) ReplicationCursor {
+	out := ReplicationCursor{Origin: cursor.Origin, At: cursor.At, Raw: cursor.Raw}
+	out.Csn = ptrIfSet(cursor.CSN)
+	return out
+}
+
+// CompareReplication reads the session's server and the reference, each
+// server's own record of its replication, and compares them (1.41).
+//
+// Both reads are of servers the operator connected to, as GetReplication's
+// are; the comparison itself reads nothing (replication.Compare). The two
+// are read one after the other rather than at once: a session's connection
+// is not shared between requests, and the reference is its own connection,
+// so this costs one round trip more than it might and keeps both reads on
+// the paths every other read takes.
+func (s *Server) CompareReplication(c *fiber.Ctx) error {
+	sess := s.require(c)
+	if sess == nil {
+		return nil
+	}
+	ref := sess.Reference()
+	if ref == nil {
+		return noReference(c)
+	}
+	ctx, cancel := reqCtx(c)
+	defer cancel()
+
+	a, err := replication.For(ctx, sess.Conn, replication.Options{})
+	if err != nil {
+		return s.fail(c, err)
+	}
+	b, err := replication.For(ctx, ref.Conn, replication.Options{})
+	if err != nil {
+		return s.fail(c, err)
+	}
+	return c.JSON(replicationComparisonView(replication.Compare(*a, *b, replication.CompareOptions{}),
+		sess.Config.Address(), ref.Address()))
+}
+
+func replicationComparisonView(cmp replication.Comparison, a, b string) ReplicationComparison {
+	out := ReplicationComparison{
+		Verdict: ReplicationVerdict(cmp.Verdict), Why: cmp.Why, Caveat: cmp.Caveat,
+		A: a, B: b,
+		Suffixes: make([]ReplicationSuffixComparison, 0, len(cmp.Suffixes)),
+	}
+	for _, suffix := range cmp.Suffixes {
+		view := ReplicationSuffixComparison{
+			Dn: suffix.DN, Verdict: ReplicationVerdict(suffix.Verdict),
+			Origins: make([]ReplicationOriginComparison, 0, len(suffix.Origins)),
+		}
+		view.Why = ptrIfSet(suffix.Why)
+		for _, origin := range suffix.Origins {
+			o := ReplicationOriginComparison{
+				Origin: origin.Origin, Verdict: ReplicationVerdict(origin.Verdict),
+				SpanSeconds: origin.Span.Seconds(),
+			}
+			if origin.A != nil {
+				cursor := replicationCursor(*origin.A)
+				o.A = &cursor
+			}
+			if origin.B != nil {
+				cursor := replicationCursor(*origin.B)
+				o.B = &cursor
+			}
+			if origin.Tolerated {
+				o.Tolerated = ptr(true)
+			}
+			view.Origins = append(view.Origins, o)
+		}
+		out.Suffixes = append(out.Suffixes, view)
+	}
+	return out
 }
 
 func replicationLink(link replication.Link) ReplicationLink {
