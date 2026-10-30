@@ -7014,3 +7014,30 @@ company nor money yet.
 - **Not done, on purpose:** a source-available licence (BUSL, FSL) for future
   releases. It would stop a hosted competitor, but at the cost of being open
   source. The CLA keeps it possible if one appears.
+
+### 2026-10-30 — logging a request header, as built
+
+The owner accepted [proposals/request-header-logging.md](proposals/request-header-logging.md)
+with every open question as recommended: one header, the fixed attribute
+`request_header`, the refusal list as proposed, every line written while
+answering a request.
+
+- **`internal/reqlog`** holds it: the cleaning (printable ASCII, 128 bytes),
+  the name check, a Fiber middleware that stores the value in the request's
+  `UserContext`, and an `slog.Handler` wrapper that adds the attribute when a
+  record's context carries one. The wrapper is always installed; without the
+  flag no context carries a value and nothing changes.
+- **The call sites take the request's context**, by moving to the
+  `...Context` logging calls: the API handlers' refusals and applies, the
+  driver's `change applied`, `change rejected` and reconnect lines (which
+  already had the request's context), and `session opened`, for which
+  `Store.AddReplacing` and `Store.AttachReference` now take a context.
+  `session closed` is written by the reaper or a close, with no request
+  behind it, and carries nothing.
+- **A line break in the value never reaches the log**: the HTTP layer turns
+  it into a space before Alder sees it, and the cleaning would drop it
+  otherwise. A test sends one.
+- **The name check runs before anything listens.** `Authorization`,
+  `Proxy-Authorization`, `Cookie`, `Set-Cookie`, any name containing
+  `token`, `secret`, `password` or `key`, and anything that is not an HTTP
+  field name, are refused with the flag named.

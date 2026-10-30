@@ -327,7 +327,7 @@ func (s *session) readRootDSE(ctx context.Context) (directory.Capabilities, erro
 		// one whose schema cannot be located without guessing, and guessing
 		// "cn=subschema" then "cn=schema" is exactly the vendor branching the
 		// charter forbids. Say so instead.
-		s.logger.Warn("the server published no subschemaSubentry; the schema browser will be empty",
+		s.logger.WarnContext(ctx, "the server published no subschemaSubentry; the schema browser will be empty",
 			"address", s.cfg.Address())
 	}
 	return caps, nil
@@ -394,7 +394,7 @@ func (s *session) searchLocked(ctx context.Context, req *ldap.SearchRequest) (*l
 		}
 		return nil, cleaned
 	}
-	s.logger.Info("a search completed after the connection was reopened",
+	s.logger.InfoContext(ctx, "a search completed after the connection was reopened",
 		"connection", l.name, "base", req.BaseDN)
 	return res, nil
 }

@@ -8,6 +8,7 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -258,7 +259,7 @@ func (st *Store) Connections() int {
 
 // Add stores a connected session and returns its ID, or ErrFull.
 func (st *Store) Add(conn directory.Session, cfg directory.ConnConfig, readOnly bool) (*Session, error) {
-	return st.AddReplacing(conn, cfg, readOnly, "")
+	return st.AddReplacing(context.Background(), conn, cfg, readOnly, "")
 }
 
 // AddReplacing is Add for a connection that replaces the session with ID
@@ -267,7 +268,7 @@ func (st *Store) Add(conn directory.Session, cfg directory.ConnConfig, readOnly 
 // closed. Taken out there, not by the caller afterwards, so that two
 // reconnects with one cookie cannot both count its places as free: the
 // second finds it gone and subtracts nothing.
-func (st *Store) AddReplacing(conn directory.Session, cfg directory.ConnConfig, readOnly bool, replacing string) (*Session, error) {
+func (st *Store) AddReplacing(ctx context.Context, conn directory.Session, cfg directory.ConnConfig, readOnly bool, replacing string) (*Session, error) {
 	if st.FullReplacing(replacing) {
 		return nil, ErrFull
 	}
@@ -305,7 +306,7 @@ func (st *Store) AddReplacing(conn directory.Session, cfg directory.ConnConfig, 
 
 	// The bind DN identifies the session; the password is never a log field at
 	// any level, per rule 6 of the project charter.
-	st.logger.Info("session opened",
+	st.logger.InfoContext(ctx, "session opened",
 		"address", cfg.Address(),
 		"bind_dn", cfg.BindDN,
 		"read_only", readOnly,
@@ -404,7 +405,7 @@ func (st *Store) closeSession(s *Session, reason string) {
 // gone, ErrReferenceAttached when it already has one, and ErrFull when the
 // store holds as many connections as it allows. On any error the caller
 // still owns conn and closes it.
-func (st *Store) AttachReference(sess *Session, conn directory.Session, cfg directory.ConnConfig) (*Reference, error) {
+func (st *Store) AttachReference(ctx context.Context, sess *Session, conn directory.Session, cfg directory.ConnConfig) (*Reference, error) {
 	if st.Full() {
 		return nil, ErrFull
 	}
@@ -440,7 +441,7 @@ func (st *Store) AttachReference(sess *Session, conn directory.Session, cfg dire
 
 	// Logged as a session of its own, so an operator watching the log can
 	// account for every directory connection. The password is never a field.
-	st.logger.Info("session opened",
+	st.logger.InfoContext(ctx, "session opened",
 		"role", "reference",
 		"address", cfg.Address(),
 		"bind_dn", cfg.BindDN,

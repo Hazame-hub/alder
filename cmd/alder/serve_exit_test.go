@@ -54,3 +54,13 @@ func TestAnUnknownCommandExitsSevenFromTheRealRoot(t *testing.T) {
 		t.Errorf("exit %d, want %d\n%s", code, cli.ExitUsage, stderr)
 	}
 }
+
+// A header that carries credentials is refused before anything listens.
+func TestServeRefusesToLogACredentialHeader(t *testing.T) {
+	for _, name := range []string{"Authorization", "Cookie", "X-Api-Key"} {
+		err := runServe(t.Context(), serveOptions{logLevel: "info", logFormat: "text", logHeader: name})
+		if err == nil || !strings.Contains(err.Error(), "--log-request-header") {
+			t.Errorf("%s: err = %v, want a --log-request-header refusal", name, err)
+		}
+	}
+}

@@ -1,6 +1,8 @@
 # Logging a request header the operator names
 
-**Status: proposed (2026-10-30).** No code until it is reviewed.
+**Status: accepted (2026-10-30), every open question as recommended, and
+built.** What the build settled is in `docs/DECISIONS.md` under the same
+date.
 
 `alder serve --log-request-header NAME`: Alder reads the value of one
 request header the operator names, `X-Request-Id` for example, and puts it on
