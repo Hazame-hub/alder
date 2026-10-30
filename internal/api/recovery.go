@@ -107,7 +107,7 @@ func (s *Server) InspectRecovery(c *fiber.Ctx) error {
 		}
 		out.Drift = append(out.Drift, drift)
 	}
-	s.logger.Info("recovery bundle inspected", "steps", len(bundle.Steps), "changes", len(requests),
+	s.logger.InfoContext(c.UserContext(), "recovery bundle inspected", "steps", len(bundle.Steps), "changes", len(requests),
 		"integrity", string(integrity), "origin_matches", same)
 	return c.JSON(out)
 }

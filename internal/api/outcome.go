@@ -89,7 +89,7 @@ func (s *Server) DetermineChangeOutcome(c *fiber.Ctx) error {
 	// Only "not applied" can be put right, and even then not from here.
 	resolvable := result.Verdict == outcome.NotApplied
 
-	s.logger.Info("judged a change whose outcome was unknown",
+	s.logger.InfoContext(c.UserContext(), "judged a change whose outcome was unknown",
 		"change", record.Summary(), "verdict", string(result.Verdict))
 
 	out := ChangeOutcome{

@@ -807,6 +807,18 @@ Only additions:
   `invalid` with `missing_required_attribute`**, an existing code, where it
   planned as `modify` and the directory then refused it.
 
+### 1.40
+
+`alder serve` can log a request header the operator names
+([proposals/request-header-logging.md](proposals/request-header-logging.md)).
+Only additions:
+
+- **`--log-request-header NAME`** (`ALDER_LOG_REQUEST_HEADER`), off by
+  default. The value goes on log lines as `request_header`; that name is
+  the flag's meaning and keeps it, though log output is otherwise not
+  covered. A name that carries credentials is refused at start, and later
+  releases may refuse more such names, never fewer.
+
 ---
 
 ## Not covered

@@ -289,7 +289,7 @@ func (s *Server) fail(c *fiber.Ctx, err error) error {
 
 	// Anything unrecognised is logged in full and reported in outline. The
 	// server's internal detail is not the browser's business.
-	s.logger.Error("request failed", "path", c.Path(), "error", err)
+	s.logger.ErrorContext(c.UserContext(), "request failed", "path", c.Path(), "error", err)
 	return writeError(c, fiber.StatusInternalServerError, ErrorErrorInternal,
 		"Something went wrong.", "")
 }
