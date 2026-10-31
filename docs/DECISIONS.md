@@ -7155,3 +7155,14 @@ recommended. Feature 6 of the 2026-10-21 batch.
 - **`config.RefusalInWords`** moved out of `internal/api`, so the CLI and the
   API word a blocked index the same way.
 
+### 2026-10-31 — saved plans will carry renames and moves
+
+`docs/proposals/saved-renames.md` was accepted with every open question as
+recommended. A saved rename expects the entry's identity (`entryUUID` or
+`nsUniqueId`) and its RDN values, not its whole content; branch moves are in
+the first slice, with a `subordinates` count the plan shows and the saved
+plan expects; `parent_missing` becomes a plan conflict for every rename whose
+new superior does not exist; no flag is needed to save a move that leaves
+references dangling; and the saved-plan format stays version 1. What the
+build settles is recorded when it lands.
+
