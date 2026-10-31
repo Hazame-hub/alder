@@ -7155,3 +7155,26 @@ recommended. Feature 6 of the 2026-10-21 batch.
 - **`config.RefusalInWords`** moved out of `internal/api`, so the CLI and the
   API word a blocked index the same way.
 
+### 2026-10-31 — a rebase finds encoded and OID-typed DNs inside values
+
+The 2026-10-16 entry left three spellings of a DN unrecognised inside a
+value: percent-encoded URLs, escaped commas and types written as OIDs. Each
+is a way a development `memberURL`, `aci` or saved-search filter keeps naming
+production's entries with nothing said. What was settled:
+
+- **Read twice, never rewritten.** The value is read as written and, when it
+  holds a `%` or a backslash, once more with percent encodings and DN hex
+  escapes (`\XX`) decoded in one pass. A backslash before anything but two
+  hex digits keeps the byte after it, so `\\2C` is a backslash and text, not
+  a comma. Either reading finding the suffix is enough. An escaped comma
+  read as a separator can name a value that is not below the suffix
+  (`cn=a\2Cdc=alder,dc=test`); `\,` already read that way. Over-reporting
+  is the safe side for something that only reports.
+- **Types by RFC 4519, not by schema.** The long names and numeric OIDs of
+  `dc`, `o`, `ou`, `c`, `l`, `st`, `cn`, `uid` and `street`, with or without
+  RFC 1779's `OID.` prefix, are folded to the short name in the value and in
+  the suffix. They are fixed by the RFC, so `internal/project` stays offline
+  and takes no new input. A suffix named with another type is found only as
+  written.
+- **Nothing else changes**: the reason stays `contains_dn`, the cost stays
+  linear (at most two passes), and the plan and exit status are untouched.

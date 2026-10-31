@@ -297,7 +297,7 @@ func readsAsDNBelow(v []byte, from dn.DN) bool {
 
 // suffixPattern is from as containsDNBelow looks for it.
 func suffixPattern(from dn.DN) string {
-	return foldForSearch(from.String())
+	return canonicalTypes(foldForSearch(from.String()))
 }
 
 // containsDNBelow reports whether v holds, somewhere in its text, a DN that
@@ -307,15 +307,31 @@ func suffixPattern(from dn.DN) string {
 // sign (base=...), an opening parenthesis, a line break, or at the start of
 // the value, and followed by nothing that would carry on its last value or
 // name a further RDN. ASCII case is ignored, as are spaces around commas and
-// equals signs. It is a reading of text, not a parse, which is why it only
-// reports. Folding is ASCII only, so a value that is not UTF-8 (Latin-1 prose,
-// say) is read too. It costs one pass to fold v and one comparison of the
-// pattern for each place the suffix appears.
+// equals signs, and an attribute type may be written by its RFC 4519 name,
+// its long name or its numeric OID (dc, domainComponent,
+// 0.9.2342.19200300.100.1.25, OID.0.9.2342.19200300.100.1.25). The text is
+// read as written and, when it holds any, once more with its percent
+// encodings (an LDAP URL's %2C, %3D) and its DN hex escapes (\2C, \3D) decoded,
+// so that a suffix spelled either way is found. It is a reading of text, not
+// a parse, which is why it only reports. Folding is ASCII only, so a value
+// that is not UTF-8 (Latin-1 prose, say) is read too. It costs one or two
+// passes over v and one comparison of the pattern for each place the suffix
+// appears.
 func containsDNBelow(v []byte, pattern string) bool {
 	if pattern == "" {
 		return false
 	}
-	text := foldForSearch(string(v))
+	text := string(v)
+	if suffixIn(canonicalTypes(foldForSearch(text)), pattern) {
+		return true
+	}
+	if decoded, changed := decodeEscapes(text); changed {
+		return suffixIn(canonicalTypes(foldForSearch(decoded)), pattern)
+	}
+	return false
+}
+
+func suffixIn(text, pattern string) bool {
 	for at := 0; ; {
 		i := strings.Index(text[at:], pattern)
 		if i < 0 {
@@ -328,6 +344,96 @@ func containsDNBelow(v []byte, pattern string) bool {
 		}
 		at = i + 1
 	}
+}
+
+// decodeEscapes decodes, in one pass, the percent encodings of a URL (%2C)
+// and the hex escapes of a DN or a filter (\2C). A backslash before anything
+// but two hex digits is kept with the byte after it, so \\2C stays as
+// written. changed is false when there was nothing to decode.
+func decodeEscapes(s string) (string, bool) {
+	if !strings.ContainsAny(s, `%\`) {
+		return s, false
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	changed := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c == '%' || c == '\\') && i+2 < len(s) && isHex(s[i+1]) && isHex(s[i+2]) {
+			b.WriteByte(unhex(s[i+1])<<4 | unhex(s[i+2]))
+			i += 2
+			changed = true
+			continue
+		}
+		b.WriteByte(c)
+		if c == '\\' && i+1 < len(s) {
+			i++
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String(), changed
+}
+
+func isHex(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
+}
+
+func unhex(c byte) byte {
+	switch {
+	case c <= '9':
+		return c - '0'
+	case c >= 'a':
+		return c - 'a' + 10
+	}
+	return c - 'A' + 10
+}
+
+// namingTypes are the attribute types a suffix is usually named with, by
+// their long names and numeric OIDs (RFC 4519), each to its short name. They
+// are fixed by the RFC, not read from a schema, so this package stays
+// offline; a suffix named with another type is found only as it is written.
+var namingTypes = map[string]string{
+	"domaincomponent": "dc", "0.9.2342.19200300.100.1.25": "dc",
+	"organizationname": "o", "2.5.4.10": "o",
+	"organizationalunitname": "ou", "2.5.4.11": "ou",
+	"countryname": "c", "2.5.4.6": "c",
+	"localityname": "l", "2.5.4.7": "l",
+	"stateorprovincename": "st", "2.5.4.8": "st",
+	"commonname": "cn", "2.5.4.3": "cn",
+	"userid": "uid", "0.9.2342.19200300.100.1.1": "uid",
+	"streetaddress": "street", "2.5.4.9": "street",
+}
+
+// canonicalTypes rewrites, in folded text, each attribute type that
+// namingTypes knows, written where a DN's type may start and followed by an
+// equals sign, to its short name. An OID may carry the "oid." prefix of
+// RFC 1779.
+func canonicalTypes(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		if i == 0 || strings.IndexByte(`,/"'=(+ `+"\n\r\t", s[i-1]) >= 0 {
+			j := i
+			for j < len(s) && (isTypeByte(s[j])) {
+				j++
+			}
+			if j < len(s) && s[j] == '=' && j > i {
+				token := strings.TrimPrefix(s[i:j], "oid.")
+				if short, ok := namingTypes[token]; ok {
+					b.WriteString(short)
+					i = j
+					continue
+				}
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+func isTypeByte(c byte) bool {
+	return 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '.' || c == '-'
 }
 
 // foldForSearch lowers ASCII letters and drops the spaces around a comma or
