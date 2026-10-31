@@ -947,7 +947,8 @@ values of the attributes it replaces, under the names the entry returns them
 by (`cn` for `commonName` or `2.5.4.3`); **a deletion expects the entry exactly
 as it was read**, so it is applied only while the entry still holds what the
 reviewer saw deleted. **A rename or a move expects the entry's identity**
-(`entryUUID` on OpenLDAP, `nsUniqueId` on 389 DS), the values of its current
+(`entryUUID` when the server serves one, as OpenLDAP and 389 DS 2.x do,
+else `nsUniqueId`), the values of its current
 RDN, and how many entries are below it (`subordinates`), which it moves with
 it: another entry later given the same name, or an entry added below a branch,
 makes the apply stale, while an edit to any other attribute does not. One whose

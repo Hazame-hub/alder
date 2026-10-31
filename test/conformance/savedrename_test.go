@@ -14,7 +14,7 @@ import (
 
 // A saved plan that renames or moves, against both real directories
 // (docs/proposals/saved-renames.md): bound to the entry's identity
-// (entryUUID on OpenLDAP, nsUniqueId on 389 DS) and to how many entries are
+// (entryUUID, or nsUniqueId where a server serves no entryUUID) and to how many entries are
 // below it, never to what the rest of the entry holds.
 
 const moveOU = "ou=alder-move," + suffix
@@ -100,8 +100,10 @@ func TestASavedRenameOnBothServers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(strings.ToLower(string(text)), strings.ToLower(s.identityAttribute())) {
-				t.Errorf("the saved rename does not expect %s:\n%s", s.identityAttribute(), text)
+			// 389 DS serves entryUUID too (its entryUUID plugin), so either
+			// identity will do; what matters is that one is expected.
+			if !strings.Contains(string(text), `"name": "entryUUID"`) && !strings.Contains(string(text), `"name": "nsUniqueId"`) {
+				t.Errorf("the saved rename does not expect the entry's identity:\n%s", text)
 			}
 			if !exists(t, sess, leaf) || exists(t, sess, leafMoved) {
 				t.Fatal("saving the plan moved the entry")
@@ -190,12 +192,4 @@ func TestASavedRenameOnBothServers(t *testing.T) {
 			}
 		})
 	})
-}
-
-// identityAttribute is the attribute the server keeps an entry's identity in.
-func (s server) identityAttribute() string {
-	if strings.Contains(strings.ToLower(s.name), "389") {
-		return "nsUniqueId"
-	}
-	return "entryUUID"
 }
