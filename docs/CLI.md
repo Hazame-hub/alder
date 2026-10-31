@@ -535,9 +535,13 @@ attribute and reason, with the reason:
   directory both environments share, it still names the project's entries.
   It is found by the suffix at the end of a DN (after a comma, a slash as in
   an LDAP URL, a quote, `=`, `(`, a line break or at the start of the value),
-  ignoring ASCII case and spaces around commas and `=`; a percent-encoded URL
-  is not decoded; write such values in each environment's names, or keep that
-  environment's suffix the project's.
+  ignoring ASCII case and spaces around commas and `=`. The value is read
+  as written and again with percent encodings (`%2C`, `%3D`) and DN hex
+  escapes (`\2C`) decoded, and the suffix's types may be written by long
+  name or numeric OID (`domainComponent`, `0.9.2342.19200300.100.1.25`,
+  `OID.`-prefixed) for the RFC 4519 naming types (`dc`, `o`, `ou`, `c`, `l`,
+  `st`, `cn`, `uid`, `street`). Write such values in each environment's
+  names, or keep that environment's suffix the project's.
 - `not_a_dn`: a value of DN (or Name And Optional UID) syntax that does not
   parse as a DN. Sent as written, for the directory to judge.
 

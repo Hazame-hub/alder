@@ -356,6 +356,36 @@ func TestContainsDNBelow(t *testing.T) {
 		"cn=a,xdc=alder,dc=test":                    false,
 		"no name here":                              false,
 		"cn=a,dc=other,dc=test then dc=alder,dc=te": false,
+		// Percent-encoded, as an LDAP URL may write a DN.
+		"ldap:///ou=people%2Cdc=alder%2Cdc=test??sub?":    true,
+		"ldap:///ou%3Dpeople%2CDC%3DAlder%2C%20dc%3Dtest": true,
+		"ldap:///ou=people%2Cdc=alder%2Cdc=testing??sub?": false,
+		// DN hex escapes, as a DN or a filter may write one.
+		`cn=a\2Cdc=alder\2Cdc=test`:         true,
+		`(member=uid=a,dc=\61lder,dc=test)`: true,
+		`cn=a,dc=alder,dc=test\2Cdc=com`:    false,
+		// An escaped backslash: the 2C after it is text, not a comma.
+		`a\\2Cdc=alder,dc=test`: false,
+		// The suffix's types by long name or numeric OID.
+		"cn=a,domainComponent=alder,DomainComponent=test":                       true,
+		"cn=a,0.9.2342.19200300.100.1.25=alder,0.9.2342.19200300.100.1.25=test": true,
+		"cn=a,OID.0.9.2342.19200300.100.1.25=alder,dc=test":                     true,
+		"ldap:///cn=a%2C0.9.2342.19200300.100.1.25%3Dalder%2Cdc%3Dtest":         true,
+		"cn=a,1.2.3.4=alder,dc=test":                                            false,
+		"cn=a,xdomainComponent=alder,dc=test":                                   false,
+	} {
+		if got := containsDNBelow([]byte(v), suffixPattern(from)); got != want {
+			t.Errorf("containsDNBelow(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+func TestContainsDNBelowASuffixWrittenByOID(t *testing.T) {
+	from := dn.MustParse("0.9.2342.19200300.100.1.25=alder,DC=test")
+	for v, want := range map[string]bool{
+		"ldap:///cn=a,dc=alder,dc=test":      true,
+		"cn=a,domainComponent=alder,dc=test": true,
+		"cn=a,dc=other,dc=test":              false,
 	} {
 		if got := containsDNBelow([]byte(v), suffixPattern(from)); got != want {
 			t.Errorf("containsDNBelow(%q) = %v, want %v", v, got, want)
