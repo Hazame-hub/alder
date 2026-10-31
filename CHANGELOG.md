@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.42.0](https://github.com/Hazame-hub/alder/compare/v1.41.0...v1.42.0) (2026-10-31)
+
+
+### Features
+
+* **plan:** saved plans carry renames and moves ([#280](https://github.com/Hazame-hub/alder/issues/280)) ([798a9de](https://github.com/Hazame-hub/alder/commit/798a9de4fdcde9c00aa77529971fafd3a6bca49c))
+
+
+### Fixes
+
+* **project:** find percent-encoded, escaped and OID-typed suffix DNs inside values ([#277](https://github.com/Hazame-hub/alder/issues/277)) ([6e6fcd3](https://github.com/Hazame-hub/alder/commit/6e6fcd3ab73785ef01790d1439c8270bc4e5ac4e))
+
+
+### Documentation
+
+* **proposals:** saved plans that carry renames and moves ([#278](https://github.com/Hazame-hub/alder/issues/278)) ([261deb1](https://github.com/Hazame-hub/alder/commit/261deb1618ccc30c5ba4b0255366dc6a79bfb36a))
+
 ## [1.41.0](https://github.com/Hazame-hub/alder/compare/v1.40.0...v1.41.0) (2026-10-30)
 
 
