@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.41.0](https://github.com/Hazame-hub/alder/compare/v1.40.0...v1.41.0) (2026-10-30)
+
+
+### Features
+
+* **indexes:** advise missing indexes from an operator-supplied log ([0804a36](https://github.com/Hazame-hub/alder/commit/0804a36223b9a81f9218238db3b573c9cea53c43))
+* **replication:** compare two servers per origin, in time only ([0804a36](https://github.com/Hazame-hub/alder/commit/0804a36223b9a81f9218238db3b573c9cea53c43))
+
 ## [1.40.0](https://github.com/Hazame-hub/alder/compare/v1.39.0...v1.40.0) (2026-10-30)
 
 
