@@ -871,15 +871,6 @@ An index advisor reads a server log the operator supplies
   counted searches were under no backend in the snapshot. Its flags are
   never read from the environment.
 
-### 1.41.1
-
-- **`leftAsWritten` may list more values** with the reason `contains_dn`:
-  a DN below the project's suffix that is percent-encoded (an LDAP URL's
-  `%2C`), written with DN hex escapes (`\2C`), or whose types are written by
-  long name or numeric OID is now found. Values are still never rewritten;
-  the plan, the saved-plan format and the exit status do not change. A
-  saved search whose filter holds such a DN is now said on standard error.
-
 ### 1.42
 
 Saved plans carry renames and moves
@@ -897,6 +888,12 @@ Saved plans carry renames and moves
   `alder apply --plan` and the web interface's saved-plan loader read one.
   The file stays `alder-plan` version 1; an older release refuses a file
   holding a rename, as it did before.
+- **`leftAsWritten` may list more values** with the reason `contains_dn`:
+  a DN below the project's suffix that is percent-encoded (an LDAP URL's
+  `%2C`), written with DN hex escapes (`\2C`), or whose types are written by
+  long name or numeric OID is now found. Values are still never rewritten;
+  the plan, the saved-plan format and the exit status do not change. A
+  saved search whose filter holds such a DN is now said on standard error.
 
 ---
 
