@@ -29,10 +29,14 @@ Other things it does:
   `alder project plan --detailed-exitcode` tell CI whether production still
   matches. Entries the files do not mention are reported as unmanaged and never
   deleted.
-- 1.39.0, out today, adds a second read-only server in the same session (staging
-  beside production, a replica beside its primary) to compare with, and plans
-  that can be saved, signed with an Ed25519 key, and applied exactly later after
-  someone approves them.
+- A second read-only server in the same session (staging beside production, a
+  replica beside its primary) to compare data, schema, configuration and
+  replication with.
+- Plans that can be saved, signed with Ed25519 keys (one or several required
+  signers), and applied exactly later after someone approves them, renames
+  and moves included.
+- Index advice from an access log you give it: which searches ran without an
+  index, how often and how slowly.
 
 It keeps no database and no state on disk, refuses to start without TLS unless
 you tell it otherwise, and has a `--read-only` mode. Both servers are covered by
@@ -41,7 +45,7 @@ one conformance suite that runs every case against each of them in CI.
 It is young (first release in September) and does not support Active Directory
 or FreeIPA. I would like to hear where it gets something wrong about LDAP.
 
-Release: https://github.com/Hazame-hub/alder/releases/tag/v1.39.0
+Release: https://github.com/Hazame-hub/alder/releases/tag/v1.42.0
 What an edit looks like: https://github.com/Hazame-hub/alder/blob/main/docs/screenshots/edit-review-apply.gif
 Ten-minute walkthrough with a seeded OpenLDAP and 389 DS in Docker:
 https://github.com/Hazame-hub/alder/blob/main/docs/GETTING-STARTED.md
