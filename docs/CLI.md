@@ -950,7 +950,15 @@ in place of an environment. Each change is the plan's own record. A modification
 values of the attributes it replaces, under the names the entry returns them
 by (`cn` for `commonName` or `2.5.4.3`); **a deletion expects the entry exactly
 as it was read**, so it is applied only while the entry still holds what the
-reviewer saw deleted. A rename or a password change is not saved, nor is a
+reviewer saw deleted. **A rename or a move expects the entry's identity**
+(`entryUUID` when the server serves one, as OpenLDAP and 389 DS 2.x do,
+else `nsUniqueId`), the values of its current
+RDN, and how many entries are below it (`subordinates`), which it moves with
+it: another entry later given the same name, or an entry added below a branch,
+makes the apply stale, while an edit to any other attribute does not. One whose
+identity the bind cannot read, or with more than 10,000 entries below it, is
+not saved. References a move leaves dangling are shown in the plan, as for a
+deletion, and never rewritten. A password change is not saved, nor is a
 plan with a value the server withheld, nor a `--changes` change that carries
 its own `expect`: apply those with `alder apply`. Before
 the file is written, its changes are planned once more, exactly as an apply

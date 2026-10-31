@@ -46,10 +46,13 @@ func singleRig(t *testing.T) (*testRig, *directory.Entry) {
 	rig := newRig(t, Config{}, &fakeSession{
 		caps: caps, sch: testSchema(t),
 		byDN: map[string]*directory.Entry{
-			singleSchemaDN:             directory.NewEntry(mustParse(t, singleSchemaDN)),
-			singleConfigDN:             directory.NewEntry(mustParse(t, singleConfigDN)),
-			strings.ToLower(planAlice): alice,
-			strings.ToLower(bobDN):     bob,
+			singleSchemaDN: directory.NewEntry(mustParse(t, singleSchemaDN)),
+			singleConfigDN: directory.NewEntry(mustParse(t, singleConfigDN)),
+			// Where the move cases put alice: a move under a parent that is not
+			// there is planned as parent_missing.
+			"ou=groups,dc=alder,dc=test": directory.NewEntry(mustParse(t, "ou=groups,dc=alder,dc=test")),
+			strings.ToLower(planAlice):   alice,
+			strings.ToLower(bobDN):       bob,
 		},
 	})
 	return rig, alice

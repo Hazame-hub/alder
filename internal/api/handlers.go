@@ -406,10 +406,22 @@ func (s *Server) CountEntries(c *fiber.Ctx, params CountEntriesParams) error {
 	defer cancel()
 
 	started := time.Now()
-	count := 0
+	count, truncated, err := countSubtree(ctx, sess.Conn, base, limit)
+	if err != nil {
+		return s.fail(c, err)
+	}
+	return c.JSON(CountResult{
+		Count: count, Truncated: truncated,
+		Took: ptr(time.Since(started).Round(time.Millisecond).String()),
+	})
+}
+
+// countSubtree counts base and the entries below it, up to limit. truncated
+// says the count stopped at the limit, or that the server stopped it.
+func countSubtree(ctx context.Context, conn directory.Session, base dn.DN, limit int) (count int, truncated bool, err error) {
 	var cookie []byte
 	for {
-		res, err := sess.Conn.Search(ctx, directory.SearchRequest{
+		res, err := conn.Search(ctx, directory.SearchRequest{
 			BaseDN:     base,
 			Scope:      directory.ScopeSubtree,
 			Filter:     filter.Present("objectClass"),
@@ -419,23 +431,17 @@ func (s *Server) CountEntries(c *fiber.Ctx, params CountEntriesParams) error {
 			Cookie:     cookie,
 		})
 		if err != nil {
-			return s.fail(c, err)
+			return 0, false, err
 		}
 		count += len(res.Entries)
 		cookie = res.Cookie
 		if count >= limit {
-			return c.JSON(CountResult{
-				Count: limit, Truncated: true,
-				Took: ptr(time.Since(started).Round(time.Millisecond).String()),
-			})
+			return limit, true, nil
 		}
 		// A server that cannot page returns no cookie, and Truncated is then
 		// the only thing that says the answer is short.
 		if len(cookie) == 0 {
-			return c.JSON(CountResult{
-				Count: count, Truncated: res.Truncated,
-				Took: ptr(time.Since(started).Round(time.Millisecond).String()),
-			})
+			return count, res.Truncated, nil
 		}
 	}
 }

@@ -7189,3 +7189,29 @@ plan expects; `parent_missing` becomes a plan conflict for every rename whose
 new superior does not exist; no flag is needed to save a move that leaves
 references dangling; and the saved-plan format stays version 1. What the
 build settles is recorded when it lands.
+
+### 2026-10-31 — saved renames, as built
+
+`docs/proposals/saved-renames.md`, as accepted. What the build settled:
+
+- **The identity is whichever the entry returns.** `alder plan --out` reads
+  the entry with its operational attributes and expects `entryUUID` if it
+  has one, else `nsUniqueId`, with every value the RDN's attribute types
+  hold. It is compared by the attribute's equality rule like any expected
+  value; the fingerprint folds it in, so a replaced entry is stale at apply.
+- **The count is of everything below, not of children.** One subtree search
+  with no attributes, as `GET /count` makes, now shared (`countSubtree`). The
+  plan counts up to 10,000 and says "at least" past it; a saved plan refuses
+  to save a move it could not count whole. The expectation counts to one more
+  than it expects, so checking it costs no more than the reviewed subtree.
+- **A leaf expects 0.** The plan reports `subordinates` only for an entry
+  with children, and a saved rename of a leaf expects none below it, so a
+  child added between review and apply is seen.
+- **`parent_missing` reads only the new superior**, and only for a move:
+  a rename in place keeps a parent that exists. A parent added, or moved
+  there, earlier in the same set counts as there.
+- **Saving checks the count again.** `sameAsShown` compares each item's
+  `subordinates` between the plan shown and the plan of the saved changes,
+  like membership and references.
+- **The CLI and the web reader refuse a rename** without an identity value
+  and a `subordinates` count, or with an exhaustive expectation.

@@ -4643,6 +4643,13 @@ export interface components {
              *     Added for compensating changes to the schema; absent means none.
              */
             definitions?: components["schemas"]["ChangeExpectedDefinition"][];
+            /**
+             * @description How many entries must be below the entry, all levels. A saved
+             *     rename expects the subtree the reviewer saw move. Counted at plan
+             *     time and again at apply; a different count is
+             *     `expected_state_differs`, then `plan_stale`. Added in 1.42.
+             */
+            subordinates?: number;
         };
         ChangeExpectedDefinition: {
             /** @description The attribute that carries the definition, such as `attributeTypes` or `olcAttributeTypes`. */
@@ -4711,7 +4718,9 @@ export interface components {
          *
          *     State conflicts (`action: conflict`), which may resolve when the
          *     directory changes: `entry_missing`, `entry_exists`, `has_children`,
-         *     `rename_target_exists`, and `expected_state_differs` (1.9): the entry
+         *     `rename_target_exists`, `parent_missing` (1.42: a rename moves the
+         *     entry under a new superior that does not exist and is not added or
+         *     moved there earlier in the set), and `expected_state_differs` (1.9): the entry
          *     no longer holds the state a change's `expect` requires -- for a change
          *     from a recovery bundle, the directory has drifted since the original
          *     apply. `dependency_required` and `referenced_by_schema` (1.10): a schema
@@ -4726,7 +4735,7 @@ export interface components {
          *     directory to refuse.
          * @enum {string}
          */
-        PlanProblemCode: "entry_missing" | "entry_exists" | "has_children" | "rename_target_exists" | "expected_state_differs" | "dependency_required" | "referenced_by_schema" | "object_class_undefined" | "attribute_undefined" | "attribute_not_permitted" | "single_value_violation" | "missing_required_attribute";
+        PlanProblemCode: "entry_missing" | "entry_exists" | "has_children" | "rename_target_exists" | "parent_missing" | "expected_state_differs" | "dependency_required" | "referenced_by_schema" | "object_class_undefined" | "attribute_undefined" | "attribute_not_permitted" | "single_value_violation" | "missing_required_attribute";
         PlanProblem: {
             code: components["schemas"]["PlanProblemCode"];
             /** @description The attribute or object class concerned, where there is one. */
@@ -4887,6 +4896,12 @@ export interface components {
              *     Added in 1.9.
              */
             recovery?: components["schemas"]["RecoveryAssessment"];
+            /**
+             * @description For a rename of an entry that has children: how many entries are
+             *     below it, which the rename moves with it, counted up to 10,000
+             *     (`truncated` past that; `took` is not set). Added in 1.42.
+             */
+            subordinates?: components["schemas"]["CountResult"];
         };
         Plan: {
             counts: components["schemas"]["PlanCounts"];

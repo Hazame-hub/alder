@@ -265,7 +265,8 @@ func TestASavedInputPlanIsReadStrictly(t *testing.T) {
 	for _, tc := range []struct{ name, from, to, want string }{
 		{"an environment name", `"host":`, `"name": "prod", "host":`, "names an environment"},
 		{"no input kind", `"kind": "ldif"`, `"kind": "package"`, "which input"},
-		{"a rename", `"type": "delete"`, `"type": "modrdn"`, "does not hold"},
+		{"a rename that does not expect its entry's identity", `"type": "delete"`, `"type": "modrdn"`,
+			"does not expect the entry's identity"},
 		{"a deletion that is not exact", `"exhaustive": true`, `"exhaustive": false`, "does not expect the entry exactly"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

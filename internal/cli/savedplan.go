@@ -18,7 +18,9 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/hazame-hub/alder/internal/apiclient"
+	"github.com/hazame-hub/alder/internal/dn"
 	"github.com/hazame-hub/alder/internal/project"
+	"github.com/hazame-hub/alder/internal/schema"
 	"github.com/hazame-hub/alder/internal/signing"
 )
 
@@ -227,10 +229,15 @@ func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan 
 				return err
 			}
 			change.Expect = expect
+		case apiclient.PlanActionRename:
+			expect, err := expectationForRename(ctx, r, change, item, applyWith)
+			if err != nil {
+				return err
+			}
+			change.Expect = expect
 		default:
 			// Anything else is not something this file knows how to make
-			// safe to keep: a rename has nothing an expectation can bind, and
-			// a password's value is never written down.
+			// safe to keep: a password's value is never written down.
 			return failf("plan_not_saved", "the plan was not saved to %s: %s of %s is not a change a saved plan holds; apply this one with %s",
 				safe(path), item.Action, safe(item.Dn), applyWith)
 		}
@@ -420,6 +427,110 @@ func expectationForDelete(ctx context.Context, r *remote, change apiclient.Chang
 	return expect, nil
 }
 
+// identityAttributes are the attributes a server keeps to name an entry for
+// its whole life, whatever DN it has: entryUUID on OpenLDAP (RFC 4530),
+// nsUniqueId on 389 DS.
+var identityAttributes = []string{"entryUUID", "nsUniqueId"}
+
+func isIdentityAttribute(name string) bool {
+	for _, a := range identityAttributes {
+		if strings.EqualFold(a, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// expectationForRename reads the entry a rename is about and returns what
+// binds it to the entry the reviewer saw move: its identity attribute, the
+// values of the attributes in its current RDN, which a rename with
+// deleteoldrdn removes, and how many entries are below it, which it moves
+// with it. Its other attributes are not expected: a move is about place, and
+// an edit to one of them does not change what was reviewed. An entry whose
+// identity this bind cannot read is not saved, never matched by content.
+func expectationForRename(ctx context.Context, r *remote, change apiclient.ChangeRequest, item apiclient.PlanItem,
+	applyWith string) (*apiclient.ChangeExpectation, error) {
+	notSaved := func(format string, a ...any) error {
+		return failf("plan_not_saved", "the plan was not saved: "+format+"; apply this one with %s",
+			append(a, applyWith)...)
+	}
+	below := 0
+	if item.Subordinates != nil {
+		if item.Subordinates.Truncated {
+			return nil, notSaved("%s has at least %d entries below it, more than a saved plan counts",
+				safe(change.Dn), item.Subordinates.Count)
+		}
+		below = item.Subordinates.Count
+	}
+	name, err := dn.Parse(change.Dn)
+	if err != nil {
+		return nil, failf("plan_not_saved", "the plan was not saved: %s is not a DN: %v", safe(change.Dn), err)
+	}
+	res, err := r.api.GetEntryWithResponse(ctx, &apiclient.GetEntryParams{Dn: change.Dn, IncludeOperational: ptr(true)})
+	if err != nil {
+		return nil, transportFailure(ctx, "reading "+safe(change.Dn), err)
+	}
+	if res.StatusCode() == http.StatusNotFound {
+		return nil, &ExitError{Code: ExitStale, Local: "plan_not_saved",
+			Message: fmt.Sprintf("the plan was not saved: %s was removed while the plan was being saved. Plan again", safe(change.Dn))}
+	}
+	if res.StatusCode() != http.StatusOK || res.JSON200 == nil {
+		return nil, r.refusal(ctx, "reading "+safe(change.Dn), res.HTTPResponse, res.Body)
+	}
+	expect := &apiclient.ChangeExpectation{Attributes: []apiclient.ChangeAttribute{}, Subordinates: ptr(below)}
+	held := func(attr string) (apiclient.ChangeAttribute, bool, error) {
+		out := apiclient.ChangeAttribute{Name: attr, Values: []apiclient.AttributeValue{}}
+		found := false
+		for _, a := range res.JSON200.Attributes {
+			if !strings.EqualFold(schema.BaseName(a.Name), attr) {
+				continue
+			}
+			if a.Withheld != nil && *a.Withheld {
+				return out, false, notSaved("%s of %s was withheld, and its value cannot be expected", safe(a.Name), safe(change.Dn))
+			}
+			for _, v := range a.Values {
+				if v.Text == nil && v.Base64 == nil {
+					return out, false, notSaved("a value of %s on %s was not read whole", safe(a.Name), safe(change.Dn))
+				}
+			}
+			out.Name = a.Name
+			out.Values = append(out.Values, a.Values...)
+			found = found || len(a.Values) > 0
+		}
+		return out, found, nil
+	}
+	identified := false
+	for _, attr := range identityAttributes {
+		a, found, err := held(attr)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			expect.Attributes = append(expect.Attributes, a)
+			identified = true
+			break
+		}
+	}
+	if !identified {
+		return nil, notSaved("%s has no entryUUID or nsUniqueId this bind can read, so the entry the plan moves cannot be told apart from another later given its name",
+			safe(change.Dn))
+	}
+	seen := map[string]bool{}
+	for _, ava := range name.RDN() {
+		key := strings.ToLower(ava.Type)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		a, _, err := held(ava.Type)
+		if err != nil {
+			return nil, err
+		}
+		expect.Attributes = append(expect.Attributes, a)
+	}
+	return expect, nil
+}
+
 // withheldValue finds a value the server withheld from the plan: only its size
 // is there, and a file holding it could not be applied. applyWith names the
 // command that applies such a change instead.
@@ -506,9 +617,20 @@ func sameAsShown(shownPlan apiclient.Plan, shown []apiclient.PlanItem, fresh api
 			return moved("what it does to group membership is not what was shown")
 		case compareReferences && (nowCount != wasCount || nowDangling != wasDangling):
 			return moved("the references found to it are not the ones shown")
+		case subordinatesKey(now.Subordinates) != subordinatesKey(was.Subordinates):
+			return moved("the number of entries below it is not the one shown")
 		}
 	}
 	return nil
+}
+
+// subordinatesKey is a plan item's count of the entries below it, as one
+// comparable string.
+func subordinatesKey(c *apiclient.CountResult) string {
+	if c == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d/%t", c.Count, c.Truncated)
 }
 
 // membershipKey is a plan item's membership changes as one comparable string,
@@ -763,6 +885,11 @@ func decodeSavedPlan(data []byte) (*savedPlan, error) {
 			if c.Expect == nil || c.Expect.Exhaustive == nil || !*c.Expect.Exhaustive {
 				return nil, fmt.Errorf("change %d is a deletion that does not expect the entry exactly", i+1)
 			}
+		case c.Type == apiclient.ChangeRequestTypeModrdn && s.Input != nil:
+			// A project never renames either.
+			if !expectsIdentity(c.Expect) {
+				return nil, fmt.Errorf("change %d is a rename that does not expect the entry's identity and what is below it", i+1)
+			}
 		default:
 			return nil, fmt.Errorf("change %d is a %s, which this saved plan does not hold", i+1, c.Type)
 		}
@@ -771,6 +898,21 @@ func decodeSavedPlan(data []byte) (*savedPlan, error) {
 		}
 	}
 	return &s, nil
+}
+
+// expectsIdentity reports whether a saved rename's expectation binds the
+// entry: a value of its identity attribute, and the count of what is below
+// it.
+func expectsIdentity(e *apiclient.ChangeExpectation) bool {
+	if e == nil || e.Subordinates == nil || (e.Exhaustive != nil && *e.Exhaustive) {
+		return false
+	}
+	for _, a := range e.Attributes {
+		if isIdentityAttribute(schema.BaseName(a.Name)) && len(a.Values) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // matchSaved refuses a saved plan made for another environment, directory,

@@ -255,9 +255,12 @@ jobs:
             test/e2e/test-results
           retention-days: 7
 
+      # The last lines of each server only. The whole log of four servers
+      # runs past what a job log viewer returns from the end, which pushed
+      # the failing test's own output out of reach.
       - name: show the logs on failure
         if: failure()
-        run: docker compose -f test/compose/docker-compose.yml logs
+        run: docker compose -f test/compose/docker-compose.yml logs --tail 200
       - name: tear down
         if: always()
         run: task compose:down

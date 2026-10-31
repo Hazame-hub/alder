@@ -73,6 +73,36 @@ describe("parseSavedPlan", () => {
     expect(r.plan.unchanged).toBe(2);
   });
 
+  it("reads a saved rename bound to its entry's identity", () => {
+    const move = {
+      dn: "uid=a,ou=people,dc=example,dc=test",
+      type: "modrdn",
+      newRdn: "uid=a",
+      deleteOldRdn: true,
+      newSuperior: "ou=staff,dc=example,dc=test",
+      expect: {
+        attributes: [
+          { name: "entryUUID", values: [{ text: "6f1c4a8e" }] },
+          { name: "uid", values: [{ text: "a" }] },
+        ],
+        subordinates: 3,
+      },
+    };
+    const r = read({ changes: [move] });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan.changes[0]).toEqual(move);
+    // Where an entry goes is named only by a rename.
+    expect(refusal({ changes: [{ ...move, newRdn: 7 }] })).toContain(
+      "not a change this release reads",
+    );
+    expect(
+      refusal({
+        changes: [{ ...move, expect: { ...move.expect, subordinates: -1 } }],
+      }),
+    ).toContain("not a change this release reads");
+  });
+
   it("refuses a project's plan, which only alder project apply checks against its files", () => {
     const message = refusal({
       input: undefined,
@@ -144,7 +174,28 @@ describe("parseSavedPlan", () => {
     expect(change({ type: "delete", expect: { attributes: [] } })).toContain(
       "does not expect the entry exactly",
     );
-    expect(change({ type: "modrdn", newRdn: "uid=b" })).toContain("modrdn");
+    expect(change({ type: "modrdn", newRdn: "uid=b" })).toContain(
+      "does not expect the entry's identity",
+    );
+    expect(
+      change({
+        type: "modrdn",
+        newRdn: "uid=b",
+        expect: {
+          attributes: [{ name: "uid", values: [{ text: "a" }] }],
+          subordinates: 0,
+        },
+      }),
+    ).toContain("does not expect the entry's identity");
+    expect(
+      change({
+        type: "modrdn",
+        newRdn: "uid=b",
+        expect: {
+          attributes: [{ name: "entryUUID", values: [{ text: "u" }] }],
+        },
+      }),
+    ).toContain("does not expect the entry's identity");
     expect(change({ type: "setpassword", newPassword: "x" })).toContain(
       "setpassword",
     );

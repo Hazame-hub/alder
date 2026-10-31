@@ -77,10 +77,13 @@ const PROBLEM: Record<PlanProblemCode, string> = {
   entry_exists: "the entry already exists",
   has_children: "the entry has children",
   rename_target_exists: "the new name is already taken",
+  parent_missing: "the entry it would move under does not exist",
   expected_state_differs:
     "the entry is no longer as the change expects: the directory has changed since the change was made",
-  dependency_required: "a schema definition it names would not be defined when it runs",
-  referenced_by_schema: "the schema would still refer to the definition it removes",
+  dependency_required:
+    "a schema definition it names would not be defined when it runs",
+  referenced_by_schema:
+    "the schema would still refer to the definition it removes",
   object_class_undefined: "an object class is not defined by the schema",
   attribute_undefined: "an attribute is not defined by the schema",
   attribute_not_permitted: "no object class on the entry permits the attribute",
@@ -97,7 +100,13 @@ function plural(n: number, one: string, many = `${one}s`) {
  * `whole` is set when the plan is applied whole or not at all, as a loaded
  * saved plan is: then a conflict means nothing is sent, not that the rest is.
  */
-export function PlanSummary({ plan, whole = false }: { plan: Plan; whole?: boolean }) {
+export function PlanSummary({
+  plan,
+  whole = false,
+}: {
+  plan: Plan;
+  whole?: boolean;
+}) {
   const c = plan.counts;
   const invalid = c.invalid ?? 0;
   // Only what is non-zero. A row of zeroes is noise, and the counts a reader is
@@ -145,7 +154,9 @@ export function PlanSummary({ plan, whole = false }: { plan: Plan; whole?: boole
       {c.conflict + invalid > 0 ? (
         <p className="text-xs text-warning-tint-foreground">
           Conflicts and invalid changes are reported, not attempted.
-          {whole ? null : " Applying the plan sends only the changes that would do something."}
+          {whole
+            ? null
+            : " Applying the plan sends only the changes that would do something."}
         </p>
       ) : null}
     </div>
@@ -274,13 +285,19 @@ export function PlanRow({ item }: { item: PlanItem }) {
             {item.problem.attribute ? (
               <>
                 {" "}
-                (<code className="font-mono">{safeText(item.problem.attribute)}</code>)
+                (
+                <code className="font-mono">
+                  {safeText(item.problem.attribute)}
+                </code>
+                )
               </>
             ) : null}
           </div>
         ) : null}
         {item.reason && !item.problem ? (
-          <div className="text-xs text-muted-foreground">{safeText(item.reason)}</div>
+          <div className="text-xs text-muted-foreground">
+            {safeText(item.reason)}
+          </div>
         ) : null}
         {item.recovery && item.baseline ? (
           <div
@@ -323,6 +340,13 @@ export function PlanRow({ item }: { item: PlanItem }) {
               ? `; ${item.references.dangling} left dangling by this plan`
               : "; all removed by this plan"}
             .
+          </div>
+        ) : null}
+        {item.subordinates ? (
+          <div className="text-xs text-muted-foreground">
+            Moves {item.subordinates.truncated ? "at least " : ""}
+            {plural(item.subordinates.count, "entry", "entries")} below it along
+            with it.
           </div>
         ) : null}
         {item.skippedAttributes?.length ? (
