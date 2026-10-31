@@ -92,15 +92,15 @@ function isMod(m: unknown): boolean {
  * nothing the server would refuse, or the page could not show, gets staged.
  */
 function isChange(c: Record<string, unknown>): boolean {
+  const keys = ["dn", "type", "mods", "attributes", "expect", "baseline"];
+  // Only a rename names where the entry goes.
+  if (c.type === "modrdn") keys.push("newRdn", "deleteOldRdn", "newSuperior");
+  if (unknownKey(c, keys) !== undefined) return false;
   if (
-    unknownKey(c, [
-      "dn",
-      "type",
-      "mods",
-      "attributes",
-      "expect",
-      "baseline",
-    ]) !== undefined
+    c.type === "modrdn" &&
+    (typeof c.newRdn !== "string" ||
+      (c.deleteOldRdn !== undefined && typeof c.deleteOldRdn !== "boolean") ||
+      (c.newSuperior !== undefined && typeof c.newSuperior !== "string"))
   )
     return false;
   if (
@@ -114,15 +114,33 @@ function isChange(c: Record<string, unknown>): boolean {
     const e = c.expect;
     if (
       !isObject(e) ||
-      unknownKey(e, ["attributes", "exhaustive"]) !== undefined ||
+      unknownKey(e, ["attributes", "exhaustive", "subordinates"]) !==
+        undefined ||
       !Array.isArray(e.attributes) ||
       !e.attributes.every(isAttribute) ||
-      (e.exhaustive !== undefined && typeof e.exhaustive !== "boolean")
+      (e.exhaustive !== undefined && typeof e.exhaustive !== "boolean") ||
+      (e.subordinates !== undefined &&
+        !(Number.isInteger(e.subordinates) && (e.subordinates as number) >= 0))
     ) {
       return false;
     }
   }
   return true;
+}
+
+/**
+ * Whether a saved rename's expectation binds the entry: a value of its
+ * identity attribute, and the count of what is below it.
+ */
+function expectsIdentity(c: ChangeRequest): boolean {
+  const e = c.expect;
+  if (!e || e.subordinates === undefined || e.exhaustive) return false;
+  return e.attributes.some(
+    (a) =>
+      ["entryuuid", "nsuniqueid"].includes(a.name.toLowerCase()) &&
+      Array.isArray(a.values) &&
+      a.values.length > 0,
+  );
 }
 
 /** Whether any value of a change was withheld: a value with neither form. */
@@ -257,6 +275,12 @@ export function parseSavedPlan(text: string): Reading {
         if (!c.expect?.exhaustive)
           return refuse(
             `Change ${n} is a deletion that does not expect the entry exactly.`,
+          );
+        break;
+      case "modrdn":
+        if (!expectsIdentity(c))
+          return refuse(
+            `Change ${n} is a rename that does not expect the entry's identity and what is below it.`,
           );
         break;
       default:

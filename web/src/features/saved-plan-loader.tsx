@@ -3,7 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileUp, SearchCheck, X } from "lucide-react";
 import { api, unwrap } from "@/lib/api";
 import { changeset } from "@/lib/changeset";
-import { parseSavedPlan, savedPlanOrigin, sessionMismatch } from "@/lib/saved-plan";
+import {
+  parseSavedPlan,
+  savedPlanOrigin,
+  sessionMismatch,
+} from "@/lib/saved-plan";
 import type { SavedPlan, SavedPlanOrigin } from "@/lib/saved-plan";
 import { Button } from "@/components/ui/button";
 import { safeText } from "@/lib/display";
@@ -19,6 +23,13 @@ import { safeText } from "@/lib/display";
  * then refused, as alder apply --plan refuses it, rather than applied in part. A plan made against another directory
  * or bind is refused outright, as alder apply --plan refuses it.
  */
+const countLabel = {
+  add: "to add",
+  modify: "to modify",
+  delete: "to delete",
+  modrdn: "to rename or move",
+} as const;
+
 export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,12 +50,18 @@ export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
     else setError(reading.message);
   };
 
-  const mismatch = plan && session.data ? sessionMismatch(plan.environment, session.data) : null;
+  const mismatch =
+    plan && session.data
+      ? sessionMismatch(plan.environment, session.data)
+      : null;
 
   const stage = () => {
     if (!plan) return;
     const outcome = changeset.addMany(
-      plan.changes.map((c) => ({ change: c, label: `Saved plan: ${c.type} ${c.dn}` })),
+      plan.changes.map((c) => ({
+        change: c,
+        label: `Saved plan: ${c.type} ${c.dn}`,
+      })),
     );
     if (outcome.staged > 0) {
       // Set after staging: staging drops any origin, and this one says the
@@ -53,17 +70,25 @@ export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
       reset();
       onStaged();
     } else {
-      setError(`The changeset has room for ${outcome.capacity} more changes, and this plan has ${outcome.refused}.`);
+      setError(
+        `The changeset has room for ${outcome.capacity} more changes, and this plan has ${outcome.refused}.`,
+      );
     }
   };
 
   const counts = plan
-    ? (["add", "modify", "delete"] as const)
-        .map((t) => [t, plan.changes.filter((c) => c.type === t).length] as const)
+    ? (["add", "modify", "delete", "modrdn"] as const)
+        .map(
+          (t) => [t, plan.changes.filter((c) => c.type === t).length] as const,
+        )
         .filter(([, n]) => n > 0)
-        .map(([t, n]) => `${n} ${t === "add" ? "to add" : t === "modify" ? "to modify" : "to delete"}`)
+        .map(([t, n]) => `${n} ${countLabel[t]}`)
     : [];
-  const canReview = plan !== null && plan.changes.length > 0 && session.data !== undefined && mismatch === null;
+  const canReview =
+    plan !== null &&
+    plan.changes.length > 0 &&
+    session.data !== undefined &&
+    mismatch === null;
 
   return (
     <div className="mb-5 rounded-md border p-3">
@@ -71,9 +96,9 @@ export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
         <div>
           <div className="text-sm font-medium">Saved plan</div>
           <p className="text-xs text-muted-foreground">
-            Load a plan saved with <code>alder plan --out</code>. Its changes are
-            staged here, each expecting the entry as it was planned; nothing is
-            applied on loading.
+            Load a plan saved with <code>alder plan --out</code>. Its changes
+            are staged here, each expecting the entry as it was planned; nothing
+            is applied on loading.
           </p>
         </div>
         {plan ? (
@@ -81,7 +106,11 @@ export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
             <X />
           </Button>
         ) : (
-          <Button variant="outline" size="sm" onClick={() => input.current?.click()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => input.current?.click()}
+          >
             <FileUp />
             Load saved plan
           </Button>
@@ -135,7 +164,13 @@ export function SavedPlanLoader({ onStaged }: { onStaged: () => void }) {
   );
 }
 
-export function SavedPlanSummary({ plan, counts }: { plan: SavedPlan; counts: string[] }) {
+export function SavedPlanSummary({
+  plan,
+  counts,
+}: {
+  plan: SavedPlan;
+  counts: string[];
+}) {
   return (
     <div className="mt-3 space-y-3 text-sm">
       <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
@@ -147,12 +182,16 @@ export function SavedPlanSummary({ plan, counts }: { plan: SavedPlan; counts: st
         <dd>
           {plan.input.kind === "ldif" ? "an LDIF document" : "--changes"}
           {plan.input.mode ? ` read as ${safeText(plan.input.mode)}` : ""}
-          <span className="block break-all font-dn text-muted-foreground">{safeText(plan.input.digest)}</span>
+          <span className="block break-all font-dn text-muted-foreground">
+            {safeText(plan.input.digest)}
+          </span>
         </dd>
         <dt className="text-muted-foreground">Directory</dt>
         <dd className="break-all font-dn">
           {safeText(plan.environment.host)}, binding{" "}
-          {plan.environment.bindDn === "" ? "anonymously" : `as ${safeText(plan.environment.bindDn)}`}
+          {plan.environment.bindDn === ""
+            ? "anonymously"
+            : `as ${safeText(plan.environment.bindDn)}`}
         </dd>
         <dt className="text-muted-foreground">Changes</dt>
         <dd>
@@ -168,8 +207,11 @@ export function SavedPlanSummary({ plan, counts }: { plan: SavedPlan; counts: st
               {c.expect ? (
                 <span className="block text-muted-foreground">
                   expects{" "}
-                  {c.expect.attributes.map((a) => safeText(a.name)).join(", ") || "the entry"}
-                  {c.expect.exhaustive ? " and nothing else" : ""} as it was planned
+                  {c.expect.attributes
+                    .map((a) => safeText(a.name))
+                    .join(", ") || "the entry"}
+                  {c.expect.exhaustive ? " and nothing else" : ""} as it was
+                  planned
                 </span>
               ) : null}
             </li>
@@ -186,15 +228,22 @@ export function SavedPlanHeading({ origin }: { origin: SavedPlanOrigin }) {
     <div className="space-y-0.5 rounded-md border bg-muted/40 px-3 py-2 text-sm">
       <div>
         <span className="font-medium">Saved plan</span>
-        <span className="text-muted-foreground"> — made {safeText(origin.createdAt)}</span>
+        <span className="text-muted-foreground">
+          {" "}
+          — made {safeText(origin.createdAt)}
+        </span>
       </div>
       <div>
         <span className="font-medium">
-          Planned against <span className="break-all font-dn">{safeText(origin.host)}</span>
+          Planned against{" "}
+          <span className="break-all font-dn">{safeText(origin.host)}</span>
           {origin.bindDn ? (
             <>
               {" "}
-              as <span className="break-all font-dn">{safeText(origin.bindDn)}</span>
+              as{" "}
+              <span className="break-all font-dn">
+                {safeText(origin.bindDn)}
+              </span>
             </>
           ) : (
             " anonymously"

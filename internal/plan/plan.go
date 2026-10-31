@@ -126,6 +126,9 @@ const (
 	ProblemHasChildren ProblemCode = "has_children"
 	// ProblemRenameTargetExists: a rename onto a DN that is already taken.
 	ProblemRenameTargetExists ProblemCode = "rename_target_exists"
+	// ProblemParentMissing: a move under a new superior that does not exist
+	// and is not added earlier in the same set.
+	ProblemParentMissing ProblemCode = "parent_missing"
 	// ProblemObjectClassUndefined: an object class the schema does not define.
 	ProblemObjectClassUndefined ProblemCode = "object_class_undefined"
 	// ProblemAttributeUndefined: an attribute type the schema does not define.
@@ -187,7 +190,23 @@ type Item struct {
 	// Membership is what this change does to group membership, where it
 	// touches a membership attribute.
 	Membership []MembershipChange
+	// Subordinates is how many entries a rename moves along with its entry:
+	// everything below it. Set only for a rename of an entry that has
+	// children.
+	Subordinates *Subordinates
 }
+
+// Subordinates counts the entries below one entry.
+type Subordinates struct {
+	// Count is how many were counted. When Truncated, the real number is
+	// higher.
+	Count     int
+	Truncated bool
+}
+
+// SubordinateCountLimit is how many entries below a renamed one a plan
+// counts before it says "at least".
+const SubordinateCountLimit = 10000
 
 // Counts is the summary, which is what an operator reads first.
 type Counts struct {
@@ -253,6 +272,14 @@ type Reader interface {
 // delete that will work from one the directory will refuse.
 type ChildCounter interface {
 	HasChildren(ctx context.Context, target dn.DN) (bool, error)
+}
+
+// SubtreeCounter is the optional extra that counts the entries below one, up
+// to a limit: how much a rename moves, and what a saved rename expects.
+type SubtreeCounter interface {
+	// CountBelow counts the entries strictly below target, stopping at
+	// limit; truncated says it stopped.
+	CountBelow(ctx context.Context, target dn.DN, limit int) (count int, truncated bool, err error)
 }
 
 // Options tune what the planner does.
@@ -344,9 +371,13 @@ func (pl *Planner) ComputeProposals(
 	// earlier change in the same set adds is second, not invalid.
 	view := newSchemaView(sch, opts.SchemaLocator)
 	deps := newSchemaDeps(sch, opts.SchemaLocator)
+	// The names earlier changes in the set create, by an add or by moving an
+	// entry there, so a move under one of them is not refused for a parent
+	// that only exists by the time it runs.
+	provided := map[string]bool{}
 
 	for i, proposal := range proposals {
-		item, err := pl.classify(ctx, r, view.schema(), i, proposal, members)
+		item, err := pl.classify(ctx, r, view.schema(), i, proposal, members, provided)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -377,6 +408,14 @@ func (pl *Planner) ComputeProposals(
 		deps.check(&p, i)
 		if !p.Items[i].Action.AppliesNothing() {
 			view.apply(proposal.Record)
+			switch p.Items[i].Action {
+			case ActionAdd:
+				provided[p.Items[i].DN.Key()] = true
+			case ActionRename:
+				if target, err := p.Items[i].Record.Target(); err == nil {
+					provided[target.Key()] = true
+				}
+			}
 		}
 	}
 	p.Subtrees = deletedSubtrees(p.Items)
@@ -390,6 +429,7 @@ func (pl *Planner) classify(
 	index int,
 	proposal Proposal,
 	members map[string]bool,
+	provided map[string]bool,
 ) (Item, error) {
 	record := proposal.Record
 	item := Item{Index: index, DN: record.DN, Record: record, Intent: proposal.Intent}
@@ -423,6 +463,17 @@ func (pl *Planner) classify(
 				"The entry no longer holds what this change expects: "+attr+
 					" has changed since the state it was derived from. Nothing was decided for it."), nil
 		}
+		if want := proposal.Expect.Subordinates; want != nil {
+			differs, err := subordinatesDiffer(ctx, r, record.DN, *want)
+			if err != nil {
+				return Item{}, err
+			}
+			if differs {
+				return refuse(item, ActionConflict, ProblemExpectedStateDiffers, "subordinates",
+					fmt.Sprintf("The entry no longer has the %d entries below it this change expects. "+
+						"Nothing was decided for it.", *want)), nil
+			}
+		}
 		deps = mergeDependencies(deps, proposal.Expect.dependencies(sch, live))
 	}
 
@@ -434,7 +485,7 @@ func (pl *Planner) classify(
 	case directory.ChangeDelete:
 		item = planDelete(ctx, r, item)
 	case directory.ChangeModRDN:
-		item, err = pl.planRename(ctx, r, item)
+		item, err = pl.planRename(ctx, r, item, provided)
 		if err != nil {
 			return Item{}, err
 		}
@@ -566,7 +617,7 @@ func planDelete(ctx context.Context, r Reader, item Item) Item {
 	return item
 }
 
-func (pl *Planner) planRename(ctx context.Context, r Reader, item Item) (Item, error) {
+func (pl *Planner) planRename(ctx context.Context, r Reader, item Item, provided map[string]bool) (Item, error) {
 	if !item.Exists {
 		return refuse(item, ActionConflict, ProblemEntryMissing, "", "There is no such entry to rename."), nil
 	}
@@ -586,8 +637,49 @@ func (pl *Planner) planRename(ctx context.Context, r Reader, item Item) (Item, e
 				"There is already an entry at "+target.String()+"."), nil
 		}
 	}
+	// A move under a parent that is not there is refused by the directory,
+	// and finding that out at apply time means finding it out halfway through
+	// a changeset. A rename in place keeps the parent the entry already has.
+	if !item.Record.NewSuperior.IsEmpty() && !provided[item.Record.NewSuperior.Key()] {
+		parent, readErr := pl.read(ctx, r, item.Record.NewSuperior, []string{"objectClass"})
+		if readErr != nil {
+			return Item{}, readErr
+		}
+		if parent == nil {
+			return refuse(item, ActionConflict, ProblemParentMissing, "",
+				"There is no entry at "+item.Record.NewSuperior.String()+" to move this one under."), nil
+		}
+	}
+	// A rename moves everything below the entry with it. How much is part of
+	// what the plan shows.
+	if kids, ok := r.(ChildCounter); ok {
+		if has, err := kids.HasChildren(ctx, item.DN); err == nil && has {
+			if counter, ok := r.(SubtreeCounter); ok {
+				count, truncated, err := counter.CountBelow(ctx, item.DN, SubordinateCountLimit)
+				if err != nil {
+					return Item{}, fmt.Errorf("plan: counting the entries below %s: %w", item.DN, err)
+				}
+				item.Subordinates = &Subordinates{Count: count, Truncated: truncated}
+			}
+		}
+	}
 	item.Action = ActionRename
 	return item, nil
+}
+
+// subordinatesDiffer reports whether the number of entries below target is
+// not want. It counts at most one more than want.
+func subordinatesDiffer(ctx context.Context, r Reader, target dn.DN, want int) (bool, error) {
+	counter, ok := r.(SubtreeCounter)
+	if !ok {
+		return false, fmt.Errorf("plan: %s expects a number of entries below it, and this directory "+
+			"connection cannot count them", target)
+	}
+	count, truncated, err := counter.CountBelow(ctx, target, want+1)
+	if err != nil {
+		return false, fmt.Errorf("plan: counting the entries below %s: %w", target, err)
+	}
+	return truncated || count != want, nil
 }
 
 // satisfied reports whether every modification in a set is already true of the
@@ -726,6 +818,15 @@ func (pl *Planner) VerifyRead(
 		}
 		if _, differs := expect.Differs(sch, live); differs {
 			return nil, nil, &StaleError{DN: record.DN}
+		}
+		if expect.Subordinates != nil {
+			differs, err := subordinatesDiffer(ctx, r, record.DN, *expect.Subordinates)
+			if err != nil {
+				return nil, nil, err
+			}
+			if differs {
+				return nil, nil, &StaleError{DN: record.DN}
+			}
 		}
 	}
 	return live, attrs, nil

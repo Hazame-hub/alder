@@ -871,6 +871,24 @@ An index advisor reads a server log the operator supplies
   counted searches were under no backend in the snapshot. Its flags are
   never read from the environment.
 
+### 1.42
+
+Saved plans carry renames and moves
+([proposals/saved-renames.md](proposals/saved-renames.md)). Only additions:
+
+- **`parent_missing`**, a new `PlanProblemCode`: a rename whose new superior
+  does not exist and is not added or moved there earlier in the set. Such a
+  rename was planned as `rename` and refused by the directory at apply; it is
+  now a conflict, so a plan holding one applies nothing.
+- **`subordinates` on `PlanItem`** (a `CountResult`) for a rename of an entry
+  with children, and **`subordinates` on `ChangeExpectation`**, an integer
+  checked at plan time and at apply. An expectation may name `entryUUID` or
+  `nsUniqueId`.
+- **`alder plan --out` saves a rename** with that expectation, and
+  `alder apply --plan` and the web interface's saved-plan loader read one.
+  The file stays `alder-plan` version 1; an older release refuses a file
+  holding a rename, as it did before.
+
 ---
 
 ## Not covered

@@ -190,6 +190,9 @@ func expectingRequest(record directory.ChangeRecord, expect *plan.Expectation) C
 			}
 			req.Expect.Definitions = &defs
 		}
+		if expect.Subordinates != nil {
+			req.Expect.Subordinates = ptr(*expect.Subordinates)
+		}
 	}
 	return req
 }
@@ -210,6 +213,12 @@ func changeExpectation(req ChangeRequest) (*plan.Expectation, error) {
 			len(req.Expect.Attributes), maxExpectedAttributes)
 	}
 	out := &plan.Expectation{Exhaustive: req.Expect.Exhaustive != nil && *req.Expect.Exhaustive}
+	if n := req.Expect.Subordinates; n != nil {
+		if *n < 0 || *n > plan.SubordinateCountLimit {
+			return nil, fmt.Errorf("expect: subordinates %d is not between 0 and %d", *n, plan.SubordinateCountLimit)
+		}
+		out.Subordinates = ptr(*n)
+	}
 	for _, a := range req.Expect.Attributes {
 		if err := dn.ValidateType(schema.BaseName(a.Name)); err != nil {
 			return nil, fmt.Errorf("expect: %q is not an attribute description", a.Name)

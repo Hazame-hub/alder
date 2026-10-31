@@ -1,7 +1,8 @@
 # Saved plans that carry renames and moves
 
-**Status: accepted (2026-10-31), every open question as recommended.** What
-a build settles goes in `docs/DECISIONS.md`.
+**Status: accepted (2026-10-31), every open question as recommended, and
+built.** What the build settled is in `docs/DECISIONS.md` under the same
+date.
 
 `alder plan --out` saves a reviewed plan that `alder apply --plan` applies
 later, all or nothing, refused if the directory moved meanwhile. Today it

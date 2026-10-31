@@ -34,6 +34,10 @@ type Expectation struct {
 	// Definitions are schema definitions the entry must hold as given, each
 	// named by its OID within the attribute that carries it.
 	Definitions []ExpectedDefinition
+	// Subordinates, when set, is how many entries must be below the entry: a
+	// saved rename moves its whole subtree, and expects the one the reviewer
+	// saw. Counted with a SubtreeCounter at plan time and again at apply.
+	Subordinates *int
 }
 
 // ExpectedDefinition is one schema definition an expectation is about.

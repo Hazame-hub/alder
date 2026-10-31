@@ -251,6 +251,14 @@ func renderPlan(w io.Writer, p apiclient.Plan, showItems bool) {
 			writef(w, "             named by %s; %d would be left dangling\n",
 				plural(it.References.Count, "entry", "entries"), it.References.Dangling)
 		}
+		if it.Subordinates != nil {
+			at := ""
+			if it.Subordinates.Truncated {
+				at = "at least "
+			}
+			writef(w, "             moves %s%s below it along with it\n", at,
+				plural(it.Subordinates.Count, "entry", "entries"))
+		}
 		if it.SkippedAttributes != nil && len(*it.SkippedAttributes) > 0 {
 			writef(w, "             not enforced, the directory owns them: %s\n", safe(strings.Join(*it.SkippedAttributes, ", ")))
 		}

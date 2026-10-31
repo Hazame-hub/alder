@@ -1279,6 +1279,7 @@ const (
 	PlanProblemHasChildren              PlanProblemCode = "has_children"
 	PlanProblemMissingRequiredAttribute PlanProblemCode = "missing_required_attribute"
 	PlanProblemObjectClassUndefined     PlanProblemCode = "object_class_undefined"
+	PlanProblemParentMissing            PlanProblemCode = "parent_missing"
 	PlanProblemReferencedBySchema       PlanProblemCode = "referenced_by_schema"
 	PlanProblemRenameTargetExists       PlanProblemCode = "rename_target_exists"
 	PlanProblemSingleValueViolation     PlanProblemCode = "single_value_violation"
@@ -1304,6 +1305,8 @@ func (e PlanProblemCode) Valid() bool {
 	case PlanProblemMissingRequiredAttribute:
 		return true
 	case PlanProblemObjectClassUndefined:
+		return true
+	case PlanProblemParentMissing:
 		return true
 	case PlanProblemReferencedBySchema:
 		return true
@@ -2735,6 +2738,12 @@ type ChangeExpectation struct {
 	// operational and identity attributes, and sensitive attributes are
 	// not counted.
 	Exhaustive *bool `json:"exhaustive,omitempty"`
+
+	// Subordinates How many entries must be below the entry, all levels. A saved
+	// rename expects the subtree the reviewer saw move. Counted at plan
+	// time and again at apply; a different count is
+	// `expected_state_differs`, then `plan_stale`. Added in 1.42.
+	Subordinates *int `json:"subordinates,omitempty"`
 }
 
 // ChangeExpectedDefinition defines model for ChangeExpectedDefinition.
@@ -4967,7 +4976,8 @@ type PlanItem struct {
 	// than dropped silently: a document carrying `entryUUID` was exported
 	// with operational attributes, and the reader should know they are not
 	// being enforced.
-	SkippedAttributes *[]string `json:"skippedAttributes,omitempty"`
+	SkippedAttributes *[]string    `json:"skippedAttributes,omitempty"`
+	Subordinates      *CountResult `json:"subordinates,omitempty"`
 }
 
 // PlanLdifMode How an LDIF document is read. `changes`: every record is the exact
@@ -4995,7 +5005,9 @@ type PlanProblem struct {
 	//
 	// State conflicts (`action: conflict`), which may resolve when the
 	// directory changes: `entry_missing`, `entry_exists`, `has_children`,
-	// `rename_target_exists`, and `expected_state_differs` (1.9): the entry
+	// `rename_target_exists`, `parent_missing` (1.42: a rename moves the
+	// entry under a new superior that does not exist and is not added or
+	// moved there earlier in the set), and `expected_state_differs` (1.9): the entry
 	// no longer holds the state a change's `expect` requires -- for a change
 	// from a recovery bundle, the directory has drifted since the original
 	// apply. `dependency_required` and `referenced_by_schema` (1.10): a schema
@@ -5015,7 +5027,9 @@ type PlanProblem struct {
 //
 // State conflicts (`action: conflict`), which may resolve when the
 // directory changes: `entry_missing`, `entry_exists`, `has_children`,
-// `rename_target_exists`, and `expected_state_differs` (1.9): the entry
+// `rename_target_exists`, `parent_missing` (1.42: a rename moves the
+// entry under a new superior that does not exist and is not added or
+// moved there earlier in the set), and `expected_state_differs` (1.9): the entry
 // no longer holds the state a change's `expect` requires -- for a change
 // from a recovery bundle, the directory has drifted since the original
 // apply. `dependency_required` and `referenced_by_schema` (1.10): a schema

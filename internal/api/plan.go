@@ -234,6 +234,9 @@ func (s *Server) planItem(ctx context.Context, item plan.Item, sch *schema.Schem
 	if len(item.SkippedAttributes) > 0 {
 		view.SkippedAttributes = ptr(item.SkippedAttributes)
 	}
+	if item.Subordinates != nil {
+		view.Subordinates = &CountResult{Count: item.Subordinates.Count, Truncated: item.Subordinates.Truncated}
+	}
 	if len(item.Membership) > 0 {
 		changes := make([]PlanMembershipChange, 0, len(item.Membership))
 		for _, m := range item.Membership {
@@ -720,6 +723,20 @@ func (p planReader) HasChildren(ctx context.Context, target dn.DN) (bool, error)
 		return false, nil
 	}
 	return browser.HasChildren(ctx, target)
+}
+
+// CountBelow counts the entries below target, as GET /count counts a
+// subtree: no attributes, paged, bounded. The subtree search returns target
+// itself, which is not counted.
+func (p planReader) CountBelow(ctx context.Context, target dn.DN, limit int) (int, bool, error) {
+	count, truncated, err := countSubtree(ctx, p.conn, target, limit+1)
+	if err != nil {
+		return 0, false, err
+	}
+	if count > 0 {
+		count--
+	}
+	return count, truncated, nil
 }
 
 // --- checking a request against its plan -------------------------------------
