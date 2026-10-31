@@ -62,7 +62,16 @@ func Clean(value string) string {
 // is not configurable, like rule 6's own.
 var (
 	refusedNames = []string{"authorization", "proxy-authorization", "cookie", "set-cookie"}
-	refusedWords = []string{"token", "secret", "password", "key"}
+	// The words reach the names deployments give their own credential
+	// headers: X-Authorization and X-Session-Id carry a bearer value or a
+	// session as surely as Authorization and Cookie do; Cf-Access-Jwt-Assertion
+	// and X-Amzn-Oidc-Data are signed identity assertions an application
+	// behind the proxy accepts as a login. COMPATIBILITY.md 1.40 lets a later
+	// release refuse more names, never fewer.
+	refusedWords = []string{
+		"token", "secret", "password", "passwd", "key",
+		"authorization", "cookie", "session", "credential", "jwt", "assertion", "oidc", "saml",
+	}
 )
 
 // CheckName refuses a header name that is not a valid field name, or that

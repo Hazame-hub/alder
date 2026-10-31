@@ -71,7 +71,9 @@ Alder; Alder throws it away.
 6. **Names Alder refuses.** At start, `serve` refuses a header that carries
    credentials or sessions: `Authorization`, `Proxy-Authorization`,
    `Cookie`, `Set-Cookie`, and any name containing `token`, `secret`,
-   `password` or `key`, in any case. Logging one of those would break hard
+   `password` or `key`, in any case. (1.43 adds `authorization`, `cookie`,
+   `session`, `credential`, `jwt`, `assertion`, `oidc`, `saml` and `passwd`;
+   see DECISIONS.md.) Logging one of those would break hard
    rule 6 by configuration. The list is not configurable, like rule 6's.
 
 ### What it does not do

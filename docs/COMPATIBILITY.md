@@ -895,6 +895,17 @@ Saved plans carry renames and moves
   the plan, the saved-plan format and the exit status do not change. A
   saved search whose filter holds such a DN is now said on standard error.
 
+### 1.43
+
+`alder serve --log-request-header` refuses more names, as 1.40 said a later
+release may. A name containing `authorization`, `cookie`, `session`,
+`credential`, `jwt`, `assertion`, `oidc`, `saml` or `passwd` is now refused
+at start, like `token` and `key` were: `X-Authorization`, `X-Session-Id`,
+`Cf-Access-Jwt-Assertion` and `X-Amzn-Oidc-Data` carry a credential or a
+login under a name of the deployment's choosing. A deployment logging one
+of them stops at start with the flag named; pick a correlation header such
+as `X-Request-Id` instead.
+
 ---
 
 ## Not covered
