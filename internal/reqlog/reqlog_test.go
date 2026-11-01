@@ -32,6 +32,10 @@ func TestCheckName(t *testing.T) {
 	for _, bad := range []string{
 		"", "X Request", "X-Id:", "Authorization", "proxy-authorization", "COOKIE", "Set-Cookie",
 		"X-Auth-Token", "X-Api-Key", "X-Client-Secret", "X-Password",
+		// Credential headers under names of a deployment's own choosing.
+		"X-Authorization", "X-Forwarded-Authorization", "X-Session-Id", "X-Original-Cookie",
+		"Cf-Access-Jwt-Assertion", "X-Amzn-Oidc-Data", "X-Amzn-Oidc-Identity", "X-Saml-Response",
+		"X-Credential", "X-Ldap-Passwd",
 	} {
 		if err := CheckName(bad); err == nil {
 			t.Errorf("CheckName(%q) = nil, want a refusal", bad)

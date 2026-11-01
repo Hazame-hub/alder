@@ -7215,3 +7215,24 @@ build settles is recorded when it lands.
   like membership and references.
 - **The CLI and the web reader refuse a rename** without an identity value
   and a `subordinates` count, or with an exhaustive expectation.
+
+### 2026-10-31 — more header names refused for request logging
+
+From the security review of 1.39 to 1.42. `--log-request-header` refused
+`Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie` by exact name
+and `token`, `secret`, `password`, `key` anywhere in a name. A deployment's
+own credential headers passed: `X-Authorization` (a bearer value under
+another name), `X-Session-Id`, Cloudflare Access's `Cf-Access-Jwt-Assertion`
+and an AWS load balancer's `X-Amzn-Oidc-Data`, both signed identity
+assertions an application behind the proxy accepts as a login.
+
+- **The word list grows**: `authorization`, `cookie`, `session`,
+  `credential`, `jwt`, `assertion`, `oidc`, `saml`, `passwd`. COMPATIBILITY
+  1.40 already says a later release may refuse more names, never fewer.
+- **Some refusals are of headers that are not secrets**, such as
+  `X-Amzn-Oidc-Identity`. A false refusal costs an operator one different
+  flag value; a false acceptance writes a credential into every log line.
+- **The 128-byte cut stays the second line of defence**, not the first: it
+  keeps a JWT's signature out of the log, but an opaque bearer value is
+  usually shorter than 128 bytes.
+
