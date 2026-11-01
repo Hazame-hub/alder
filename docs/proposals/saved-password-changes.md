@@ -1,6 +1,6 @@
 # Saved plans that carry password changes, without the password
 
-**Status: proposed (2026-11-01). No code until it is accepted.**
+**Status: accepted (2026-11-01), with the three open questions answered as recommended: order and count, ask twice at the terminal, refuse a value in the `plan --out` input.**
 
 `alder plan --out` saves a reviewed plan, and `alder apply --plan` applies
 exactly that plan later, refused if the directory moved in the meantime.
