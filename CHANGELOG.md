@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.42.1](https://github.com/Hazame-hub/alder/compare/v1.42.0...v1.42.1) (2026-11-01)
+
+
+### Fixes
+
+* **serve:** refuse more credential header names for --log-request-header ([#285](https://github.com/Hazame-hub/alder/issues/285)) ([b461252](https://github.com/Hazame-hub/alder/commit/b461252db5f1e0635e444e661e2942a4e8d945b5))
+
+
+### Documentation
+
+* **compatibility:** the env-suffix fix shipped in 1.42, not 1.41.1 ([#283](https://github.com/Hazame-hub/alder/issues/283)) ([1bacaf2](https://github.com/Hazame-hub/alder/commit/1bacaf2d433d06d1b292a505db6cf3bf482fa0b0))
+* **launch:** bring the launch drafts up to 1.42.0 ([#287](https://github.com/Hazame-hub/alder/issues/287)) ([46bb1d6](https://github.com/Hazame-hub/alder/commit/46bb1d615b7b9ea683f373445aec9246b26cc23e))
+* **proposals:** a Helm chart and a one-command demo ([#286](https://github.com/Hazame-hub/alder/issues/286)) ([ed05076](https://github.com/Hazame-hub/alder/commit/ed05076b64a0c7833f8cc974e1837e3685cebdc0))
+* **proposals:** saved plans that carry password changes, without the password ([#288](https://github.com/Hazame-hub/alder/issues/288)) ([8ee867b](https://github.com/Hazame-hub/alder/commit/8ee867b78a18c523a7bba988b1b14858224d26e6))
+
 ## [1.42.0](https://github.com/Hazame-hub/alder/compare/v1.41.0...v1.42.0) (2026-10-31)
 
 
