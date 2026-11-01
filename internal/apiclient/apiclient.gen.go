@@ -2878,6 +2878,13 @@ type ChangeRequest struct {
 	// and never logged. A `setpassword` change is an RFC 3062 extended
 	// operation rather than a modification, so it has no LDIF form; the
 	// preview says so and shows the equivalent `ldappasswd` invocation.
+	//
+	// Since 1.43, `POST /plan` accepts a `setpassword` change without
+	// it: the plan then binds the change to its entry and says the
+	// password is supplied at apply (`passwordSuppliedAtApply`), which is
+	// how a saved plan carries a password change without holding the
+	// password. Every apply endpoint still requires it, and an empty
+	// value is refused everywhere.
 	NewPassword *string           `json:"newPassword,omitempty"`
 	NewRdn      *string           `json:"newRdn,omitempty"`
 	NewSuperior *string           `json:"newSuperior,omitempty"`
@@ -4959,8 +4966,14 @@ type PlanItem struct {
 	// Decided from the locations the server announces, not from a DN pattern.
 	Kind       *PlanTargetKind         `json:"kind,omitempty"`
 	Membership *[]PlanMembershipChange `json:"membership,omitempty"`
-	Preview    *ChangePreview          `json:"preview,omitempty"`
-	Problem    *PlanProblem            `json:"problem,omitempty"`
+
+	// PasswordSuppliedAtApply For a `set_password` item planned without `newPassword`: the
+	// password is supplied when the change is applied, and the baseline
+	// binds no secret. Such a baseline is never accepted by an apply,
+	// which plans the change again with the password. Added in 1.43.
+	PasswordSuppliedAtApply *bool          `json:"passwordSuppliedAtApply,omitempty"`
+	Preview                 *ChangePreview `json:"preview,omitempty"`
+	Problem                 *PlanProblem   `json:"problem,omitempty"`
 
 	// Reason Why this is unchanged, why it conflicts, or what the planner
 	// rewrote. Prose, for a person to read. Not stable across releases.

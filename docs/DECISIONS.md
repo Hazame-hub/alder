@@ -7236,3 +7236,29 @@ assertions an application behind the proxy accepts as a login.
   keeps a JWT's signature out of the log, but an opaque bearer value is
   usually shorter than 128 bytes.
 
+### 2026-11-01 — saved plans carry password changes, without the password
+
+Accepted in [proposals/saved-password-changes.md](proposals/saved-password-changes.md),
+with its three open questions answered as recommended.
+
+- **The plan holds the intent, the apply holds the secret.** A signed plan
+  is a file that lives forever, and hard rule 6 says a password is never
+  written to one. What a reviewer can judge is "this entry gets a new
+  password", so that is what is saved and signed.
+- **The entry is bound by its identity only**, as a rename is, without its
+  RDN or what is below it: a password change is about the account, and an
+  edit to any other attribute does not change what was reviewed.
+- **Order and count, not lines keyed by DN.** A DN can hold any character,
+  and a file format with escaping is one more thing to get wrong; the plan
+  lists the DNs in order, and the terminal asks in that order too.
+- **A count that does not match is exit 7, a usage error**, before anything
+  is read from the directory. The proposal said 2, which `alder diff` and
+  `--detailed-exitcode` already use for something else.
+- **Never from the environment.** The bind password reads `ALDER_*`; a new
+  user password has no reason to be inherited by every child process.
+- **`POST /plan` binds a password supplied at apply to no secret**, under a
+  marker no apply can match, so a baseline from such a plan is never
+  accepted: the apply plans again with the password. `ChangeRecord.Validate`
+  refuses such a record, so nothing applies it by mistake.
+- **No generation in Alder.** Length, alphabet and delivery are the
+  caller's policy (Alder Server generates at apply).
