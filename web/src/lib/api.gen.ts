@@ -4588,6 +4588,13 @@ export interface components {
              *     and never logged. A `setpassword` change is an RFC 3062 extended
              *     operation rather than a modification, so it has no LDIF form; the
              *     preview says so and shows the equivalent `ldappasswd` invocation.
+             *
+             *     Since 1.43, `POST /plan` accepts a `setpassword` change without
+             *     it: the plan then binds the change to its entry and says the
+             *     password is supplied at apply (`passwordSuppliedAtApply`), which is
+             *     how a saved plan carries a password change without holding the
+             *     password. Every apply endpoint still requires it, and an empty
+             *     value is refused everywhere.
              */
             newPassword?: string;
             mods?: components["schemas"]["ChangeMod"][];
@@ -4902,6 +4909,13 @@ export interface components {
              *     (`truncated` past that; `took` is not set). Added in 1.42.
              */
             subordinates?: components["schemas"]["CountResult"];
+            /**
+             * @description For a `set_password` item planned without `newPassword`: the
+             *     password is supplied when the change is applied, and the baseline
+             *     binds no secret. Such a baseline is never accepted by an apply,
+             *     which plans the change again with the password. Added in 1.43.
+             */
+            passwordSuppliedAtApply?: boolean;
         };
         Plan: {
             counts: components["schemas"]["PlanCounts"];

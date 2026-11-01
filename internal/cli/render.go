@@ -227,6 +227,9 @@ func renderPlan(w io.Writer, p apiclient.Plan, showItems bool) {
 		if it.Intent != nil && *it.Intent == apiclient.PlanIntentDesired {
 			notes = append(notes, "desired state")
 		}
+		if it.PasswordSuppliedAtApply != nil && *it.PasswordSuppliedAtApply {
+			notes = append(notes, "password supplied at apply")
+		}
 		line := fmt.Sprintf("%-12s %s", it.Action, safe(it.Dn))
 		if len(notes) > 0 {
 			line += "  (" + strings.Join(notes, ", ") + ")"

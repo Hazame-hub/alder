@@ -151,6 +151,13 @@ func saveInputPlan(ctx context.Context, env *Env, r *remote, in *planInput, conn
 			return failf("plan_not_saved", "the plan was not saved to %s: change %d carries its own expect, which a saved plan does not keep; apply it with alder apply",
 				safe(path), i+1)
 		}
+		// The point of saving a password change is that its value never
+		// passes through the review: it is supplied to alder apply --plan.
+		if c.Type == apiclient.ChangeRequestTypeSetpassword && c.NewPassword != nil {
+			return failf("plan_not_saved", "the plan was not saved to %s: change %d sets the password of %s and carries the password; "+
+				"leave newPassword out, and give it to alder apply --plan when the plan is applied",
+				safe(path), i+1, safe(c.Dn))
+		}
 	}
 	saved := newSavedPlan(env, plan)
 	saved.Input = in.saved()
@@ -231,6 +238,20 @@ func writeSaved(ctx context.Context, env *Env, r *remote, saved savedPlan, plan 
 			change.Expect = expect
 		case apiclient.PlanActionRename:
 			expect, err := expectationForRename(ctx, r, change, item, applyWith)
+			if err != nil {
+				return err
+			}
+			change.Expect = expect
+		case apiclient.PlanActionSetPassword:
+			// Saved as the intent alone: this entry, and no other, gets a new
+			// password, supplied at apply. The plan never returns a password,
+			// and one planned with its value is not saved.
+			if item.PasswordSuppliedAtApply == nil || !*item.PasswordSuppliedAtApply {
+				return failf("plan_not_saved", "the plan was not saved to %s: the password change of %s was planned with its password; "+
+					"leave newPassword out, and give it to alder apply --plan", safe(path), safe(item.Dn))
+			}
+			change.NewPassword = nil
+			expect, err := expectationForIdentity(ctx, r, change, applyWith)
 			if err != nil {
 				return err
 			}
@@ -529,6 +550,49 @@ func expectationForRename(ctx context.Context, r *remote, change apiclient.Chang
 		expect.Attributes = append(expect.Attributes, a)
 	}
 	return expect, nil
+}
+
+// expectationForIdentity reads the entry a password change is about and
+// returns its identity attribute, and nothing else: the change is bound to
+// the entry the reviewer saw, so a deleted and re-created entry with the same
+// DN makes the plan stale. An entry whose identity this bind cannot read is
+// not saved.
+func expectationForIdentity(ctx context.Context, r *remote, change apiclient.ChangeRequest, applyWith string) (*apiclient.ChangeExpectation, error) {
+	notSaved := func(format string, a ...any) error {
+		return failf("plan_not_saved", "the plan was not saved: "+format+"; apply this one with %s",
+			append(a, applyWith)...)
+	}
+	res, err := r.api.GetEntryWithResponse(ctx, &apiclient.GetEntryParams{Dn: change.Dn, IncludeOperational: ptr(true)})
+	if err != nil {
+		return nil, transportFailure(ctx, "reading "+safe(change.Dn), err)
+	}
+	if res.StatusCode() == http.StatusNotFound {
+		return nil, &ExitError{Code: ExitStale, Local: "plan_not_saved",
+			Message: fmt.Sprintf("the plan was not saved: %s was removed while the plan was being saved. Plan again", safe(change.Dn))}
+	}
+	if res.StatusCode() != http.StatusOK || res.JSON200 == nil {
+		return nil, r.refusal(ctx, "reading "+safe(change.Dn), res.HTTPResponse, res.Body)
+	}
+	for _, attr := range identityAttributes {
+		out := apiclient.ChangeAttribute{Name: attr, Values: []apiclient.AttributeValue{}}
+		for _, a := range res.JSON200.Attributes {
+			if !strings.EqualFold(schema.BaseName(a.Name), attr) || (a.Withheld != nil && *a.Withheld) {
+				continue
+			}
+			for _, v := range a.Values {
+				if v.Text == nil && v.Base64 == nil {
+					return nil, notSaved("a value of %s on %s was not read whole", safe(a.Name), safe(change.Dn))
+				}
+			}
+			out.Name = a.Name
+			out.Values = append(out.Values, a.Values...)
+		}
+		if len(out.Values) > 0 {
+			return &apiclient.ChangeExpectation{Attributes: []apiclient.ChangeAttribute{out}}, nil
+		}
+	}
+	return nil, notSaved("%s has no entryUUID or nsUniqueId this bind can read, so the entry whose password the plan sets cannot be told apart from another later given its name",
+		safe(change.Dn))
 }
 
 // withheldValue finds a value the server withheld from the plan: only its size
@@ -890,6 +954,17 @@ func decodeSavedPlan(data []byte) (*savedPlan, error) {
 			if !expectsIdentity(c.Expect) {
 				return nil, fmt.Errorf("change %d is a rename that does not expect the entry's identity and what is below it", i+1)
 			}
+		case c.Type == apiclient.ChangeRequestTypeSetpassword && s.Input != nil:
+			// Nor sets a password. The password is never in the file: it is
+			// supplied when the plan is applied.
+			switch {
+			case c.NewPassword != nil:
+				return nil, fmt.Errorf("change %d is a password change that carries a password, which a saved plan never holds", i+1)
+			case c.Attributes != nil || c.Mods != nil || c.NewRdn != nil || c.DeleteOldRdn != nil || c.NewSuperior != nil:
+				return nil, fmt.Errorf("change %d is a password change with fields a password change does not have", i+1)
+			case !expectsIdentityOnly(c.Expect):
+				return nil, fmt.Errorf("change %d is a password change that does not expect the entry's identity", i+1)
+			}
 		default:
 			return nil, fmt.Errorf("change %d is a %s, which this saved plan does not hold", i+1, c.Type)
 		}
@@ -913,6 +988,17 @@ func expectsIdentity(e *apiclient.ChangeExpectation) bool {
 		}
 	}
 	return false
+}
+
+// expectsIdentityOnly reports whether a saved password change's expectation
+// binds the entry by its identity attribute, and is about nothing else.
+func expectsIdentityOnly(e *apiclient.ChangeExpectation) bool {
+	if e == nil || e.Subordinates != nil || (e.Exhaustive != nil && *e.Exhaustive) ||
+		e.Definitions != nil || len(e.Attributes) != 1 {
+		return false
+	}
+	a := e.Attributes[0]
+	return isIdentityAttribute(schema.BaseName(a.Name)) && len(a.Values) > 0
 }
 
 // matchSaved refuses a saved plan made for another environment, directory,
@@ -1013,6 +1099,11 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 		return usagef("--recovery-out needs a file: standard output carries the plan and the result")
 	case o.force && o.recoveryOut == "":
 		return usagef("--force replaces the --recovery-out file, and none was given")
+	case o.newPasswordFile != "" && o.newPasswordStdin:
+		return usagef("--new-password-file and --new-password-stdin are two answers to one question; give one")
+	case o.newPasswordStdin && conn.bindPasswordStdin:
+		return usagef("standard input cannot carry both the bind password and the new passwords; " +
+			"use --new-password-file (a file descriptor such as /dev/fd/3 works) for the new passwords")
 	}
 	if err := refuseExisting(o.recoveryOut, o.force); err != nil {
 		return err
@@ -1031,7 +1122,7 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 	if err := matchSavedInput(o.plan, saved, conn); err != nil {
 		return err
 	}
-	if !o.yes && (conn.bindPasswordStdin || !env.Interactive()) {
+	if !o.yes && (conn.bindPasswordStdin || o.newPasswordStdin || !env.Interactive()) {
 		return &ExitError{Code: ExitNotConfirmed, Local: "confirmation_required",
 			Message: "not applied: there is no terminal to ask for confirmation, and --yes was not given. " +
 				"Review the saved plan, then run apply with --yes"}
@@ -1048,6 +1139,13 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 		writeln(out, "Nothing to apply: the saved plan holds no change.")
 		return nil
 	}
+	// The passwords are taken before anything is read from the directory, so
+	// a wrong count is refused with nothing asked of it. They go into the
+	// changes sent, and nowhere else.
+	changes, err := withNewPasswords(ctx, env, o, saved.Changes)
+	if err != nil {
+		return err
+	}
 
 	ctx, cancel := conn.bound(ctx)
 	defer cancel()
@@ -1061,21 +1159,24 @@ func applySavedInput(ctx context.Context, env *Env, conn *connection, o planOpti
 	if err != nil {
 		return err
 	}
-	if err := expectsWhatItChanges(o.plan, saved.Changes, names); err != nil {
+	if err := expectsWhatItChanges(o.plan, changes, names); err != nil {
 		return err
 	}
-	plan, raw, err := planSaved(ctx, r, saved.Changes)
+	// Planned with the passwords, in the session that applies, so the
+	// baselines bind the secrets that are sent: the plan made when the file
+	// was saved bound none.
+	plan, raw, err := planSaved(ctx, r, changes)
 	if err != nil {
 		return err
 	}
-	if why := holds(plan, len(saved.Changes)); why != nil {
+	if why := holds(plan, len(changes)); why != nil {
 		envelope.Plan = compactJSON(raw)
 		renderPlan(out, plan, !o.summary)
 		return &ExitError{Code: ExitStale, Local: "saved_plan_stale",
 			Message: fmt.Sprintf("not applied: the plan saved in %s no longer holds: %s. Nothing was written; plan again and review",
 				safe(o.plan), why)}
 	}
-	return applyReviewed(ctx, env, r, plan, raw, saved.Changes, applySettings{
+	return applyReviewed(ctx, env, r, plan, raw, changes, applySettings{
 		target:       conn.label(),
 		summary:      o.summary,
 		yes:          o.yes,
