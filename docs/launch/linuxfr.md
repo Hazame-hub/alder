@@ -5,11 +5,11 @@
 
 **Titre :**
 
-> Alder 1.39 : une interface web et une ligne de commande pour OpenLDAP et 389 Directory Server
+> Alder 1.42 : une interface web et une ligne de commande pour OpenLDAP et 389 Directory Server
 
 **Liens :**
 
-- Version 1.39.0 : https://github.com/Hazame-hub/alder/releases/tag/v1.39.0
+- Version 1.42.0 : https://github.com/Hazame-hub/alder/releases/tag/v1.42.0
 - Démarrage rapide : https://github.com/Hazame-hub/alder/blob/main/docs/GETTING-STARTED.md
 - Démonstration animée d'une modification : https://github.com/Hazame-hub/alder/blob/main/docs/screenshots/edit-review-apply.gif
 - Code source (AGPL-3.0) : https://github.com/Hazame-hub/alder
@@ -19,7 +19,7 @@
 Alder est un outil libre, sous licence AGPL-3.0, pour administrer un annuaire
 OpenLDAP ou 389 Directory Server. C'est un seul binaire écrit en Go, qui sert
 une interface web et fait aussi office de client en ligne de commande. La
-version 1.39.0 vient de sortir. Son principe : aucune écriture n'atteint
+version 1.42.0 vient de sortir. Son principe : aucune écriture n'atteint
 l'annuaire sans avoir été montrée d'abord sous forme de LDIF.
 
 **Corps :**
@@ -56,7 +56,7 @@ code, et doit pouvoir être relue comme du code.
   démarrer sans TLS, sauf avec `--allow-http`, et `--read-only` interdit toute
   écriture.
 
-## Nouveautés de la 1.39
+## Nouveautés récentes
 
 - Un **second serveur en lecture seule** dans la même session (une recette à
   côté de la production, un réplica à côté de son fournisseur), pour comparer
@@ -72,12 +72,17 @@ code, et doit pouvoir être relue comme du code.
 - Des **recherches enregistrées** (`*.search.yaml`), la **modification d'un
   attribut sur plusieurs entrées** sélectionnées, et des outils pour **ajouter
   ou vérifier de nombreux membres** d'un groupe.
+- Un plan enregistré peut exiger **plusieurs signataires** (`--min-signers`)
+  et porter des **renommages et déplacements** d'entrées (1.40 et 1.42).
+- L'**état de la réplication** comparé entre deux serveurs, origine par
+  origine, en temps de retard, et un **conseiller d'index** qui lit un journal
+  d'accès fourni par l'administrateur (1.41).
 
 ## Installation
 
 Des archives pour Linux, macOS et Windows (amd64 et arm64), avec
 `checksums.txt` et un SBOM, sont publiées sur la page de la version. L'image
-`ghcr.io/hazame-hub/alder:1.39.0` existe pour amd64 et arm64. Le guide de
+`ghcr.io/hazame-hub/alder:1.42.0` existe pour amd64 et arm64. Le guide de
 démarrage lance un OpenLDAP et un 389 DS d'essai avec Docker et accompagne une
 première modification en une dizaine de minutes.
 

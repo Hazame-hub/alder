@@ -10,7 +10,7 @@ doubt, ask the list owner first, or send only to 389-users.
 
 ---
 
-**Subject:** Alder 1.39.0, a web UI and CLI for 389 DS and OpenLDAP: feedback wanted
+**Subject:** Alder 1.42.0, a web UI and CLI for 389 DS and OpenLDAP: feedback wanted
 
 Hello,
 
@@ -33,9 +33,10 @@ What it does differently from the admin tools I have used:
 - 389 DS and OpenLDAP are both tested by one conformance suite, which runs
   every case against each server in CI.
 
-Version 1.39.0 also adds a second, read-only server in the same session for
-comparison, and saved plans that can be signed and applied later exactly as
-reviewed. Active Directory and FreeIPA are not supported.
+Recent versions add a second, read-only server in the same session for
+comparison (data, schema, configuration, and replication per origin), saved
+plans that can be signed by one or several reviewers and applied later
+exactly as reviewed, and index suggestions from an access log you supply. Active Directory and FreeIPA are not supported.
 
 I would particularly like to hear:
 
@@ -45,7 +46,7 @@ I would particularly like to hear:
   production directory;
 - anything that breaks on your server version.
 
-Release: https://github.com/Hazame-hub/alder/releases/tag/v1.39.0
+Release: https://github.com/Hazame-hub/alder/releases/tag/v1.42.0
 Getting started, with a seeded OpenLDAP and 389 DS in Docker:
 https://github.com/Hazame-hub/alder/blob/main/docs/GETTING-STARTED.md
 A short GIF of one edit:

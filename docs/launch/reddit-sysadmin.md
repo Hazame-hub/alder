@@ -15,14 +15,15 @@ self-hosted binary, AGPL-3.0.
 Every change is planned against the directory and shown as the exact LDIF it
 will send, and as an Ansible task. If the entry moved since the plan, the apply
 is refused. You can keep a subtree in Git as LDIF and have CI tell you when the
-directory drifts from it, and 1.39 adds saved, signed plans for a
-plan-then-approve-then-apply flow, plus a second read-only server to compare
-against.
+directory drifts from it. Plans can be saved and signed (by one or several
+reviewers) for a plan-then-approve-then-apply flow, there is a second
+read-only server to compare against, and it can suggest missing indexes from
+an access log you give it.
 
 No database, TLS by default, `--read-only` for looking at production. Both
 servers are tested by the same conformance suite. No AD or FreeIPA.
 
-Release: https://github.com/Hazame-hub/alder/releases/tag/v1.39.0
+Release: https://github.com/Hazame-hub/alder/releases/tag/v1.42.0
 GIF: https://github.com/Hazame-hub/alder/blob/main/docs/screenshots/edit-review-apply.gif
 Getting started: https://github.com/Hazame-hub/alder/blob/main/docs/GETTING-STARTED.md
 

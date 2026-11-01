@@ -4,7 +4,7 @@
 
 **Title:**
 
-> Alder 1.39: a web UI and CLI for OpenLDAP and 389 DS that shows every change as LDIF before it runs
+> Alder 1.42: a web UI and CLI for OpenLDAP and 389 DS that shows every change as LDIF before it runs
 
 **Body:**
 
@@ -34,11 +34,14 @@ interface where every change is reviewable as code.
   directory still matches. Entries the files don't mention are listed, never
   deleted.
 
-**New in 1.39**
+**New in the last few releases**
 
 - Attach a second, read-only server to compare with (staging next to
-  production, a replica next to its primary).
-- Save a plan, sign it, and apply exactly that plan later, after approval.
+  production, a replica next to its primary), including how far behind each
+  replication origin is.
+- Save a plan, sign it (optionally requiring several signers), and apply
+  exactly that plan later, after approval. Renames and moves included.
+- Give it an access log and get the indexes your slow searches were missing.
 - Open a project folder or .zip in the browser, saved searches, editing one
   attribute across selected entries, and adding or auditing many group
   members at once.
@@ -47,7 +50,7 @@ interface where every change is reviewable as code.
 
 ```sh
 docker run --rm -p 8443:8443 -v "$PWD/tls:/certs:ro" \
-  ghcr.io/hazame-hub/alder:1.39.0 serve --tls-cert /certs/tls.crt --tls-key /certs/tls.key
+  ghcr.io/hazame-hub/alder:1.42.0 serve --tls-cert /certs/tls.crt --tls-key /certs/tls.key
 ```
 
 It refuses to start without TLS unless you pass `--allow-http` (fine on
@@ -57,6 +60,6 @@ off every write.
 Not supported: Active Directory, FreeIPA. It's a young project (first release
 in September), so feedback and bug reports are welcome.
 
-- Release: https://github.com/Hazame-hub/alder/releases/tag/v1.39.0
+- Release: https://github.com/Hazame-hub/alder/releases/tag/v1.42.0
 - GIF of an edit, from change to LDIF to apply: https://github.com/Hazame-hub/alder/blob/main/docs/screenshots/edit-review-apply.gif
 - Getting started (seeded OpenLDAP and 389 DS in Docker): https://github.com/Hazame-hub/alder/blob/main/docs/GETTING-STARTED.md
