@@ -121,7 +121,7 @@ has an archive for Linux, macOS and Windows, on amd64 and arm64, with a
 which is both the web interface (`alder serve`) and the command-line client.
 
 ```sh
-version=1.42.0   # the release you want; x-release-please-version
+version=1.42.1   # the release you want; x-release-please-version
 archive="alder_${version}_linux_amd64.tar.gz"
 curl -fsSLO "https://github.com/Hazame-hub/alder/releases/download/v${version}/${archive}"
 curl -fsSLO "https://github.com/Hazame-hub/alder/releases/download/v${version}/checksums.txt"
