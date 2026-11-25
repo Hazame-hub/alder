@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.44.0](https://github.com/Hazame-hub/alder/compare/v1.43.0...v1.44.0) (2026-11-25)
+
+
+### Features
+
+* entry templates with the next free uidNumber and gidNumber ([#299](https://github.com/Hazame-hub/alder/issues/299)) ([142643e](https://github.com/Hazame-hub/alder/commit/142643e3bbb44a3992f0abae796d1e18c60bd3d0))
+* quick fixes from the 2026-11 product review ([#297](https://github.com/Hazame-hub/alder/issues/297)) ([dfac417](https://github.com/Hazame-hub/alder/commit/dfac41761539f5064774f44d6bc6a7f9e74dc1ac))
+
 ## [1.43.0](https://github.com/Hazame-hub/alder/compare/v1.42.0...v1.43.0) (2026-11-25)
 
 
