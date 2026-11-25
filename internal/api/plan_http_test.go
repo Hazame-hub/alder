@@ -345,3 +345,55 @@ func mustJSON(t *testing.T, v any) string {
 	}
 	return string(raw)
 }
+
+// Since 1.43 a password change may be planned without its password, which a
+// saved plan supplies at apply. The plan says so, and its baseline is one no
+// apply can use: every apply carries a password, and the token binds none.
+func TestAPasswordChangePlannedWithoutItsPassword(t *testing.T) {
+	rig := planRig(t, personAt(t, planAlice, []string{"cn", "Alice"}))
+
+	res := rig.do(t, http.MethodPost, "/api/v1/plan", strings.NewReader(fmt.Sprintf(
+		`{"changes":[{"dn":%q,"type":"setpassword"}]}`, planAlice)))
+	if res.Status != http.StatusOK {
+		t.Fatalf("status = %d\nbody: %s", res.Status, res.Body)
+	}
+	p := decode[Plan](t, res)
+	item := p.Items[0]
+	if item.Action != PlanActionSetPassword {
+		t.Fatalf("action = %q, want set_password", item.Action)
+	}
+	if item.PasswordSuppliedAtApply == nil || !*item.PasswordSuppliedAtApply {
+		t.Fatal("the item does not say the password is supplied at apply")
+	}
+	if item.Baseline == nil {
+		t.Fatal("the item has no baseline")
+	}
+
+	// The baseline does not apply with any password.
+	apply := rig.do(t, http.MethodPost, "/api/v1/changes/apply", strings.NewReader(fmt.Sprintf(
+		`{"dn":%q,"type":"setpassword","newPassword":"anything","baseline":%q}`, planAlice, *item.Baseline)))
+	if apply.Status == http.StatusOK {
+		t.Fatalf("a baseline planned without a password applied:\n%s", apply.Body)
+	}
+	// Nor without one.
+	apply = rig.do(t, http.MethodPost, "/api/v1/changes/apply", strings.NewReader(fmt.Sprintf(
+		`{"dn":%q,"type":"setpassword","baseline":%q}`, planAlice, *item.Baseline)))
+	if apply.Status != http.StatusBadRequest {
+		t.Fatalf("an apply without a password: status %d, want 400\n%s", apply.Status, apply.Body)
+	}
+	if len(rig.fake.applied) != 0 {
+		t.Fatal("something was written")
+	}
+
+	// A password planned with its value says nothing of the kind.
+	with := planFor(t, rig, fmt.Sprintf(`{"changes":[{"dn":%q,"type":"setpassword","newPassword":"x"}]}`, planAlice))
+	if with.Items[0].PasswordSuppliedAtApply != nil {
+		t.Error("a password planned with its value is reported as supplied at apply")
+	}
+	// An empty password is refused, as everywhere.
+	empty := rig.do(t, http.MethodPost, "/api/v1/plan", strings.NewReader(fmt.Sprintf(
+		`{"changes":[{"dn":%q,"type":"setpassword","newPassword":""}]}`, planAlice)))
+	if empty.Status != http.StatusBadRequest {
+		t.Fatalf("an empty password: status %d, want 400", empty.Status)
+	}
+}

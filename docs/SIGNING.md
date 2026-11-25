@@ -222,6 +222,16 @@ alder project apply --env prod --plan prod.plan.signed.json \
   plan could meet it (exit 7). It is never read from `ALDER_*`.
 - Without it, one trusted signature is enough, as in 1.39.
 
+### A password change
+
+A saved plan's password change holds no password (1.43), so **a signature
+on it covers the intent**: this entry, bound by its `entryUUID` or
+`nsUniqueId`, gets a new password. It does not cover the password, which is
+supplied at apply (`--new-password-file`, `--new-password-stdin` or the
+terminal) and chosen by whoever runs the apply. That is what a reviewer can
+judge: whether this account's password should change now, never what it
+becomes.
+
 ## What a signature is not
 
 - **Not authorisation.** A verified document is one Alder knows the origin of.
