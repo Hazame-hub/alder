@@ -88,7 +88,7 @@ func certificateRejected(err error) bool {
 // only a refused bind -- which proves no more than the success the right
 // password would have had -- or a certificate is named.
 const (
-	connectHeadlineWrongBind = "Wrong bind DN or password."
+	connectHeadlineWrongBind   = "Wrong bind DN or password."
 	connectHeadlineRefusedBind = "The directory answered but refused this bind."
 	connectHeadlineCertificate = "The directory's certificate is not trusted."
 	connectHeadlinePlaintext   = "This Alder refuses unencrypted connections."
