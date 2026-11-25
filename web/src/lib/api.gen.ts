@@ -2053,7 +2053,7 @@ export interface components {
             capabilities?: components["schemas"]["Capabilities"];
             /** @description True when the server was started with --read-only. */
             readOnly?: boolean;
-            /** @description Whether a reference server is attached to this session (1.43), so a client can skip `GET /session/reference` and the 404 it answers when none is. Set on the session's own description only. */
+            /** @description Whether a reference server is attached to this session (1.44), so a client can skip `GET /session/reference` and the 404 it answers when none is. Set on the session's own description only. */
             referenceAttached?: boolean;
         };
         /** @enum {string} */

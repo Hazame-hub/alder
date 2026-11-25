@@ -13,7 +13,7 @@ import type { SessionInfo } from "./api";
 export const referenceKey = ["reference"] as const;
 
 export function useReference(): SessionInfo | null {
-  // The session says whether one is attached (1.43), so the common case --
+  // The session says whether one is attached (1.44), so the common case --
   // none -- costs no request and no 404 in the console. An older server does
   // not say, and is asked as before. Attaching and detaching here write this
   // query's data directly, so a stale session description cannot hide one.

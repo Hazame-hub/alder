@@ -6565,7 +6565,7 @@ type SessionInfo struct {
 	// ReadOnly True when the server was started with --read-only.
 	ReadOnly *bool `json:"readOnly,omitempty"`
 
-	// ReferenceAttached Whether a reference server is attached to this session (1.43), so a client can skip `GET /session/reference` and the 404 it answers when none is. Set on the session's own description only.
+	// ReferenceAttached Whether a reference server is attached to this session (1.44), so a client can skip `GET /session/reference` and the 404 it answers when none is. Set on the session's own description only.
 	ReferenceAttached *bool `json:"referenceAttached,omitempty"`
 
 	// Role Which of a session's servers a read is of (1.39): its own, or the
