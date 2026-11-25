@@ -929,7 +929,10 @@ All of it is additions:
   password stops before asking (exit 3, `password_missing`); it was refused
   by the server before.
 
-The review fixes of 1.43 are additions too, and the spelling of two flags:
+### 1.44
+
+The fixes from the November product review are additions, and the
+spelling of two flags:
 
 - **`referenceAttached` on the session's description** (`POST` and
   `GET /session`) says whether a reference server is attached, so a client can
