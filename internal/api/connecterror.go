@@ -120,7 +120,7 @@ func connectFailureHint(cfg directory.ConnConfig, err error) string {
 	if ldapErr, ok := directoryRefusal(err); ok {
 		switch ldapErr.Code {
 		case rcInvalidCredentials:
-			return "The connection and the encryption worked; the directory refused these credentials. " +
+			return "The directory answered and refused these credentials. " +
 				"Check the bind DN (a full DN such as cn=admin,dc=example,dc=org, not a user name) and retype the password."
 		case rcInappropriateAuth, rcStrongAuthRequired, rcConfidentialityRequired:
 			return "The directory does not accept a simple bind like this one. It may want an encrypted " +
