@@ -184,7 +184,7 @@ allocate:
 			t.Errorf("%q not in %v", want, err)
 		}
 	}
-	if _, err := Parse([]byte("name: x\natributes: {}\n")); err == nil || !strings.Contains(err.Error(), "atributes") {
+	if _, err := Parse([]byte("name: x\nattrs: {}\n")); err == nil || !strings.Contains(err.Error(), "attrs") {
 		t.Errorf("a misspelt key: %v", err)
 	}
 }

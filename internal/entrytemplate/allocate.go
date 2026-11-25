@@ -58,7 +58,7 @@ func (t *Template) AllocateNumbers(ctx context.Context, r directory.Reader, nami
 		for _, b := range bases {
 			base, err := dn.Parse(b)
 			if err != nil {
-				return nil, fmt.Errorf("%w: %s: base %q: %v", ErrAllocation, attr, b, err)
+				return nil, fmt.Errorf("%w: %s: base %q: %w", ErrAllocation, attr, b, err)
 			}
 			if err := scan(ctx, r, base, attr, rng, &a); err != nil {
 				return nil, err

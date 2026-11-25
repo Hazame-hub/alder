@@ -71,7 +71,7 @@ func Load(dir string) (*Set, error) {
 
 // ReadFile reads and validates one template file.
 func ReadFile(path string) (*Template, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- a template file in the directory the operator named with --templates
 	if err != nil {
 		return nil, fmt.Errorf("entrytemplate: %w", err)
 	}
@@ -92,7 +92,7 @@ func ReadFile(path string) (*Template, error) {
 }
 
 // Parse decodes and validates one template document. Unknown keys are
-// refused, so a misspelt "atributes" is an error and not a template that
+// refused, so a misspelt key is an error and not a template that
 // quietly sets nothing.
 func Parse(raw []byte) (*Template, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
