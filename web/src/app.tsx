@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import {
@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TooltipProvider } from "@/components/ui";
 import { AlderMark } from "@/components/mark";
+import { Toaster } from "@/components/toaster";
 import { ConnectScreen } from "@/features/connect";
 import { Tree } from "@/features/tree";
 import { EntryPanel } from "@/features/entry";
@@ -138,6 +139,7 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
+      <Toaster />
       <div className="flex h-full flex-col">
         <TopBar
           info={info}
@@ -295,6 +297,40 @@ function searchBaseFor(info: SessionInfo, selectedDN: string | null): string {
   return contexts[0] ?? selectedDN ?? "";
 }
 
+/**
+ * A destination in the navigation: a real link, so it opens in a new tab on a
+ * middle click or Ctrl+click, and marked aria-current when it is where you
+ * are. A plain click stays in the page, keeping the rest of the URL as before.
+ */
+function ViewLink({
+  view,
+  current,
+  onView,
+  className,
+  children,
+}: {
+  view: AppView;
+  current: boolean;
+  onView: (v: AppView) => void;
+  className: string;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      href={`?view=${view}`}
+      aria-current={current ? "page" : undefined}
+      className={className}
+      onClick={(e) => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        onView(view);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
 function DirectoryNav({
   view,
   onView,
@@ -311,10 +347,11 @@ function DirectoryNav({
   return (
     <nav className="flex shrink-0 items-center gap-0.5 border-b border-border px-3 py-1">
       {pages.map(([id, label, Icon]) => (
-        <button
+        <ViewLink
           key={id}
-          type="button"
-          onClick={() => onView(id)}
+          view={id}
+          current={view === id}
+          onView={onView}
           className={cn(
             "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm transition-colors",
             view === id
@@ -324,7 +361,7 @@ function DirectoryNav({
         >
           <Icon className="size-3.5" />
           {label}
-        </button>
+        </ViewLink>
       ))}
     </nav>
   );
@@ -487,10 +524,11 @@ function TopBar({
 
       <nav className="flex items-center gap-0.5">
         {tabs.map(([id, label, Icon]) => (
-          <button
+          <ViewLink
             key={id}
-            type="button"
-            onClick={() => onView(id)}
+            view={id}
+            current={id === "browse" ? isDirectoryView(view) : view === id}
+            onView={onView}
             className={cn(
               "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
               (id === "browse" ? isDirectoryView(view) : view === id)
@@ -505,7 +543,7 @@ function TopBar({
                 {staged.length}
               </Badge>
             ) : null}
-          </button>
+          </ViewLink>
         ))}
       </nav>
 
@@ -513,7 +551,14 @@ function TopBar({
 
       <div className="flex items-center gap-2">
         {info.readOnly ? <Badge variant="outline">read-only</Badge> : null}
-        {info.verified === false ? (
+        {/* Plaintext has no certificate to verify: "unverified TLS" read like a
+            self-signed certificate and understated the risk. */}
+        {info.tls === "plaintext" ? (
+          <Badge variant="destructive" className="gap-1">
+            <ShieldAlert className="size-3" />
+            unencrypted
+          </Badge>
+        ) : info.verified === false ? (
           <Badge variant="destructive" className="gap-1">
             <ShieldAlert className="size-3" />
             unverified TLS

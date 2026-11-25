@@ -85,7 +85,7 @@ func planCmd(env *Env) *cobra.Command {
 			"alder apply --recovery-out, against the directory as it is now. A change\n" +
 			"whose entry has moved on since the original apply is a conflict, never an\n" +
 			"overwrite.\n\n" +
-			"--out FILE saves the plan of an LDIF document or of --changes, for alder apply\n" +
+			"--output FILE saves the plan of an LDIF document or of --changes, for alder apply\n" +
 			"--plan to apply exactly it later, through any Alder, or refuse. It is written\n" +
 			"only when every change in it applies, as the plan shown said; exit 4 when the\n" +
 			"directory moved while it was being saved. --force replaces an existing file.\n\n" +
@@ -101,9 +101,13 @@ func planCmd(env *Env) *cobra.Command {
 	o.register(cmd)
 	registerDetailedExitcode(cmd, &o.detailedExitcode)
 	f := cmd.Flags()
-	f.StringVar(&o.out, "out", "", "save the plan to this file, for alder apply --plan")
-	f.BoolVar(&o.force, "force", false, "replace --out if it already exists")
-	envflags.Exclude(f, "out", "force")
+	f.StringVarP(&o.out, "output", "o", "", "save the plan to this file, for alder apply --plan")
+	// --out was the spelling until 1.43, when --output became the one every
+	// command shares. It is kept, hidden, for the scripts that use it.
+	f.StringVar(&o.out, "out", "", "the earlier spelling of --output")
+	_ = f.MarkHidden("out")
+	f.BoolVar(&o.force, "force", false, "replace --output if it already exists")
+	envflags.Exclude(f, "output", "out", "force")
 	return cmd
 }
 
@@ -161,7 +165,7 @@ func applyCmd(env *Env) *cobra.Command {
 			"It is not a backup, and it holds no password. apply --recovery FILE plans and\n" +
 			"applies a bundle's changes like any other; a bundle made against a directory\n" +
 			"that announces itself differently also needs --allow-origin-mismatch.\n\n" +
-			"--plan FILE applies a plan saved by alder plan --out instead of an input: its\n" +
+			"--plan FILE applies a plan saved by alder plan --output instead of an input: its\n" +
 			"changes, planned as they are written, shown, confirmed and applied with the\n" +
 			"baselines of that plan. It is refused before connecting (exit 3) when it was\n" +
 			"made against another host:port or binding as someone else, including for\n" +
@@ -195,7 +199,7 @@ func applyCmd(env *Env) *cobra.Command {
 	f.BoolVar(&o.force, "force", false, "replace --recovery-out if it already exists")
 	f.BoolVar(&o.allowOriginMismatch, "allow-origin-mismatch", false,
 		"apply a --recovery bundle made against a directory that announces itself differently")
-	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder plan --out) instead of planning an input")
+	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder plan --output) instead of planning an input")
 	f.StringArrayVar(&o.trusted, "trusted-keys", nil,
 		"with --plan, apply it only if signed by one of these public keys: a PEM file, a file of several, or a directory of .pem files; repeatable")
 	f.IntVar(&o.minSigners, "min-signers", 0,
@@ -388,14 +392,14 @@ func runPlan(ctx context.Context, env *Env, conn *connection, o planOptions, fla
 	}
 	switch {
 	case o.out == "-":
-		return usagef("--out needs a file: standard output carries the plan")
+		return usagef("--output needs a file: standard output carries the plan")
 	case o.force && o.out == "":
-		return usagef("--force replaces the --out file, and none was given")
+		return usagef("--force replaces the --output file, and none was given")
 	case o.out != "" && (o.recovery != "" || o.pkg != ""):
 		// A bundle is itself a file of exact changes with expectations, and a
 		// package is validated where it lands: neither is made safer by a
 		// second file.
-		return usagef("--out saves the plan of an LDIF document or of --changes; apply a --recovery bundle or a --package as it is")
+		return usagef("--output saves the plan of an LDIF document or of --changes; apply a --recovery bundle or a --package as it is")
 	}
 	if err := refuseExisting(o.out, o.force); err != nil {
 		return err

@@ -5,6 +5,8 @@ import (
 	"crypto/x509"
 	"errors"
 
+	"github.com/gofiber/fiber/v2"
+
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 )
@@ -74,4 +76,95 @@ func certificateRejected(err error) bool {
 	)
 	return errors.As(err, &verification) || errors.As(err, &unknown) ||
 		errors.As(err, &hostname) || errors.As(err, &invalid)
+}
+
+// A failed connection is reported under a headline that names what went wrong,
+// because the person reading it acts on the headline. "Could not connect"
+// above every failure sent someone who had mistyped a password off to check
+// firewalls and ports, when the directory had answered and refused the bind.
+//
+// The headline never says more than the detail beside it already does: a
+// network failure without --allowed-targets still reads as one sentence, and
+// only a refused bind -- which proves no more than the success the right
+// password would have had -- or a certificate is named.
+const (
+	connectHeadlineCredentials = "Wrong bind DN or password."
+	connectHeadlineRefusedBind = "The directory answered but refused this bind."
+	connectHeadlineCertificate = "The directory's certificate is not trusted."
+	connectHeadlinePlaintext   = "This Alder refuses unencrypted connections."
+	connectHeadlineSettings    = "The connection settings are not usable."
+	connectHeadlineUnreachable = "Could not reach the directory."
+)
+
+// connectFailureHeadline is the message, and connectFailureHint the next step,
+// that a failed connection is reported with.
+func connectFailureHeadline(cfg directory.ConnConfig, err error) string {
+	if ldapErr, ok := directoryRefusal(err); ok {
+		if ldapErr.Code == rcInvalidCredentials {
+			return connectHeadlineCredentials
+		}
+		return connectHeadlineRefusedBind
+	}
+	switch {
+	case cfg.Validate() != nil:
+		return connectHeadlineSettings
+	case errors.Is(err, ldapdriver.ErrPlaintextRefused):
+		return connectHeadlinePlaintext
+	case certificateRejected(err):
+		return connectHeadlineCertificate
+	}
+	return connectHeadlineUnreachable
+}
+
+func connectFailureHint(cfg directory.ConnConfig, err error) string {
+	if ldapErr, ok := directoryRefusal(err); ok {
+		switch ldapErr.Code {
+		case rcInvalidCredentials:
+			return "The connection and the encryption worked; the directory refused these credentials. " +
+				"Check the bind DN (a full DN such as cn=admin,dc=example,dc=org, not a user name) and retype the password."
+		case rcInappropriateAuth, rcStrongAuthRequired, rcConfidentialityRequired:
+			return "The directory does not accept a simple bind like this one. It may want an encrypted " +
+				"connection (ldaps or StartTLS), or this account may not be allowed to bind with a password."
+		case rcUnwillingToPerform, rcInsufficientAccess:
+			return "The directory refused the bind itself. The account may be locked or disabled, " +
+				"or the directory may not allow binds for it."
+		}
+		return ""
+	}
+	switch {
+	case cfg.Validate() != nil:
+		return ""
+	case errors.Is(err, ldapdriver.ErrPlaintextRefused):
+		return "Choose ldaps or StartTLS. An operator can allow plaintext with --i-know-this-is-insecure."
+	case certificateRejected(err):
+		return "Paste the CA certificate that issued it under Certificate options, " +
+			"or set a server name the certificate covers."
+	}
+	return "Check the host, the port and the transport: ldaps is usually port 636, " +
+		"ldap and StartTLS port 389."
+}
+
+// directoryRefusal is the directory's own answer to the bind, when it gave one.
+func directoryRefusal(err error) (*ldapdriver.Error, bool) {
+	var ldapErr *ldapdriver.Error
+	if errors.As(err, &ldapErr) && !ldapErr.IsClientSide() {
+		return ldapErr, true
+	}
+	return nil, false
+}
+
+// writeConnectFailure answers a failed connection: still 502 upstream, which
+// clients rely on, with a headline and a next step that name the failure, and
+// the result code when the directory sent one.
+func (s *Server) writeConnectFailure(c *fiber.Ctx, cfg directory.ConnConfig, err error) error {
+	detail := s.connectFailureDetail(cfg, err)
+	body := Error{Error: ErrorErrorUpstream, Message: connectFailureHeadline(cfg, err), Detail: &detail}
+	if hint := connectFailureHint(cfg, err); hint != "" {
+		body.Hint = &hint
+	}
+	if ldapErr, ok := directoryRefusal(err); ok {
+		n := int(ldapErr.Code)
+		body.LdapCode = &n
+	}
+	return c.Status(fiber.StatusBadGateway).JSON(body)
 }

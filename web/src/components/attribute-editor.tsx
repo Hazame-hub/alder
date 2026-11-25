@@ -446,16 +446,17 @@ export function AddAttribute({
   onAdd: (name: string) => void;
 }) {
   const [value, setValue] = useState("");
+  const id = useId();
   if (available.length === 0) return null;
   return (
     <div className="flex items-end gap-2 rounded-lg border border-dashed border-border p-3">
       <div className="flex-1 space-y-1.5">
-        <Label>Add an attribute</Label>
+        <Label htmlFor={id}>Add an attribute</Label>
         <p className="text-xs text-muted-foreground">
           Only attributes this entry's object classes permit are offered.
         </p>
         <Select value={value} onValueChange={setValue}>
-          <SelectTrigger className="max-w-sm">
+          <SelectTrigger id={id} className="max-w-sm">
             <SelectValue placeholder={`${available.length} available`} />
           </SelectTrigger>
           <SelectContent>

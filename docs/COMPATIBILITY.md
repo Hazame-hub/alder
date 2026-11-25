@@ -895,16 +895,34 @@ Saved plans carry renames and moves
   the plan, the saved-plan format and the exit status do not change. A
   saved search whose filter holds such a DN is now said on standard error.
 
-### 1.43
+### 1.42.1
 
-`alder serve --log-request-header` refuses more names, as 1.40 said a later
-release may. A name containing `authorization`, `cookie`, `session`,
+**A behaviour change in a patch release.** `alder serve --log-request-header`
+refuses more names, as 1.40 said a later release may, so a deployment that
+started with 1.42.0 can stop at start with 1.42.1. A name containing `authorization`, `cookie`, `session`,
 `credential`, `jwt`, `assertion`, `oidc`, `saml` or `passwd` is now refused
 at start, like `token` and `key` were: `X-Authorization`, `X-Session-Id`,
 `Cf-Access-Jwt-Assertion` and `X-Amzn-Oidc-Data` carry a credential or a
 login under a name of the deployment's choosing. A deployment logging one
 of them stops at start with the flag named; pick a correlation header such
 as `X-Request-Id` instead.
+
+### 1.43
+
+Only additions, and the spelling of two flags:
+
+- **`referenceAttached` on the session's description** (`POST` and
+  `GET /session`) says whether a reference server is attached, so a client can
+  skip `GET /session/reference`. That endpoint still answers 404 when none is.
+- **A failed connection keeps its status and code** (502, `upstream`) and now
+  carries a `hint`, and an `ldapCode` when the directory refused the bind. Its
+  `message` names the failure -- "Wrong bind DN or password." -- where it was
+  always "Could not connect to the directory."; message text was never covered.
+- **`alder plan` and `alder project plan` take `--output` (`-o`)**, like every
+  other command that writes a file. `--out` still works, and is no longer
+  listed in `--help`.
+- **Errors from the command parser start with `alder:`**, as every other error
+  does, rather than `Error:`. Human-readable output is not covered.
 
 ---
 

@@ -130,7 +130,7 @@ func projectPlanCmd(env *Env) *cobra.Command {
 			"--detailed-exitcode answers \"does this environment match the project?\" in\n" +
 			"the exit status: 0 nothing to change, 2 changes pending, 3 some change\n" +
 			"cannot be applied as written (it wins over 2). Without it, 0 means planned.\n\n" +
-			"--out FILE saves the plan, so that alder project apply --plan FILE applies\n" +
+			"--output FILE saves the plan, so that alder project apply --plan FILE applies\n" +
 			"exactly it later, or refuses. Each change is saved with the state it expects\n" +
 			"to find, and the file is written only once the saved changes have been\n" +
 			"planned again, every one applies, and that plan is the one shown. A plan\n" +
@@ -148,10 +148,14 @@ func projectPlanCmd(env *Env) *cobra.Command {
 	f.StringVar(&o.envName, "env", "", "the environment, as alder.yaml names it (required)")
 	f.BoolVar(&o.json, "json", false, "write JSON to standard output")
 	f.BoolVar(&o.summary, "summary", false, "print the counts and not each change")
-	f.StringVar(&o.out, "out", "", "save the plan to this file, for alder project apply --plan")
-	f.BoolVar(&o.force, "force", false, "replace --out if it already exists")
+	f.StringVarP(&o.out, "output", "o", "", "save the plan to this file, for alder project apply --plan")
+	// --out was the spelling until 1.43, when --output became the one every
+	// command shares. It is kept, hidden, for the scripts that use it.
+	f.StringVar(&o.out, "out", "", "the earlier spelling of --output")
+	_ = f.MarkHidden("out")
+	f.BoolVar(&o.force, "force", false, "replace --output if it already exists")
 	f.DurationVar(&o.timeout, "timeout", 10*time.Minute, "give up on the whole command after this long; 0 waits indefinitely")
-	envflags.Exclude(f, "project", "env", "json", "summary", "out", "force")
+	envflags.Exclude(f, "project", "env", "json", "summary", "output", "out", "force")
 	registerDetailedExitcode(cmd, &o.detailedExitcode)
 	return cmd
 }
@@ -172,7 +176,7 @@ func projectApplyCmd(env *Env) *cobra.Command {
 			"environment and the directory. Anywhere a terminal cannot be asked, nothing is\n" +
 			"applied without --yes. A project never deletes an entry it does not mention.\n\n" +
 			"--recovery-out FILE asks Alder for a recovery bundle for what was applied.\n\n" +
-			"--plan FILE applies a plan alder project plan --out saved, instead of\n" +
+			"--plan FILE applies a plan alder project plan --output saved, instead of\n" +
 			"planning the project: exactly the changes in it, each only if the directory\n" +
 			"still holds what it held when the plan was made. The file must have been\n" +
 			"made for this environment, its directory and binds, and from the project\n" +
@@ -207,7 +211,7 @@ func projectApplyCmd(env *Env) *cobra.Command {
 	f.BoolVar(&o.yes, "yes", false, "apply without asking; required when no terminal can be asked")
 	f.StringVar(&o.recoveryOut, "recovery-out", "", "write a recovery bundle for the changes that were applied to this file")
 	f.BoolVar(&o.force, "force", false, "replace --recovery-out if it already exists")
-	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder project plan --out) instead of planning the project")
+	f.StringVar(&o.plan, "plan", "", "apply this saved plan (from alder project plan --output) instead of planning the project")
 	f.StringArrayVar(&o.trusted, "trusted-keys", nil,
 		"with --plan, apply it only if signed by one of these public keys: a PEM file, a file of several, or a directory of .pem files; repeatable")
 	f.IntVar(&o.minSigners, "min-signers", 0,
@@ -358,9 +362,9 @@ func runProjectPlan(ctx context.Context, env *Env, o projectOptions) (err error)
 	case o.envName == "":
 		return usagef("--env is required: the environment to plan against, as alder.yaml names it")
 	case o.out == "-":
-		return usagef("--out needs a file: standard output carries the plan")
+		return usagef("--output needs a file: standard output carries the plan")
 	case o.force && o.out == "":
-		return usagef("--force replaces the --out file, and none was given")
+		return usagef("--force replaces the --output file, and none was given")
 	}
 	if err := refuseExisting(o.out, o.force); err != nil {
 		return err

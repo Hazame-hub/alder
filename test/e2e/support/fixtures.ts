@@ -62,12 +62,12 @@ export class Alder {
    * the page's memory, and loading a URL would empty it.
    */
   async openChangeset(): Promise<void> {
-    await this.page.getByRole("button", { name: /^Changeset/ }).click();
+    await this.page.getByRole("link", { name: /^Changeset/ }).click();
   }
 
   /** Opens Snapshots & drift by its tab, for the same reason. */
   async openSnapshots(): Promise<void> {
-    await this.page.getByRole("button", { name: "Snapshots & drift", exact: true }).click();
+    await this.page.getByRole("link", { name: "Snapshots & drift", exact: true }).click();
     await expect(this.page.getByRole("heading", { name: "Snapshots & drift" })).toBeVisible();
   }
 

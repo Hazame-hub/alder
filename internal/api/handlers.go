@@ -89,8 +89,7 @@ func (s *Server) CreateSession(c *fiber.Ctx) error {
 		// fault is with the directory or the settings, not with Alder.
 		s.logger.InfoContext(c.UserContext(), "connection refused",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
-		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
-			"Could not connect to the directory.", s.connectFailureDetail(cfg, err))
+		return s.writeConnectFailure(c, cfg, err)
 	}
 
 	// Read now, before any entry can be served, because the schema is how
@@ -157,6 +156,9 @@ func (s *Server) sessionInfo(sess *session.Session) SessionInfo {
 		BindDn:       ptr(sess.BindDN()),
 		ReadOnly:     ptr(sess.ReadOnly),
 		Capabilities: ptr(capabilitiesView(caps)),
+		// The client asks for the reference only when there is one, rather
+		// than learn there is none from a 404 on every page load.
+		ReferenceAttached: ptr(sess.Reference() != nil),
 	}
 	if dn := sess.Config.ConfigBindDN; dn != "" {
 		info.ConfigBindDn = ptr(dn)
