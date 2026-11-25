@@ -601,7 +601,7 @@ alder project plan  --env prod --output prod.plan.json
 alder project apply --env prod --plan prod.plan.json --yes
 ```
 
-`--output FILE` (`-o`; spelled `--out` before 1.43, which still works) saves the plan after showing it. The file holds no baseline,
+`--output FILE` (`-o`; spelled `--out` before 1.44, which still works) saves the plan after showing it. The file holds no baseline,
 which would stop applying the moment the Alder that issued it restarted: each
 change is the plan's own record, and a modification carries the values of the
 attributes it replaces as an `expect`, the precondition a recovery bundle's
