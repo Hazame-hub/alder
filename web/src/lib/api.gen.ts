@@ -235,6 +235,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The entry templates this Alder offers, checked against this directory (1.43)
+         * @description The built-in templates and those the operator gave `alder serve
+         *     --templates`, each checked against the connected server's schema:
+         *     `usable` is false, with `problems` saying why, when the server would
+         *     refuse what the template creates. A built-in that does not fit is left
+         *     out instead, because a server gets the variant it accepts -- posixGroup
+         *     is structural on one target server and auxiliary on the other.
+         *
+         *     Reading only. A template creates nothing: `POST /templates/render`
+         *     turns one into an add change for the ordinary plan and review.
+         */
+        get: operations["listTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/templates/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fill a template in, allocating its numbers, into an add change (1.43)
+         * @description Returns the add change the template and the typed values describe,
+         *     with the next free number for each allocated attribute (uidNumber,
+         *     gidNumber) found now by searching the directory: one more than the
+         *     highest in the template's range already in use.
+         *
+         *     Nothing is written and nothing is reserved. The change goes to
+         *     `POST /plan` like any other, and the allocated number is a value in it
+         *     the reviewer sees. Two people rendering at the same moment get the
+         *     same number; the second add then plans and applies like any add, so
+         *     a directory that must refuse a duplicate needs its own uniqueness
+         *     check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+         *     plugin). DECISIONS.md, 2026-11-25.
+         *
+         *     `409` when no number can be found honestly: the range is full, the
+         *     server stopped the search before every entry was read, or part of the
+         *     tree is a referral.
+         */
+        post: operations["renderTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/inventory": {
         parameters: {
             query?: never;
@@ -4017,6 +4080,71 @@ export interface components {
              */
             command?: string;
         };
+        TemplateList: {
+            templates: components["schemas"]["EntryTemplate"][];
+        };
+        EntryTemplate: {
+            name: string;
+            title: string;
+            description?: string;
+            /** @description Where it is offered from, as an object view id. */
+            view: string;
+            /** @description The entry new ones go under by default. Absent asks. */
+            parent?: string;
+            rdn: string;
+            objectClasses: string[];
+            fields: components["schemas"]["TemplateField"][];
+            /** @description Every attribute the template can set, allocated ones included. */
+            attributes: string[];
+            allocates: components["schemas"]["TemplateAllocationRule"][];
+            /** @description `built-in`, or the file the template was read from. */
+            source: string;
+            usable: boolean;
+            /** @description Why this server would refuse what it creates. Absent when usable. */
+            problems?: string[];
+        };
+        TemplateField: {
+            name: string;
+            label: string;
+            help?: string;
+            required: boolean;
+            default?: string;
+            /** @enum {string} */
+            kind: "text" | "number" | "dn";
+        };
+        TemplateAllocationRule: {
+            attribute: string;
+            /** Format: int64 */
+            from: number;
+            /** Format: int64 */
+            to: number;
+            base?: string;
+        };
+        TemplateRenderRequest: {
+            template: string;
+            /** @description The entry to create the new one under. */
+            parent: string;
+            values: {
+                [key: string]: string;
+            };
+        };
+        TemplateRendering: {
+            change: components["schemas"]["ChangeRequest"];
+            allocated: components["schemas"]["TemplateAllocation"][];
+        };
+        TemplateAllocation: {
+            attribute: string;
+            /** Format: int64 */
+            value: number;
+            /**
+             * Format: int64
+             * @description The highest number in the range already in use. Absent when none was.
+             */
+            highestInUse?: number;
+            /** @description How many entries holding the attribute were read. */
+            scanned: number;
+            bases: string[];
+        };
         ObjectViewList: {
             views: components["schemas"]["ObjectView"][];
         };
@@ -5865,6 +5993,63 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The templates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    renderTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplateRenderRequest"];
+            };
+        };
+        responses: {
+            /** @description The change, and what was allocated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateRendering"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description No number could be allocated. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     inventoryValues: {

@@ -923,6 +923,12 @@ Only additions, and the spelling of two flags:
   listed in `--help`.
 - **Errors from the command parser start with `alder:`**, as every other error
   does, rather than `Error:`. Human-readable output is not covered.
+- **`GET /templates` and `POST /templates/render`** are new, and so is
+  `alder serve --templates`. Rendering reads the directory and writes nothing.
+  The built-in templates' names (`posix-user`, `posix-group`,
+  `posix-group-of-names`, `group-of-names`) and the template file format in
+  [TEMPLATES.md](TEMPLATES.md) are covered from 1.43; which built-ins a server
+  is offered follows its schema.
 
 ---
 

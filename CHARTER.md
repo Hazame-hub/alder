@@ -63,6 +63,12 @@ Added since, each on the record in `docs/DECISIONS.md`:
 - A second, read-only connection within a session, for comparison
   (2026-10-15). It is read and never written, by type, and closes with the
   session.
+- Entry templates (2026-11-25): built-in shapes for a new user or group, and
+  `*.template.yaml` files an operator gives `alder serve --templates`. A
+  template composes an ordinary add change and nothing more; the one value it
+  takes from the directory is the next free `uidNumber` or `gidNumber`, read
+  when it is rendered and shown in the review like any other value. Template
+  files are configuration: read at start, never written, nothing stored.
 
 ### Out of scope
 

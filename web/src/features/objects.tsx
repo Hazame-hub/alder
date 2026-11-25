@@ -31,6 +31,7 @@ import { MemberAuditDialog } from "@/features/member-audit";
 import type { MembersOperation } from "@/lib/group-members";
 import { ExportMenu } from "@/components/export-menu";
 import { InventoryButton } from "@/features/inventory";
+import { NewFromTemplateButton } from "@/features/template-create";
 import { ColumnPicker } from "@/components/column-picker";
 import { safeText } from "@/lib/display";
 import { narrowRows } from "@/lib/narrow";
@@ -266,6 +267,16 @@ export function ObjectListPanel({
                   : undefined
               }
             />
+            {readOnly ? null : (
+              <NewFromTemplateButton
+                view={viewId}
+                defaultParent={base}
+                onCreated={(dn) => {
+                  void results.refetch();
+                  onOpenEntry(dn);
+                }}
+              />
+            )}
             {viewId === "groups" ? (
               <Button variant="outline" size="sm" onClick={() => setAuditing(true)}>
                 <UserSearch />

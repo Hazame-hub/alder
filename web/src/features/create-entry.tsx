@@ -24,8 +24,10 @@ import { safeText } from "@/lib/display";
 /**
  * Creating an entry, in steps, from the schema.
  *
- * Two things it deliberately is not. It is not a template: every field on the
- * last step is generated from what the chosen classes require and permit, so it
+ * Two things it deliberately is not. It is not a template (those are a second
+ * way in, for the shapes a site creates every week: features/template-create):
+ * every field on the last step is generated from what the chosen classes
+ * require and permit, so it
  * offers the same controls the editor does — a Boolean gets TRUE/FALSE, a
  * DN-valued attribute gets the entry picker, and each field carries the
  * schema's own description. And it has no finish button of its own: the last

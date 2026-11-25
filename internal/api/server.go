@@ -11,6 +11,7 @@ import (
 	"github.com/hazame-hub/alder/internal/directory"
 	"github.com/hazame-hub/alder/internal/directory/ldapdriver"
 	"github.com/hazame-hub/alder/internal/dn"
+	"github.com/hazame-hub/alder/internal/entrytemplate"
 	"github.com/hazame-hub/alder/internal/ldif"
 	"github.com/hazame-hub/alder/internal/plan"
 	"github.com/hazame-hub/alder/internal/session"
@@ -66,6 +67,10 @@ type Config struct {
 	// Off by default: signing is something a deployment adopts, not something
 	// Alder imposes on every file written before it existed.
 	RequireSignature bool
+
+	// Templates are the entry templates offered for creating users and
+	// groups: the built-ins and any from --templates. Nil means the built-ins.
+	Templates *entrytemplate.Set
 }
 
 // Server implements the generated ServerInterface.

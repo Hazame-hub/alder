@@ -430,6 +430,71 @@ paths:
               schema: { $ref: "#/components/schemas/ObjectViewList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /templates:
+    get:
+      tags: [browse]
+      operationId: listTemplates
+      summary: The entry templates this Alder offers, checked against this directory (1.43)
+      description: |
+        The built-in templates and those the operator gave `alder serve
+        --templates`, each checked against the connected server's schema:
+        `usable` is false, with `problems` saying why, when the server would
+        refuse what the template creates. A built-in that does not fit is left
+        out instead, because a server gets the variant it accepts -- posixGroup
+        is structural on one target server and auxiliary on the other.
+
+        Reading only. A template creates nothing: `POST /templates/render`
+        turns one into an add change for the ordinary plan and review.
+      responses:
+        "200":
+          description: The templates.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TemplateList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /templates/render:
+    post:
+      tags: [browse]
+      operationId: renderTemplate
+      summary: Fill a template in, allocating its numbers, into an add change (1.43)
+      description: |
+        Returns the add change the template and the typed values describe,
+        with the next free number for each allocated attribute (uidNumber,
+        gidNumber) found now by searching the directory: one more than the
+        highest in the template's range already in use.
+
+        Nothing is written and nothing is reserved. The change goes to
+        `POST /plan` like any other, and the allocated number is a value in it
+        the reviewer sees. Two people rendering at the same moment get the
+        same number; the second add then plans and applies like any add, so
+        a directory that must refuse a duplicate needs its own uniqueness
+        check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+        plugin). DECISIONS.md, 2026-11-25.
+
+        `409` when no number can be found honestly: the range is full, the
+        server stopped the search before every entry was read, or part of the
+        tree is a referral.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateRenderRequest" }
+      responses:
+        "200":
+          description: The change, and what was allocated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TemplateRendering" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: No number could be allocated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
   /inventory:
     post:
       tags: [browse]
@@ -5360,6 +5425,111 @@ components:
             would describe a different search from the results beside it.
 
             Never contains the bind password. `-W` makes ldapsearch prompt.
+
+    TemplateList:
+      type: object
+      required: [templates]
+      properties:
+        templates:
+          type: array
+          items: { $ref: "#/components/schemas/EntryTemplate" }
+
+    EntryTemplate:
+      type: object
+      required: [name, title, view, rdn, objectClasses, fields, attributes, allocates, source, usable]
+      properties:
+        name: { type: string }
+        title: { type: string }
+        description: { type: string }
+        view:
+          type: string
+          description: Where it is offered from, as an object view id.
+        parent:
+          type: string
+          description: The entry new ones go under by default. Absent asks.
+        rdn: { type: string }
+        objectClasses:
+          type: array
+          items: { type: string }
+        fields:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateField" }
+        attributes:
+          type: array
+          description: Every attribute the template can set, allocated ones included.
+          items: { type: string }
+        allocates:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateAllocationRule" }
+        source:
+          type: string
+          description: "`built-in`, or the file the template was read from."
+        usable: { type: boolean }
+        problems:
+          type: array
+          description: Why this server would refuse what it creates. Absent when usable.
+          items: { type: string }
+
+    TemplateField:
+      type: object
+      required: [name, label, required, kind]
+      properties:
+        name: { type: string }
+        label: { type: string }
+        help: { type: string }
+        required: { type: boolean }
+        default: { type: string }
+        kind:
+          type: string
+          enum: [text, number, dn]
+          x-enum-varnames: [TemplateFieldKindText, TemplateFieldKindNumber, TemplateFieldKindDn]
+
+    TemplateAllocationRule:
+      type: object
+      required: [attribute, from, to]
+      properties:
+        attribute: { type: string }
+        from: { type: integer, format: int64 }
+        to: { type: integer, format: int64 }
+        base: { type: string }
+
+    TemplateRenderRequest:
+      type: object
+      required: [template, parent, values]
+      properties:
+        template: { type: string }
+        parent:
+          type: string
+          description: The entry to create the new one under.
+        values:
+          type: object
+          additionalProperties: { type: string }
+
+    TemplateRendering:
+      type: object
+      required: [change, allocated]
+      properties:
+        change: { $ref: "#/components/schemas/ChangeRequest" }
+        allocated:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateAllocation" }
+
+    TemplateAllocation:
+      type: object
+      required: [attribute, value, scanned, bases]
+      properties:
+        attribute: { type: string }
+        value: { type: integer, format: int64 }
+        highestInUse:
+          type: integer
+          format: int64
+          description: The highest number in the range already in use. Absent when none was.
+        scanned:
+          type: integer
+          description: How many entries holding the attribute were read.
+        bases:
+          type: array
+          items: { type: string }
 
     ObjectViewList:
       type: object

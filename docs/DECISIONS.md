@@ -7236,3 +7236,49 @@ assertions an application behind the proxy accepts as a login.
   keeps a JWT's signature out of the log, but an opaque bearer value is
   usually shorter than 128 bytes.
 
+### 2026-11-25 — entry templates come back, with the next free uid and gid
+
+The 2026-11-16 product review found creating a user the widest gap against
+LDAP Account Manager and phpLDAPadmin: the creation wizard is correct, but it
+asks the person to know that a login needs `inetOrgPerson` and
+`posixAccount`, which attributes those require, and which `uidNumber` is
+free. It asked whether the 2026-10-22 shelving should be reopened; the owner
+answered yes. This reverses that entry and narrows the 2026-09-05 one:
+creation is still generated from the schema in the wizard, and a template is
+a second way in for the shapes a site creates every week.
+
+- **A template composes an add change and nothing more**, as the wizard does.
+  It goes to the same plan, the same LDIF and the same Apply or Stage. There
+  is no template-specific write path.
+- **Templates are configuration, not state.** Built-ins ship with Alder; an
+  operator adds `*.template.yaml` files with `alder serve --templates DIR`,
+  read at start. A broken file stops the server with the file named. Nothing
+  is stored, so the charter's "stateless" holds.
+- **A field is a variable, not an attribute.** Typed values reach the entry
+  only through `attributes` that name them as `{field}`, so a reviewer of the
+  file sees every derivation. Blank optional values are dropped.
+- **Each template is checked against the connected schema** before it is
+  offered: classes defined, one structural class, every required attribute
+  always set, nothing set that is not permitted. A built-in that does not fit
+  is hidden, which is how one server gets `posixGroup` alone (OpenLDAP,
+  STRUCTURAL) and the other `groupOfNames` plus `posixGroup` (389 DS,
+  AUXILIARY): capability checks, not vendor checks.
+- **The next free number is one more than the highest in the range**, read by
+  paged `(attr=*)` searches over every naming context when the template is
+  rendered. Not an ordering filter: OpenLDAP's `nis.schema` gives
+  `uidNumber` no ordering rule. Not the first gap: a reused number inherits a
+  departed account's files. Refused (409) rather than guessed when the range
+  is full, the server cut the search short, a referral hides part of the
+  tree, or more than 500,000 entries hold it.
+- **It is a suggestion, not a reservation.** Two renders at the same moment
+  get the same number. Reserving would mean a counter entry Alder writes
+  outside any reviewed change, which is the one thing a template must not do.
+  The documented answer is the directory's own uniqueness check (OpenLDAP
+  `unique`, 389 DS attribute uniqueness).
+- **Ranges default to 10000-60000**, the usual `UID_MAX`/`GID_MAX`, so a
+  directory account never collides with a local one. A site that numbers
+  differently replaces the built-in with a file of the same name.
+- **Not in this slice:** initial group memberships (a second change, which
+  belongs in the changeset), templates inside an Alder project, a CLI
+  command, and client-certificate login (still an open question).
+
