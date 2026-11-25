@@ -31,6 +31,7 @@ These come up on every page. Each links to its reference.
 |---|---|
 | [CLI.md](CLI.md) | The command line: `snapshot`, `diff`, `plan`, `apply`, `project`, `package`, `preflight`, `sign`, `verify`. |
 | [PROJECT.md](PROJECT.md) | The Alder project format, and `alder project validate`, `plan`, `apply` and `fmt`. See also [`examples/project/`](../examples/project/). |
+| [TEMPLATES.md](TEMPLATES.md) | Entry templates: "New user" and "New group", your own `*.template.yaml`, and how the next free uidNumber or gidNumber is found. |
 | [PLAN.md](PLAN.md) | Plans: what each classification means, impact, and the tokens that make an apply refuse a stale plan. |
 | [RECOVERY.md](RECOVERY.md) | Recovery bundles, and how recoverable a change is. |
 | [SNAPSHOTS.md](SNAPSHOTS.md) | Data snapshots and comparisons, and staging the differences back. |

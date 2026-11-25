@@ -2201,6 +2201,27 @@ func (e StateKind) Valid() bool {
 	}
 }
 
+// Defines values for TemplateFieldKind.
+const (
+	TemplateFieldKindDn     TemplateFieldKind = "dn"
+	TemplateFieldKindNumber TemplateFieldKind = "number"
+	TemplateFieldKindText   TemplateFieldKind = "text"
+)
+
+// Valid indicates whether the value is a known member of the TemplateFieldKind enum.
+func (e TemplateFieldKind) Valid() bool {
+	switch e {
+	case TemplateFieldKindDn:
+		return true
+	case TemplateFieldKindNumber:
+		return true
+	case TemplateFieldKindText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ValueComparisonSide.
 const (
 	Both  ValueComparisonSide = "both"
@@ -3839,6 +3860,33 @@ type EntryReplication struct {
 
 	// Notes What this server does and does not record here.
 	Notes *[]string `json:"notes,omitempty"`
+}
+
+// EntryTemplate defines model for EntryTemplate.
+type EntryTemplate struct {
+	Allocates []TemplateAllocationRule `json:"allocates"`
+
+	// Attributes Every attribute the template can set, allocated ones included.
+	Attributes    []string        `json:"attributes"`
+	Description   *string         `json:"description,omitempty"`
+	Fields        []TemplateField `json:"fields"`
+	Name          string          `json:"name"`
+	ObjectClasses []string        `json:"objectClasses"`
+
+	// Parent The entry new ones go under by default. Absent asks.
+	Parent *string `json:"parent,omitempty"`
+
+	// Problems Why this server would refuse what it creates. Absent when usable.
+	Problems *[]string `json:"problems,omitempty"`
+	Rdn      string    `json:"rdn"`
+
+	// Source `built-in`, or the file the template was read from.
+	Source string `json:"source"`
+	Title  string `json:"title"`
+	Usable bool   `json:"usable"`
+
+	// View Where it is offered from, as an object view id.
+	View string `json:"view"`
 }
 
 // EntryView defines model for EntryView.
@@ -6695,6 +6743,59 @@ type SyntaxSummary struct {
 	UsedByCount *int    `json:"usedByCount,omitempty"`
 }
 
+// TemplateAllocation defines model for TemplateAllocation.
+type TemplateAllocation struct {
+	Attribute string   `json:"attribute"`
+	Bases     []string `json:"bases"`
+
+	// HighestInUse The highest number in the range already in use. Absent when none was.
+	HighestInUse *int64 `json:"highestInUse,omitempty"`
+
+	// Scanned How many entries holding the attribute were read.
+	Scanned int   `json:"scanned"`
+	Value   int64 `json:"value"`
+}
+
+// TemplateAllocationRule defines model for TemplateAllocationRule.
+type TemplateAllocationRule struct {
+	Attribute string  `json:"attribute"`
+	Base      *string `json:"base,omitempty"`
+	From      int64   `json:"from"`
+	To        int64   `json:"to"`
+}
+
+// TemplateField defines model for TemplateField.
+type TemplateField struct {
+	Default  *string           `json:"default,omitempty"`
+	Help     *string           `json:"help,omitempty"`
+	Kind     TemplateFieldKind `json:"kind"`
+	Label    string            `json:"label"`
+	Name     string            `json:"name"`
+	Required bool              `json:"required"`
+}
+
+// TemplateFieldKind defines model for TemplateField.Kind.
+type TemplateFieldKind string
+
+// TemplateList defines model for TemplateList.
+type TemplateList struct {
+	Templates []EntryTemplate `json:"templates"`
+}
+
+// TemplateRenderRequest defines model for TemplateRenderRequest.
+type TemplateRenderRequest struct {
+	// Parent The entry to create the new one under.
+	Parent   string            `json:"parent"`
+	Template string            `json:"template"`
+	Values   map[string]string `json:"values"`
+}
+
+// TemplateRendering defines model for TemplateRendering.
+type TemplateRendering struct {
+	Allocated []TemplateAllocation `json:"allocated"`
+	Change    ChangeRequest        `json:"change"`
+}
+
 // TreeNode defines model for TreeNode.
 type TreeNode struct {
 	Dn              string    `json:"dn"`
@@ -7055,6 +7156,9 @@ type CaptureFromAnotherServerJSONRequestBody = RemoteCaptureRequest
 
 // InspectSnapshotJSONRequestBody defines body for InspectSnapshot for application/json ContentType.
 type InspectSnapshotJSONRequestBody InspectSnapshotJSONBody
+
+// RenderTemplateJSONRequestBody defines body for RenderTemplate for application/json ContentType.
+type RenderTemplateJSONRequestBody = TemplateRenderRequest
 
 // AsSnapshot returns the union data inside the DiffSide_Snapshot as a Snapshot
 func (t DiffSide_Snapshot) AsSnapshot() (Snapshot, error) {
@@ -9178,6 +9282,69 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /source (the `GetSourceOffer` operationId).
 	GetSourceOffer(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListTemplates The entry templates this Alder offers, checked against this directory (1.44)
+	//
+	// The built-in templates and those the operator gave `alder serve
+	// --templates`, each checked against the connected server's schema:
+	// `usable` is false, with `problems` saying why, when the server would
+	// refuse what the template creates. A built-in that does not fit is left
+	// out instead, because a server gets the variant it accepts -- posixGroup
+	// is structural on one target server and auxiliary on the other.
+	//
+	// Reading only. A template creates nothing: `POST /templates/render`
+	// turns one into an add change for the ordinary plan and review.
+	//
+	// Corresponds with GET /templates (the `ListTemplates` operationId).
+	ListTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenderTemplateWithBody Fill a template in, allocating its numbers, into an add change (1.44)
+	//
+	// Returns the add change the template and the typed values describe,
+	// with the next free number for each allocated attribute (uidNumber,
+	// gidNumber) found now by searching the directory: one more than the
+	// highest in the template's range already in use.
+	//
+	// Nothing is written and nothing is reserved. The change goes to
+	// `POST /plan` like any other, and the allocated number is a value in it
+	// the reviewer sees. Two people rendering at the same moment get the
+	// same number; the second add then plans and applies like any add, so
+	// a directory that must refuse a duplicate needs its own uniqueness
+	// check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+	// plugin). DECISIONS.md, 2026-11-25.
+	//
+	// `409` when no number can be found honestly: the range is full, the
+	// server stopped the search before every entry was read, or part of the
+	// tree is a referral.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
+	RenderTemplateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenderTemplate Fill a template in, allocating its numbers, into an add change (1.44)
+	//
+	// Returns the add change the template and the typed values describe,
+	// with the next free number for each allocated attribute (uidNumber,
+	// gidNumber) found now by searching the directory: one more than the
+	// highest in the template's range already in use.
+	//
+	// Nothing is written and nothing is reserved. The change goes to
+	// `POST /plan` like any other, and the allocated number is a value in it
+	// the reviewer sees. Two people rendering at the same moment get the
+	// same number; the second add then plans and applies like any add, so
+	// a directory that must refuse a duplicate needs its own uniqueness
+	// check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+	// plugin). DECISIONS.md, 2026-11-25.
+	//
+	// `409` when no number can be found honestly: the range is full, the
+	// server stopped the search before every entry was read, or part of the
+	// tree is a referral.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
+	RenderTemplate(ctx context.Context, body RenderTemplateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListChildren List the children of an entry
 	//
@@ -11788,6 +11955,99 @@ func (c *Client) GetSourceOffer(ctx context.Context, reqEditors ...RequestEditor
 	return c.Client.Do(req)
 }
 
+// ListTemplates The entry templates this Alder offers, checked against this directory (1.44)
+//
+// The built-in templates and those the operator gave `alder serve
+// --templates`, each checked against the connected server's schema:
+// `usable` is false, with `problems` saying why, when the server would
+// refuse what the template creates. A built-in that does not fit is left
+// out instead, because a server gets the variant it accepts -- posixGroup
+// is structural on one target server and auxiliary on the other.
+//
+// Reading only. A template creates nothing: `POST /templates/render`
+// turns one into an add change for the ordinary plan and review.
+//
+// Corresponds with GET /templates (the `ListTemplates` operationId).
+func (c *Client) ListTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTemplatesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenderTemplateWithBody Fill a template in, allocating its numbers, into an add change (1.44)
+//
+// Returns the add change the template and the typed values describe,
+// with the next free number for each allocated attribute (uidNumber,
+// gidNumber) found now by searching the directory: one more than the
+// highest in the template's range already in use.
+//
+// Nothing is written and nothing is reserved. The change goes to
+// `POST /plan` like any other, and the allocated number is a value in it
+// the reviewer sees. Two people rendering at the same moment get the
+// same number; the second add then plans and applies like any add, so
+// a directory that must refuse a duplicate needs its own uniqueness
+// check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+// plugin). DECISIONS.md, 2026-11-25.
+//
+// `409` when no number can be found honestly: the range is full, the
+// server stopped the search before every entry was read, or part of the
+// tree is a referral.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
+func (c *Client) RenderTemplateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenderTemplateRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenderTemplate Fill a template in, allocating its numbers, into an add change (1.44)
+//
+// Returns the add change the template and the typed values describe,
+// with the next free number for each allocated attribute (uidNumber,
+// gidNumber) found now by searching the directory: one more than the
+// highest in the template's range already in use.
+//
+// Nothing is written and nothing is reserved. The change goes to
+// `POST /plan` like any other, and the allocated number is a value in it
+// the reviewer sees. Two people rendering at the same moment get the
+// same number; the second add then plans and applies like any add, so
+// a directory that must refuse a duplicate needs its own uniqueness
+// check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+// plugin). DECISIONS.md, 2026-11-25.
+//
+// `409` when no number can be found honestly: the range is full, the
+// server stopped the search before every entry was read, or part of the
+// tree is a referral.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
+func (c *Client) RenderTemplate(ctx context.Context, body RenderTemplateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenderTemplateRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListChildren List the children of an entry
 //
 // With no `dn`, returns the naming contexts the server holds, which are
@@ -14341,6 +14601,73 @@ func NewGetSourceOfferRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListTemplatesRequest constructs an http.Request for the ListTemplates method
+func NewListTemplatesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/templates")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRenderTemplateRequest calls the generic RenderTemplate builder with application/json body
+func NewRenderTemplateRequest(server string, body RenderTemplateJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRenderTemplateRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRenderTemplateRequestWithBody constructs an http.Request for the RenderTemplate method, with any body, and a specified content type
+func NewRenderTemplateRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/templates/render")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListChildrenRequest constructs an http.Request for the ListChildren method
 func NewListChildrenRequest(server string, params *ListChildrenParams) (*http.Request, error) {
 	var err error
@@ -16354,6 +16681,71 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /source (the `GetSourceOffer` operationId).
 	GetSourceOfferWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSourceOfferReply, error)
+
+	// ListTemplatesWithResponse The entry templates this Alder offers, checked against this directory (1.44)
+	//
+	// The built-in templates and those the operator gave `alder serve
+	// --templates`, each checked against the connected server's schema:
+	// `usable` is false, with `problems` saying why, when the server would
+	// refuse what the template creates. A built-in that does not fit is left
+	// out instead, because a server gets the variant it accepts -- posixGroup
+	// is structural on one target server and auxiliary on the other.
+	//
+	// Reading only. A template creates nothing: `POST /templates/render`
+	// turns one into an add change for the ordinary plan and review.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /templates (the `ListTemplates` operationId).
+	ListTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListTemplatesReply, error)
+
+	// RenderTemplateWithBodyWithResponse Fill a template in, allocating its numbers, into an add change (1.44)
+	//
+	// Returns the add change the template and the typed values describe,
+	// with the next free number for each allocated attribute (uidNumber,
+	// gidNumber) found now by searching the directory: one more than the
+	// highest in the template's range already in use.
+	//
+	// Nothing is written and nothing is reserved. The change goes to
+	// `POST /plan` like any other, and the allocated number is a value in it
+	// the reviewer sees. Two people rendering at the same moment get the
+	// same number; the second add then plans and applies like any add, so
+	// a directory that must refuse a duplicate needs its own uniqueness
+	// check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+	// plugin). DECISIONS.md, 2026-11-25.
+	//
+	// `409` when no number can be found honestly: the range is full, the
+	// server stopped the search before every entry was read, or part of the
+	// tree is a referral.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
+	RenderTemplateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenderTemplateReply, error)
+
+	// RenderTemplateWithResponse Fill a template in, allocating its numbers, into an add change (1.44)
+	//
+	// Returns the add change the template and the typed values describe,
+	// with the next free number for each allocated attribute (uidNumber,
+	// gidNumber) found now by searching the directory: one more than the
+	// highest in the template's range already in use.
+	//
+	// Nothing is written and nothing is reserved. The change goes to
+	// `POST /plan` like any other, and the allocated number is a value in it
+	// the reviewer sees. Two people rendering at the same moment get the
+	// same number; the second add then plans and applies like any add, so
+	// a directory that must refuse a duplicate needs its own uniqueness
+	// check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+	// plugin). DECISIONS.md, 2026-11-25.
+	//
+	// `409` when no number can be found honestly: the range is full, the
+	// server stopped the search before every entry was read, or part of the
+	// tree is a referral.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
+	RenderTemplateWithResponse(ctx context.Context, body RenderTemplateJSONRequestBody, reqEditors ...RequestEditorFn) (*RenderTemplateReply, error)
 
 	// ListChildrenWithResponse List the children of an entry
 	//
@@ -19473,6 +19865,123 @@ func (r GetSourceOfferReply) ContentType() string {
 	return ""
 }
 
+type ListTemplatesReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TemplateList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListTemplatesReply) GetJSON200() *TemplateList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListTemplatesReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r ListTemplatesReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTemplatesReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTemplatesReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListTemplatesReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RenderTemplateReply struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TemplateRendering
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *BadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *NotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RenderTemplateReply) GetJSON200() *TemplateRendering {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RenderTemplateReply) GetJSON400() *BadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RenderTemplateReply) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RenderTemplateReply) GetJSON404() *NotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RenderTemplateReply) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r RenderTemplateReply) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RenderTemplateReply) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RenderTemplateReply) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RenderTemplateReply) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListChildrenReply struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -21909,6 +22418,89 @@ func (c *ClientWithResponses) GetSourceOfferWithResponse(ctx context.Context, re
 	return ParseGetSourceOfferReply(rsp)
 }
 
+// ListTemplatesWithResponse The entry templates this Alder offers, checked against this directory (1.44)
+//
+// The built-in templates and those the operator gave `alder serve
+// --templates`, each checked against the connected server's schema:
+// `usable` is false, with `problems` saying why, when the server would
+// refuse what the template creates. A built-in that does not fit is left
+// out instead, because a server gets the variant it accepts -- posixGroup
+// is structural on one target server and auxiliary on the other.
+//
+// Reading only. A template creates nothing: `POST /templates/render`
+// turns one into an add change for the ordinary plan and review.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /templates (the `ListTemplates` operationId).
+func (c *ClientWithResponses) ListTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListTemplatesReply, error) {
+	rsp, err := c.ListTemplates(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTemplatesReply(rsp)
+}
+
+// RenderTemplateWithBodyWithResponse Fill a template in, allocating its numbers, into an add change (1.44)
+//
+// Returns the add change the template and the typed values describe,
+// with the next free number for each allocated attribute (uidNumber,
+// gidNumber) found now by searching the directory: one more than the
+// highest in the template's range already in use.
+//
+// Nothing is written and nothing is reserved. The change goes to
+// `POST /plan` like any other, and the allocated number is a value in it
+// the reviewer sees. Two people rendering at the same moment get the
+// same number; the second add then plans and applies like any add, so
+// a directory that must refuse a duplicate needs its own uniqueness
+// check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+// plugin). DECISIONS.md, 2026-11-25.
+//
+// `409` when no number can be found honestly: the range is full, the
+// server stopped the search before every entry was read, or part of the
+// tree is a referral.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
+func (c *ClientWithResponses) RenderTemplateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenderTemplateReply, error) {
+	rsp, err := c.RenderTemplateWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenderTemplateReply(rsp)
+}
+
+// RenderTemplateWithResponse Fill a template in, allocating its numbers, into an add change (1.44)
+//
+// Returns the add change the template and the typed values describe,
+// with the next free number for each allocated attribute (uidNumber,
+// gidNumber) found now by searching the directory: one more than the
+// highest in the template's range already in use.
+//
+// Nothing is written and nothing is reserved. The change goes to
+// `POST /plan` like any other, and the allocated number is a value in it
+// the reviewer sees. Two people rendering at the same moment get the
+// same number; the second add then plans and applies like any add, so
+// a directory that must refuse a duplicate needs its own uniqueness
+// check (OpenLDAP's `unique` overlay, 389 DS's attribute uniqueness
+// plugin). DECISIONS.md, 2026-11-25.
+//
+// `409` when no number can be found honestly: the range is full, the
+// server stopped the search before every entry was read, or part of the
+// tree is a referral.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
+func (c *ClientWithResponses) RenderTemplateWithResponse(ctx context.Context, body RenderTemplateJSONRequestBody, reqEditors ...RequestEditorFn) (*RenderTemplateReply, error) {
+	rsp, err := c.RenderTemplate(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenderTemplateReply(rsp)
+}
+
 // ListChildrenWithResponse List the children of an entry
 //
 // With no `dn`, returns the naming contexts the server holds, which are
@@ -24246,6 +24838,93 @@ func ParseGetSourceOfferReply(rsp *http.Response) (*GetSourceOfferReply, error) 
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListTemplatesReply parses an HTTP response from a ListTemplatesWithResponse call
+func ParseListTemplatesReply(rsp *http.Response) (*ListTemplatesReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTemplatesReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TemplateList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRenderTemplateReply parses an HTTP response from a RenderTemplateWithResponse call
+func ParseRenderTemplateReply(rsp *http.Response) (*RenderTemplateReply, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RenderTemplateReply{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TemplateRendering
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 

@@ -191,6 +191,8 @@ same code finds the schema at `cn=Subschema` on OpenLDAP and `cn=schema` on
 - `--max-in-flight` caps how many API requests are answered at once.
 - `--max-sessions` caps how many directory sessions are held at once (256 by
   default). Reconnecting from a browser closes the session it replaces.
+- `--templates DIR` adds entry templates (`*.template.yaml`) to "New user"
+  and "New group"; see [`docs/TEMPLATES.md`](docs/TEMPLATES.md).
 - Every flag also reads `ALDER_<FLAG_NAME>`.
 
 Report a vulnerability as [`SECURITY.md`](SECURITY.md) describes.

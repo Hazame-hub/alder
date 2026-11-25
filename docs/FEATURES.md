@@ -128,6 +128,12 @@ value" button. `NO-USER-MODIFICATION` attributes are not editable. "Add an
 attribute" offers exactly what the entry's object classes permit, and nothing
 else. An attribute whose values are binary is shown but not editable as text.
 
+**Create from a template.** **New user** and **New group** on the Users and
+Groups views fill in a template: a login is a user name, a first and last
+name and a primary group, and the next free `uidNumber` is read from the
+directory when you review. Built-in templates fit each server's schema; your
+own go in `*.template.yaml` files. [TEMPLATES.md](TEMPLATES.md)
+
 **Confirm** every write. There is one code path that modifies a directory and it
 opens this dialog first, showing the exact RFC 2849 change record that will be
 sent — rendered by the server from the same `ChangeRecord` it will act on, so

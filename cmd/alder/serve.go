@@ -23,6 +23,7 @@ import (
 	"github.com/hazame-hub/alder/internal/allowlist"
 	"github.com/hazame-hub/alder/internal/api"
 	"github.com/hazame-hub/alder/internal/cli"
+	"github.com/hazame-hub/alder/internal/entrytemplate"
 	"github.com/hazame-hub/alder/internal/reqlog"
 	"github.com/hazame-hub/alder/internal/signing"
 	"github.com/hazame-hub/alder/internal/web"
@@ -47,6 +48,7 @@ type serveOptions struct {
 	allowedTargets string
 	maxInFlight    int
 	maxSessions    int
+	templates      string
 }
 
 func serveCmd() *cobra.Command {
@@ -114,6 +116,9 @@ func serveCmd() *cobra.Command {
 		"how many directory connections to hold at once: sessions, and the reference server "+
 			"a session may attach. A connection beyond it is refused with 503 until one closes "+
 			"or times out. Negative turns the bound off")
+	f.StringVar(&o.templates, "templates", "",
+		"a directory of *.template.yaml entry templates, offered as \"New user\" and \"New group\" "+
+			"beside the built-in ones. A file replaces a built-in of the same name. Read at start")
 
 	return cmd
 }
@@ -190,6 +195,16 @@ func runServe(ctx context.Context, o serveOptions) error {
 			"so every document would be refused")
 	}
 
+	// Read before anything listens: a template file with a mistake in it
+	// would otherwise be a "New user" that is not the one the operator wrote.
+	templates, err := entrytemplate.Load(o.templates)
+	if err != nil {
+		return serveFailed(err)
+	}
+	if o.templates != "" {
+		logger.Info("entry templates loaded", "dir", o.templates, "count", len(templates.All()))
+	}
+
 	server := api.NewServer(logger, api.Config{
 		// The cookie's Secure attribute must match how the browser reaches
 		// Alder, which behind a proxy is HTTPS even though this process speaks
@@ -206,6 +221,7 @@ func runServe(ctx context.Context, o serveOptions) error {
 		SourceURL:          o.sourceURL,
 		TrustedKeys:        trusted,
 		RequireSignature:   o.requireSig,
+		Templates:          templates,
 		Version:            buildVersion(),
 	})
 	defer server.Close()
