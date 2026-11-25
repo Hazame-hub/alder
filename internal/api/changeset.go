@@ -242,6 +242,32 @@ func changesetSizeOK(c *fiber.Ctx, changes []ChangeRequest) bool {
 	return true
 }
 
+// planChangeRecords is changeRecords for POST /plan, which alone accepts a
+// password change without its password (supplied at apply, since 1.43). An
+// empty password is still refused, as everywhere.
+func planChangeRecords(changes []ChangeRequest) ([]directory.ChangeRecord, error) {
+	out := make([]directory.ChangeRecord, 0, len(changes))
+	for i, ch := range changes {
+		atApply := ch.Type == ChangeRequestTypeSetpassword && ch.NewPassword == nil
+		if atApply {
+			ch.NewPassword = ptr("x")
+		}
+		record, err := changeRecord(ch)
+		if err != nil {
+			return nil, fmt.Errorf("change %d: %w", i+1, err)
+		}
+		if atApply {
+			record.NewPassword = ""
+			record.PasswordAtApply = true
+		}
+		if err := record.ValidatePlanned(); err != nil {
+			return nil, fmt.Errorf("change %d: %w", i+1, err)
+		}
+		out = append(out, record)
+	}
+	return out, nil
+}
+
 func changeRecords(changes []ChangeRequest) ([]directory.ChangeRecord, error) {
 	out := make([]directory.ChangeRecord, 0, len(changes))
 	for i, ch := range changes {

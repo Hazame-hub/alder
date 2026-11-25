@@ -56,7 +56,7 @@ func (s *Server) PlanChanges(c *fiber.Ctx) error {
 		// Converted and validated before anything is read, exactly as the apply
 		// path does it. A plan made from a record Apply would refuse describes
 		// something that cannot happen.
-		records, err := changeRecords(*body.Changes)
+		records, err := planChangeRecords(*body.Changes)
 		if err != nil {
 			return badRequest(c, "The set contains a change that is not usable.", err.Error())
 		}
@@ -268,6 +268,9 @@ func (s *Server) planItem(ctx context.Context, item plan.Item, sch *schema.Schem
 	view.Record = &request
 	view.Preview = &preview
 	view.Baseline = ptr(string(item.Baseline))
+	if item.Record.PasswordAtApply {
+		view.PasswordSuppliedAtApply = ptr(true)
+	}
 	where := recoveryTarget(caps, sch, item.DN, nil)
 	if where.Kind == recovery.KindConfig {
 		where = recoveryTarget(caps, sch, item.DN, restart.get(ctx))

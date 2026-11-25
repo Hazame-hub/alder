@@ -197,8 +197,16 @@ describe("parseSavedPlan", () => {
       }),
     ).toContain("does not expect the entry's identity");
     expect(change({ type: "setpassword", newPassword: "x" })).toContain(
-      "setpassword",
+      "alder apply --plan",
     );
+    expect(
+      change({
+        type: "setpassword",
+        expect: {
+          attributes: [{ name: "entryUUID", values: [{ text: "u" }] }],
+        },
+      }),
+    ).toContain("supplied when the plan is applied");
   });
 
   it("refuses a change whose shape it does not know, rather than staging it or failing to show it", () => {

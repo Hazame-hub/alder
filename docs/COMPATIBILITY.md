@@ -895,11 +895,11 @@ Saved plans carry renames and moves
   the plan, the saved-plan format and the exit status do not change. A
   saved search whose filter holds such a DN is now said on standard error.
 
-### 1.42.1
+### 1.43
 
-**A behaviour change in a patch release.** `alder serve --log-request-header`
-refuses more names, as 1.40 said a later release may, so a deployment that
-started with 1.42.0 can stop at start with 1.42.1. A name containing `authorization`, `cookie`, `session`,
+**A behaviour change.** `alder serve --log-request-header` refuses more
+names, as 1.40 said a later release may, so a deployment that started with
+1.42 can stop at start with 1.43. A name containing `authorization`, `cookie`, `session`,
 `credential`, `jwt`, `assertion`, `oidc`, `saml` or `passwd` is now refused
 at start, like `token` and `key` were: `X-Authorization`, `X-Session-Id`,
 `Cf-Access-Jwt-Assertion` and `X-Amzn-Oidc-Data` carry a credential or a
@@ -907,9 +907,29 @@ login under a name of the deployment's choosing. A deployment logging one
 of them stops at start with the flag named; pick a correlation header such
 as `X-Request-Id` instead.
 
-### 1.43
+A saved plan can carry a password change, without the password
+([proposals/saved-password-changes.md](proposals/saved-password-changes.md)).
+All of it is additions:
 
-Only additions, and the spelling of two flags:
+- `POST /plan` accepts a `setpassword` change with no `newPassword`, which
+  every release before refused (400). The item says
+  `passwordSuppliedAtApply: true`, a new field of `PlanItem`. Every apply
+  endpoint still requires `newPassword`, and an empty one is refused
+  everywhere, as before.
+- `alder plan --out` saves a `--changes` password change that leaves
+  `newPassword` out, bound to the entry's `entryUUID` or `nsUniqueId`. One
+  that carries the password is refused, so the value never passes through
+  the review.
+- `alder apply --plan` gains `--new-password-file` and
+  `--new-password-stdin`, and asks at a terminal when neither is given.
+  The saved-plan format stays `alder-plan` version 1: a file without a
+  password change reads exactly as before, and an older release refuses one
+  with a password change, as it refused it when saving.
+- `alder apply` of `--changes` holding a password change without its
+  password stops before asking (exit 3, `password_missing`); it was refused
+  by the server before.
+
+The review fixes of 1.43 are additions too, and the spelling of two flags:
 
 - **`referenceAttached` on the session's description** (`POST` and
   `GET /session`) says whether a reference server is attached, so a client can
