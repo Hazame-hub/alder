@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.43.0](https://github.com/Hazame-hub/alder/compare/v1.42.0...v1.43.0) (2026-11-25)
+
+
+### Features
+
+* saved plans carry password changes, without the password ([#289](https://github.com/Hazame-hub/alder/issues/289)) ([e2f2e14](https://github.com/Hazame-hub/alder/commit/e2f2e14c9976ef728026e887aa9de617e8e09a94))
+
+
+### Fixes
+
+* **deps:** Go 1.27.4, brotli 1.2.7 and klauspost/compress 1.20.2 for new advisories ([#296](https://github.com/Hazame-hub/alder/issues/296)) ([1f12f25](https://github.com/Hazame-hub/alder/commit/1f12f25887b0862914083cdcb959667e1db2fa63))
+* **serve:** refuse more credential header names for --log-request-header ([#285](https://github.com/Hazame-hub/alder/issues/285)) ([b461252](https://github.com/Hazame-hub/alder/commit/b461252db5f1e0635e444e661e2942a4e8d945b5))
+
+
+### Documentation
+
+* **compatibility:** the env-suffix fix shipped in 1.42, not 1.41.1 ([#283](https://github.com/Hazame-hub/alder/issues/283)) ([1bacaf2](https://github.com/Hazame-hub/alder/commit/1bacaf2d433d06d1b292a505db6cf3bf482fa0b0))
+* **launch:** bring the launch drafts up to 1.42.0 ([#287](https://github.com/Hazame-hub/alder/issues/287)) ([46bb1d6](https://github.com/Hazame-hub/alder/commit/46bb1d615b7b9ea683f373445aec9246b26cc23e))
+* **proposals:** a Helm chart and a one-command demo ([#286](https://github.com/Hazame-hub/alder/issues/286)) ([ed05076](https://github.com/Hazame-hub/alder/commit/ed05076b64a0c7833f8cc974e1837e3685cebdc0))
+* **proposals:** saved plans that carry password changes, without the password ([#288](https://github.com/Hazame-hub/alder/issues/288)) ([8ee867b](https://github.com/Hazame-hub/alder/commit/8ee867b78a18c523a7bba988b1b14858224d26e6))
+
 ## [1.42.0](https://github.com/Hazame-hub/alder/compare/v1.41.0...v1.42.0) (2026-10-31)
 
 
