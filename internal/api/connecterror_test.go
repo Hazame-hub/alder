@@ -105,7 +105,7 @@ func TestAFailedConnectionHasAHeadlineThatNamesTheFailure(t *testing.T) {
 		ldapCode int
 		hint     string
 	}{
-		{"a wrong password", wrongPassword, connectHeadlineCredentials, 49, "bind DN"},
+		{"a wrong password", wrongPassword, connectHeadlineWrongBind, 49, "bind DN"},
 		{"a refused bind", locked, connectHeadlineRefusedBind, 53, "locked"},
 		{"an untrusted certificate", untrusted, connectHeadlineCertificate, 0, "CA certificate"},
 		{"plaintext refused", ldapdriver.ErrPlaintextRefused, connectHeadlinePlaintext, 0, "StartTLS"},
