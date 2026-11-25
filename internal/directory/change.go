@@ -76,6 +76,12 @@ type ChangeRecord struct {
 	// struct that must never be rendered, logged, or returned to a client;
 	// LDIF(), AnsibleTask() and Summary() all substitute a placeholder.
 	NewPassword string
+
+	// PasswordAtApply marks a ChangeSetPassword planned without its password,
+	// which is supplied when the change is applied (a saved plan carries the
+	// change, never the secret). Only a plan is made from such a record:
+	// Validate refuses it, so nothing applies it.
+	PasswordAtApply bool
 }
 
 // Attribute is an attribute description and its values, in the order they
@@ -91,6 +97,24 @@ type Attribute struct {
 // the user changed nothing will happily "apply" a no-op and report success,
 // which teaches the user that the confirm button is meaningless.
 var ErrEmptyChange = errors.New("directory: the change contains no modifications")
+
+// ValidatePlanned is Validate for a record that is only planned: a password
+// change may leave its password to be supplied at apply.
+func (c ChangeRecord) ValidatePlanned() error {
+	if c.Type == ChangeSetPassword && c.PasswordAtApply {
+		if c.NewPassword != "" {
+			return errors.New("directory: a password change supplied at apply carries a password")
+		}
+		if c.DN.IsEmpty() {
+			return errors.New("directory: a change requires a DN")
+		}
+		return nil
+	}
+	if c.PasswordAtApply {
+		return fmt.Errorf("directory: only a password change is supplied at apply, not a %s", c.Type)
+	}
+	return c.Validate()
+}
 
 // Validate checks a change record before it is rendered or applied.
 func (c ChangeRecord) Validate() error {
@@ -140,6 +164,9 @@ func (c ChangeRecord) Validate() error {
 	case ChangeSetPassword:
 		if c.NewPassword == "" {
 			return errors.New("directory: a password change requires a new password")
+		}
+		if c.PasswordAtApply {
+			return errors.New("directory: a password change supplied at apply carries a password")
 		}
 	case ChangeModRDN:
 		if c.NewRDN == "" {

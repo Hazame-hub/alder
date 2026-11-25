@@ -50,7 +50,9 @@ const (
 // so that applying them in sequence has the same effect as the single LDAP
 // modify operation would.
 func Task(c directory.ChangeRecord) (string, error) {
-	if err := c.Validate(); err != nil {
+	// ValidatePlanned: rendering applies nothing, and a password change
+	// supplied at apply renders like any other, without its value.
+	if err := c.ValidatePlanned(); err != nil {
 		return "", err
 	}
 	var b strings.Builder

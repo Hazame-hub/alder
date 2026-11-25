@@ -320,6 +320,13 @@ func (f *Fingerprinter) operationMAC(op directory.ChangeRecord) []byte {
 		field(strconv.FormatBool(op.DeleteOldRDN))
 		field(strings.ToLower(op.NewSuperior.String()))
 	case directory.ChangeSetPassword:
+		if op.PasswordAtApply {
+			// No secret to bind. Never the digest of an empty password: a
+			// token for this is one no apply, which always carries a
+			// password, can match.
+			field("supplied-at-apply")
+			break
+		}
 		field(string(f.secretDigest([]byte(op.NewPassword))))
 	case directory.ChangeDelete:
 		// The type and the DN are the whole of it.

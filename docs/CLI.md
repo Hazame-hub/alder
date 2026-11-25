@@ -958,9 +958,15 @@ it: another entry later given the same name, or an entry added below a branch,
 makes the apply stale, while an edit to any other attribute does not. One whose
 identity the bind cannot read, or with more than 10,000 entries below it, is
 not saved. References a move leaves dangling are shown in the plan, as for a
-deletion, and never rewritten. A password change is not saved, nor is a
-plan with a value the server withheld, nor a `--changes` change that carries
-its own `expect`: apply those with `alder apply`. Before
+deletion, and never rewritten. **A password change is saved without its
+password** (since 1.43): give it in `--changes` as
+`{"dn": "...", "type": "setpassword"}`, with no `newPassword`. It expects the
+entry's identity, as a rename does, and nothing else, so an entry deleted and
+re-created with the same DN makes the apply stale. One that carries
+`newPassword` is not saved: the point is that the password never passes
+through the review. A plan with a value the server withheld is not saved,
+nor a `--changes` change that carries its own `expect`: apply those with
+`alder apply`. Before
 the file is written, its changes are planned once more, exactly as an apply
 will plan them, and it is written only if every one applies and that plan is
 the one shown, the same action with the same effect on group membership and
@@ -1034,6 +1040,36 @@ shown, confirmed and applied with the baselines of that plan. `--yes`,
   attribute it replaces has changed, an entry it adds now exists, or an
   entry it deletes no longer holds exactly what it held. Nothing is written;
   plan again and review.
+
+**A saved password change.** The plan holds no password, so the apply takes
+one per password change, in the order the plan lists them, from exactly one
+of:
+
+- **`--new-password-file PATH`**: one password per line, a final line ending
+  allowed. `/dev/fd/N` works, so a job can pass the passwords on a file
+  descriptor of its own and keep standard input for `--bind-password-stdin`.
+- **`--new-password-stdin`**: the same, from standard input. It needs `--yes`,
+  and is refused with `--bind-password-stdin` (exit 7).
+- **The terminal**, when neither is given and no `--yes`: each entry is asked
+  for by its DN, twice, with echo off.
+
+Never from the environment: a variable is inherited by every child process.
+Fewer or more passwords than password changes, or an empty line, is refused
+(exit 7) before anything is read from the directory; so is `--yes` with
+neither flag. The change is then planned again **with** the password, in the
+session that applies, so the token it is applied with binds the password
+sent. The password is never in the plan shown, the `--json` document, the
+recovery bundle (which says the password was not captured) or a log line.
+
+```sh
+# reset.json: [{"dn": "uid=svc,ou=services,dc=example,dc=com", "type": "setpassword"}]
+alder plan --changes reset.json --out reset.plan.json
+alder sign reset.plan.json --key reviewer.pem --output reset.plan.signed.json
+
+# Later, the new password straight from a secret store, on descriptor 3:
+alder apply --plan reset.plan.signed.json --trusted-keys reviewers/ \
+  --new-password-file /dev/fd/3 --yes 3< <(vault kv get -field=password secret/svc)
+```
 
 **A signed saved plan.** The file may be an envelope `alder sign` wrote around
 the plan ([SIGNING.md](SIGNING.md#signing-a-saved-plan)). Its plan is read as

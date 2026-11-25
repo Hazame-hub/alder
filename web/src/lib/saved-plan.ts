@@ -283,6 +283,12 @@ export function parseSavedPlan(text: string): Reading {
             `Change ${n} is a rename that does not expect the entry's identity and what is below it.`,
           );
         break;
+      case "setpassword":
+        // The page has no file of secrets to read, and asking for a
+        // password here would be a page of its own.
+        return refuse(
+          `Change ${n} sets the password of ${safeText(c.dn)}. The password is supplied when the plan is applied, so apply this plan with alder apply --plan.`,
+        );
       default:
         return refuse(
           `Change ${n} is a ${safeText(String(c.type))}, which a saved plan does not hold.`,

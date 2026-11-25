@@ -42,6 +42,10 @@ type planOptions struct {
 	trusted []string
 	// minSigners is how many distinct trusted keys must have signed a --plan.
 	minSigners int
+	// newPasswordFile and newPasswordStdin supply the passwords of a --plan's
+	// password changes, one per line in plan order.
+	newPasswordFile  string
+	newPasswordStdin bool
 
 	yes                 bool
 	allowDeletes        bool
@@ -88,7 +92,9 @@ func planCmd(env *Env) *cobra.Command {
 			"--out FILE saves the plan of an LDIF document or of --changes, for alder apply\n" +
 			"--plan to apply exactly it later, through any Alder, or refuse. It is written\n" +
 			"only when every change in it applies, as the plan shown said; exit 4 when the\n" +
-			"directory moved while it was being saved. --force replaces an existing file.\n\n" +
+			"directory moved while it was being saved. --force replaces an existing file.\n" +
+			"A --changes password change is saved without its password: leave newPassword\n" +
+			"out, and give it to alder apply --plan.\n\n" +
 			"Exit status: 0 planned, 3 some change cannot be applied as written, 7 usage,\n" +
 			"8 failure. With --detailed-exitcode: 0 nothing to change, 2 changes pending,\n" +
 			"3 some change cannot be applied as written (it wins over 2).",
@@ -169,6 +175,10 @@ func applyCmd(env *Env) *cobra.Command {
 			"modification in it does not expect what it changes, and refused whole (exit 4)\n" +
 			"when any of its changes no longer holds. The file is the whole input: nothing\n" +
 			"binds its changes but who could write it.\n\n" +
+			"A --plan that changes passwords holds none: give one per password change,\n" +
+			"in plan order, with --new-password-file FILE or --new-password-stdin, one\n" +
+			"per line, or type each twice at the terminal. Never from the environment.\n" +
+			"A wrong count is refused before the directory is read (7).\n\n" +
 			"That is what a signature is for. A --plan file may be signed (alder sign);\n" +
 			"--trusted-keys PATH, repeatable, applies it only if it carries a valid\n" +
 			"signature by one of those public keys, and refuses an unsigned plan or one\n" +
@@ -200,7 +210,12 @@ func applyCmd(env *Env) *cobra.Command {
 		"with --plan, apply it only if signed by one of these public keys: a PEM file, a file of several, or a directory of .pem files; repeatable")
 	f.IntVar(&o.minSigners, "min-signers", 0,
 		"with --plan and --trusted-keys, apply it only if signed by at least this many distinct trusted keys")
-	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch", "plan", "trusted-keys", "min-signers")
+	f.StringVar(&o.newPasswordFile, "new-password-file", "",
+		"with --plan, read the passwords of its password changes from this file, one per line in plan order")
+	f.BoolVar(&o.newPasswordStdin, "new-password-stdin", false,
+		"with --plan, read the passwords of its password changes from standard input, one per line in plan order")
+	envflags.Exclude(f, "yes", "allow-deletes", "recovery-out", "force", "allow-origin-mismatch", "plan", "trusted-keys", "min-signers",
+		"new-password-file", "new-password-stdin")
 	return cmd
 }
 
@@ -531,6 +546,9 @@ func runApply(ctx context.Context, env *Env, conn *connection, o planOptions, fl
 	if len(o.trusted) > 0 || o.minSigners != 0 {
 		return usagef("--trusted-keys and --min-signers are about a --plan file, and none was given")
 	}
+	if o.newPasswordFile != "" || o.newPasswordStdin {
+		return usagef("--new-password-file and --new-password-stdin supply the passwords of a --plan file, and none was given")
+	}
 	in, err := o.input(env, flags, args)
 	if err != nil {
 		return err
@@ -643,6 +661,13 @@ func applyReviewed(ctx context.Context, env *Env, r *remote, p apiclient.Plan, r
 	if n := blocked(p); n > 0 {
 		return &ExitError{Code: ExitNotApplicable, Local: "plan_not_applicable",
 			Message: fmt.Sprintf("not applied: %d change(s) cannot be applied as written, so nothing was written", n)}
+	}
+	for _, item := range p.Items {
+		if item.PasswordSuppliedAtApply != nil && *item.PasswordSuppliedAtApply {
+			return &ExitError{Code: ExitNotApplicable, Local: "password_missing",
+				Message: fmt.Sprintf("not applied: the password change of %s carries no password. "+
+					"Give newPassword, or save the plan with alder plan --out and apply it with alder apply --plan", safe(item.Dn))}
+		}
 	}
 	if applicable(p) == 0 {
 		writeln(out, "Nothing to apply: the directory already matches.")
