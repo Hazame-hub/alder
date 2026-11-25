@@ -25,6 +25,7 @@ import { PolicyDialog } from "@/features/policy";
 import { safeText } from "@/lib/display";
 import { UnknownOutcome } from "@/components/unknown-outcome";
 import { bench } from "@/lib/snapshot-bench";
+import { toast } from "@/lib/toast";
 import { AppliesTo } from "@/components/applies-to";
 import { ManyMembersStaleNote } from "@/components/many-members-note";
 
@@ -120,6 +121,8 @@ export function ChangeDialog({
         setApplied(result);
         return;
       }
+      // The dialog closes, so something has to say the change went in.
+      toast.show({ title: "Change applied", description: preview?.summary ?? item?.dn });
       onOpenChange(false);
       onApplied?.(result);
     },
@@ -192,12 +195,15 @@ export function ChangeDialog({
                 in the Changeset view turns it into changes you plan and review
                 before anything is applied.
               </p>
-              <DownloadButton
-                text={bundleText(bundle)}
-                filename={recoveryFilename(bundle)}
-                label="Download recovery bundle"
-                mime="application/json"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <DownloadButton
+                  text={bundleText(bundle)}
+                  filename={recoveryFilename(bundle)}
+                  label="Download recovery bundle"
+                  mime="application/json"
+                />
+                <UndoButton bundle={bundle} onStaged={close} />
+              </div>
             </div>
           </div>
         ) : (
@@ -426,14 +432,81 @@ export function ChangeDialog({
   );
 }
 
-export function ErrorNote({ title, error }: { title: string; error: ApiFailure }) {
+/**
+ * Undo, as Alder does it: the bundle's compensating changes are staged in the
+ * changeset, where they are planned and reviewed like any others. Nothing is
+ * written from here, and the bundle is still worth downloading -- the staged
+ * changes go with this tab.
+ */
+function UndoButton({
+  bundle,
+  onStaged,
+}: {
+  bundle: NonNullable<ApplyResult["recovery"]>;
+  onStaged: () => void;
+}) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const undo = useMutation({
+    mutationFn: async () => unwrap(await api.POST("/recovery/inspect", { body: bundle })),
+    onSuccess: (inspection) => {
+      if (!inspection.originMatches) {
+        setProblem("This bundle names another directory than this session's, so it is not staged here.");
+        return;
+      }
+      if (inspection.changes.length === 0) {
+        setProblem("Nothing in this change can be put back from the bundle.");
+        return;
+      }
+      const outcome = changeset.addMany(
+        inspection.changes.map((c) => ({ change: c, label: `Undo: ${c.type} ${c.dn}` })),
+      );
+      if (outcome.staged === 0) {
+        setProblem(`The changeset has room for ${outcome.capacity} more changes, and the undo has ${outcome.refused}.`);
+        return;
+      }
+      toast.show({
+        title: "Undo staged in the changeset",
+        description: "Review its plan there before anything is written.",
+        tone: "info",
+        action: canNavigate() ? { label: "Open changeset", run: () => navigate({ view: "changeset" }) } : undefined,
+      });
+      onStaged();
+    },
+  });
+  if (bundle.recoverability === "unavailable") return null;
+  return (
+    <>
+      <Button variant="outline" disabled={undo.isPending} onClick={() => undo.mutate()}>
+        {undo.isPending ? <Loader2 className="animate-spin" /> : null}
+        Undo: stage for review
+      </Button>
+      {problem ? <p className="w-full text-xs text-warning-tint-foreground">{safeText(problem)}</p> : null}
+      {undo.error instanceof ApiFailure ? (
+        <div className="w-full">
+          <ErrorNote title="The undo could not be prepared" error={undo.error} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+export function ErrorNote({
+  title,
+  error,
+  messageInTitle = false,
+}: {
+  title: string;
+  error: ApiFailure;
+  /** The title already is the server's message, so it is not repeated below. */
+  messageInTitle?: boolean;
+}) {
   return (
     <div className="rounded-md border border-destructive/40 bg-destructive/8 p-3">
       <div className="flex items-center gap-1.5 text-sm font-medium text-destructive">
         <ShieldAlert className="size-4" />
-        {title}
+        {messageInTitle ? safeText(title) : title}
       </div>
-      <p className="mt-1 text-sm">{safeText(error.message)}</p>
+      {messageInTitle ? null : <p className="mt-1 text-sm">{safeText(error.message)}</p>}
       {/*
         The likely cause comes before the raw diagnostic and the code. A result
         code is what the server said; the hint is what to do about it, and that

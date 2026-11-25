@@ -486,7 +486,7 @@ so the stricter meaning is asked for, never assumed.
   therefore plans and applies in one run against one environment, where a
   plan for another environment cannot reach it by construction, and its
   question names the environment and the directory.
-- **Saved plans** (built). `alder project plan --env NAME --out FILE` saves
+- **Saved plans** (built). `alder project plan --env NAME --output FILE` saves
   the plan, and `alder project apply --env NAME --plan FILE` applies exactly
   it later, through any Alder, or refuses. The file holds no baseline: each
   change is the plan's own record, a modification with the values it

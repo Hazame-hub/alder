@@ -260,11 +260,11 @@ loginShell: /bin/bash
 -
 EOF
 
-alder plan shell.ldif --out shell.plan.json
+alder plan shell.ldif --output shell.plan.json
 alder apply --plan shell.plan.json
 ```
 
-`plan --out` shows the plan and writes it to the file. `apply --plan` shows
+`plan --output` shows the plan and writes it to the file. `apply --plan` shows
 that plan again, asks, and applies those changes and no others. Each change in
 the file carries what the entry held when it was planned, so if the entry
 changes in between, the whole file is refused (exit 4) and nothing is written:

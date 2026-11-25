@@ -23,30 +23,32 @@ import (
 
 // The result codes of RFC 4511 that an operator actually meets.
 const (
-	rcOperationsError      = 1
-	rcTimeLimitExceeded    = 3
-	rcSizeLimitExceeded    = 4
-	rcNoSuchAttribute      = 16
-	rcUndefinedType        = 17
-	rcInappropriateMatch   = 18
-	rcConstraintViolation  = 19
-	rcAttributeOrValueEx   = 20
-	rcInvalidSyntax        = 21
-	rcNoSuchObject         = 32
-	rcInvalidDNSyntax      = 34
-	rcInappropriateAuth    = 48
-	rcInvalidCredentials   = 49
-	rcInsufficientAccess   = 50
-	rcBusy                 = 51
-	rcUnavailable          = 52
-	rcUnwillingToPerform   = 53
-	rcNamingViolation      = 64
-	rcObjectClassViolation = 65
-	rcNotAllowedOnNonLeaf  = 66
-	rcNotAllowedOnRDN      = 67
-	rcEntryAlreadyExists   = 68
-	rcObjectClassModsProh  = 69
-	rcAffectsMultipleDSAs  = 71
+	rcOperationsError         = 1
+	rcTimeLimitExceeded       = 3
+	rcStrongAuthRequired      = 8
+	rcConfidentialityRequired = 13
+	rcSizeLimitExceeded       = 4
+	rcNoSuchAttribute         = 16
+	rcUndefinedType           = 17
+	rcInappropriateMatch      = 18
+	rcConstraintViolation     = 19
+	rcAttributeOrValueEx      = 20
+	rcInvalidSyntax           = 21
+	rcNoSuchObject            = 32
+	rcInvalidDNSyntax         = 34
+	rcInappropriateAuth       = 48
+	rcInvalidCredentials      = 49
+	rcInsufficientAccess      = 50
+	rcBusy                    = 51
+	rcUnavailable             = 52
+	rcUnwillingToPerform      = 53
+	rcNamingViolation         = 64
+	rcObjectClassViolation    = 65
+	rcNotAllowedOnNonLeaf     = 66
+	rcNotAllowedOnRDN         = 67
+	rcEntryAlreadyExists      = 68
+	rcObjectClassModsProh     = 69
+	rcAffectsMultipleDSAs     = 71
 )
 
 // ldapHint returns a sentence explaining a refusal, or "" when the code speaks

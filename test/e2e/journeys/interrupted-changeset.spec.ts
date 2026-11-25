@@ -57,7 +57,7 @@ test("interrupted changeset that landed: the change leaves the changeset", async
   await expect(page.getByText("The change is in the directory.")).toBeVisible();
   // Gone from the basket: there is nothing left to send twice.
   await expect(page.getByText("The changeset is empty")).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Changeset/ })).toHaveText("Changeset");
+  await expect(page.getByRole("link", { name: /^Changeset/ })).toHaveText("Changeset");
 });
 
 test("interrupted changeset that never arrived: planned again, then applied", async ({ alder, disposable, read }) => {

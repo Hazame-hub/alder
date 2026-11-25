@@ -112,6 +112,10 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
       void queryClient.invalidateQueries();
       onConnected(info);
     },
+    // A refused password is retyped, so the cursor goes where the fix is.
+    onError: (error) => {
+      if (error.ldapCode === 49) document.getElementById("password")?.focus();
+    },
   });
 
   const changeTls = (next: Tls) => {
@@ -171,9 +175,9 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
           </div>
 
           <div className="space-y-1.5">
-            <Label>Transport</Label>
+            <Label htmlFor="transport">Transport</Label>
             <Select value={tls} onValueChange={(v) => changeTls(v as Tls)}>
-              <SelectTrigger>
+              <SelectTrigger id="transport">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -185,9 +189,13 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
             {tls === "plaintext" ? (
               <p className="flex items-start gap-1.5 text-xs text-destructive">
                 <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-                Your bind password will cross the network in the clear. Alder
-                refuses this unless it was started with
-                <code className="mx-1 font-mono">--i-know-this-is-insecure</code>.
+                {/* One flex item, so the flag wraps with the sentence instead of
+                    standing as a column of its own. */}
+                <span>
+                  Your bind password will cross the network in the clear. Alder
+                  refuses this unless it was started with{" "}
+                  <code className="font-mono">--i-know-this-is-insecure</code>.
+                </span>
               </p>
             ) : null}
           </div>
@@ -331,7 +339,16 @@ export function ConnectScreen({ onConnected }: { onConnected: (s: SessionInfo) =
             </div>
           </details>
 
-          {connect.isError ? <ErrorNote title="Could not connect" error={connect.error} /> : null}
+          {connect.isError ? (
+            // The server's message names the failure ("Wrong bind DN or
+            // password.", "Could not reach the directory."), so it is the
+            // headline, not a line under a generic "Could not connect".
+            <ErrorNote
+              title={connect.error.code === "upstream" ? connect.error.message : "Could not connect"}
+              error={connect.error}
+              messageInTitle={connect.error.code === "upstream"}
+            />
+          ) : null}
 
           <Button type="submit" className="w-full" disabled={connect.isPending || !host}>
             {connect.isPending ? <Loader2 className="animate-spin" /> : null}

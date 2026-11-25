@@ -278,7 +278,7 @@ Details in [`RECOVERY.md`](RECOVERY.md).
 
 **Save a plan, and apply exactly it later.** A review and an apply are not
 always the same moment: a plan goes into a ticket, someone approves it, and the
-apply runs tomorrow. `alder plan --out` saves the plan of an LDIF document or of
+apply runs tomorrow. `alder plan --output` saves the plan of an LDIF document or of
 `--changes` as a file, and `alder apply --plan` applies that file and nothing
 else. Each change in it is the plan's own record, carrying what the entry held
 when it was planned: the values a modification replaces, and for a deletion the
@@ -554,7 +554,7 @@ own. It uses the server's Snapshot, Diff, Plan and Apply, and adds its own
 safety policy on top: it asks before applying, needs `--allow-deletes` before
 `--yes` will delete, and refuses a plan that already contains a conflict. Two
 snapshot files are compared without any directory credentials. `alder plan
---out` saves a plan for `alder apply --plan` to apply exactly, later, in
+--output` saves a plan for `alder apply --plan` to apply exactly, later, in
 another job. See [`CLI.md`](CLI.md).
 
 **Keep a directory's intended state in Git.** An Alder project is an
@@ -565,7 +565,7 @@ and refuses a file that carries a password. `alder project plan --env prod
 --detailed-exitcode` answers "does production match the repository?" with an
 exit status, and `alder project apply` plans again against the directory as it
 is, shows that plan, asks, and applies it. Where an approval sits between
-plan and apply, `project plan --out` saves the plan and `project apply --plan`
+plan and apply, `project plan --output` saves the plan and `project apply --plan`
 applies exactly that file, through any Alder, or refuses it whole if the
 directory has moved. There is no state file, and an entry the files do not
 mention is never deleted: the plan lists it as unmanaged.

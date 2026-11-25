@@ -33,7 +33,7 @@ In the interface:
   the bundle for download after applying.
 - "Load recovery bundle" in the Changeset view previews a bundle and stages its
   changes for review.
-- "Load saved plan", next to it, does the same for a plan `alder plan --out`
+- "Load saved plan", next to it, does the same for a plan `alder plan --output`
   saved: the same expectations, checked the same way. A signed plan is
   refused there, since the interface does not check plan signatures; apply
   it with `alder apply --plan FILE --trusted-keys KEY`.

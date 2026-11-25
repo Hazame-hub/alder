@@ -102,8 +102,13 @@ export function OverviewPanel({
           <Row label="Transport">
             <span className="font-dn">{info.tls ?? "unknown"}</span>
           </Row>
-          <Row label="Certificate">
-            {info.verified === false ? (
+          <Row label={info.tls === "plaintext" ? "Encryption" : "Certificate"}>
+            {info.tls === "plaintext" ? (
+              <span className="flex items-center gap-1.5 text-destructive">
+                <ShieldAlert className="size-3.5" />
+                none: the password and every entry cross the network in the clear
+              </span>
+            ) : info.verified === false ? (
               <span className="flex items-center gap-1.5 text-warning-tint-foreground">
                 <ShieldAlert className="size-3.5" />
                 not verified for this session

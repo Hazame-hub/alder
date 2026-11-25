@@ -69,8 +69,7 @@ func (s *Server) AttachReference(c *fiber.Ctx) error {
 	if err != nil {
 		s.logger.InfoContext(c.UserContext(), "reference connection refused",
 			"host", cfg.Host, "port", cfg.Port, "tls", cfg.TLS, "error", err)
-		return writeError(c, fiber.StatusBadGateway, ErrorErrorUpstream,
-			"Could not connect to that directory.", s.connectFailureDetail(cfg, err))
+		return s.writeConnectFailure(c, cfg, err)
 	}
 	// Read now for the same reason a session does: the schema is how Alder
 	// learns which of this directory's own attribute types are passwords by

@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -214,7 +215,11 @@ func Execute(ctx context.Context, root *cobra.Command, env *Env, args []string) 
 		}
 		return exit.Code
 	}
-	writeln(env.Stderr, "Error:", safeLines(err.Error()))
+	// cobra's own errors: an unknown command, an argument count. Under the
+	// same "alder:" prefix as every other error, and with cobra's tab before
+	// each "Did you mean" suggestion made an indent, which safeLines would
+	// otherwise print as a literal \x09.
+	writef(env.Stderr, "alder: %s\n", safeLines(strings.ReplaceAll(err.Error(), "\t", "  ")))
 	return ExitUsage
 }
 

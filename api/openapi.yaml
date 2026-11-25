@@ -2609,6 +2609,12 @@ components:
         readOnly:
           type: boolean
           description: True when the server was started with --read-only.
+        referenceAttached:
+          type: boolean
+          description: >-
+            Whether a reference server is attached to this session (1.44), so
+            a client can skip `GET /session/reference` and the 404 it answers
+            when none is. Set on the session's own description only.
 
     SnapshotScope:
       type: string

@@ -597,11 +597,11 @@ again against the directory as it is then and shown before it is applied.
 then an approval, then an apply job -- save the plan and apply that file:
 
 ```sh
-alder project plan  --env prod --out prod.plan.json
+alder project plan  --env prod --output prod.plan.json
 alder project apply --env prod --plan prod.plan.json --yes
 ```
 
-`--out FILE` saves the plan after showing it. The file holds no baseline,
+`--output FILE` (`-o`; spelled `--out` before 1.44, which still works) saves the plan after showing it. The file holds no baseline,
 which would stop applying the moment the Alder that issued it restarted: each
 change is the plan's own record, and a modification carries the values of the
 attributes it replaces as an `expect`, the precondition a recovery bundle's
@@ -934,15 +934,15 @@ whose changes are all `unchanged` is 0. It is a flag, never the default, because
 environment. With `--json` the plan is still the one document on standard
 output; 2 is only the status.
 
-**`--out FILE` saves the plan** of an LDIF document or of `--changes`, for
+**`--output FILE` saves the plan** of an LDIF document or of `--changes`, for
 `alder apply --plan` to apply exactly it later, through any Alder:
 
 ```sh
-alder plan changes.ldif --out change.plan.json
+alder plan changes.ldif --output change.plan.json
 alder apply --plan change.plan.json --yes
 ```
 
-It is the saved plan `alder project plan --out` writes
+It is the saved plan `alder project plan --output` writes
 ([proposals/saved-plans.md](proposals/saved-plans.md#the-file)), with the
 input it came from (`ldif` or `changes`, the mode, a SHA-256 of what was
 read) in place of a project, and the host, bind and any `--config-bind-dn`
@@ -1015,7 +1015,7 @@ never sends a change that was not planned.
 
 ### A saved plan
 
-**`alder apply --plan FILE`** applies a plan `alder plan --out` saved,
+**`alder apply --plan FILE`** applies a plan `alder plan --output` saved,
 instead of planning an input: its changes, planned as they are written,
 shown, confirmed and applied with the baselines of that plan. `--yes`,
 `--allow-deletes` and `--recovery-out` work as they do for any apply.
@@ -1183,7 +1183,7 @@ transaction across entries.
 GitHub Actions workflow and a GitLab CI file: `validate` on every pull request,
 and `project plan --detailed-exitcode` for each environment on the default
 branch and on a schedule. Two optional files beside them apply a saved plan
-after a person approves it: `project plan --out` in one job, `project apply
+after a person approves it: `project plan --output` in one job, `project apply
 --plan` in a second behind a protected environment.
 
 A drift check in CI (Linux or macOS):
