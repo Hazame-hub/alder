@@ -14,7 +14,7 @@ import (
 	"github.com/hazame-hub/alder/internal/filter"
 )
 
-// 1.43: entry templates, against both servers.
+// 1.44: entry templates, against both servers.
 //
 // "New user" and "New group" render a built-in template into an add change,
 // with the next free uidNumber or gidNumber read from the directory. This

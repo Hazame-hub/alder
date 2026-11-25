@@ -243,7 +243,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The entry templates this Alder offers, checked against this directory (1.43)
+         * The entry templates this Alder offers, checked against this directory (1.44)
          * @description The built-in templates and those the operator gave `alder serve
          *     --templates`, each checked against the connected server's schema:
          *     `usable` is false, with `problems` saying why, when the server would
@@ -273,7 +273,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Fill a template in, allocating its numbers, into an add change (1.43)
+         * Fill a template in, allocating its numbers, into an add change (1.44)
          * @description Returns the add change the template and the typed values describe,
          *     with the next free number for each allocated attribute (uidNumber,
          *     gidNumber) found now by searching the directory: one more than the

@@ -10,7 +10,7 @@ import (
 	"github.com/hazame-hub/alder/internal/entrytemplate"
 )
 
-// Entry templates (1.43): "New user" and "New group" without knowing which
+// Entry templates (1.44): "New user" and "New group" without knowing which
 // object classes a person needs.
 //
 // A template composes an add change and nothing more, exactly as the creation

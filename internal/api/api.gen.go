@@ -7560,10 +7560,10 @@ type ServerInterface interface {
 	// GetSourceOffer Where to get the source of this running instance
 	// (GET /source)
 	GetSourceOffer(c *fiber.Ctx) error
-	// ListTemplates The entry templates this Alder offers, checked against this directory (1.43)
+	// ListTemplates The entry templates this Alder offers, checked against this directory (1.44)
 	// (GET /templates)
 	ListTemplates(c *fiber.Ctx) error
-	// RenderTemplate Fill a template in, allocating its numbers, into an add change (1.43)
+	// RenderTemplate Fill a template in, allocating its numbers, into an add change (1.44)
 	// (POST /templates/render)
 	RenderTemplate(c *fiber.Ctx) error
 	// ListChildren List the children of an entry

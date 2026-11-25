@@ -9283,7 +9283,7 @@ type ClientInterface interface {
 	// Corresponds with GET /source (the `GetSourceOffer` operationId).
 	GetSourceOffer(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListTemplates The entry templates this Alder offers, checked against this directory (1.43)
+	// ListTemplates The entry templates this Alder offers, checked against this directory (1.44)
 	//
 	// The built-in templates and those the operator gave `alder serve
 	// --templates`, each checked against the connected server's schema:
@@ -9298,7 +9298,7 @@ type ClientInterface interface {
 	// Corresponds with GET /templates (the `ListTemplates` operationId).
 	ListTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RenderTemplateWithBody Fill a template in, allocating its numbers, into an add change (1.43)
+	// RenderTemplateWithBody Fill a template in, allocating its numbers, into an add change (1.44)
 	//
 	// Returns the add change the template and the typed values describe,
 	// with the next free number for each allocated attribute (uidNumber,
@@ -9322,7 +9322,7 @@ type ClientInterface interface {
 	// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
 	RenderTemplateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RenderTemplate Fill a template in, allocating its numbers, into an add change (1.43)
+	// RenderTemplate Fill a template in, allocating its numbers, into an add change (1.44)
 	//
 	// Returns the add change the template and the typed values describe,
 	// with the next free number for each allocated attribute (uidNumber,
@@ -11955,7 +11955,7 @@ func (c *Client) GetSourceOffer(ctx context.Context, reqEditors ...RequestEditor
 	return c.Client.Do(req)
 }
 
-// ListTemplates The entry templates this Alder offers, checked against this directory (1.43)
+// ListTemplates The entry templates this Alder offers, checked against this directory (1.44)
 //
 // The built-in templates and those the operator gave `alder serve
 // --templates`, each checked against the connected server's schema:
@@ -11980,7 +11980,7 @@ func (c *Client) ListTemplates(ctx context.Context, reqEditors ...RequestEditorF
 	return c.Client.Do(req)
 }
 
-// RenderTemplateWithBody Fill a template in, allocating its numbers, into an add change (1.43)
+// RenderTemplateWithBody Fill a template in, allocating its numbers, into an add change (1.44)
 //
 // Returns the add change the template and the typed values describe,
 // with the next free number for each allocated attribute (uidNumber,
@@ -12014,7 +12014,7 @@ func (c *Client) RenderTemplateWithBody(ctx context.Context, contentType string,
 	return c.Client.Do(req)
 }
 
-// RenderTemplate Fill a template in, allocating its numbers, into an add change (1.43)
+// RenderTemplate Fill a template in, allocating its numbers, into an add change (1.44)
 //
 // Returns the add change the template and the typed values describe,
 // with the next free number for each allocated attribute (uidNumber,
@@ -16682,7 +16682,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /source (the `GetSourceOffer` operationId).
 	GetSourceOfferWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSourceOfferReply, error)
 
-	// ListTemplatesWithResponse The entry templates this Alder offers, checked against this directory (1.43)
+	// ListTemplatesWithResponse The entry templates this Alder offers, checked against this directory (1.44)
 	//
 	// The built-in templates and those the operator gave `alder serve
 	// --templates`, each checked against the connected server's schema:
@@ -16699,7 +16699,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /templates (the `ListTemplates` operationId).
 	ListTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListTemplatesReply, error)
 
-	// RenderTemplateWithBodyWithResponse Fill a template in, allocating its numbers, into an add change (1.43)
+	// RenderTemplateWithBodyWithResponse Fill a template in, allocating its numbers, into an add change (1.44)
 	//
 	// Returns the add change the template and the typed values describe,
 	// with the next free number for each allocated attribute (uidNumber,
@@ -16723,7 +16723,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /templates/render (the `RenderTemplate` operationId).
 	RenderTemplateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenderTemplateReply, error)
 
-	// RenderTemplateWithResponse Fill a template in, allocating its numbers, into an add change (1.43)
+	// RenderTemplateWithResponse Fill a template in, allocating its numbers, into an add change (1.44)
 	//
 	// Returns the add change the template and the typed values describe,
 	// with the next free number for each allocated attribute (uidNumber,
@@ -22418,7 +22418,7 @@ func (c *ClientWithResponses) GetSourceOfferWithResponse(ctx context.Context, re
 	return ParseGetSourceOfferReply(rsp)
 }
 
-// ListTemplatesWithResponse The entry templates this Alder offers, checked against this directory (1.43)
+// ListTemplatesWithResponse The entry templates this Alder offers, checked against this directory (1.44)
 //
 // The built-in templates and those the operator gave `alder serve
 // --templates`, each checked against the connected server's schema:
@@ -22441,7 +22441,7 @@ func (c *ClientWithResponses) ListTemplatesWithResponse(ctx context.Context, req
 	return ParseListTemplatesReply(rsp)
 }
 
-// RenderTemplateWithBodyWithResponse Fill a template in, allocating its numbers, into an add change (1.43)
+// RenderTemplateWithBodyWithResponse Fill a template in, allocating its numbers, into an add change (1.44)
 //
 // Returns the add change the template and the typed values describe,
 // with the next free number for each allocated attribute (uidNumber,
@@ -22471,7 +22471,7 @@ func (c *ClientWithResponses) RenderTemplateWithBodyWithResponse(ctx context.Con
 	return ParseRenderTemplateReply(rsp)
 }
 
-// RenderTemplateWithResponse Fill a template in, allocating its numbers, into an add change (1.43)
+// RenderTemplateWithResponse Fill a template in, allocating its numbers, into an add change (1.44)
 //
 // Returns the add change the template and the typed values describe,
 // with the next free number for each allocated attribute (uidNumber,
